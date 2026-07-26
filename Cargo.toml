@@ -1,0 +1,10 @@
+[workspace]
+members = ["crates/kaspa_secure_core", "crates/silverscript_lang"]
+resolver = "2"
+
+# SilverScript compiles the fixed KCC covenant template at runtime. Keeping this
+# compiler moderately optimized avoids excessive memory use while cross-compiling
+# the ARMv7 release without affecting the optimized wallet core.
+[profile.release.package.silverscript-lang]
+opt-level = 1
+codegen-units = 32

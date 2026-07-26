@@ -1,0 +1,11 @@
+Kaspire is a native Android self-custody wallet for the Kaspa ecosystem.
+
+Create or import BIP39 wallets, use optional BIP39 passphrases, manage multiple
+wallets and address-index subwallets, and inspect detailed transaction activity.
+Kaspire supports KAS, KRC-20, KRC-721, KNS and verified KCC20 covenant assets.
+
+Sensitive wallet operations run through a native Rust security core. Seeds and
+private keys are encrypted locally, transactions are validated before signing,
+and portable backups use Argon2id with AES-256-GCM.
+
+There are no advertisements or analytics.

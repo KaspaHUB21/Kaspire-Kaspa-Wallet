@@ -1,0 +1,1 @@
+Self-custody wallet for KAS and Kaspa L1 assets

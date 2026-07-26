@@ -1,0 +1,32 @@
+[Unit]
+Description=Kaspire local-first Kaspa REST gateway
+After=network-online.target docker.service kaspad.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=true
+ExecStart=/usr/local/lib/kaspire-kaspa-gateway/gateway.py
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

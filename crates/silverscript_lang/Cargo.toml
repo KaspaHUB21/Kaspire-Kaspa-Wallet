@@ -1,0 +1,27 @@
+[package]
+name = "silverscript-lang"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+name = "silverscript_lang"
+path = "lib.rs"
+
+[dependencies]
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
+kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
+kaspa-txscript-errors = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
+blake2b_simd = "1.0.2"
+indexmap = "2.7.0"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+pest = "2.8.6"
+pest_derive = "2.8.6"
+rand = "0.8.5"
+secp256k1 = { version = "0.29.1", features = ["global-context", "rand-std", "serde"] }
+thiserror = "2.0.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+faster-hex = "0.10"
+semver = "1.0"

@@ -1,0 +1,5 @@
+Initial F-Droid-ready release.
+
+Adds Kaspa L1 asset support, multiple wallets and subwallet discovery,
+transaction detail views, UTXO compound, WalletConnect sessions and
+Argon2id-encrypted portable backups.

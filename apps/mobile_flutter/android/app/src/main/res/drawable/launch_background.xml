@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><color android:color="#050A0D" /></item>
+    <item
+        android:width="180dp"
+        android:height="180dp"
+        android:gravity="center"
+        android:drawable="@drawable/kaspire_icon_foreground" />
+</layer-list>

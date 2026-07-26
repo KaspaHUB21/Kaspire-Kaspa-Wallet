@@ -1,0 +1,24 @@
+# Security invariants
+
+These requirements are release blockers, not recommendations.
+
+1. Mnemonics and derived private keys never enter Dart, JavaScript, WebViews, logs, crash reports, clipboard, analytics or backups.
+2. Android Keystore/StrongBox protects the AES-256-GCM wrapping key. The Kaspa seed exists decrypted only in zeroizing Rust memory during an authorized operation.
+3. Every value-moving action requires fresh biometric or Kaspire PIN approval. Session connection approval never authorizes a later transaction.
+4. The signer accepts only a fully decoded transaction whose network, inputs, outputs, change, fee, payload, scripts and Toccata fields were rendered for confirmation.
+5. Unknown covenants, payloads, scripts, unresolved inputs, wrong network, stale requests and replayed requests are rejected.
+6. Deep links may carry only a short-lived, one-use WalletConnect pairing URI. Pairing URIs are redacted and never persisted.
+7. WalletConnect results return through the encrypted session, never through a callback URL.
+8. RPC responses are untrusted. Every returned UTXO must match the sender script and the native core must independently reconstruct all outputs, fees and mass before signing. Redundant endpoint comparison remains a production-release blocker.
+9. Signing-core dependencies are reproducibly locked; no OTA update may replace signing code.
+10. Until the signer passes differential, fuzz, replay, manipulated-RPC and MASVS testing, the public API must fail closed.
+11. Every signing request is matched to the encrypted wallet that controls its sender address; switching the visible wallet must never select a different key implicitly.
+12. A registered HD sender retains its exact coin type, account, change branch and address index. Address-index subwallets and BIP-44 accounts must never be substituted for one another during selection or signing.
+
+## Current Mainnet test status
+
+The app creates/imports multiple BIP39 or private-key wallets, optionally derives BIP39 seeds with a user-supplied passphrase, encrypts each complete signing secret with an Android Keystore key, derives the first mainnet BIP44 address and signs standard version-0 KAS transfers in the pinned Rust core. A passphrase is never recoverable from the mnemonic and different capitalization or spacing intentionally derives a different wallet. Watch-only wallets, biometric approval and an optional throttled 4–8 digit app PIN remain available.
+
+Version-1 signing is restricted to one typed KCC20 path. It requires a conservative `verified` discovery verdict and complete cell mapping from the primary `kcc20.info` owner/signing-data API or, for explicitly incomplete historical mappings, the Kascov fallback; recompiles the vendored SilverScript template and every current/future state; preserves raw token supply and total transaction KAS while treating covenant reserve and token quantity independently; searches for the smallest mass-safe covenant reserve and returns excess token-cell KAS as ordinary sender change; creates one covenant output for a full-cell transfer and equal-reserve recipient/change covenant outputs for a partial transfer; selects up to two cells using normalized storage and committed-compute cost; simulates every standard KAS funding UTXO through the fee/change fixed point and rejects every candidate that exceeds a Toccata dimension limit; identifies reserve top-up and released KAS separately from the fee and binds both into the review hash; targets no more than 425,000 raw storage mass below Mainnet's 500,000 limit; commits the exact contextual storage mass; prices only `max(compute, normalized transient)` at exactly 100 sompi/g without fixed or priority fees; binds the complete mass breakdown and all other reviewed fields into a hash; executes every signed input locally with Mainnet's signature-op price and exact committed script-unit allowance; treats Kascov's optional preflight and fee estimate as advisory; and broadcasts through a Toccata wRPC node transport that preserves `computeBudget`. The node's verdict is authoritative and the returned transaction ID must exactly match the locally signed ID. Unknown templates, minter cells, payloads, coinbase inputs and generic covenant-signing requests remain rejected.
+
+This status permits controlled Mainnet testing only. Bounded modern/legacy multi-account and address-index discovery and an engineering MASVS self-assessment now exist, but this does not satisfy the production assurance requirements in items 8–10: endpoint redundancy, fuzz/differential suites, an independent MASVS review and an independent wallet audit remain open.

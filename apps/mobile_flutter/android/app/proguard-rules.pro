@@ -1,0 +1,2 @@
+-keep class io.flutter.** { *; }
+-keep class androidx.biometric.** { *; }

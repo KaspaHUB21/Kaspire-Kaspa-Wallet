@@ -1,0 +1,14 @@
+Kaspire
+Copyright 2026 Kaspire contributors
+
+Unless a component states otherwise, the Kaspire application source,
+documentation, and original Kaspire branding assets in this repository are
+licensed under Apache-2.0.
+
+The vendored SilverScript compiler retains its license in
+crates/silverscript_lang/LICENSE. Third-party Dart and Rust dependencies retain
+their respective upstream licenses.
+
+Kaspa is a third-party project. This distribution is not an assertion of
+ownership over the Kaspa name or third-party token and NFT artwork obtained
+from public network metadata.

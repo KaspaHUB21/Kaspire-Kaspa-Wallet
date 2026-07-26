@@ -1,0 +1,54 @@
+[Unit]
+Description=Kaspa Toccata full node (pruned)
+Documentation=https://github.com/kaspanet/rusty-kaspa
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=kaspad
+Group=kaspad
+ExecStart=/usr/local/bin/kaspad \
+  --appdir=/var/lib/kaspad \
+  --nologfiles \
+  --utxoindex \
+  --yes \
+  --disable-upnp \
+  --listen=0.0.0.0:16111 \
+  --rpclisten=127.0.0.1:16110 \
+  --rpclisten-borsh=172.30.0.1:17110 \
+  --rpclisten-json=127.0.0.1:18110 \
+  --ram-scale=2.0 \
+  --perf-metrics \
+  --perf-metrics-interval-sec=60 \
+  --uacomment=kaspire
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=180s
+KillSignal=SIGINT
+StateDirectory=kaspad
+StateDirectoryMode=0750
+UMask=0027
+LimitNOFILE=1048576
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

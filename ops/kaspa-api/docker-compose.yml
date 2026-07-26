@@ -1,0 +1,97 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: kaspire-kaspa-postgres
+    restart: unless-stopped
+    shm_size: 4gb
+    environment:
+      POSTGRES_USER: kaspa
+      POSTGRES_PASSWORD: kaspire-local-db-only
+      POSTGRES_DB: kaspa
+    command:
+      - postgres
+      - -c
+      - shared_buffers=4GB
+      - -c
+      - effective_cache_size=16GB
+      - -c
+      - work_mem=64MB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - max_wal_size=8GB
+      - -c
+      - min_wal_size=1GB
+      - -c
+      - wal_compression=on
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=32
+    volumes:
+      - kaspa-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kaspa -d kaspa"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      kaspa-backend:
+
+  indexer:
+    image: supertypo/simply-kaspa-indexer:v2.3.0@sha256:f28478e046af83b8d490984ca76bd75c663a71e242feba51a176e5ab6ce0a62f
+    container_name: kaspire-kaspa-indexer
+    restart: unless-stopped
+    command:
+      - -u
+      - -s
+      - ws://172.30.0.1:17110
+      - -d
+      - postgresql://kaspa:kaspire-local-db-only@postgres:5432/kaspa
+      - -l
+      - 0.0.0.0:8500
+      - --exclude-fields=tx_out_script_public_key_address
+      - --disable=block_parent_table,rejected_transactions
+      - --log-no-color
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8500:8500"
+    networks:
+      kaspa-backend:
+
+  rest:
+    image: kaspanet/kaspa-rest-server:v2.3.0@sha256:999dd827d6c50bab4d9c6086b514220770375876445f402f9b9521fdcdfec8ca
+    container_name: kaspire-kaspa-rest
+    restart: unless-stopped
+    environment:
+      KASPAD_WRPC_URL: ws://172.30.0.1:17110
+      SQL_URI: postgresql+psycopg://kaspa:kaspire-local-db-only@postgres:5432/kaspa
+      NETWORK_TYPE: mainnet
+      BPS: "10"
+      USE_SCRIPT_FOR_ADDRESS: "true"
+      PREV_OUT_RESOLVED: "true"
+      VSPC_REQUEST: "false"
+      HEALTH_TOLERANCE_DOWN: "300"
+      DEBUG: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      kaspa-backend:
+
+volumes:
+  kaspa-postgres:
+
+networks:
+  kaspa-backend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1

@@ -1,0 +1,62 @@
+Categories:
+  - Money
+License: Apache-2.0
+AntiFeatures:
+  NonFreeNet:
+    en-US: Depends on public Kaspa indexers and the Reown WalletConnect relay.
+AuthorName: Kaspire
+WebSite: https://kaspire.kaslab.space
+SourceCode: https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet
+IssueTracker: https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/issues
+
+AutoName: Kaspire
+Summary: Self-custody wallet for the Kaspa ecosystem
+Description: |-
+  Kaspire is a native Android self-custody wallet for Kaspa Mainnet.
+
+  Seeds and private keys remain encrypted on the device. Wallet creation,
+  derivation, transaction validation and signing cross a native Rust security
+  boundary. Kaspire supports KAS, KRC-20, KRC-721, KNS and verified KCC20
+  covenant assets, multiple wallets, BIP39 passphrases, address-index
+  subwallets, transaction details, UTXO compound and encrypted backups.
+
+  WalletConnect uses Kaspire's public Reown project identifier and the Reown
+  relay. No advertising, analytics or proprietary Google Play service is
+  included.
+
+RepoType: git
+Repo: https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet.git
+
+Builds:
+  - versionName: 0.10.6
+    versionCode: 41
+    commit: v0.10.6
+    subdir: apps/mobile_flutter
+    output: build/app/outputs/flutter-apk/app-release.apk
+    srclibs:
+      - flutter@3.44.6
+      - rustup@1.28.2
+    rm:
+      - Kaspire-Android-mainnet-v0.9.1.apk
+      - apps/mobile_flutter/android/app/src/main/jniLibs
+      - target
+    prebuild:
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get
+      - $$rustup$$/rustup-init.sh -y --default-toolchain 1.91.0
+        --target aarch64-linux-android,armv7-linux-androideabi
+    build:
+      - source "$HOME/.cargo/env"
+      - export ANDROID_NDK_HOME="$$NDK$$"
+      - cd ../..
+      - ./scripts/build_android_rust.sh
+      - cd apps/mobile_flutter
+      - $$flutter$$/bin/flutter build apk --release
+        --target-platform android-arm,android-arm64
+    ndk: 28.2.13676358
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^v[0-9.]+$
+UpdateCheckData: apps/mobile_flutter/pubspec.yaml|version:\s(.+)\+|.|version:.*\+(\d+)
+CurrentVersion: 0.10.6
+CurrentVersionCode: 41
