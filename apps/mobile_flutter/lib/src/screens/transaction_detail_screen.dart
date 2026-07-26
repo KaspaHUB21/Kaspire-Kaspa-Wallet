@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
+import '../services/privacy_settings.dart';
 import '../theme.dart';
 
 class TransactionDetailScreen extends StatelessWidget {
@@ -16,82 +17,100 @@ class TransactionDetailScreen extends StatelessWidget {
   final String walletAddress;
 
   @override
-  Widget build(BuildContext context) {
-    final from = transaction.from.isNotEmpty
-        ? transaction.from
-        : [
-            TransactionParty(
-              address: transaction.incoming
-                  ? transaction.counterparty ?? ''
-                  : walletAddress,
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+        valueListenable: PrivacySettings.hideAmounts,
+        builder: (context, hideAmounts, _) {
+          final from = transaction.from.isNotEmpty
+              ? transaction.from
+              : [
+                  TransactionParty(
+                    address: transaction.incoming
+                        ? transaction.counterparty ?? ''
+                        : walletAddress,
+                  ),
+                ];
+          final to = transaction.to.isNotEmpty
+              ? transaction.to
+              : [
+                  TransactionParty(
+                    address: transaction.incoming
+                        ? walletAddress
+                        : transaction.counterparty ?? '',
+                  ),
+                ];
+          return Scaffold(
+            appBar: AppBar(title: const Text('Transaction details')),
+            body: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+              children: [
+                _Header(transaction: transaction, hideAmounts: hideAmounts),
+                const SizedBox(height: 16),
+                _Section(
+                  title: 'TRANSFER',
+                  children: [
+                    _ValueRow('Direction',
+                        transaction.incoming ? 'Received' : 'Sent'),
+                    _ValueRow('Asset', _assetLabel(transaction)),
+                    _ValueRow('Amount',
+                        hideAmounts ? '••••••' : transaction.amountLabel),
+                    _ValueRow('Status', transaction.status.name.toUpperCase()),
+                    _ValueRow(
+                      'Date',
+                      '${transaction.timestamp.toLocal()}'.split('.').first,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _PartySection(
+                    title: 'FROM', parties: from, hideAmounts: hideAmounts),
+                const SizedBox(height: 12),
+                _PartySection(
+                    title: 'TO', parties: to, hideAmounts: hideAmounts),
+                const SizedBox(height: 12),
+                _Section(
+                  title: 'NETWORK',
+                  children: [
+                    if (transaction.feeSompi != null)
+                      _ValueRow('Fee',
+                          hideAmounts ? '••••••' : _kas(transaction.feeSompi!)),
+                    if (transaction.totalInputSompi != null)
+                      _ValueRow(
+                          'Total inputs',
+                          hideAmounts
+                              ? '••••••'
+                              : _kas(transaction.totalInputSompi!)),
+                    if (transaction.totalOutputSompi != null)
+                      _ValueRow(
+                          'Total outputs',
+                          hideAmounts
+                              ? '••••••'
+                              : _kas(transaction.totalOutputSompi!)),
+                    if (transaction.inputCount != null)
+                      _ValueRow('Inputs', '${transaction.inputCount}'),
+                    if (transaction.outputCount != null)
+                      _ValueRow('Outputs', '${transaction.outputCount}'),
+                    if (transaction.mass != null)
+                      _ValueRow('Mass', '${transaction.mass}'),
+                    if (transaction.blockDaaScore != null)
+                      _ValueRow(
+                          'Block DAA score', '${transaction.blockDaaScore}'),
+                    _ValueRow(
+                        'Coinbase', transaction.isCoinbase ? 'Yes' : 'No'),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _CopyField(label: 'TRANSACTION ID', value: transaction.id),
+                if (transaction.tokenId != null &&
+                    transaction.tokenId!.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  _CopyField(
+                      label: 'TOKEN / ASSET ID', value: transaction.tokenId!),
+                ],
+              ],
             ),
-          ];
-    final to = transaction.to.isNotEmpty
-        ? transaction.to
-        : [
-            TransactionParty(
-              address: transaction.incoming
-                  ? walletAddress
-                  : transaction.counterparty ?? '',
-            ),
-          ];
-    return Scaffold(
-      appBar: AppBar(title: const Text('Transaction details')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-        children: [
-          _Header(transaction: transaction),
-          const SizedBox(height: 16),
-          _Section(
-            title: 'TRANSFER',
-            children: [
-              _ValueRow(
-                  'Direction', transaction.incoming ? 'Received' : 'Sent'),
-              _ValueRow('Asset', _assetLabel(transaction)),
-              _ValueRow('Amount', transaction.amountLabel),
-              _ValueRow('Status', transaction.status.name.toUpperCase()),
-              _ValueRow(
-                'Date',
-                '${transaction.timestamp.toLocal()}'.split('.').first,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _PartySection(title: 'FROM', parties: from),
-          const SizedBox(height: 12),
-          _PartySection(title: 'TO', parties: to),
-          const SizedBox(height: 12),
-          _Section(
-            title: 'NETWORK',
-            children: [
-              if (transaction.feeSompi != null)
-                _ValueRow('Fee', _kas(transaction.feeSompi!)),
-              if (transaction.totalInputSompi != null)
-                _ValueRow('Total inputs', _kas(transaction.totalInputSompi!)),
-              if (transaction.totalOutputSompi != null)
-                _ValueRow('Total outputs', _kas(transaction.totalOutputSompi!)),
-              if (transaction.inputCount != null)
-                _ValueRow('Inputs', '${transaction.inputCount}'),
-              if (transaction.outputCount != null)
-                _ValueRow('Outputs', '${transaction.outputCount}'),
-              if (transaction.mass != null)
-                _ValueRow('Mass', '${transaction.mass}'),
-              if (transaction.blockDaaScore != null)
-                _ValueRow('Block DAA score', '${transaction.blockDaaScore}'),
-              _ValueRow('Coinbase', transaction.isCoinbase ? 'Yes' : 'No'),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _CopyField(label: 'TRANSACTION ID', value: transaction.id),
-          if (transaction.tokenId != null &&
-              transaction.tokenId!.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _CopyField(label: 'TOKEN / ASSET ID', value: transaction.tokenId!),
-          ],
-        ],
-      ),
-    );
-  }
+          );
+        },
+      );
 
   static String _assetLabel(WalletTransaction transaction) {
     final symbol = transaction.assetSymbol;
@@ -105,8 +124,9 @@ class TransactionDetailScreen extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.transaction});
+  const _Header({required this.transaction, required this.hideAmounts});
   final WalletTransaction transaction;
+  final bool hideAmounts;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -146,7 +166,9 @@ class _Header extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    '${transaction.incoming ? '+' : '-'}${transaction.amountLabel}',
+                    hideAmounts
+                        ? '••••••'
+                        : '${transaction.incoming ? '+' : '-'}${transaction.amountLabel}',
                     style: TextStyle(
                       color: transaction.incoming
                           ? KasVaultTheme.mint
@@ -163,9 +185,14 @@ class _Header extends StatelessWidget {
 }
 
 class _PartySection extends StatelessWidget {
-  const _PartySection({required this.title, required this.parties});
+  const _PartySection({
+    required this.title,
+    required this.parties,
+    required this.hideAmounts,
+  });
   final String title;
   final List<TransactionParty> parties;
+  final bool hideAmounts;
 
   @override
   Widget build(BuildContext context) => _Section(
@@ -175,7 +202,7 @@ class _PartySection extends StatelessWidget {
             .map(
               (party) => _AddressRow(
                 address: party.address,
-                amountSompi: party.amountSompi,
+                amountSompi: hideAmounts ? null : party.amountSompi,
                 ownerId: party.ownerId,
               ),
             )

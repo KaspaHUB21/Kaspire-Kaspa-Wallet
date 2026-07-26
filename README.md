@@ -31,8 +31,8 @@ tablets, and foldables.
 
 ## Current release
 
-- Version: **0.10.6**
-- Build: **41**
+- Version: **0.10.7**
+- Build: **42**
 - Network: **Kaspa Mainnet**
 - Android package: `space.kasvault.wallet`
 - License: [Apache-2.0](LICENSE)
@@ -73,6 +73,10 @@ tablets, and foldables.
 - Recoverable commit/reveal workflows
 - Adaptive layouts for phones, tablets, foldables, cutouts, gesture
   navigation, and three-button navigation
+- Optional Privacy Mode that masks wallet, asset and activity amounts without
+  hiding exact values from transaction authorization dialogs
+- In-app diagnostics for the configured Kaspa gateway, UTXO integrity,
+  KRC/KNS and KCC20 indexers, and WalletConnect
 
 ---
 

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/wallet_snapshot.dart';
+import '../models/network_diagnostics.dart';
 import '../kaspa_address.dart';
 import '../number_format.dart';
 import 'network_settings.dart';
@@ -58,23 +59,53 @@ class KaspaApi {
     final tokenWallet = results[3];
     final kcc20Wallet = results[4] as _Kcc20Wallet?;
     final utxoCount = (jsonDecode(results[5] as String) as List).length;
-    final assets = _parseAssets(tokenWallet);
+    final balanceSompi = _asInt(_map(balanceJson)['balance']);
+    final kasUsd = _asDouble(_map(priceJson)['price']);
+    if (balanceSompi < 0) {
+      throw KaspaApiException(
+        'The Kaspa endpoint returned an impossible negative balance.',
+      );
+    }
+    if (kasUsd != null && (!kasUsd.isFinite || kasUsd < 0)) {
+      throw KaspaApiException(
+        'The Kaspa endpoint returned an invalid market price.',
+      );
+    }
+    var assets = const _WalletAssets(
+      krc20: [],
+      krc721: [],
+      domains: [],
+    );
+    var tokenIntegrityWarning = '';
+    try {
+      assets = _parseAssets(tokenWallet);
+    } on KaspaApiException catch (error) {
+      tokenIntegrityWarning =
+          'KRC/KNS indexer data was rejected: ${error.message}';
+    }
     final nativeTransactions = parseTransactions(transactionJson, address);
-    final tokenTransactions = _parseTokenTransactions(tokenWallet, address);
+    var tokenTransactions = <WalletTransaction>[];
+    try {
+      tokenTransactions = _parseTokenTransactions(tokenWallet, address);
+    } on KaspaApiException catch (error) {
+      tokenIntegrityWarning =
+          'KRC/KNS indexer data was rejected: ${error.message}';
+    }
     final krc20 = await Future.wait(
       assets.krc20.map(_withTokenImage),
     );
     final assetWarnings = <String>[
       if (tokenWallet == null)
         'KRC-20, KRC-721 and KNS data is temporarily unavailable.',
+      if (tokenIntegrityWarning.isNotEmpty) tokenIntegrityWarning,
       if (kcc20Wallet == null)
         'KCC20 covenant data is temporarily unavailable.',
       if (kcc20Wallet != null && kcc20Wallet.warning.isNotEmpty)
         kcc20Wallet.warning,
     ];
     return WalletSnapshot(
-      balanceSompi: _asInt(_map(balanceJson)['balance']),
-      kasUsd: _asDouble(_map(priceJson)['price']),
+      balanceSompi: balanceSompi,
+      kasUsd: kasUsd,
       transactions: [
         ...nativeTransactions,
         ...tokenTransactions,
@@ -146,6 +177,11 @@ class KaspaApi {
         capabilities['signing_data'] != true) {
       throw KaspaApiException(
         'The primary KCC20 indexer does not expose complete owner data.',
+      );
+    }
+    if (_asInt(status['max_daa']) <= 0) {
+      throw KaspaApiException(
+        'The primary KCC20 indexer returned an invalid chain tip.',
       );
     }
     final balances = await _loadKcc20OwnerBalances(pubkey);
@@ -842,11 +878,26 @@ class KaspaApi {
           .whereType<Map>()
           .map((item) {
             final map = item.cast<String, Object?>();
+            final symbol =
+                (map['symbol'] ?? map['ticker'] ?? '').toString().toUpperCase();
+            final balance = _asDouble(map['balance']);
+            final decimals = _asInt(map['decimals']);
+            final rawBalance = map['raw_balance']?.toString();
+            if (!RegExp(r'^[A-Z0-9_-]{1,32}$').hasMatch(symbol) ||
+                balance == null ||
+                !balance.isFinite ||
+                balance < 0 ||
+                decimals < 0 ||
+                decimals > 18 ||
+                (rawBalance != null &&
+                    !RegExp(r'^[0-9]{1,128}$').hasMatch(rawBalance))) {
+              throw KaspaApiException(
+                'invalid ${kind.toUpperCase()} token metadata',
+              );
+            }
             return WalletAsset(
-              symbol: (map['symbol'] ?? map['ticker'] ?? 'UNKNOWN')
-                  .toString()
-                  .toUpperCase(),
-              balance: _asDouble(map['balance']) ?? 0,
+              symbol: symbol,
+              balance: balance,
               kind: kind,
               imageUrl: _absoluteImageUrl(map['image_url']?.toString()),
               id: (map['token_id'] ??
@@ -854,25 +905,27 @@ class KaspaApi {
                           ? 'krc20-${(map['symbol'] ?? map['ticker'] ?? '').toString().toLowerCase()}'
                           : null))
                   ?.toString(),
-              decimals: _asInt(map['decimals']),
-              rawBalance: map['raw_balance']?.toString(),
+              decimals: decimals,
+              rawBalance: rawBalance,
             );
           })
           .where((asset) => asset.balance > 0)
           .toList();
     }
 
-    final domains = (data['domains'] as List? ?? const [])
-        .whereType<Map>()
-        .map(
-          (item) => KnsDomain(
-            name: (item['name'] ?? '').toString(),
-            status: item['status']?.toString(),
-            assetId: item['asset_id']?.toString(),
-          ),
-        )
-        .where((domain) => domain.name.isNotEmpty)
-        .toList();
+    final domains =
+        (data['domains'] as List? ?? const []).whereType<Map>().map((item) {
+      final name = (item['name'] ?? '').toString().toLowerCase();
+      final status = item['status']?.toString().toLowerCase();
+      final assetId = item['asset_id']?.toString();
+      if (!RegExp(r'^[a-z0-9-]{1,63}\.kas$').hasMatch(name) ||
+          status != 'verified' ||
+          (assetId != null &&
+              !RegExp(r'^[0-9a-fA-F]{64}i0$').hasMatch(assetId))) {
+        throw KaspaApiException('invalid or unverified KNS metadata');
+      }
+      return KnsDomain(name: name, status: status, assetId: assetId);
+    }).toList();
     return _WalletAssets(
       krc20: assets('tokens', 'KRC-20'),
       krc721: assets('krc721_tokens', 'KRC-721'),
@@ -903,6 +956,20 @@ class KaspaApi {
           : rawKind.contains('kns')
               ? 'KNS'
               : 'KRC-20';
+      final displayAmount = map['amount']?.toString();
+      final now = DateTime.now();
+      if ((from != null &&
+              from.isNotEmpty &&
+              !RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(from)) ||
+          (to != null &&
+              to.isNotEmpty &&
+              !RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(to)) ||
+          timestamp.isBefore(DateTime.utc(2020)) ||
+          timestamp.isAfter(now.add(const Duration(minutes: 5))) ||
+          displayAmount == null ||
+          !RegExp(r'^[0-9]+(\.[0-9]{1,18})?$').hasMatch(displayAmount)) {
+        throw KaspaApiException('invalid token transaction metadata');
+      }
       return WalletTransaction(
         id: map['id']?.toString() ??
             'krc20-${timestamp.microsecondsSinceEpoch}',
@@ -911,7 +978,7 @@ class KaspaApi {
         incoming: to == address && from != address,
         assetKind: assetKind,
         assetSymbol: symbol,
-        displayAmount: map['amount']?.toString(),
+        displayAmount: displayAmount,
         tokenId: map['token_id']?.toString(),
         counterparty: to == address ? from : to,
         from: [
@@ -936,7 +1003,53 @@ class KaspaApi {
     }
     final decoded = jsonDecode(response.body);
     if (decoded is! List) throw KaspaApiException('Invalid UTXO response');
+    validateUtxos(decoded, address);
     return jsonEncode(decoded);
+  }
+
+  static void validateUtxos(List<Object?> decoded, String address) {
+    final seen = <String>{};
+    for (final raw in decoded) {
+      if (raw is! Map) {
+        throw KaspaApiException(
+            'The Kaspa endpoint returned a malformed UTXO.');
+      }
+      final item = raw.cast<Object?, Object?>();
+      final itemAddress = item['address']?.toString();
+      if (itemAddress != null &&
+          itemAddress.isNotEmpty &&
+          itemAddress.toLowerCase() != address.toLowerCase()) {
+        throw KaspaApiException(
+          'The Kaspa endpoint returned a UTXO belonging to another address.',
+        );
+      }
+      final outpoint = item['outpoint'];
+      final entry = item['utxoEntry'];
+      if (outpoint is! Map || entry is! Map) {
+        throw KaspaApiException(
+            'The Kaspa endpoint returned a malformed UTXO.');
+      }
+      final transactionId =
+          (outpoint['transactionId'] ?? outpoint['transaction_id'])
+              ?.toString()
+              .toLowerCase();
+      final index = _nullableInt(outpoint['index']);
+      final amount = _nullableInt(entry['amount']);
+      if (transactionId == null ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(transactionId) ||
+          index == null ||
+          index < 0 ||
+          amount == null ||
+          amount <= 0) {
+        throw KaspaApiException(
+            'The Kaspa endpoint returned a malformed UTXO.');
+      }
+      if (!seen.add('$transactionId:$index')) {
+        throw KaspaApiException(
+          'The Kaspa endpoint returned a duplicate UTXO.',
+        );
+      }
+    }
   }
 
   Future<bool> addressHasActivity(String address) async {
@@ -956,7 +1069,79 @@ class KaspaApi {
     final value = _map(await _get('/info/fee-estimate'));
     final priority = value['priorityBucket'];
     final rate = priority is Map ? _asDouble(priority['feerate']) : null;
-    return (rate == null || rate < 100) ? 100.0 : rate;
+    if (rate == null || !rate.isFinite || rate < 0 || rate > 100000000) {
+      throw KaspaApiException(
+        'The Kaspa endpoint returned an invalid fee estimate.',
+      );
+    }
+    return rate < 100 ? 100.0 : rate;
+  }
+
+  Future<List<DiagnosticCheck>> runDiagnostics(String address) async {
+    final checks = <DiagnosticCheck>[];
+    await _diagnosticProbe(
+      checks,
+      'Kaspa node · fee estimate',
+      baseUrl,
+      () => loadFeeRate().then((rate) => '${rate.toStringAsFixed(2)} sompi/g'),
+    );
+    await _diagnosticProbe(
+      checks,
+      'Kaspa node · UTXO integrity',
+      baseUrl,
+      () => loadUtxos(address).then(
+        (raw) => '${(jsonDecode(raw) as List).length} validated UTXOs',
+      ),
+    );
+    await _diagnosticProbe(
+      checks,
+      'KRC / KNS indexer',
+      tokenExplorerBaseUrl,
+      () => _loadTokenWallet(address).then((_) => 'Response decoded'),
+    );
+    await _diagnosticProbe(
+      checks,
+      'KCC20 primary indexer',
+      kcc20IndexerBaseUrl,
+      () => _kcc20IndexerGet('/v1/status').then((value) {
+        final status = _map(value);
+        final capabilities = _map(status['capabilities']);
+        if (capabilities['balances'] != true ||
+            capabilities['owner_history'] != true ||
+            capabilities['signing_data'] != true) {
+          throw KaspaApiException('Required signing capabilities are missing');
+        }
+        return 'Complete owner and signing data available';
+      }),
+    );
+    return checks;
+  }
+
+  Future<void> _diagnosticProbe(
+    List<DiagnosticCheck> checks,
+    String name,
+    String endpoint,
+    Future<String> Function() operation,
+  ) async {
+    final watch = Stopwatch()..start();
+    try {
+      final detail = await operation();
+      checks.add(DiagnosticCheck(
+        name: name,
+        endpoint: endpoint,
+        ok: true,
+        detail: detail,
+        elapsedMs: watch.elapsedMilliseconds,
+      ));
+    } catch (error) {
+      checks.add(DiagnosticCheck(
+        name: name,
+        endpoint: endpoint,
+        ok: false,
+        detail: error.toString(),
+        elapsedMs: watch.elapsedMilliseconds,
+      ));
+    }
   }
 
   Future<String> broadcast(String submitJson) async {
@@ -1036,6 +1221,11 @@ class KaspaApi {
       final to = <TransactionParty>[];
       for (final output in outputs) {
         final amount = _asInt(output['amount']);
+        if (amount < 0) {
+          throw KaspaApiException(
+            'Transaction history contains a negative output.',
+          );
+        }
         totalOutput += amount;
         final outputAddress = output['script_public_key_address']?.toString();
         if (outputAddress != null && outputAddress.isNotEmpty) {
@@ -1070,6 +1260,11 @@ class KaspaApi {
           inputAmount = _asInt(input['previous_outpoint_amount']);
         }
         totalInput += inputAmount;
+        if (inputAmount < 0) {
+          throw KaspaApiException(
+            'Transaction history contains a negative input.',
+          );
+        }
         if (inputAddress != null && inputAddress.isNotEmpty) {
           from.add(TransactionParty(
             address: inputAddress,

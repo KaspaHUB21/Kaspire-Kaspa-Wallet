@@ -8,7 +8,7 @@ unsigned release APK.
 ## Publication workflow
 
 1. Publish the complete source tree.
-2. Add an immutable `v0.10.6` tag to the reviewed release commit.
+2. Add an immutable `v0.10.7` tag to the reviewed release commit.
 3. Submit `space.kasvault.wallet.yml` to `fdroid/fdroiddata`.
 
 F-Droid signs its APK with a different certificate from Google Play. Android

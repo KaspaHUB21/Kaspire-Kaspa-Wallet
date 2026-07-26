@@ -1,0 +1,1 @@
+Adds Privacy Mode, network and indexer diagnostics, stricter hostile-data validation, and expanded adversarial test coverage for UTXOs, QR payment requests, WalletConnect and token metadata.

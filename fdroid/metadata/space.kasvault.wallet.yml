@@ -28,9 +28,9 @@ RepoType: git
 Repo: https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet.git
 
 Builds:
-  - versionName: 0.10.6
-    versionCode: 41
-    commit: v0.10.6
+  - versionName: 0.10.7
+    versionCode: 42
+    commit: v0.10.7
     subdir: apps/mobile_flutter
     output: build/app/outputs/flutter-apk/app-release.apk
     srclibs:
@@ -58,5 +58,5 @@ Builds:
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
 UpdateCheckData: apps/mobile_flutter/pubspec.yaml|version:\s(.+)\+|.|version:.*\+(\d+)
-CurrentVersion: 0.10.6
-CurrentVersionCode: 41
+CurrentVersion: 0.10.7
+CurrentVersionCode: 42

@@ -173,6 +173,63 @@ nav a:hover,
   text-transform: uppercase;
 }
 
+.mobile-menu {
+  display: none;
+  position: relative;
+  justify-self: end;
+}
+
+.mobile-menu summary {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  cursor: pointer;
+  list-style: none;
+  place-content: center;
+  gap: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 13px;
+  background: rgba(8, 20, 24, 0.94);
+}
+
+.mobile-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.mobile-menu summary span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--mint-bright);
+}
+
+.mobile-menu > div {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  display: grid;
+  width: min(280px, calc(100vw - 1.5rem));
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: rgba(5, 13, 17, 0.98);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+
+.mobile-menu a {
+  padding: 1rem 1.15rem;
+  border-top: 1px solid var(--line);
+  color: #eafffb;
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.mobile-menu a:first-child {
+  border-top: 0;
+}
+
 .hero {
   position: relative;
   min-height: 900px;
@@ -1634,7 +1691,11 @@ footer {
   }
 
   .header-download {
-    font-size: 0.66rem;
+    display: none;
+  }
+
+  .mobile-menu {
+    display: block;
   }
 
   .hero {

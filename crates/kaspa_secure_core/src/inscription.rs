@@ -436,4 +436,35 @@ mod tests {
         assert_eq!(signed.review_hash, prepared.review_hash);
         assert!(signed.submit_json.contains("signatureScript"));
     }
+
+    #[test]
+    fn hostile_inscription_fields_fail_closed() {
+        let base = InscriptionRequest {
+            kind: "krc20".into(),
+            sender: ADDRESS.into(),
+            recipient: ADDRESS.into(),
+            ticker: "TEST".into(),
+            amount: "1".into(),
+            token_id: String::new(),
+            asset_id: String::new(),
+        };
+        for ticker in ["", "../evil", "A<script>", "A\0B"]
+            .into_iter()
+            .map(str::to_owned)
+            .chain(std::iter::once("A".repeat(10_000)))
+        {
+            let mut request = base.clone();
+            request.ticker = ticker;
+            assert!(prepare_inscription(&request).is_err(), "accepted ticker");
+        }
+        for amount in ["-1", "1.1", "1e9", "NaN"]
+            .into_iter()
+            .map(str::to_owned)
+            .chain(std::iter::once("9".repeat(10_000)))
+        {
+            let mut request = base.clone();
+            request.amount = amount;
+            assert!(prepare_inscription(&request).is_err(), "accepted amount");
+        }
+    }
 }

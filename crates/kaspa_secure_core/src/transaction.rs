@@ -12,6 +12,7 @@ use kaspa_consensus_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
@@ -358,6 +359,7 @@ pub(crate) fn parse_utxos(raw: &str, sender: &Address) -> Result<Vec<Spendable>>
     }
     let expected_script = kaspa_txscript::pay_to_address_script(sender);
     let mut result = Vec::with_capacity(list.len());
+    let mut seen = HashSet::with_capacity(list.len());
     for item in list {
         let address = item
             .get("address")
@@ -375,7 +377,11 @@ pub(crate) fn parse_utxos(raw: &str, sender: &Address) -> Result<Vec<Spendable>>
             .ok_or_else(|| CoreError::UntrustedUtxo("missing transaction id".into()))?;
         let transaction_id = kaspa_consensus_core::tx::TransactionId::from_str(txid)
             .map_err(|_| CoreError::UntrustedUtxo("invalid transaction id".into()))?;
-        let index = value_u64(outpoint.get("index"))? as u32;
+        let index = u32::try_from(value_u64(outpoint.get("index"))?)
+            .map_err(|_| CoreError::UntrustedUtxo("outpoint index out of range".into()))?;
+        if !seen.insert((transaction_id, index)) {
+            return Err(CoreError::UntrustedUtxo("duplicate outpoint".into()));
+        }
         let entry = item
             .get("utxoEntry")
             .ok_or_else(|| CoreError::UntrustedUtxo("missing entry".into()))?;
@@ -458,4 +464,59 @@ pub(crate) fn submit_json(tx: &Transaction) -> Result<String> {
     });
     serde_json::to_string(&json!({"transaction": transaction, "allowOrphan": false}))
         .map_err(|_| CoreError::Serialization)
+}
+
+#[cfg(test)]
+mod adversarial_tests {
+    use super::*;
+    use kaspa_addresses::Address;
+
+    const ADDRESS: &str =
+        "kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh";
+
+    #[test]
+    fn malformed_utxo_corpus_fails_closed_without_panicking() {
+        let sender = Address::try_from(ADDRESS).unwrap();
+        let corpus = [
+            "",
+            "null",
+            "{}",
+            "[null]",
+            "[{}]",
+            r#"[{"address":"kaspa:qattacker","outpoint":{},"utxoEntry":{}}]"#,
+            r#"[{"address":"kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh","outpoint":{"transactionId":"../evil","index":-1},"utxoEntry":{"amount":"-1"}}]"#,
+        ];
+        for raw in corpus {
+            assert!(parse_utxos(raw, &sender).is_err(), "accepted: {raw}");
+        }
+    }
+
+    #[test]
+    fn duplicate_outpoints_and_oversized_indices_are_rejected() {
+        let sender = Address::try_from(ADDRESS).unwrap();
+        let script = hex::encode(kaspa_txscript::pay_to_address_script(&sender).script());
+        let item = json!({
+            "address": ADDRESS,
+            "outpoint": {"transactionId": "11".repeat(32), "index": 0},
+            "utxoEntry": {
+                "amount": "100000000",
+                "blockDaaScore": "1",
+                "isCoinbase": false,
+                "scriptPublicKey": {"scriptPublicKey": script.clone()}
+            }
+        });
+        assert!(parse_utxos(&json!([item.clone(), item]).to_string(), &sender).is_err());
+
+        let oversized = json!([{
+            "address": ADDRESS,
+            "outpoint": {"transactionId": "22".repeat(32), "index": u64::from(u32::MAX) + 1},
+            "utxoEntry": {
+                "amount": "100000000",
+                "blockDaaScore": "1",
+                "isCoinbase": false,
+                "scriptPublicKey": {"scriptPublicKey": script}
+            }
+        }]);
+        assert!(parse_utxos(&oversized.to_string(), &sender).is_err());
+    }
 }

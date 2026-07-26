@@ -6,7 +6,9 @@ import '../services/native_security.dart';
 import '../services/kaspa_api.dart';
 import '../services/hd_discovery_service.dart';
 import '../services/network_settings.dart';
+import '../services/privacy_settings.dart';
 import '../theme.dart';
+import 'diagnostics_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -258,6 +260,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 24),
+            const _Heading('PRIVACY'),
+            ValueListenableBuilder<bool>(
+              valueListenable: PrivacySettings.hideAmounts,
+              builder: (context, hidden, _) => SwitchListTile(
+                value: hidden,
+                onChanged: PrivacySettings.setHideAmounts,
+                secondary: Icon(
+                  hidden
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded,
+                  color: KasVaultTheme.mint,
+                ),
+                title: const Text(
+                  'Hide wallet amounts',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Text(
+                  'Masks balances and activity amounts on wallet screens. '
+                  'Confirmation dialogs still show exact values.',
+                ),
+                tileColor: KasVaultTheme.panel,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: const BorderSide(color: KasVaultTheme.line),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
             const _Heading('NETWORK'),
             InkWell(
               onTap: _configureNode,
@@ -279,6 +309,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.link_rounded,
                 title: 'dApp sessions',
                 detail: 'Reown WalletKit · Kaspa Mainnet',
+                color: KasVaultTheme.cyan,
+              ),
+            ),
+            InkWell(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => DiagnosticsScreen(address: widget.address),
+                ),
+              ),
+              borderRadius: BorderRadius.circular(18),
+              child: const _SettingTile(
+                icon: Icons.monitor_heart_outlined,
+                title: 'Network diagnostics',
+                detail: 'Node · indexers · WalletConnect',
                 color: KasVaultTheme.cyan,
               ),
             ),

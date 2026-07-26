@@ -8,6 +8,7 @@ import '../number_format.dart';
 import '../services/kaspa_api.dart';
 import '../services/activity_store.dart';
 import '../services/native_security.dart';
+import '../services/privacy_settings.dart';
 import '../services/signer_service.dart';
 import '../models/asset_send_intent.dart';
 import '../theme.dart';
@@ -142,161 +143,169 @@ class _WalletScreenState extends State<WalletScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: RefreshIndicator(
-        onRefresh: () async => _refresh(),
-        child: FutureBuilder<WalletSnapshot>(
-          future: _snapshot,
-          builder: (context, snapshot) => ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-            children: [
-              Row(
-                children: [
-                  const Expanded(
-                    child: KaspireWordmark(height: 19),
-                  ),
-                  IconButton(
-                    onPressed: widget.onSwitchWallet,
-                    tooltip: 'Switch wallet',
-                    icon: const Icon(Icons.account_balance_wallet_outlined),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 7,
+    return ValueListenableBuilder<bool>(
+      valueListenable: PrivacySettings.hideAmounts,
+      builder: (context, hideAmounts, _) => SafeArea(
+        child: RefreshIndicator(
+          onRefresh: () async => _refresh(),
+          child: FutureBuilder<WalletSnapshot>(
+            future: _snapshot,
+            builder: (context, snapshot) => ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: KaspireWordmark(height: 19),
                     ),
-                    decoration: BoxDecoration(
-                      color: const Color(0x2249EACB),
-                      borderRadius: BorderRadius.circular(20),
+                    IconButton(
+                      onPressed: widget.onSwitchWallet,
+                      tooltip: 'Switch wallet',
+                      icon: const Icon(Icons.account_balance_wallet_outlined),
                     ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.circle, size: 8, color: KasVaultTheme.mint),
-                        SizedBox(width: 7),
-                        Text(
-                          'MAINNET',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0x2249EACB),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.circle,
+                              size: 8, color: KasVaultTheme.mint),
+                          SizedBox(width: 7),
+                          Text(
+                            'MAINNET',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 28),
-              _BalanceCard(snapshot: snapshot),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _Action(
-                      icon: Icons.arrow_upward_rounded,
-                      label: 'SEND',
-                      onTap: widget.onSend,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _Action(
-                      icon: Icons.arrow_downward_rounded,
-                      label: 'RECEIVE',
-                      onTap: widget.onReceive,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _Action(
-                      icon: Icons.copy_rounded,
-                      label: 'COPY',
-                      onTap: () {
-                        Clipboard.setData(ClipboardData(text: widget.address));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Address copied')),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 32),
-              if (snapshot.hasData) ...[
-                const Text(
-                  'ASSETS & NAMES',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _AssetOverview(
-                  data: snapshot.data!,
-                  address: widget.address,
-                  onSendAsset: widget.onSendAsset,
-                ),
-                const SizedBox(height: 12),
-                _UtxoCard(
-                  count: snapshot.data!.utxoCount,
-                  working: _compounding,
-                  onCompound: _compoundUtxos,
-                ),
-                const SizedBox(height: 32),
-              ],
-              const Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'ACTIVITY',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.2,
+                        ],
                       ),
                     ),
-                  ),
-                  Text(
-                    'LIVE',
+                  ],
+                ),
+                const SizedBox(height: 28),
+                _BalanceCard(snapshot: snapshot, hideAmounts: hideAmounts),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _Action(
+                        icon: Icons.arrow_upward_rounded,
+                        label: 'SEND',
+                        onTap: widget.onSend,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _Action(
+                        icon: Icons.arrow_downward_rounded,
+                        label: 'RECEIVE',
+                        onTap: widget.onReceive,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _Action(
+                        icon: Icons.copy_rounded,
+                        label: 'COPY',
+                        onTap: () {
+                          Clipboard.setData(
+                              ClipboardData(text: widget.address));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Address copied')),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 32),
+                if (snapshot.hasData) ...[
+                  const Text(
+                    'ASSETS & NAMES',
                     style: TextStyle(
-                      color: KasVaultTheme.mint,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.2,
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  _AssetOverview(
+                    data: snapshot.data!,
+                    address: widget.address,
+                    onSendAsset: widget.onSendAsset,
+                    hideAmounts: hideAmounts,
+                  ),
+                  const SizedBox(height: 12),
+                  _UtxoCard(
+                    count: snapshot.data!.utxoCount,
+                    working: _compounding,
+                    onCompound: _compoundUtxos,
+                  ),
+                  const SizedBox(height: 32),
                 ],
-              ),
-              const SizedBox(height: 12),
-              if (snapshot.connectionState == ConnectionState.waiting)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(36),
-                    child: CircularProgressIndicator(),
+                const Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'ACTIVITY',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      'LIVE',
+                      style: TextStyle(
+                        color: KasVaultTheme.mint,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (snapshot.connectionState == ConnectionState.waiting)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(36),
+                      child: CircularProgressIndicator(),
+                    ),
                   ),
-                ),
-              if (snapshot.hasError) _ErrorCard(onRetry: _refresh),
-              if (snapshot.hasData && snapshot.data!.transactions.isEmpty)
-                const _EmptyActivity(),
-              if (snapshot.hasData)
-                ...snapshot.data!.transactions.map(
-                  (tx) => _TransactionTile(
-                    transaction: tx,
-                    walletAddress: widget.address,
+                if (snapshot.hasError)
+                  _ErrorCard(error: snapshot.error, onRetry: _refresh),
+                if (snapshot.hasData && snapshot.data!.transactions.isEmpty)
+                  const _EmptyActivity(),
+                if (snapshot.hasData)
+                  ...snapshot.data!.transactions.map(
+                    (tx) => _TransactionTile(
+                      transaction: tx,
+                      walletAddress: widget.address,
+                      hideAmounts: hideAmounts,
+                    ),
                   ),
-                ),
-              if (snapshot.hasData && snapshot.data!.hasMoreTransactions)
-                OutlinedButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _historyLimit += 20;
-                      _snapshot = _loadSnapshot();
-                    });
-                  },
-                  icon: const Icon(Icons.expand_more_rounded),
-                  label: const Text('LOAD MORE ACTIVITY'),
-                ),
-            ],
+                if (snapshot.hasData && snapshot.data!.hasMoreTransactions)
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _historyLimit += 20;
+                        _snapshot = _loadSnapshot();
+                      });
+                    },
+                    icon: const Icon(Icons.expand_more_rounded),
+                    label: const Text('LOAD MORE ACTIVITY'),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -306,10 +315,14 @@ class _WalletScreenState extends State<WalletScreen> {
 
 class _AssetOverview extends StatelessWidget {
   const _AssetOverview(
-      {required this.data, required this.address, required this.onSendAsset});
+      {required this.data,
+      required this.address,
+      required this.onSendAsset,
+      required this.hideAmounts});
   final WalletSnapshot data;
   final String address;
   final ValueChanged<AssetSendIntent> onSendAsset;
+  final bool hideAmounts;
 
   @override
   Widget build(BuildContext context) {
@@ -345,6 +358,7 @@ class _AssetOverview extends StatelessWidget {
             ...data.krc20Tokens.map(
               (asset) => _AssetRow(
                 asset: asset,
+                hideAmount: hideAmounts,
                 onTap: () => onSendAsset(AssetSendIntent.krc20(asset.symbol)),
               ),
             ),
@@ -355,6 +369,7 @@ class _AssetOverview extends StatelessWidget {
             ...data.kcc20Tokens.map(
               (asset) => _AssetRow(
                 asset: asset,
+                hideAmount: hideAmounts,
                 onTap: () => onSendAsset(
                   AssetSendIntent.kcc20(
                     asset.symbol,
@@ -371,6 +386,7 @@ class _AssetOverview extends StatelessWidget {
             ...data.krc721Collections.map(
               (asset) => _AssetRow(
                 asset: asset,
+                hideAmount: hideAmounts,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => NftCollectionScreen(
@@ -439,8 +455,13 @@ class _AssetHeading extends StatelessWidget {
 }
 
 class _AssetRow extends StatelessWidget {
-  const _AssetRow({required this.asset, this.onTap});
+  const _AssetRow({
+    required this.asset,
+    required this.hideAmount,
+    this.onTap,
+  });
   final WalletAsset asset;
+  final bool hideAmount;
   final VoidCallback? onTap;
 
   @override
@@ -466,7 +487,7 @@ class _AssetRow extends StatelessWidget {
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        _formatAssetBalance(asset),
+                        hideAmount ? '••••••' : _formatAssetBalance(asset),
                         maxLines: 1,
                         style: const TextStyle(
                           color: KasVaultTheme.muted,
@@ -534,16 +555,22 @@ class _AssetIcon extends StatelessWidget {
 }
 
 class _BalanceCard extends StatelessWidget {
-  const _BalanceCard({required this.snapshot});
+  const _BalanceCard({required this.snapshot, required this.hideAmounts});
   final AsyncSnapshot<WalletSnapshot> snapshot;
+  final bool hideAmounts;
   @override
   Widget build(BuildContext context) {
     final data = snapshot.data;
-    final kas =
-        data == null ? '—' : formatEnglishNumber(data.balanceKas, decimals: 4);
-    final fiat = data?.fiatValue == null
-        ? 'Live balance'
-        : '\$${formatEnglishNumber(data!.fiatValue!, decimals: 2)} USD';
+    final kas = hideAmounts
+        ? '••••••'
+        : data == null
+            ? '—'
+            : formatEnglishNumber(data.balanceKas, decimals: 4);
+    final fiat = hideAmounts
+        ? 'Amounts hidden'
+        : data?.fiatValue == null
+            ? 'Live balance'
+            : '\$${formatEnglishNumber(data!.fiatValue!, decimals: 2)} USD';
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -762,9 +789,11 @@ class _TransactionTile extends StatelessWidget {
   const _TransactionTile({
     required this.transaction,
     required this.walletAddress,
+    required this.hideAmounts,
   });
   final WalletTransaction transaction;
   final String walletAddress;
+  final bool hideAmounts;
   @override
   Widget build(BuildContext context) => InkWell(
         onTap: () {
@@ -893,7 +922,9 @@ class _TransactionTile extends StatelessWidget {
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
-                  '${transaction.incoming ? '+' : '-'}${transaction.amountLabel}',
+                  hideAmounts
+                      ? '••••••'
+                      : '${transaction.incoming ? '+' : '-'}${transaction.amountLabel}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.right,
@@ -935,21 +966,33 @@ class _EmptyActivity extends StatelessWidget {
 }
 
 class _ErrorCard extends StatelessWidget {
-  const _ErrorCard({required this.onRetry});
+  const _ErrorCard({required this.error, required this.onRetry});
+  final Object? error;
   final VoidCallback onRetry;
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: const Color(0x22FF6B6B),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Row(
-          children: [
-            const Expanded(
-                child: Text('Live data is temporarily unavailable.')),
-            TextButton(onPressed: onRetry, child: const Text('Retry')),
-          ],
-        ),
-      );
+  Widget build(BuildContext context) {
+    final detail = error
+        .toString()
+        .replaceFirst('KaspaApiException: ', '')
+        .replaceFirst('Exception: ', '');
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0x22FF6B6B),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              detail.contains('returned') || detail.contains('UTXO')
+                  ? 'Security check rejected network data:\n$detail'
+                  : 'Live data is temporarily unavailable.\n$detail',
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
+      ),
+    );
+  }
 }

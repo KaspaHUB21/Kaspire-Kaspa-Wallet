@@ -6,7 +6,10 @@ import 'package:http/testing.dart';
 import 'package:kasvault_wallet/src/services/kaspa_api.dart';
 
 void main() {
-  const address = 'kaspa:qtestaddress';
+  const address =
+      'kaspa:qz03mracsz6c0pjxmsdaql39453tn3jgmrldkqpy24ea39rxtvd9xxynslpyc';
+  const otherAddress =
+      'kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh';
 
   test('parses an incoming transaction from decoded outputs', () {
     final result = KaspaApi.parseTransactions([
@@ -61,7 +64,10 @@ void main() {
   test('counts wallet UTXOs in the wallet snapshot', () async {
     final client = MockClient((request) async {
       if (request.url.path.endsWith('/utxos')) {
-        return http.Response('[{"outpoint":{}},{"outpoint":{}}]', 200);
+        return http.Response(
+          '[{"address":"$address","outpoint":{"transactionId":"${'1' * 64}","index":0},"utxoEntry":{"amount":"1"}},{"address":"$address","outpoint":{"transactionId":"${'2' * 64}","index":1},"utxoEntry":{"amount":"2"}}]',
+          200,
+        );
       }
       if (request.url.path.endsWith('/balance')) {
         return http.Response('{"balance":0}', 200);
@@ -80,6 +86,78 @@ void main() {
     expect(snapshot.utxoCount, 2);
   });
 
+  test('rejects UTXOs attributed to another wallet', () {
+    expect(
+      () => KaspaApi.validateUtxos([
+        {
+          'address': 'kaspa:qattacker',
+          'outpoint': {'transactionId': '1' * 64, 'index': 0},
+          'utxoEntry': {'amount': '1000'},
+        }
+      ], address),
+      throwsA(
+        isA<KaspaApiException>().having(
+          (error) => error.message,
+          'message',
+          contains('another address'),
+        ),
+      ),
+    );
+  });
+
+  test('rejects duplicate and malformed UTXOs', () {
+    final utxo = {
+      'address': address,
+      'outpoint': {'transactionId': 'a' * 64, 'index': 0},
+      'utxoEntry': {'amount': '1000'},
+    };
+    expect(
+      () => KaspaApi.validateUtxos([utxo, utxo], address),
+      throwsA(isA<KaspaApiException>()),
+    );
+    for (final malformed in <Object?>[
+      null,
+      const {},
+      {
+        'outpoint': {'transactionId': '../evil', 'index': -1},
+        'utxoEntry': {'amount': '-1'},
+      },
+    ]) {
+      expect(
+        () => KaspaApi.validateUtxos([malformed], address),
+        throwsA(isA<KaspaApiException>()),
+      );
+    }
+  });
+
+  test('rejects impossible fee estimates instead of silently using them',
+      () async {
+    for (final body in [
+      '{"priorityBucket":{"feerate":-1}}',
+      '{"priorityBucket":{"feerate":100000001}}',
+      '{"priorityBucket":{"feerate":"NaN"}}',
+    ]) {
+      final api = KaspaApi(
+        client: MockClient((_) async => http.Response(body, 200)),
+      );
+      await expectLater(api.loadFeeRate(), throwsA(isA<KaspaApiException>()));
+    }
+  });
+
+  test('rejects negative amounts in manipulated transaction history', () {
+    expect(
+      () => KaspaApi.parseTransactions([
+        {
+          'transaction_id': 'bad',
+          'outputs': [
+            {'script_public_key_address': address, 'amount': -1}
+          ],
+        }
+      ], address),
+      throwsA(isA<KaspaApiException>()),
+    );
+  });
+
   test('loads KRC-20, KRC-721 and KNS wallet assets', () async {
     final client = MockClient((request) async {
       if (request.url.path == '/api/token/krc20-nacho') {
@@ -90,7 +168,7 @@ void main() {
       }
       if (request.url.host == 'kaspatoken.kaslab.space') {
         return http.Response(
-          '{"data":{"address":"$address","tokens":[{"symbol":"NACHO","balance":12.5,"decimals":8,"raw_balance":"1250000000"}],"krc721_tokens":[{"symbol":"TOCCATA","balance":2}],"domains":[{"name":"demo.kas","status":"verified","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaai0"}],"transactions":[{"id":"krc20-op","token_symbol":"NACHO","amount":2.5,"from_wallet":"kaspa:qsender","to_wallet":"$address","timestamp":"2026-07-16T00:00:00.000Z"}]}}',
+          '{"data":{"address":"$address","tokens":[{"symbol":"NACHO","balance":12.5,"decimals":8,"raw_balance":"1250000000"}],"krc721_tokens":[{"symbol":"TOCCATA","balance":2,"decimals":0}],"domains":[{"name":"demo.kas","status":"verified","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaai0"}],"transactions":[{"id":"krc20-op","token_symbol":"NACHO","amount":"2.5","from_wallet":"$otherAddress","to_wallet":"$address","timestamp":"2026-07-16T00:00:00.000Z"}]}}',
           200,
         );
       }
@@ -119,6 +197,34 @@ void main() {
     expect(tokenActivity.assetKind, 'KRC-20');
     expect(tokenActivity.incoming, isTrue);
     expect(tokenActivity.amountLabel, '2.5 NACHO');
+  });
+
+  test('rejects manipulated token metadata while preserving KAS data',
+      () async {
+    final client = MockClient((request) async {
+      if (request.url.host == 'kaspatoken.kaslab.space') {
+        return http.Response(
+          '{"data":{"tokens":[{"symbol":"<script>","balance":1,"decimals":999}],"domains":[{"name":"spoof.kas","status":"unverified"}],"transactions":[]}}',
+          200,
+        );
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":123}', 200);
+      }
+      if (request.url.path == '/info/price') {
+        return http.Response('{"price":0.1}', 200);
+      }
+      if (request.url.path.endsWith('/utxos')) {
+        return http.Response('[]', 200);
+      }
+      return http.Response('[]', 200);
+    });
+
+    final snapshot = await KaspaApi(client: client).loadWallet(address);
+    expect(snapshot.balanceSompi, 123);
+    expect(snapshot.krc20Tokens, isEmpty);
+    expect(snapshot.knsDomains, isEmpty);
+    expect(snapshot.assetWarning, contains('indexer data was rejected'));
   });
 
   test('loads KCC20 cells when live_utxos is a numeric count', () async {

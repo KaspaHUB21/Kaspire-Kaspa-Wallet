@@ -19,6 +19,29 @@ void main() {
     expect(KaspaPaymentRequest.tryParse('$address?amount=1.000000001'), isNull);
     expect(KaspaPaymentRequest.tryParse('$address?amount=%ZZ'), isNull);
     expect(KaspaPaymentRequest.tryParse('https://example.com'), isNull);
+    expect(
+      KaspaPaymentRequest.tryParse('$address?amount=1&amount=2'),
+      isNull,
+    );
+    expect(
+      KaspaPaymentRequest.tryParse('$address?amount=1&redirect=https://evil'),
+      isNull,
+    );
+  });
+
+  test('adversarial QR corpus cannot smuggle fields or invalid amounts', () {
+    for (final value in [
+      '$address?amount=-1',
+      '$address?amount=NaN',
+      '$address?amount=1e8',
+      '$address?amount=0.000000001',
+      '$address?amount=1%00',
+      '$address?amount=${'9' * 10000}',
+      'kaspa:../../etc/passwd',
+      '$address#amount=1',
+    ]) {
+      expect(KaspaPaymentRequest.tryParse(value), isNull, reason: value);
+    }
   });
 
   test('encodes an amount using an English decimal point', () {

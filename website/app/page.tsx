@@ -310,10 +310,38 @@ export default function Home() {
             <a href="#features">Features</a>
             <a href="#security">Security</a>
             <a href="#download">Download</a>
+            <a href="/developers">For Developers</a>
+            <a
+              href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet"
+              target="_blank"
+              rel="noreferrer"
+            >
+              GitHub
+            </a>
           </nav>
           <a className="header-download" href={downloadUrl}>
             Get the app
           </a>
+          <details className="mobile-menu">
+            <summary aria-label="Open navigation menu">
+              <span />
+              <span />
+              <span />
+            </summary>
+            <div>
+              <a href="#features">Features</a>
+              <a href="#security">Security</a>
+              <a href="#download">Download</a>
+              <a href="/developers">For Developers</a>
+              <a
+                href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet"
+                target="_blank"
+                rel="noreferrer"
+              >
+                GitHub
+              </a>
+            </div>
+          </details>
         </div>
       </header>
 
@@ -553,6 +581,13 @@ export default function Home() {
             <a href="#security">Security</a>
             <a href="#download">Download</a>
             <a href="/developers">For Developers</a>
+            <a
+              href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet"
+              target="_blank"
+              rel="noreferrer"
+            >
+              GitHub
+            </a>
             <a href="/privacy">Privacy</a>
             <a href="https://kaslab.space">HUB21</a>
           </div>

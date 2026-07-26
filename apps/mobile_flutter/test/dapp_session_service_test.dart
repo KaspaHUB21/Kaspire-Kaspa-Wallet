@@ -87,4 +87,42 @@ void main() {
       throwsA(isA<FormatException>()),
     );
   });
+
+  test('adversarial pairing corpus always fails closed', () async {
+    final oversized = 'wc:$topic@2?relay-protocol=irn&symKey=${'a' * 3000}';
+    final corpus = <String>[
+      '',
+      'https://example.com',
+      'wc:../@2?relay-protocol=irn&symKey=$symKey',
+      'wc:$topic@2?relay-protocol=irn&symKey=${'z' * 64}',
+      'wc:$topic@2?relay-protocol=evil&symKey=$symKey',
+      'wc:$topic@2?relay-protocol=irn&symKey=$symKey#fragment',
+      'wc:$topic@2?relay-protocol=irn&relay-protocol=irn&symKey=$symKey',
+      oversized,
+    ];
+    for (final value in corpus) {
+      await expectLater(
+        DappSessionService.instance.pair(value),
+        throwsA(anyOf(isA<FormatException>(), isA<StateError>())),
+        reason: value.length > 100 ? 'oversized input' : value,
+      );
+    }
+  });
+
+  test('app-link parser rejects duplicate, fragmented and oversized input',
+      () async {
+    final links = [
+      Uri.parse('https://kaspire.kaslab.space/kaspire/wc?uri=one&uri=two'),
+      Uri.parse('https://kaspire.kaslab.space/kaspire/wc?uri=redacted#hidden'),
+      Uri.parse(
+        'https://kaspire.kaslab.space/kaspire/wc?uri=${Uri.encodeQueryComponent('x' * 3000)}',
+      ),
+    ];
+    for (final link in links) {
+      await expectLater(
+        DappSessionService.instance.handleAppLink(link),
+        throwsA(isA<FormatException>()),
+      );
+    }
+  });
 }

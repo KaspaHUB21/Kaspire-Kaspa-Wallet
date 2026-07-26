@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'src/app.dart';
 import 'src/services/network_settings.dart';
+import 'src/services/privacy_settings.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -10,6 +11,7 @@ Future<void> main() async {
   // tablets, foldables and Android's enforced edge-to-edge mode.
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   await NetworkSettings.initialize();
+  await PrivacySettings.initialize();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,

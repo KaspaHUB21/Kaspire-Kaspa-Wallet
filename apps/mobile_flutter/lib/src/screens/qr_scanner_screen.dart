@@ -13,12 +13,10 @@ class QrScannerScreen extends StatefulWidget {
 
 class _QrScannerScreenState extends State<QrScannerScreen> {
   final _scannerKey = GlobalKey(debugLabel: 'kaspire-qr-scanner');
-  QRViewController? _controller;
   bool _handled = false;
   String? _error;
 
   void _onScannerCreated(QRViewController controller) {
-    _controller = controller;
     controller.scannedDataStream.listen((barcode) {
       if (_handled || !mounted) return;
       final value = barcode.code;
@@ -30,12 +28,6 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       }
       setState(() => _error = 'This is not a Kaspa payment QR code.');
     });
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
   }
 
   @override
