@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/dapp_session_service.dart';
 import '../theme.dart';
+import 'dapp_qr_scanner_screen.dart';
 
 class DappSessionsScreen extends StatefulWidget {
   const DappSessionsScreen({super.key});
@@ -62,6 +63,34 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
     }
   }
 
+  Future<void> _scan() async {
+    final payload = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const DappQrScannerScreen()),
+    );
+    if (payload == null || !mounted) return;
+    setState(() {
+      _working = true;
+      _message = null;
+    });
+    try {
+      await _service.pairQrPayload(payload);
+      if (mounted) {
+        setState(() => _message = 'Encrypted pairing started…');
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _message = error
+              .toString()
+              .replaceFirst('FormatException: ', '')
+              .replaceFirst('Bad state: ', '');
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
   Future<void> _disconnect(String topic, String name) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -89,7 +118,7 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
   Widget build(BuildContext context) {
     final sessions = _service.activeSessions().entries.toList();
     return Scaffold(
-      appBar: AppBar(title: const Text('dApp sessions')),
+      appBar: AppBar(title: const Text('Pair dApps')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -135,8 +164,49 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
             ),
           ),
           const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0D312F), Color(0xFF102126)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: KasVaultTheme.mint),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Icon(
+                  Icons.qr_code_scanner_rounded,
+                  size: 46,
+                  color: KasVaultTheme.mint,
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Connect to a dApp',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 7),
+                const Text(
+                  'Open the connection QR code on a desktop or another device, then scan it securely inside Kaspire.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: KasVaultTheme.muted, height: 1.4),
+                ),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  onPressed: _working || !_service.ready ? null : _scan,
+                  icon: const Icon(Icons.center_focus_strong_rounded),
+                  label: const Text('SCAN DAPP QR CODE'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 26),
           const Text(
-            'PAIR A DAPP',
+            'PAIR MANUALLY',
             style: TextStyle(
               color: KasVaultTheme.muted,
               fontWeight: FontWeight.w900,
@@ -149,7 +219,7 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
             enableSuggestions: false,
             maxLines: 3,
             decoration: const InputDecoration(
-              labelText: 'WalletConnect v2 URI',
+              labelText: 'Paste WalletConnect v2 URI',
               hintText: 'wc:…@2?relay-protocol=irn&symKey=…',
             ),
           ),
@@ -218,7 +288,7 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
           }),
           const SizedBox(height: 24),
           const Text(
-            'A connection can expose only the approved address. Every message signature and payment still requires a separate in-app confirmation and biometric or PIN approval.',
+            'Pairing does not authorize transactions. You approve the dApp, account permissions, and every later signing request separately. Reown domain verification provides anti-phishing context but does not guarantee that a dApp is safe.',
             style: TextStyle(color: KasVaultTheme.muted, height: 1.45),
           ),
         ],

@@ -12,6 +12,37 @@ void main() {
     );
   });
 
+  test('accepts raw and verified-link WalletConnect QR payloads', () {
+    final pairing = 'wc:$topic@2?relay-protocol=irn&symKey=$symKey';
+    expect(
+      DappSessionService.pairingUriFromQrPayload(pairing),
+      pairing,
+    );
+    expect(
+      DappSessionService.pairingUriFromQrPayload(
+        'https://kaspire.kaslab.space/kaspire/wc'
+        '?uri=${Uri.encodeQueryComponent(pairing)}',
+      ),
+      pairing,
+    );
+  });
+
+  test('rejects hostile and malformed dApp QR payloads', () {
+    final invalid = [
+      'https://evil.example/kaspire/wc?uri=wc:$topic@2',
+      'https://kaspire.kaslab.space/kaspire/wc?uri=one&uri=two',
+      'wc:$topic@1?relay-protocol=irn&symKey=$symKey',
+      'wc:$topic@2?relay-protocol=evil&symKey=$symKey',
+      'not a pairing',
+    ];
+    for (final payload in invalid) {
+      expect(
+        () => DappSessionService.pairingUriFromQrPayload(payload),
+        throwsA(isA<FormatException>()),
+      );
+    }
+  });
+
   test('rejects untrusted app-link origins before reading pairing data',
       () async {
     await expectLater(

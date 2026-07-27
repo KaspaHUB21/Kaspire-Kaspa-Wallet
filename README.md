@@ -31,8 +31,8 @@ tablets, and foldables.
 
 ## Current release
 
-- Version: **0.10.15**
-- Android build: **50**
+- Version: **0.10.16**
+- Android build: **51**
 - Network: **Kaspa Mainnet**
 - Android package: `space.kasvault.wallet`
 - License: [Apache-2.0](LICENSE)
@@ -62,6 +62,7 @@ tablets, and foldables.
 - UTXO counting and compounding
 - KIP-5 personal-message signatures
 - WalletConnect v2 for mobile and desktop dApps
+- built-in WalletConnect QR scanner and active-session manager
 
 ### Wallet experience
 

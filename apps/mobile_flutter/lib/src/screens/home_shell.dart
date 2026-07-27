@@ -83,6 +83,7 @@ class _HomeShellState extends State<HomeShell> {
         onSend: _openKasSend,
         onSendAsset: _openAssetSend,
         onReceive: () => setState(() => _index = 2),
+        onPairDapps: _openDappSessions,
         onSwitchWallet: _openWalletManager,
       ),
       SendScreen(

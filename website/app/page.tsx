@@ -26,8 +26,8 @@ const highlights = [
   {
     number: "04",
     title: "Connect without surrendering control.",
-    copy: "WalletConnect v2 pairs Kaspa dApps to the selected account. Every message and payment still needs a fresh in-app confirmation.",
-    tags: ["WalletConnect", "KIP-5", "Per-request approval"],
+    copy: "Scan a dApp's WalletConnect QR code directly inside Kaspire, inspect its verified origin and permissions, and manage active encrypted sessions. Every signature still needs fresh approval.",
+    tags: ["In-app QR pairing", "WalletConnect", "Per-request approval"],
   },
   {
     number: "05",

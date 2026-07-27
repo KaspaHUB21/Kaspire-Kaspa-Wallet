@@ -106,7 +106,66 @@ class DappSessionService {
     await pair(parameters['uri']!.single);
   }
 
+  static String pairingUriFromQrPayload(String payload) {
+    final value = payload.trim();
+    if (value.isEmpty || value.length > 4096) {
+      throw const FormatException('Invalid dApp pairing QR code.');
+    }
+    if (value.startsWith('wc:')) {
+      _validatedPairingUri(value);
+      return value;
+    }
+    final link = Uri.tryParse(value);
+    if (link == null) {
+      throw const FormatException('Invalid dApp pairing QR code.');
+    }
+    final trustedHttps = link.scheme == 'https' &&
+        (link.host == 'kaspire.kaslab.space' || link.host == 'kaslab.space') &&
+        link.path == '/kaspire/wc';
+    final trustedAppScheme = link.scheme == 'kaspire' &&
+        link.host == 'wc' &&
+        (link.path.isEmpty || link.path == '/');
+    if ((!trustedHttps && !trustedAppScheme) || link.fragment.isNotEmpty) {
+      throw const FormatException('Untrusted dApp pairing QR code.');
+    }
+    final parameters = link.queryParametersAll;
+    if (parameters.length != 1 ||
+        parameters['uri'] == null ||
+        parameters['uri']!.length != 1) {
+      throw const FormatException('The QR code must contain one pairing URI.');
+    }
+    final pairingUri = parameters['uri']!.single;
+    _validatedPairingUri(pairingUri);
+    return pairingUri;
+  }
+
+  Future<void> pairQrPayload(String payload) =>
+      pair(pairingUriFromQrPayload(payload));
+
   Future<void> pair(String rawUri) async {
+    final uri = _validatedPairingUri(rawUri);
+    final topic = RegExp(r'^([0-9a-fA-F]{64})@2$')
+        .firstMatch(uri.path)!
+        .group(1)!
+        .toLowerCase();
+    if (!_consumedPairingTopics.add(topic)) {
+      throw const FormatException('This pairing link was already consumed.');
+    }
+    await initialize();
+    final walletKit = _walletKit;
+    if (walletKit == null) {
+      _consumedPairingTopics.remove(topic);
+      throw StateError(_lastError ?? 'dApp relay is unavailable.');
+    }
+    try {
+      await walletKit.pair(uri: uri);
+    } catch (_) {
+      _consumedPairingTopics.remove(topic);
+      throw StateError('Encrypted pairing failed. Request a fresh link.');
+    }
+  }
+
+  static Uri _validatedPairingUri(String rawUri) {
     if (rawUri.length > 2048) {
       throw const FormatException('Pairing URI is too long.');
     }
@@ -137,22 +196,7 @@ class DappSessionService {
                 DateTime.now().millisecondsSinceEpoch ~/ 1000)) {
       throw const FormatException('Pairing URI has expired.');
     }
-    final topic = topicMatch.group(1)!.toLowerCase();
-    if (!_consumedPairingTopics.add(topic)) {
-      throw const FormatException('This pairing link was already consumed.');
-    }
-    await initialize();
-    final walletKit = _walletKit;
-    if (walletKit == null) {
-      _consumedPairingTopics.remove(topic);
-      throw StateError(_lastError ?? 'dApp relay is unavailable.');
-    }
-    try {
-      await walletKit.pair(uri: uri);
-    } catch (_) {
-      _consumedPairingTopics.remove(topic);
-      throw StateError('Encrypted pairing failed. Request a fresh link.');
-    }
+    return uri;
   }
 
   String? proposalProblem(SessionProposalEvent event) {

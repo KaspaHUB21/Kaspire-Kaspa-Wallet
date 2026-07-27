@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
@@ -22,12 +21,14 @@ class WalletScreen extends StatefulWidget {
     required this.address,
     required this.onSend,
     required this.onReceive,
+    required this.onPairDapps,
     required this.onSendAsset,
     required this.onSwitchWallet,
   });
   final String address;
   final VoidCallback onSend;
   final VoidCallback onReceive;
+  final VoidCallback onPairDapps;
   final ValueChanged<AssetSendIntent> onSendAsset;
   final VoidCallback onSwitchWallet;
 
@@ -213,15 +214,9 @@ class _WalletScreenState extends State<WalletScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: _Action(
-                        icon: Icons.copy_rounded,
-                        label: 'COPY',
-                        onTap: () {
-                          Clipboard.setData(
-                              ClipboardData(text: widget.address));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Address copied')),
-                          );
-                        },
+                        icon: Icons.qr_code_scanner_rounded,
+                        label: 'PAIR DAPPS',
+                        onTap: widget.onPairDapps,
                       ),
                     ),
                   ],
