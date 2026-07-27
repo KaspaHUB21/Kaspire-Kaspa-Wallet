@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 LOCAL = "http://127.0.0.1:8000"
 PUBLIC = "https://api.kaspa.org"
 HISTORY_SUFFIX = "/full-transactions"
+LOCAL_NODE_PREFIX = "/local-node"
 MAX_BODY = 16 * 1024 * 1024
 MAX_HISTORY_FETCH = 100
 LOG = logging.getLogger("kaspa-gateway")
@@ -156,6 +157,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
     server_version = "KaspireKaspaGateway/1"
 
     def do_GET(self) -> None:
+        if urllib.parse.urlsplit(self.path).path.startswith(LOCAL_NODE_PREFIX + "/"):
+            self._proxy_local_node_read()
+            return
         if HISTORY_SUFFIX in urllib.parse.urlsplit(self.path).path:
             try:
                 self._respond(*_merged_history(self.path))
@@ -163,6 +167,20 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 self._error(502, f"Kaspa history backends unavailable: {error}")
             return
         self._proxy_read()
+
+    def _proxy_local_node_read(self) -> None:
+        if not _is_local_healthy():
+            self._error(503, "Kaspire local Kaspa node is not synced and UTXO-indexed")
+            return
+        parsed = urllib.parse.urlsplit(self.path)
+        upstream_path = urllib.parse.urlunsplit(
+            ("", "", parsed.path[len(LOCAL_NODE_PREFIX) :], parsed.query, "")
+        )
+        try:
+            response = _request(LOCAL, "GET", upstream_path, timeout=15)
+            self._respond(*response)
+        except OSError as error:
+            self._error(502, f"Kaspire local Kaspa node unavailable: {error}")
 
     def do_POST(self) -> None:
         length = int(self.headers.get("content-length", "0"))

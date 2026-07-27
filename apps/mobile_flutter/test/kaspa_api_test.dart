@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:kasvault_wallet/src/models/wallet_snapshot.dart';
 import 'package:kasvault_wallet/src/services/kaspa_api.dart';
 
 void main() {
@@ -425,5 +426,100 @@ void main() {
     expect(page.total, 1);
     expect(page.nfts.single.tokenId, '42');
     expect(page.nfts.single.rarityRank, 7);
+  });
+
+  test('verifies a live KCC20 covenant cell against the own node', () async {
+    final transactionId = 'a' * 64;
+    final covenantId = 'b' * 64;
+    const script = 'aa20deadbeef87';
+    const scriptAddress = 'kaspa:pnode-confirmed-cell';
+    final cell = Kcc20CellRecord(
+      covenantId: covenantId,
+      transactionId: transactionId,
+      index: 2,
+      valueSompi: 50000000,
+      blockDaaScore: 42,
+      scriptPublicKey: script,
+      tokenAmount: 1000,
+    );
+    final client = MockClient((request) async {
+      if (request.url.path.contains('/local-node/transactions/')) {
+        return http.Response(
+          jsonEncode({
+            'transaction_id': transactionId,
+            'is_accepted': true,
+            'outputs': [
+              {
+                'index': 2,
+                'amount': 50000000,
+                'script_public_key': script,
+                'script_public_key_address': scriptAddress,
+                'covenant_id': covenantId,
+              }
+            ],
+          }),
+          200,
+        );
+      }
+      if (request.url.path.endsWith('/utxos')) {
+        return http.Response(
+          jsonEncode([
+            {
+              'outpoint': {'transactionId': transactionId, 'index': 2},
+              'utxoEntry': {
+                'amount': '50000000',
+                'scriptPublicKey': {'scriptPublicKey': script},
+                'isCoinbase': false,
+              },
+            }
+          ]),
+          200,
+        );
+      }
+      return http.Response('{}', 404);
+    });
+
+    await KaspaApi(client: client).verifyKcc20CellsOnOwnNode(
+      [cell],
+      covenantId,
+    );
+  });
+
+  test('rejects an indexer covenant conflicting with the own node', () async {
+    final transactionId = 'a' * 64;
+    final covenantId = 'b' * 64;
+    final client = MockClient((request) async => http.Response(
+          jsonEncode({
+            'transaction_id': transactionId,
+            'is_accepted': true,
+            'outputs': [
+              {
+                'index': 0,
+                'amount': 1,
+                'script_public_key': 'aa',
+                'script_public_key_address': 'kaspa:pfake',
+                'covenant_id': 'c' * 64,
+              }
+            ],
+          }),
+          200,
+        ));
+    final cell = Kcc20CellRecord(
+      covenantId: covenantId,
+      transactionId: transactionId,
+      index: 0,
+      valueSompi: 1,
+      blockDaaScore: 1,
+      scriptPublicKey: 'aa',
+      tokenAmount: 1,
+    );
+
+    expect(
+      () => KaspaApi(client: client).verifyKcc20CellsOnOwnNode(
+        [cell],
+        covenantId,
+      ),
+      throwsA(isA<KaspaApiException>()),
+    );
   });
 }

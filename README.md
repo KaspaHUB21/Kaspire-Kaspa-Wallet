@@ -28,11 +28,13 @@ tablets, and foldables.
   [docs/security_invariants/README.md](docs/security_invariants/README.md)
 - MASVS self-assessment:
   [docs/MASVS_SELF_ASSESSMENT.md](docs/MASVS_SELF_ASSESSMENT.md)
+- Release verification and signing key:
+  [docs/RELEASE_VERIFICATION.md](docs/RELEASE_VERIFICATION.md)
 
 ## Current release
 
-- Version: **0.10.8**
-- Build: **43**
+- Version: **0.10.9**
+- Build: **44**
 - Network: **Kaspa Mainnet**
 - Android package: `space.kasvault.wallet`
 - License: [Apache-2.0](LICENSE)

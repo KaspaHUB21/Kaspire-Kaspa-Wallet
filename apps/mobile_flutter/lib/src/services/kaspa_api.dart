@@ -1009,6 +1009,86 @@ class KaspaApi {
     return jsonEncode(decoded);
   }
 
+  Future<void> verifyKcc20CellsOnOwnNode(
+    List<Kcc20CellRecord> cells,
+    String covenantId,
+  ) async {
+    final expectedCovenant = covenantId.toLowerCase();
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(expectedCovenant) ||
+        cells.isEmpty ||
+        cells.length > 2) {
+      throw KaspaApiException('Invalid KCC20 verification request.');
+    }
+    for (final cell in cells) {
+      final transaction = _map(await _get(
+        '/local-node/transactions/${Uri.encodeComponent(cell.transactionId)}',
+      ));
+      if (transaction['transaction_id']?.toString().toLowerCase() !=
+              cell.transactionId.toLowerCase() ||
+          transaction['is_accepted'] != true) {
+        throw KaspaApiException(
+          'The local Kaspa node did not confirm the KCC20 cell transaction.',
+        );
+      }
+      final outputs = (transaction['outputs'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => item.cast<String, Object?>());
+      Map<String, Object?>? output;
+      for (final candidate in outputs) {
+        if (_nullableInt(candidate['index']) == cell.index) {
+          output = candidate;
+          break;
+        }
+      }
+      final outputScript =
+          (output?['script_public_key'] ?? output?['scriptPublicKey'])
+              ?.toString()
+              .toLowerCase();
+      final outputAddress =
+          (output?['script_public_key_address'] ?? output?['address'])
+              ?.toString();
+      if (output == null ||
+          output['covenant_id']?.toString().toLowerCase() != expectedCovenant ||
+          cell.covenantId.toLowerCase() != expectedCovenant ||
+          _nullableInt(output['amount']) != cell.valueSompi ||
+          outputScript != cell.scriptPublicKey.toLowerCase() ||
+          outputAddress == null ||
+          outputAddress.isEmpty) {
+        throw KaspaApiException(
+          'The KCC20 indexer data conflicts with the local Kaspa node.',
+        );
+      }
+      final live = await _get(
+        '/local-node/addresses/${Uri.encodeComponent(outputAddress)}/utxos',
+      );
+      if (live is! List ||
+          !live.whereType<Map>().any((raw) {
+            final item = raw.cast<Object?, Object?>();
+            final outpoint = item['outpoint'];
+            final entry = item['utxoEntry'];
+            if (outpoint is! Map || entry is! Map) return false;
+            final script = entry['scriptPublicKey'];
+            final liveScript = script is Map
+                ? (script['scriptPublicKey'] ?? script['script_public_key'])
+                    ?.toString()
+                    .toLowerCase()
+                : script?.toString().toLowerCase();
+            return (outpoint['transactionId'] ?? outpoint['transaction_id'])
+                        ?.toString()
+                        .toLowerCase() ==
+                    cell.transactionId.toLowerCase() &&
+                _nullableInt(outpoint['index']) == cell.index &&
+                _nullableInt(entry['amount']) == cell.valueSompi &&
+                liveScript == cell.scriptPublicKey.toLowerCase() &&
+                entry['isCoinbase'] != true;
+          })) {
+        throw KaspaApiException(
+          'The local Kaspa node reports that this KCC20 cell is no longer spendable.',
+        );
+      }
+    }
+  }
+
   static void validateUtxos(List<Object?> decoded, String address) {
     final seen = <String>{};
     for (final raw in decoded) {

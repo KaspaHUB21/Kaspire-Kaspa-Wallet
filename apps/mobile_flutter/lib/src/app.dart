@@ -683,6 +683,7 @@ class _KasVaultAppState extends State<KasVaultApp> {
         'The approved wallet has no complete, verified KCC20 balance for this covenant.',
       );
     }
+    await api.verifyKcc20CellsOnOwnNode(token.kcc20Cells, covenantId);
     final fundingUtxos = await api.loadUtxos(address);
     final transfer = <String, Object?>{
       'sender': address,

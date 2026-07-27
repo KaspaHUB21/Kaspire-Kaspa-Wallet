@@ -119,12 +119,10 @@ class NativeSecurity {
   Future<String> _authorizeOperation({
     required String operation,
     required String binding,
-    required String reason,
   }) async {
     final token = await _channel.invokeMethod<String>('authorizeOperation', {
       'operation': operation,
       'binding': binding,
-      'reason': reason,
     });
     if (token == null) throw StateError('Authorization cancelled.');
     return token;
@@ -135,7 +133,6 @@ class NativeSecurity {
     final token = await _authorizeOperation(
       operation: 'exportPrivateKey',
       binding: binding,
-      reason: 'Reveal this wallet private key',
     );
     await _channel.invokeMethod<void>(
       'exportPrivateKey',
@@ -148,7 +145,6 @@ class NativeSecurity {
     final token = await _authorizeOperation(
       operation: 'exportRecoveryPhrase',
       binding: binding,
-      reason: 'Reveal this wallet recovery phrase',
     );
     await _channel.invokeMethod<void>(
       'exportRecoveryPhrase',
@@ -161,7 +157,6 @@ class NativeSecurity {
     final token = await _authorizeOperation(
       operation: 'exportEncryptedBackup',
       binding: binding,
-      reason: 'Export an encrypted wallet backup',
     );
     await _channel.invokeMethod<void>(
       'exportEncryptedBackup',
@@ -233,7 +228,6 @@ class NativeSecurity {
     final token = await _authorizeOperation(
       operation: 'deleteWallet',
       binding: walletId,
-      reason: 'Permanently delete this wallet',
     );
     await _channel.invokeMethod<void>(
       'deleteWallet',
@@ -253,7 +247,6 @@ class NativeSecurity {
     final token = await _authorizeOperation(
       operation: 'signPersonalMessage',
       binding: '$address\u0000$message',
-      reason: 'Sign the reviewed message',
     );
     final raw = await _channel.invokeMethod<String>('signPersonalMessage', {
       'address': address,
@@ -280,7 +273,6 @@ class NativeSecurity {
     final token = await _authorizeOperation(
       operation: 'signTransaction',
       binding: reviewHash,
-      reason: 'Sign the reviewed Kaspa transaction',
     );
     final raw = await _channel.invokeMethod<String>('signTransaction', {
       'request': jsonEncode(request),
@@ -306,7 +298,6 @@ class NativeSecurity {
     final token = await _authorizeOperation(
       operation: 'signKcc20Transfer',
       binding: reviewHash,
-      reason: 'Sign the reviewed KCC20 covenant transfer',
     );
     final raw = await _channel.invokeMethod<String>('signKcc20Transfer', {
       'request': jsonEncode(request),
@@ -335,7 +326,6 @@ class NativeSecurity {
     final token = await _authorizeOperation(
       operation: 'signReveal',
       binding: reviewHash,
-      reason: 'Sign the reviewed reveal transaction',
     );
     final raw = await _channel.invokeMethod<String>('signReveal', {
       'request': jsonEncode(request),

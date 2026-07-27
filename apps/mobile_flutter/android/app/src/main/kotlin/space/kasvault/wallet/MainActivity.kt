@@ -2,6 +2,8 @@ package space.kasvault.wallet
 
 import android.app.AlertDialog
 import android.app.Dialog
+import android.app.KeyguardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -52,10 +54,19 @@ class MainActivity : FlutterFragmentActivity() {
         val binding: String,
         val expiresAt: Long,
     )
+    private data class NativeReviewSummary(
+        val operation: String,
+        val text: String,
+        val expiresAt: Long,
+    )
 
     private val authorizationLock = Any()
     private val operationAuthorizations = mutableMapOf<String, OperationAuthorization>()
+    private val nativeReviewSummaries = mutableMapOf<String, NativeReviewSummary>()
     private val authorizationLifetimeMs = 20_000L
+    private val deviceCredentialRequestCode = 7109
+    private var pendingDeviceCredentialAuthorization:
+        Triple<String, String, MethodChannel.Result>? = null
     private val channelName = "space.kasvault/security"
     private val vaultAlias = "kaspire_secret_wrap_v4"
     private val preferencesName = "kaspire_native_v4"
@@ -110,7 +121,6 @@ class MainActivity : FlutterFragmentActivity() {
                     "authorizeOperation" -> authorizeOperation(
                         call.argument<String>("operation") ?: error("Missing operation"),
                         call.argument<String>("binding") ?: error("Missing operation binding"),
-                        call.argument<String>("reason") ?: "Authorize Kaspire",
                         result,
                     )
                     "verifyPin" -> verifyPinDialog(call.argument<String>("reason") ?: "Authorize Kaspire", result)
@@ -140,11 +150,19 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "prepareTransaction" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
-                        resultFromCore(SecureCore.prepareTransaction(request), result)
+                        resultPreparedFromCore(
+                            SecureCore.prepareTransaction(request),
+                            "signTransaction",
+                            result,
+                        )
                     }
                     "prepareKcc20Transfer" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
-                        resultFromCore(SecureCore.prepareKcc20Transfer(request), result)
+                        resultPreparedFromCore(
+                            SecureCore.prepareKcc20Transfer(request),
+                            "signKcc20Transfer",
+                            result,
+                        )
                     }
                     "prepareInscription" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
@@ -152,7 +170,11 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "prepareReveal" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
-                        resultFromCore(SecureCore.prepareReveal(request), result)
+                        resultPreparedFromCore(
+                            SecureCore.prepareReveal(request),
+                            "signReveal",
+                            result,
+                        )
                     }
                     "signReveal" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
@@ -880,6 +902,37 @@ class MainActivity : FlutterFragmentActivity() {
         result.success(json.toString())
     }
 
+    private fun resultPreparedFromCore(
+        raw: String,
+        operation: String,
+        result: MethodChannel.Result,
+    ) {
+        val json = parseCore(raw)
+        val reviewHash = json.getString("reviewHash")
+        val summary = when (operation) {
+            "signTransaction" ->
+                "Recipient ${json.getString("recipient")}\n" +
+                    "Amount ${json.getLong("amountSompi")} sompi · " +
+                    "Fee ${json.getLong("feeSompi")} sompi"
+            "signKcc20Transfer" ->
+                "Recipient ${json.getString("recipient")}\n" +
+                    "${json.getLong("amount")} raw ${json.getString("ticker")} · " +
+                    "Fee ${json.getLong("feeSompi")} sompi"
+            "signReveal" ->
+                "Recipient ${json.getString("recipient")}\n" +
+                    "${json.getString("kind").uppercase()} reveal · " +
+                    "Fee ${json.getLong("feeSompi")} sompi"
+            else -> error("Unsupported native review operation")
+        }
+        synchronized(authorizationLock) {
+            val now = System.currentTimeMillis()
+            nativeReviewSummaries.entries.removeIf { it.value.expiresAt <= now }
+            nativeReviewSummaries[reviewHash] =
+                NativeReviewSummary(operation, summary, now + 5 * 60_000L)
+        }
+        result.success(json.toString())
+    }
+
     private fun resultFromCoreArray(raw: String, result: MethodChannel.Result) {
         if (raw.trimStart().startsWith("{")) parseCore(raw)
         result.success(JSONArray(raw).toString())
@@ -1198,37 +1251,21 @@ class MainActivity : FlutterFragmentActivity() {
     private fun authorizeOperation(
         operation: String,
         binding: String,
-        reason: String,
         result: MethodChannel.Result,
     ) {
-        val allowed = setOf(
-            "signTransaction",
-            "signKcc20Transfer",
-            "signReveal",
-            "signPersonalMessage",
-            "exportPrivateKey",
-            "exportRecoveryPhrase",
-            "exportEncryptedBackup",
-            "deleteWallet",
-        )
-        if (operation !in allowed || binding.isEmpty() || binding.length > 16_384) {
+        val promptText = authorizationPrompt(operation, binding)
+        if (promptText == null || binding.isEmpty() || binding.length > 16_384) {
             result.error("INVALID_AUTHORIZATION", "Invalid operation authorization request", null)
             return
         }
-        val issue = {
-            val token = UUID.randomUUID().toString()
-            synchronized(authorizationLock) {
-                val now = System.currentTimeMillis()
-                operationAuthorizations.entries.removeIf { it.value.expiresAt <= now }
-                operationAuthorizations[token] =
-                    OperationAuthorization(operation, binding, now + authorizationLifetimeMs)
-            }
-            result.success(token)
-        }
         if (hasPin()) {
-            verifyPinDialog(reason, object : MethodChannel.Result {
+            verifyPinDialog(promptText, object : MethodChannel.Result {
                 override fun success(value: Any?) {
-                    if (value == true) issue() else result.success(null)
+                    if (value == true) {
+                        result.success(issueAuthorization(operation, binding))
+                    } else {
+                        result.success(null)
+                    }
                 }
                 override fun error(code: String, message: String?, details: Any?) =
                     result.error(code, message, details)
@@ -1236,17 +1273,16 @@ class MainActivity : FlutterFragmentActivity() {
             })
             return
         }
-        val authenticators =
+        val authenticators = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             BiometricManager.Authenticators.BIOMETRIC_STRONG or
                 BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        } else {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG
+        }
         if (BiometricManager.from(this).canAuthenticate(authenticators) !=
             BiometricManager.BIOMETRIC_SUCCESS
         ) {
-            result.error(
-                "AUTH_UNAVAILABLE",
-                "Configure a Kaspire PIN or secure Android lock screen first",
-                null,
-            )
+            authorizeWithDeviceCredential(operation, binding, promptText, result)
             return
         }
         val prompt = BiometricPrompt(
@@ -1255,7 +1291,7 @@ class MainActivity : FlutterFragmentActivity() {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(
                     authenticationResult: BiometricPrompt.AuthenticationResult,
-                ) = issue()
+                ) = result.success(issueAuthorization(operation, binding))
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     result.success(null)
@@ -1265,10 +1301,83 @@ class MainActivity : FlutterFragmentActivity() {
         prompt.authenticate(
             BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Authorize Kaspire")
-                .setSubtitle(reason.take(120))
+                .setSubtitle(promptText)
                 .setAllowedAuthenticators(authenticators)
                 .build(),
         )
+    }
+
+    private fun authorizationPrompt(operation: String, binding: String): String? = when (operation) {
+        "signTransaction", "signKcc20Transfer", "signReveal" ->
+            synchronized(authorizationLock) {
+                nativeReviewSummaries[binding]
+                    ?.takeIf {
+                        it.operation == operation &&
+                            it.expiresAt >= System.currentTimeMillis()
+                    }
+                    ?.text
+            }
+        "signPersonalMessage" -> "Sign the reviewed KIP-5 personal message"
+        "exportPrivateKey" -> "Reveal this wallet's private key"
+        "exportRecoveryPhrase" -> "Reveal this wallet's recovery phrase"
+        "exportEncryptedBackup" -> "Export this wallet as an encrypted backup"
+        "deleteWallet" -> "Permanently delete this wallet from the device"
+        else -> null
+    }
+
+    private fun issueAuthorization(operation: String, binding: String): String {
+        val token = UUID.randomUUID().toString()
+        synchronized(authorizationLock) {
+            val now = System.currentTimeMillis()
+            operationAuthorizations.entries.removeIf { it.value.expiresAt <= now }
+            operationAuthorizations[token] =
+                OperationAuthorization(operation, binding, now + authorizationLifetimeMs)
+        }
+        return token
+    }
+
+    private fun authorizeWithDeviceCredential(
+        operation: String,
+        binding: String,
+        promptText: String,
+        result: MethodChannel.Result,
+    ) {
+        val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        if (!keyguard.isDeviceSecure || pendingDeviceCredentialAuthorization != null) {
+            result.error(
+                "AUTH_UNAVAILABLE",
+                "Configure a Kaspire PIN or secure Android lock screen first",
+                null,
+            )
+            return
+        }
+        val intent = keyguard.createConfirmDeviceCredentialIntent(
+            "Authorize Kaspire",
+            promptText,
+        )
+        if (intent == null) {
+            result.error("AUTH_UNAVAILABLE", "Android device credential is unavailable", null)
+            return
+        }
+        pendingDeviceCredentialAuthorization = Triple(operation, binding, result)
+        startActivityForResult(intent, deviceCredentialRequestCode)
+    }
+
+    @Deprecated("Android activity-result compatibility path for API 26–29")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == deviceCredentialRequestCode) {
+            val pending = pendingDeviceCredentialAuthorization
+            pendingDeviceCredentialAuthorization = null
+            if (pending != null) {
+                if (resultCode == RESULT_OK) {
+                    pending.third.success(issueAuthorization(pending.first, pending.second))
+                } else {
+                    pending.third.success(null)
+                }
+            }
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     private fun requireAuthorization(
@@ -1290,6 +1399,11 @@ class MainActivity : FlutterFragmentActivity() {
             )
         ) {
             error("Operation authorization does not match this request")
+        }
+        if (operation in setOf("signTransaction", "signKcc20Transfer", "signReveal")) {
+            synchronized(authorizationLock) {
+                nativeReviewSummaries.remove(binding)
+            }
         }
     }
 

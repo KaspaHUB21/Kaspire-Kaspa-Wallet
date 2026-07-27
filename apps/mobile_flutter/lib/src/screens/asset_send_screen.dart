@@ -236,6 +236,10 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             throw StateError(
                 'Invalid amount, too many decimals, or insufficient token balance.');
           }
+          await _api.verifyKcc20CellsOnOwnNode(
+            token.kcc20Cells,
+            token.covenantId!,
+          );
           final fundingUtxos = await _api.loadUtxos(widget.address);
           final request = <String, Object?>{
             'sender': widget.address,
