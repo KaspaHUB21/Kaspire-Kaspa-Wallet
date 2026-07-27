@@ -26,8 +26,6 @@ tablets, and foldables.
   [docs/walletconnect_protocol/README.md](docs/walletconnect_protocol/README.md)
 - Security invariants:
   [docs/security_invariants/README.md](docs/security_invariants/README.md)
-- MASVS self-assessment:
-  [docs/MASVS_SELF_ASSESSMENT.md](docs/MASVS_SELF_ASSESSMENT.md)
 - Release verification and signing key:
   [docs/RELEASE_VERIFICATION.md](docs/RELEASE_VERIFICATION.md)
 
@@ -471,7 +469,6 @@ crates/kaspa_secure_core/        Native wallet and signing core
 crates/silverscript_lang/        Vendored SilverScript compiler
 docs/security_invariants/        Release-blocking security rules
 docs/walletconnect_protocol/     Kaspire WalletConnect protocol
-docs/MASVS_SELF_ASSESSMENT.md    Engineering MASVS assessment
 fdroid/                          Candidate F-Droid metadata
 fastlane/                        Store text and screenshots
 ops/kaspa-api/                   Pruned-node gateway deployment
@@ -599,11 +596,7 @@ The full guide is at:
 
 # Security and responsible use
 
-The MASVS document is an engineering self-assessment, not an independent audit
-or certification. Review:
-
 - [Security invariants](docs/security_invariants/README.md)
-- [MASVS self-assessment](docs/MASVS_SELF_ASSESSMENT.md)
 - [Security deep dive](https://kaspire.kaslab.space/security/inside-kaspire)
 
 Begin Mainnet testing with the smallest practical amount sent between addresses

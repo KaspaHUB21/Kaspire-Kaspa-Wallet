@@ -47,5 +47,4 @@
   run in CI/local unit tests.
 - [x] Add initial replay and manipulated-RPC fail-closed tests.
 - [ ] Add a complete phishing suite and two-endpoint inconsistency harness.
-- [x] Document an initial OWASP MASVS engineering self-assessment.
 - [ ] Complete an independent OWASP MASVS review and wallet audit before production funds.
