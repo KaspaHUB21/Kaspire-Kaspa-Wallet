@@ -1,4 +1,4 @@
-use crate::{derive_address, derive_key, CoreError, Result};
+use crate::{CoreError, Result, derive_address, derive_key};
 use kaspa_addresses::Address;
 use kaspa_consensus_core::{
     hashing::sighash_type::SIG_HASH_ALL,
@@ -20,7 +20,7 @@ use kaspa_txscript::{
     script_builder::ScriptBuilder,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{collections::HashSet, str::FromStr};
 
@@ -609,6 +609,12 @@ fn build_vault_heartbeat(request: &PolicyTransactionRequest) -> Result<BuiltPoli
             .unwrap_or(0)
             .try_into()
             .map_err(|_| CoreError::InvalidRequest("compute budget exceeds u16".into()))?;
+        let expected_compute_budget = if index == 0 { 1000 } else { 10 };
+        if compute_budget != expected_compute_budget {
+            return Err(CoreError::InvalidRequest(
+                "heartbeat input compute budget does not match policy".into(),
+            ));
+        }
         inputs.push(TransactionInput::new_with_compute_budget(
             TransactionOutpoint::new(txid, output_index),
             vec![],
@@ -781,7 +787,7 @@ mod tests {
                  "utxo":{"amount":"200000000","scriptPublicKey":script_json(&vault_script),
                     "blockDaaScore":"100","isCoinbase":false}},
                 {"transactionId":"22".repeat(32),"index":1,"sequence":"0",
-                 "sigOpCount":0,"computeBudget":0,"signatureScript":"",
+                 "sigOpCount":0,"computeBudget": 10,"signatureScript":"",
                  "utxo":{"amount":"10000000","scriptPublicKey":script_json(&owner_script),
                     "blockDaaScore":"100","isCoinbase":false}}
             ],
@@ -815,12 +821,14 @@ mod tests {
         let redeem = expected_vault_redeem_script(&payload, &sender, "create").unwrap();
         payload["redeemScript"] = json!(hex::encode(&redeem));
         let vault_script = pay_to_script_hash_script(&redeem);
-        payload["vaultAddress"] = json!(kaspa_txscript::extract_script_pub_key_address(
-            &vault_script,
-            kaspa_addresses::Prefix::Mainnet
-        )
-        .unwrap()
-        .to_string());
+        payload["vaultAddress"] = json!(
+            kaspa_txscript::extract_script_pub_key_address(
+                &vault_script,
+                kaspa_addresses::Prefix::Mainnet
+            )
+            .unwrap()
+            .to_string()
+        );
         let safe = json!({
             "version":0,
             "inputs":[{
@@ -857,14 +865,18 @@ mod tests {
         ));
         let signed = sign_policy_transaction(secret, &request, &prepared.review_hash).unwrap();
         let value: Value = serde_json::from_str(&signed.signed_tx_json).unwrap();
-        assert!(!value["inputs"][0]["signatureScript"]
-            .as_str()
-            .unwrap()
-            .is_empty());
-        assert!(!value["inputs"][1]["signatureScript"]
-            .as_str()
-            .unwrap()
-            .is_empty());
+        assert!(
+            !value["inputs"][0]["signatureScript"]
+                .as_str()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !value["inputs"][1]["signatureScript"]
+                .as_str()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
