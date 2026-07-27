@@ -1258,22 +1258,13 @@ class MainActivity : FlutterFragmentActivity() {
             result.error("INVALID_AUTHORIZATION", "Invalid operation authorization request", null)
             return
         }
-        if (hasPin()) {
-            verifyPinDialog(promptText, object : MethodChannel.Result {
-                override fun success(value: Any?) {
-                    if (value == true) {
-                        result.success(issueAuthorization(operation, binding))
-                    } else {
-                        result.success(null)
-                    }
-                }
-                override fun error(code: String, message: String?, details: Any?) =
-                    result.error(code, message, details)
-                override fun notImplemented() = result.notImplemented()
-            })
-            return
-        }
-        val authenticators = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val pinAvailable = hasPin()
+        val authenticators = if (pinAvailable) {
+            // A custom negative button cannot be combined with DEVICE_CREDENTIAL.
+            // Prefer biometrics and expose the independently rate-limited Kaspire
+            // PIN as the explicit fallback instead.
+            BiometricManager.Authenticators.BIOMETRIC_STRONG
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             BiometricManager.Authenticators.BIOMETRIC_STRONG or
                 BiometricManager.Authenticators.DEVICE_CREDENTIAL
         } else {
@@ -1282,7 +1273,11 @@ class MainActivity : FlutterFragmentActivity() {
         if (BiometricManager.from(this).canAuthenticate(authenticators) !=
             BiometricManager.BIOMETRIC_SUCCESS
         ) {
-            authorizeWithDeviceCredential(operation, binding, promptText, result)
+            if (pinAvailable) {
+                authorizeWithKaspirePin(operation, binding, promptText, result)
+            } else {
+                authorizeWithDeviceCredential(operation, binding, promptText, result)
+            }
             return
         }
         val prompt = BiometricPrompt(
@@ -1294,17 +1289,52 @@ class MainActivity : FlutterFragmentActivity() {
                 ) = result.success(issueAuthorization(operation, binding))
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    result.success(null)
+                    if (pinAvailable &&
+                        errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON
+                    ) {
+                        authorizeWithKaspirePin(
+                            operation,
+                            binding,
+                            promptText,
+                            result,
+                        )
+                    } else {
+                        result.success(null)
+                    }
                 }
             },
         )
-        prompt.authenticate(
-            BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Authorize Kaspire")
-                .setSubtitle(promptText)
-                .setAllowedAuthenticators(authenticators)
-                .build(),
-        )
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Authorize Kaspire")
+            .setSubtitle(promptText)
+            .setAllowedAuthenticators(authenticators)
+            .apply {
+                if (pinAvailable) setNegativeButtonText("Use Kaspire PIN")
+            }
+            .build()
+        prompt.authenticate(promptInfo)
+    }
+
+    private fun authorizeWithKaspirePin(
+        operation: String,
+        binding: String,
+        promptText: String,
+        result: MethodChannel.Result,
+    ) {
+        verifyPinDialog(promptText, object : MethodChannel.Result {
+            override fun success(value: Any?) {
+                if (value == true) {
+                    result.success(issueAuthorization(operation, binding))
+                } else {
+                    result.success(null)
+                }
+            }
+
+            override fun error(code: String, message: String?, details: Any?) =
+                result.error(code, message, details)
+
+            override fun notImplemented() = result.notImplemented()
+        })
     }
 
     private fun authorizationPrompt(operation: String, binding: String): String? = when (operation) {
