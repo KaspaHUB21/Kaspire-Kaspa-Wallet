@@ -75,6 +75,7 @@ class WalletAsset {
 
 class Kcc20CellRecord {
   const Kcc20CellRecord({
+    required this.covenantId,
     required this.transactionId,
     required this.index,
     required this.valueSompi,
@@ -84,6 +85,7 @@ class Kcc20CellRecord {
     this.isMinter = false,
   });
 
+  final String covenantId;
   final String transactionId;
   final int index;
   final int valueSompi;
@@ -93,6 +95,7 @@ class Kcc20CellRecord {
   final bool isMinter;
 
   Map<String, Object?> toJson() => {
+        'covenantId': covenantId,
         'transactionId': transactionId,
         'index': index,
         'valueSompi': valueSompi,

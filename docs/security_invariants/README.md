@@ -4,12 +4,12 @@ These requirements are release blockers, not recommendations.
 
 1. Mnemonics and derived private keys never enter Dart, JavaScript, WebViews, logs, crash reports, clipboard, analytics or backups.
 2. Android Keystore/StrongBox protects the AES-256-GCM wrapping key. The Kaspa seed exists decrypted only in zeroizing Rust memory during an authorized operation.
-3. Every value-moving action requires fresh biometric or Kaspire PIN approval. Session connection approval never authorizes a later transaction.
+3. Every sign, secret export and wallet deletion requires fresh native biometric/device-credential or Kaspire PIN approval. Kotlin binds the resulting random, one-use, 20-second capability to the exact operation and review hash/message/wallet and atomically consumes it before the operation. Session connection approval never authorizes a later transaction.
 4. The signer accepts only a fully decoded transaction whose network, inputs, outputs, change, fee, payload, scripts and Toccata fields were rendered for confirmation.
 5. Unknown covenants, payloads, scripts, unresolved inputs, wrong network, stale requests and replayed requests are rejected.
 6. Deep links may carry only a short-lived, one-use WalletConnect pairing URI. Pairing URIs are redacted and never persisted.
 7. WalletConnect results return through the encrypted session, never through a callback URL.
-8. RPC responses are untrusted. Every returned UTXO must match the sender script and the native core must independently reconstruct all outputs, fees and mass before signing. Redundant endpoint comparison remains a production-release blocker.
+8. RPC and indexer responses are untrusted. Every returned UTXO must match the sender script, every KCC20 cell must carry the exact reviewed covenant ID and compiled owner/state script, and the native core must independently reconstruct all outputs, fees and mass before signing. Redundant endpoint comparison remains a production-release blocker.
 9. Signing-core dependencies are reproducibly locked; no OTA update may replace signing code.
 10. Until the signer passes differential, fuzz, replay, manipulated-RPC and MASVS testing, the public API must fail closed.
 11. Every signing request is matched to the encrypted wallet that controls its sender address; switching the visible wallet must never select a different key implicitly.

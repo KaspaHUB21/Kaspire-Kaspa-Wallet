@@ -1,12 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kasvault_wallet/src/models/wallet_snapshot.dart';
 import 'package:kasvault_wallet/src/services/activity_store.dart';
+import 'package:kasvault_wallet/src/services/encrypted_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test('persists completed KRC-721 and KNS activity per wallet', () async {
     SharedPreferences.setMockInitialValues({});
-    final store = ActivityStore();
+    final store = ActivityStore(encryptedStore: _MemoryEncryptedStore());
     await store.recordAssetTransfer(
       wallet: 'kaspa:qwallet-one',
       operation: const {
@@ -39,7 +40,7 @@ void main() {
 
   test('keeps KAS and KCC20 activity from the same transaction', () async {
     SharedPreferences.setMockInitialValues({});
-    final store = ActivityStore();
+    final store = ActivityStore(encryptedStore: _MemoryEncryptedStore());
     final timestamp = DateTime.utc(2026, 7, 24);
     await store.recordKasTransfer(
       wallet: 'kaspa:qwallet',
@@ -82,4 +83,14 @@ void main() {
       1200,
     );
   });
+}
+
+class _MemoryEncryptedStore implements EncryptedStore {
+  final values = <String, String>{};
+  @override
+  Future<void> delete(String key) async => values.remove(key);
+  @override
+  Future<String?> read(String key) async => values[key];
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
 }

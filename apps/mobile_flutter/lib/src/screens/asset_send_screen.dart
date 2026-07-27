@@ -314,10 +314,6 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
       _status = 'Authorizing KCC20 covenant transfer…';
     });
     try {
-      if (!await _security.authenticate(
-          context, 'Authorize verified KCC20 covenant transfer')) {
-        throw StateError('Authorization cancelled.');
-      }
       final signed = await _security.signKcc20Transfer(
         request,
         review['reviewHash']! as String,
@@ -377,10 +373,6 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
       _status = 'Authorizing commit transaction…';
     });
     try {
-      if (!await _security.authenticate(
-          context, 'Authorize ${_label(operation)} transfer commit')) {
-        throw StateError('Authorization cancelled.');
-      }
       final signed = await _signer.sign(commit);
       await _api.broadcast(signed.submitJson);
       final pending = <String, Object?>{
@@ -453,11 +445,6 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             _status = 'Commit found. Authorize the final reveal transaction…');
       }
       if (!mounted) return;
-      if (!await _security.authenticate(
-          context, 'Authorize final asset transfer reveal')) {
-        throw StateError(
-            'Reveal authorization cancelled. The saved commit can be resumed.');
-      }
       final signed = await _security.signReveal(
           revealRequest, review['reviewHash']! as String);
       await _api.broadcast(signed['submitJson']! as String);
@@ -506,16 +493,6 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         });
       }
     }
-  }
-
-  String _label(Map operation) {
-    if (operation['kind'] == 'krc20') {
-      return '${formatEnglishDecimal(operation['displayAmount'].toString())} ${operation['ticker']}';
-    }
-    if (operation['kind'] == 'krc721') {
-      return '${operation['ticker']} #${operation['tokenId']}';
-    }
-    return operation['domainName']?.toString() ?? 'KNS domain';
   }
 
   String _assetBalance(WalletAsset asset) {

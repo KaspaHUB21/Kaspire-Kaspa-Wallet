@@ -1,7 +1,13 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
+import 'encrypted_store.dart';
+
 class PreferencesService {
+  PreferencesService({EncryptedStore? encryptedStore})
+      : _encryptedStore = encryptedStore ?? const KeystoreEncryptedStore();
+
+  final EncryptedStore _encryptedStore;
   static const _addressKey = 'watch_address_v1';
   static const _watchWalletsKey = 'watch_wallets_v2';
   static const _addressBookKey = 'address_book_v1';
@@ -22,7 +28,7 @@ class PreferencesService {
 
   Future<List<WatchWalletInfo>> getWatchWallets() async {
     final raw =
-        (await SharedPreferences.getInstance()).getString(_watchWalletsKey);
+        await readWithPlaintextMigration(_encryptedStore, _watchWalletsKey);
     if (raw == null) return [];
     try {
       return (jsonDecode(raw) as List)
@@ -35,7 +41,6 @@ class PreferencesService {
   }
 
   Future<void> addWatchWallet(String address, {String? name}) async {
-    final prefs = await SharedPreferences.getInstance();
     final wallets = await getWatchWallets();
     if (wallets.any((wallet) => wallet.address == address)) return;
     wallets.add(WatchWalletInfo(
@@ -43,17 +48,16 @@ class PreferencesService {
       address: address,
       name: name ?? 'Watch wallet ${wallets.length + 1}',
     ));
-    await prefs.setString(
+    await _encryptedStore.write(
       _watchWalletsKey,
       jsonEncode(wallets.map((wallet) => wallet.toJson()).toList()),
     );
   }
 
   Future<void> removeWatchWallet(String id) async {
-    final prefs = await SharedPreferences.getInstance();
     final wallets = (await getWatchWallets())
       ..removeWhere((wallet) => wallet.id == id);
-    await prefs.setString(
+    await _encryptedStore.write(
       _watchWalletsKey,
       jsonEncode(wallets.map((wallet) => wallet.toJson()).toList()),
     );
@@ -64,7 +68,6 @@ class PreferencesService {
     if (normalized.isEmpty || normalized.length > 40) {
       throw ArgumentError('Wallet name must contain 1 to 40 characters.');
     }
-    final prefs = await SharedPreferences.getInstance();
     final wallets = await getWatchWallets();
     final index = wallets.indexWhere((wallet) => wallet.id == id);
     if (index < 0) throw StateError('Watch wallet not found.');
@@ -73,7 +76,7 @@ class PreferencesService {
       address: wallets[index].address,
       name: normalized,
     );
-    await prefs.setString(
+    await _encryptedStore.write(
       _watchWalletsKey,
       jsonEncode(wallets.map((wallet) => wallet.toJson()).toList()),
     );
@@ -81,7 +84,7 @@ class PreferencesService {
 
   Future<List<AddressBookEntry>> getAddressBook() async {
     final raw =
-        (await SharedPreferences.getInstance()).getString(_addressBookKey);
+        await readWithPlaintextMigration(_encryptedStore, _addressBookKey);
     if (raw == null) return [];
     try {
       return (jsonDecode(raw) as List)
@@ -96,7 +99,6 @@ class PreferencesService {
   }
 
   Future<void> saveAddressBookEntry(AddressBookEntry entry) async {
-    final prefs = await SharedPreferences.getInstance();
     final entries = await getAddressBook();
     entries.removeWhere((item) =>
         item.id == entry.id ||
@@ -104,17 +106,16 @@ class PreferencesService {
     entries.add(entry);
     entries
         .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    await prefs.setString(
+    await _encryptedStore.write(
       _addressBookKey,
       jsonEncode(entries.map((item) => item.toJson()).toList()),
     );
   }
 
   Future<void> removeAddressBookEntry(String id) async {
-    final prefs = await SharedPreferences.getInstance();
     final entries = (await getAddressBook())
       ..removeWhere((item) => item.id == id);
-    await prefs.setString(
+    await _encryptedStore.write(
       _addressBookKey,
       jsonEncode(entries.map((item) => item.toJson()).toList()),
     );

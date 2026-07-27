@@ -26,6 +26,9 @@ import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -44,6 +47,15 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 class MainActivity : FlutterFragmentActivity() {
+    private data class OperationAuthorization(
+        val operation: String,
+        val binding: String,
+        val expiresAt: Long,
+    )
+
+    private val authorizationLock = Any()
+    private val operationAuthorizations = mutableMapOf<String, OperationAuthorization>()
+    private val authorizationLifetimeMs = 20_000L
     private val channelName = "space.kasvault/security"
     private val vaultAlias = "kaspire_secret_wrap_v4"
     private val preferencesName = "kaspire_native_v4"
@@ -95,18 +107,35 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(null)
                     }
                     "hasPin" -> result.success(hasPin())
+                    "authorizeOperation" -> authorizeOperation(
+                        call.argument<String>("operation") ?: error("Missing operation"),
+                        call.argument<String>("binding") ?: error("Missing operation binding"),
+                        call.argument<String>("reason") ?: "Authorize Kaspire",
+                        result,
+                    )
                     "verifyPin" -> verifyPinDialog(call.argument<String>("reason") ?: "Authorize Kaspire", result)
                     "configurePin" -> configurePinDialog(result)
                     "removePin" -> { clearPin(); result.success(null) }
                     "createWallet" -> createWallet(result)
                     "importWallet" -> importWallet(result)
                     "importPrivateKey" -> importPrivateKey(result)
-                    "exportPrivateKey" -> exportPrivateKey(result)
-                    "exportRecoveryPhrase" -> exportRecoveryPhrase(result)
-                    "exportEncryptedBackup" -> exportEncryptedBackup(result)
+                    "exportPrivateKey" -> {
+                        requireAuthorization(call, "exportPrivateKey", activeWalletAddress() ?: "")
+                        exportPrivateKey(result)
+                    }
+                    "exportRecoveryPhrase" -> {
+                        requireAuthorization(call, "exportRecoveryPhrase", activeWalletAddress() ?: "")
+                        exportRecoveryPhrase(result)
+                    }
+                    "exportEncryptedBackup" -> {
+                        requireAuthorization(call, "exportEncryptedBackup", activeWalletAddress() ?: "")
+                        exportEncryptedBackup(result)
+                    }
                     "restoreEncryptedBackup" -> restoreEncryptedBackup(result)
                     "deleteWallet" -> {
-                        deleteWallet(call.argument<String>("walletId"))
+                        val walletId = call.argument<String>("walletId") ?: activeWalletId()
+                        requireAuthorization(call, "deleteWallet", walletId ?: "")
+                        deleteWallet(walletId)
                         result.success(null)
                     }
                     "prepareTransaction" -> {
@@ -128,6 +157,7 @@ class MainActivity : FlutterFragmentActivity() {
                     "signReveal" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
+                        requireAuthorization(call, "signReveal", reviewHash)
                         val sender = JSONObject(request).getJSONObject("operation").getString("sender")
                         val secret = decryptSecret(sender)
                         resultFromCore(SecureCore.signReveal(secret, request, reviewHash), result)
@@ -135,6 +165,7 @@ class MainActivity : FlutterFragmentActivity() {
                     "signTransaction" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
+                        requireAuthorization(call, "signTransaction", reviewHash)
                         val secret = decryptSecret(JSONObject(request).getString("sender"))
                         try {
                             resultFromCore(SecureCore.signTransaction(secret, request, reviewHash), result)
@@ -146,12 +177,14 @@ class MainActivity : FlutterFragmentActivity() {
                     "signKcc20Transfer" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
+                        requireAuthorization(call, "signKcc20Transfer", reviewHash)
                         val secret = decryptSecret(JSONObject(request).getString("sender"))
                         resultFromCore(SecureCore.signKcc20Transfer(secret, request, reviewHash), result)
                     }
                     "signPersonalMessage" -> {
                         val address = call.argument<String>("address") ?: error("Missing address")
                         val message = call.argument<String>("message") ?: error("Missing message")
+                        requireAuthorization(call, "signPersonalMessage", "$address\u0000$message")
                         val secret = decryptSecret(address)
                         resultFromCore(SecureCore.signPersonalMessage(secret, address, message), result)
                     }
@@ -1160,6 +1193,104 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
         dialog.show()
+    }
+
+    private fun authorizeOperation(
+        operation: String,
+        binding: String,
+        reason: String,
+        result: MethodChannel.Result,
+    ) {
+        val allowed = setOf(
+            "signTransaction",
+            "signKcc20Transfer",
+            "signReveal",
+            "signPersonalMessage",
+            "exportPrivateKey",
+            "exportRecoveryPhrase",
+            "exportEncryptedBackup",
+            "deleteWallet",
+        )
+        if (operation !in allowed || binding.isEmpty() || binding.length > 16_384) {
+            result.error("INVALID_AUTHORIZATION", "Invalid operation authorization request", null)
+            return
+        }
+        val issue = {
+            val token = UUID.randomUUID().toString()
+            synchronized(authorizationLock) {
+                val now = System.currentTimeMillis()
+                operationAuthorizations.entries.removeIf { it.value.expiresAt <= now }
+                operationAuthorizations[token] =
+                    OperationAuthorization(operation, binding, now + authorizationLifetimeMs)
+            }
+            result.success(token)
+        }
+        if (hasPin()) {
+            verifyPinDialog(reason, object : MethodChannel.Result {
+                override fun success(value: Any?) {
+                    if (value == true) issue() else result.success(null)
+                }
+                override fun error(code: String, message: String?, details: Any?) =
+                    result.error(code, message, details)
+                override fun notImplemented() = result.notImplemented()
+            })
+            return
+        }
+        val authenticators =
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        if (BiometricManager.from(this).canAuthenticate(authenticators) !=
+            BiometricManager.BIOMETRIC_SUCCESS
+        ) {
+            result.error(
+                "AUTH_UNAVAILABLE",
+                "Configure a Kaspire PIN or secure Android lock screen first",
+                null,
+            )
+            return
+        }
+        val prompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(
+                    authenticationResult: BiometricPrompt.AuthenticationResult,
+                ) = issue()
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    result.success(null)
+                }
+            },
+        )
+        prompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Authorize Kaspire")
+                .setSubtitle(reason.take(120))
+                .setAllowedAuthenticators(authenticators)
+                .build(),
+        )
+    }
+
+    private fun requireAuthorization(
+        call: io.flutter.plugin.common.MethodCall,
+        operation: String,
+        binding: String,
+    ) {
+        val token = call.argument<String>("authorizationToken")
+            ?: error("Missing operation authorization")
+        val authorization = synchronized(authorizationLock) {
+            operationAuthorizations.remove(token)
+        } ?: error("Invalid or already consumed operation authorization")
+        if (
+            authorization.expiresAt < System.currentTimeMillis() ||
+            authorization.operation != operation ||
+            !MessageDigest.isEqual(
+                authorization.binding.toByteArray(Charsets.UTF_8),
+                binding.toByteArray(Charsets.UTF_8),
+            )
+        ) {
+            error("Operation authorization does not match this request")
+        }
     }
 
     private fun verifyPinDialog(reason: String, result: MethodChannel.Result) {

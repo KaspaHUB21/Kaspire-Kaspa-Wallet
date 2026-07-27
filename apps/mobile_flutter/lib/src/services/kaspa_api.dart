@@ -356,6 +356,7 @@ class KaspaApi {
           continue;
         }
         cells.add(Kcc20CellRecord(
+          covenantId: covenantId,
           transactionId: txid,
           index: index,
           valueSompi: _asInt(item['value']),
@@ -619,6 +620,7 @@ class KaspaApi {
           .toString();
       if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(script)) continue;
       cells.add(Kcc20CellRecord(
+        covenantId: covenantId,
         transactionId: txid,
         index: index,
         valueSompi: _asInt(item['value'] ?? item['amount']),

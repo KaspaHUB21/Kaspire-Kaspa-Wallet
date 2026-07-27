@@ -182,13 +182,6 @@ class _KasSendPanelState extends State<_KasSendPanel> {
       );
       if (approved != true) return;
       if (!mounted) return;
-      final authenticated = await _security.authenticate(
-        context,
-        'Authorize ${formatEnglishNumber(prepared.amountKas)} KAS payment',
-      );
-      if (!authenticated) {
-        throw StateError('Biometric authorization was cancelled.');
-      }
       final signed = await _signer.sign(prepared);
       trackedTransactionId = signed.transactionId;
       await ActivityStore().recordKasTransfer(

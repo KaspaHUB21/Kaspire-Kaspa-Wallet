@@ -1,16 +1,18 @@
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../models/wallet_snapshot.dart';
+import 'encrypted_store.dart';
 
 class ActivityStore {
+  ActivityStore({EncryptedStore? encryptedStore})
+      : _encryptedStore = encryptedStore ?? const KeystoreEncryptedStore();
+
+  final EncryptedStore _encryptedStore;
   static const _key = 'kaspire_asset_activity_v1';
   static const _maxEntries = 200;
 
   Future<List<WalletTransaction>> load(String address) async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
+    final raw = await readWithPlaintextMigration(_encryptedStore, _key);
     if (raw == null) return const [];
     try {
       return (jsonDecode(raw) as List)
@@ -30,10 +32,12 @@ class ActivityStore {
     required String transactionId,
     required DateTime timestamp,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
     List<Object?> entries;
     try {
-      entries = (jsonDecode(prefs.getString(_key) ?? '[]') as List).toList();
+      entries = (jsonDecode(
+        await readWithPlaintextMigration(_encryptedStore, _key) ?? '[]',
+      ) as List)
+          .toList();
     } catch (_) {
       entries = [];
     }
@@ -62,7 +66,7 @@ class ActivityStore {
     };
     entries.removeWhere((item) => item is Map && _sameEntry(item, value));
     entries.insert(0, value);
-    await prefs.setString(
+    await _encryptedStore.write(
       _key,
       jsonEncode(entries.take(_maxEntries).toList()),
     );
@@ -93,10 +97,12 @@ class ActivityStore {
     String transactionId,
     TransactionStatus status,
   ) async {
-    final prefs = await SharedPreferences.getInstance();
     List<Object?> entries;
     try {
-      entries = (jsonDecode(prefs.getString(_key) ?? '[]') as List).toList();
+      entries = (jsonDecode(
+        await readWithPlaintextMigration(_encryptedStore, _key) ?? '[]',
+      ) as List)
+          .toList();
     } catch (_) {
       return;
     }
@@ -107,20 +113,22 @@ class ActivityStore {
         changed = true;
       }
     }
-    if (changed) await prefs.setString(_key, jsonEncode(entries));
+    if (changed) await _encryptedStore.write(_key, jsonEncode(entries));
   }
 
   Future<void> _upsert(Map<String, Object?> value) async {
-    final prefs = await SharedPreferences.getInstance();
     List<Object?> entries;
     try {
-      entries = (jsonDecode(prefs.getString(_key) ?? '[]') as List).toList();
+      entries = (jsonDecode(
+        await readWithPlaintextMigration(_encryptedStore, _key) ?? '[]',
+      ) as List)
+          .toList();
     } catch (_) {
       entries = [];
     }
     entries.removeWhere((item) => item is Map && _sameEntry(item, value));
     entries.insert(0, value);
-    await prefs.setString(
+    await _encryptedStore.write(
       _key,
       jsonEncode(entries.take(_maxEntries).toList()),
     );

@@ -313,9 +313,7 @@ class _KasVaultAppState extends State<KasVaultApp> {
       await _dapps.respondError(request, 'User rejected.', code: 4001);
       return;
     }
-    if (!context.mounted ||
-        !await _security.authenticate(
-            context, 'Authorize KIP-5 message signature')) {
+    if (!context.mounted) {
       await _dapps.respondError(request, 'User rejected.', code: 4001);
       return;
     }
@@ -408,11 +406,7 @@ class _KasVaultAppState extends State<KasVaultApp> {
       await _dapps.respondError(request, 'User rejected.', code: 4001);
       return;
     }
-    if (!context.mounted ||
-        !await _security.authenticate(
-          context,
-          'Authorize ${formatEnglishNumber(payment.amountKas)} KAS dApp payment',
-        )) {
+    if (!context.mounted) {
       await _dapps.respondError(request, 'User rejected.', code: 4001);
       return;
     }
@@ -548,12 +542,7 @@ class _KasVaultAppState extends State<KasVaultApp> {
         ],
       ),
     );
-    if (approved != true ||
-        !context.mounted ||
-        !await _security.authenticate(
-          context,
-          'Authorize $displayAmount $ticker commit',
-        )) {
+    if (approved != true || !context.mounted) {
       await _dapps.respondError(request, 'User rejected.', code: 4001);
       return;
     }
@@ -614,11 +603,7 @@ class _KasVaultAppState extends State<KasVaultApp> {
         'feeRate': await api.loadFeeRate(),
       };
       final reveal = await _security.prepareReveal(revealRequest);
-      if (!context.mounted ||
-          !await _security.authenticate(
-            context,
-            'Authorize final $displayAmount $ticker reveal',
-          )) {
+      if (!context.mounted) {
         throw const FormatException(
           'Reveal approval cancelled. Resume it from Kaspire.',
         );
@@ -787,12 +772,7 @@ class _KasVaultAppState extends State<KasVaultApp> {
         ],
       ),
     );
-    if (approved != true ||
-        !context.mounted ||
-        !await _security.authenticate(
-          context,
-          'Authorize $displayAmount ${token.symbol} KCC20 transfer',
-        )) {
+    if (approved != true || !context.mounted) {
       await _dapps.respondError(request, 'User rejected.', code: 4001);
       return;
     }

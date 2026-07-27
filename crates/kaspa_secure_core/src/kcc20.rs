@@ -51,6 +51,7 @@ const STORAGE_LIMIT_SAFETY_PERCENT: u64 = 85;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Kcc20Cell {
+    pub covenant_id: String,
     pub transaction_id: String,
     pub index: u32,
     pub value_sompi: u64,
@@ -552,7 +553,13 @@ fn validate_cell(cell: &Kcc20Cell, owner: &[u8; 32], covenant_id: Hash) -> Resul
             "KCC20 state does not match its live output script".into(),
         ));
     }
-    let _ = covenant_id;
+    let cell_covenant_id = Hash::from_str(&cell.covenant_id)
+        .map_err(|_| CoreError::UntrustedUtxo("invalid KCC20 cell covenant ID".into()))?;
+    if cell_covenant_id != covenant_id {
+        return Err(CoreError::UntrustedUtxo(
+            "KCC20 cell belongs to a different covenant".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -1093,6 +1100,9 @@ mod tests {
             fee_rate: 100.0,
             template_hash: kcc20_template_hash().unwrap(),
             cells: vec![Kcc20Cell {
+                covenant_id:
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .into(),
                 transaction_id:
                     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                         .into(),
@@ -1306,6 +1316,7 @@ mod tests {
             );
             let normal_change = built.transaction.outputs.last().unwrap().value;
             request.cells = vec![Kcc20Cell {
+                covenant_id: request.covenant_id.clone(),
                 transaction_id: built.transaction.id().to_string(),
                 index: 1,
                 value_sompi: sender_change.value,
@@ -1322,6 +1333,9 @@ mod tests {
     fn selection_can_consolidate_when_it_lowers_storage_mass() {
         let cells = vec![
             Kcc20Cell {
+                covenant_id:
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .into(),
                 transaction_id: "1111111111111111111111111111111111111111111111111111111111111111"
                     .into(),
                 index: 0,
@@ -1332,6 +1346,9 @@ mod tests {
                 is_minter: false,
             },
             Kcc20Cell {
+                covenant_id:
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .into(),
                 transaction_id: "2222222222222222222222222222222222222222222222222222222222222222"
                     .into(),
                 index: 0,
@@ -1368,6 +1385,7 @@ mod tests {
             fee_rate: 100.0,
             template_hash: kcc20_template_hash().unwrap(),
             cells: vec![Kcc20Cell {
+                covenant_id: covenant_id.into(),
                 transaction_id:
                     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                         .into(),
@@ -1419,6 +1437,15 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_cell_attributed_to_another_covenant() {
+        let mut request = test_request(400, 1_000, 50_000_000);
+        request.cells[0].covenant_id =
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".into();
+        let error = prepare_kcc20_transfer(&request).unwrap_err();
+        assert!(error.to_string().contains("different covenant"));
+    }
+
+    #[test]
     fn signs_and_simulates_a_two_cell_transfer() {
         let secret = "private:0000000000000000000000000000000000000000000000000000000000000001";
         let mut request = test_request(500, 1_000, 10_000_000);
@@ -1426,6 +1453,7 @@ mod tests {
         let owner = address_pubkey(&sender).unwrap();
         let second_contract = compile_state(&owner, 2_000, false).unwrap();
         request.cells.push(Kcc20Cell {
+            covenant_id: request.covenant_id.clone(),
             transaction_id: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
                 .into(),
             index: 0,

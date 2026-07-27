@@ -1,11 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kasvault_wallet/src/services/encrypted_store.dart';
 import 'package:kasvault_wallet/src/services/preferences_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test('stores multiple watch wallets without duplicates', () async {
     SharedPreferences.setMockInitialValues({});
-    final preferences = PreferencesService();
+    final preferences =
+        PreferencesService(encryptedStore: _MemoryEncryptedStore());
 
     await preferences.addWatchWallet('kaspa:qfirst');
     await preferences.addWatchWallet('kaspa:qsecond', name: 'Cold wallet');
@@ -23,4 +25,14 @@ void main() {
     final remaining = await preferences.getWatchWallets();
     expect(remaining.map((wallet) => wallet.address), ['kaspa:qsecond']);
   });
+}
+
+class _MemoryEncryptedStore implements EncryptedStore {
+  final values = <String, String>{};
+  @override
+  Future<void> delete(String key) async => values.remove(key);
+  @override
+  Future<String?> read(String key) async => values[key];
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
 }

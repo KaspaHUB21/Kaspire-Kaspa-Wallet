@@ -246,10 +246,6 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
     );
     if (confirmed != true || !mounted) return;
     if (native != null) {
-      if (!await _security.authenticate(
-          context, 'Delete ${native.name} from this device')) {
-        return;
-      }
       await _security.deleteWalletById(native.id);
     } else {
       await _preferences.removeWatchWallet(watch!.id);

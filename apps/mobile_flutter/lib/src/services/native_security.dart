@@ -116,19 +116,73 @@ class NativeSecurity {
     return address;
   }
 
-  Future<void> exportPrivateKey() =>
-      _channel.invokeMethod<void>('exportPrivateKey');
+  Future<String> _authorizeOperation({
+    required String operation,
+    required String binding,
+    required String reason,
+  }) async {
+    final token = await _channel.invokeMethod<String>('authorizeOperation', {
+      'operation': operation,
+      'binding': binding,
+      'reason': reason,
+    });
+    if (token == null) throw StateError('Authorization cancelled.');
+    return token;
+  }
 
-  Future<void> exportRecoveryPhrase() =>
-      _channel.invokeMethod<void>('exportRecoveryPhrase');
+  Future<void> exportPrivateKey() async {
+    final binding = await getNativeAddress() ?? '';
+    final token = await _authorizeOperation(
+      operation: 'exportPrivateKey',
+      binding: binding,
+      reason: 'Reveal this wallet private key',
+    );
+    await _channel.invokeMethod<void>(
+      'exportPrivateKey',
+      {'authorizationToken': token},
+    );
+  }
 
-  Future<void> exportEncryptedBackup() =>
-      _channel.invokeMethod<void>('exportEncryptedBackup');
+  Future<void> exportRecoveryPhrase() async {
+    final binding = await getNativeAddress() ?? '';
+    final token = await _authorizeOperation(
+      operation: 'exportRecoveryPhrase',
+      binding: binding,
+      reason: 'Reveal this wallet recovery phrase',
+    );
+    await _channel.invokeMethod<void>(
+      'exportRecoveryPhrase',
+      {'authorizationToken': token},
+    );
+  }
+
+  Future<void> exportEncryptedBackup() async {
+    final binding = await getNativeAddress() ?? '';
+    final token = await _authorizeOperation(
+      operation: 'exportEncryptedBackup',
+      binding: binding,
+      reason: 'Export an encrypted wallet backup',
+    );
+    await _channel.invokeMethod<void>(
+      'exportEncryptedBackup',
+      {'authorizationToken': token},
+    );
+  }
 
   Future<String?> restoreEncryptedBackup() =>
       _channel.invokeMethod<String>('restoreEncryptedBackup');
 
-  Future<void> deleteWallet() => _channel.invokeMethod<void>('deleteWallet');
+  Future<void> deleteWallet() async {
+    NativeWalletInfo? active;
+    for (final wallet in await listWallets()) {
+      if (wallet.active) {
+        active = wallet;
+        break;
+      }
+    }
+    if (active == null) throw StateError('No active wallet.');
+    await deleteWalletById(active.id);
+  }
 
   Future<List<NativeWalletInfo>> listWallets() async {
     final raw = await _channel.invokeMethod<String>('listWallets');
@@ -175,8 +229,17 @@ class NativeSecurity {
             jsonEncode(addresses.map((item) => item.toJson()).toList()),
       });
 
-  Future<void> deleteWalletById(String walletId) =>
-      _channel.invokeMethod<void>('deleteWallet', {'walletId': walletId});
+  Future<void> deleteWalletById(String walletId) async {
+    final token = await _authorizeOperation(
+      operation: 'deleteWallet',
+      binding: walletId,
+      reason: 'Permanently delete this wallet',
+    );
+    await _channel.invokeMethod<void>(
+      'deleteWallet',
+      {'walletId': walletId, 'authorizationToken': token},
+    );
+  }
 
   Future<bool> hasPin() async =>
       await _channel.invokeMethod<bool>('hasPin') ?? false;
@@ -187,9 +250,15 @@ class NativeSecurity {
   Future<void> removePin() => _channel.invokeMethod<void>('removePin');
 
   Future<String> signPersonalMessage(String address, String message) async {
+    final token = await _authorizeOperation(
+      operation: 'signPersonalMessage',
+      binding: '$address\u0000$message',
+      reason: 'Sign the reviewed message',
+    );
     final raw = await _channel.invokeMethod<String>('signPersonalMessage', {
       'address': address,
       'message': message,
+      'authorizationToken': token,
     });
     final result = (jsonDecode(raw!) as Map).cast<String, Object?>();
     return result['signature']! as String;
@@ -208,9 +277,15 @@ class NativeSecurity {
     Map<String, Object?> request,
     String reviewHash,
   ) async {
+    final token = await _authorizeOperation(
+      operation: 'signTransaction',
+      binding: reviewHash,
+      reason: 'Sign the reviewed Kaspa transaction',
+    );
     final raw = await _channel.invokeMethod<String>('signTransaction', {
       'request': jsonEncode(request),
       'reviewHash': reviewHash,
+      'authorizationToken': token,
     });
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
@@ -228,9 +303,15 @@ class NativeSecurity {
     Map<String, Object?> request,
     String reviewHash,
   ) async {
+    final token = await _authorizeOperation(
+      operation: 'signKcc20Transfer',
+      binding: reviewHash,
+      reason: 'Sign the reviewed KCC20 covenant transfer',
+    );
     final raw = await _channel.invokeMethod<String>('signKcc20Transfer', {
       'request': jsonEncode(request),
       'reviewHash': reviewHash,
+      'authorizationToken': token,
     });
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
@@ -251,9 +332,15 @@ class NativeSecurity {
 
   Future<Map<String, Object?>> signReveal(
       Map<String, Object?> request, String reviewHash) async {
+    final token = await _authorizeOperation(
+      operation: 'signReveal',
+      binding: reviewHash,
+      reason: 'Sign the reviewed reveal transaction',
+    );
     final raw = await _channel.invokeMethod<String>('signReveal', {
       'request': jsonEncode(request),
       'reviewHash': reviewHash,
+      'authorizationToken': token,
     });
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }

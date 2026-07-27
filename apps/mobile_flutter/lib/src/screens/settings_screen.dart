@@ -68,13 +68,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _export({required bool privateKey}) async {
     try {
-      final authenticated = await _security.authenticate(
-        context,
-        privateKey
-            ? 'Authorize private-key export'
-            : 'Authorize recovery-phrase export',
-      );
-      if (!authenticated) return;
       if (privateKey) {
         await _security.exportPrivateKey();
       } else {
@@ -90,14 +83,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _portableBackup({required bool restore}) async {
     try {
-      final authenticated = await _security.authenticate(
-        context,
-        restore
-            ? 'Authorize encrypted wallet restore'
-            : 'Authorize encrypted wallet backup',
-      );
-      if (!authenticated) return;
       if (restore) {
+        final authenticated = await _security.authenticate(
+          context,
+          'Authorize encrypted wallet restore',
+        );
+        if (!authenticated) return;
         final address = await _security.restoreEncryptedBackup();
         if (address != null) {
           await HdDiscoveryService().discoverAndRegister(address, _security);
