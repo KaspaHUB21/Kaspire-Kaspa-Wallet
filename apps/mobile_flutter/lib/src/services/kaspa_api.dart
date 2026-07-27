@@ -921,7 +921,7 @@ class KaspaApi {
       final status = item['status']?.toString().toLowerCase();
       final assetId = item['asset_id']?.toString();
       if (!RegExp(r'^[a-z0-9-]{1,63}\.kas$').hasMatch(name) ||
-          status != 'verified' ||
+          !const {'verified', 'default'}.contains(status) ||
           (assetId != null &&
               !RegExp(r'^[0-9a-fA-F]{64}i0$').hasMatch(assetId))) {
         throw KaspaApiException('invalid or unverified KNS metadata');
@@ -1016,7 +1016,7 @@ class KaspaApi {
     final expectedCovenant = covenantId.toLowerCase();
     if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(expectedCovenant) ||
         cells.isEmpty ||
-        cells.length > 2) {
+        cells.length > 1000) {
       throw KaspaApiException('Invalid KCC20 verification request.');
     }
     for (final cell in cells) {

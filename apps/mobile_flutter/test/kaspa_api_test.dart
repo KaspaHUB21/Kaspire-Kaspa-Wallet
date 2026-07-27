@@ -169,7 +169,7 @@ void main() {
       }
       if (request.url.host == 'kaspatoken.kaslab.space') {
         return http.Response(
-          '{"data":{"address":"$address","tokens":[{"symbol":"NACHO","balance":12.5,"decimals":8,"raw_balance":"1250000000"}],"krc721_tokens":[{"symbol":"TOCCATA","balance":2,"decimals":0}],"domains":[{"name":"demo.kas","status":"verified","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaai0"}],"transactions":[{"id":"krc20-op","token_symbol":"NACHO","amount":"2.5","from_wallet":"$otherAddress","to_wallet":"$address","timestamp":"2026-07-16T00:00:00.000Z"}]}}',
+          '{"data":{"address":"$address","tokens":[{"symbol":"NACHO","balance":12.5,"decimals":8,"raw_balance":"1250000000"}],"krc721_tokens":[{"symbol":"TOCCATA","balance":2,"decimals":0}],"domains":[{"name":"demo.kas","status":"default","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaai0"}],"transactions":[{"id":"krc20-op","token_symbol":"NACHO","amount":"2.5","from_wallet":"$otherAddress","to_wallet":"$address","timestamp":"2026-07-16T00:00:00.000Z"}]}}',
           200,
         );
       }
@@ -480,7 +480,7 @@ void main() {
     });
 
     await KaspaApi(client: client).verifyKcc20CellsOnOwnNode(
-      [cell],
+      [cell, cell, cell],
       covenantId,
     );
   });
