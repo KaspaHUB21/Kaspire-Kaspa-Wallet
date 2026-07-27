@@ -1,0 +1,2 @@
+Improve WalletConnect dApp diagnostics by showing requests rejected before review.
+Pending requests remain recoverable after app wake.

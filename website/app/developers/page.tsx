@@ -45,9 +45,13 @@ if (!uri) throw new Error("WalletConnect did not return a pairing URI");
 const kaspireLink =
   "https://kaspire.kaslab.space/kaspire/wc?uri=" +
   encodeURIComponent(uri);
+const kaspireIntent =
+  "intent://wc?uri=" + encodeURIComponent(uri) +
+  "#Intent;scheme=kaspire;package=space.kaspire.wallet;" +
+  "S.browser_fallback_url=" + encodeURIComponent(kaspireLink) + ";end";
 
 if (/Android/i.test(navigator.userAgent)) {
-  window.location.assign(kaspireLink);
+  window.location.assign(kaspireIntent);
 } else {
   renderKaspireQrCode(kaspireLink);
 }
@@ -269,7 +273,7 @@ export default function DevelopersPage() {
                 <li>A Reown project ID with your website origins allowlisted</li>
                 <li>WalletConnect v2 using the <code>irn</code> relay</li>
                 <li>A dedicated Kaspire QR-code view for desktop visitors</li>
-                <li>The verified Kaspire App Link for Android visitors</li>
+                <li>The explicit Kaspire Android intent with the verified HTTPS fallback</li>
               </ul>
               <CodeBlock>{installCode}</CodeBlock>
               <p>
@@ -314,7 +318,7 @@ export default function DevelopersPage() {
                 <p>
                   Provide a dedicated <strong>Connect with Kaspire</strong>{" "}
                   button. On desktop, encode this complete HTTPS link in your QR
-                  code. On Android, open the same link directly. Never encode
+                  code. On Android, open the explicit <code>intent://wc</code> URL shown in the quick start so the installed app wins; keep the verified HTTPS link as its browser fallback. Never encode
                   only the raw <code>wc:</code> URI in the Kaspire QR code.
                 </p>
               </div>

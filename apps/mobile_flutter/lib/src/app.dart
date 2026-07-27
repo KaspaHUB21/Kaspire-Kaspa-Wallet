@@ -246,6 +246,12 @@ class _KasVaultAppState extends State<KasVaultApp> {
           ? error.message
           : 'Request failed safely inside Kaspire.';
       await _dapps.respondError(request, message, code: -32000);
+      final context = await _contextWhenReady();
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("dApp request rejected: $message")),
+        );
+      }
     }
   }
 
@@ -750,8 +756,7 @@ class _KasVaultAppState extends State<KasVaultApp> {
                   ...warnings.map((warning) => Padding(
                         padding: const EdgeInsets.only(bottom: 5),
                         child: Text('• $warning',
-                            style:
-                                const TextStyle(color: Color(0xFFFFC857))),
+                            style: const TextStyle(color: Color(0xFFFFC857))),
                       )),
                 ],
                 const SizedBox(height: 16),
@@ -866,7 +871,8 @@ class _KasVaultAppState extends State<KasVaultApp> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Text('${_dapps.dappName(request.topic)} requests a vault action'),
+        title:
+            Text('${_dapps.dappName(request.topic)} requests a vault action'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,

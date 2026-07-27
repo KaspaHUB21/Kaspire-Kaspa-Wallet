@@ -1,4 +1,8 @@
 export const KASPA_CHAIN = "kaspa:mainnet" as const;
+export const KASPIRE_APP_LINK = "https://kaspire.kaslab.space/kaspire/wc" as const;
+export const KASPIRE_WAKE_INTENT =
+  "intent://dapp#Intent;scheme=kaspire;package=space.kaspire.wallet;" +
+  `S.browser_fallback_url=${encodeURIComponent(KASPIRE_APP_LINK)};end`;
 
 export type KaspaMethod =
   | "kaspa_getAccounts"
@@ -60,7 +64,16 @@ export function kaspirePairingLink(walletConnectUri: string): string {
   if (!/^wc:[0-9a-f]{64}@2\?/i.test(walletConnectUri)) {
     throw new Error("A WalletConnect v2 pairing URI is required");
   }
-  return `https://kaspire.kaslab.space/kaspire/wc?uri=${encodeURIComponent(walletConnectUri)}`;
+  return `${KASPIRE_APP_LINK}?uri=${encodeURIComponent(walletConnectUri)}`;
+}
+
+export function kaspireAndroidPairingIntent(walletConnectUri: string): string {
+  const appLink = kaspirePairingLink(walletConnectUri);
+  return (
+    `intent://wc?uri=${encodeURIComponent(walletConnectUri)}` +
+    "#Intent;scheme=kaspire;package=space.kaspire.wallet;" +
+    `S.browser_fallback_url=${encodeURIComponent(appLink)};end`
+  );
 }
 
 export function walletConnectTransport(

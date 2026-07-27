@@ -6,6 +6,7 @@ session.
 ```ts
 import {
   KaspireProvider,
+  kaspireAndroidPairingIntent,
   kaspirePairingLink,
   walletConnectTransport,
 } from "@kaspire/connect";
@@ -20,7 +21,13 @@ const { uri, approval } = await signClient.connect({
   },
 });
 
-if (uri) window.location.assign(kaspirePairingLink(uri));
+if (uri) {
+  const launchUrl = /Android/i.test(navigator.userAgent)
+    ? kaspireAndroidPairingIntent(uri)
+    : kaspirePairingLink(uri);
+  if (/Android/i.test(navigator.userAgent)) window.location.assign(launchUrl);
+  else renderQrCode(launchUrl);
+}
 const session = await approval();
 const caip10 = session.namespaces.kaspa.accounts[0];
 const address = `kaspa:${caip10.split(":").slice(2).join(":")}`;
