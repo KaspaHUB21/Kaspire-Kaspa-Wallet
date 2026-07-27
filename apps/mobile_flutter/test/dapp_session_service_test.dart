@@ -5,6 +5,13 @@ void main() {
   final topic = 'a' * 64;
   final symKey = 'b' * 64;
 
+  test('advertises generic reviewed PSKT signing', () {
+    expect(
+      DappSessionService.supportedMethods,
+      contains('kaspa_signPskt'),
+    );
+  });
+
   test('rejects untrusted app-link origins before reading pairing data',
       () async {
     await expectLater(

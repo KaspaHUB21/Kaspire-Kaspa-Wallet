@@ -13,6 +13,7 @@ class DappSessionService {
     'kaspa_sendTransaction',
     'kaspa_sendKrc20',
     'kaspa_sendKcc20',
+    'kaspa_signPskt',
     'kaspa_signVaultTransaction',
   };
   static const supportedEvents = <String>{'accountsChanged'};

@@ -10,6 +10,7 @@ methods: kaspa_getAccounts
          kaspa_sendTransaction
          kaspa_sendKrc20
          kaspa_sendKcc20
+         kaspa_signPskt
          kaspa_signVaultTransaction
 events:  accountsChanged
 ```
@@ -78,11 +79,48 @@ Kaspire uses `kcc20.info` as its primary owner-balance, history and signing-data
 
 The wallet fetches untrusted UTXOs itself, then the native Rust core reconstructs the transaction and derives the confirmation screen from the canonical result. Human-readable dApp metadata is never accepted as proof of transaction contents. Every payment, KRC-20 transfer and personal signature receives fresh explicit confirmation and biometric or PIN approval.
 
+## Generic PSKT signing
+
+Kaspire exposes `kaspa_signPskt` for dApp-independent Kaspa transaction flows,
+including marketplace listings and purchases, KRC-721/KNS transfers, and
+covenant interactions. It uses the Kasware-compatible SafeJSON request shape:
+
+```json
+{
+  "txJsonString": "{\"version\":0,\"inputs\":[...],\"outputs\":[...]}",
+  "options": {
+    "signInputs": [
+      { "index": 0, "sighashType": 1 }
+    ]
+  }
+}
+```
+
+`sighashType` may be `1` (ALL), `2` (NONE), `4` (SINGLE), `129`
+(ALL|ANYONECANPAY), `130` (NONE|ANYONECANPAY), or `132`
+(SINGLE|ANYONECANPAY). The default is `1`. The result is the signed transaction
+SafeJSON string. Kaspire never broadcasts a PSKT automatically.
+
+This is not a blind signer. The native Rust core reconstructs the transaction
+and embedded UTXOs, rejects duplicate outpoints, unknown envelope fields,
+invalid values, already-signed selected inputs, invalid covenant bindings and
+unsupported sighash values. It calculates the fee and wallet net effect and
+binds the complete input, output, payload and signing selection to a review
+hash. Kaspire displays every input, output, address or raw script, amount,
+covenant ID, payload, fee, selected input and sighash. Partial signatures,
+non-standard scripts and mutable sighashes receive prominent warnings. A fresh
+native biometric/PIN authorization is bound to the review hash.
+
+Kaspire guarantees that it signs exactly the transaction displayed by its
+native verifier. It does not certify a dApp's business rules, marketplace
+listing price, royalty logic, or covenant intent. Reown domain verification is
+anti-phishing context; users must still trust the connected dApp and review the
+transaction.
+
 ## Policy-verified vault transactions
 
-Kaspire deliberately does not expose a generic `signPskt` blind signer.
-Vault dApps request `kaspa_signVaultTransaction` with Kasware-compatible
-transaction SafeJSON:
+Vault dApps may additionally request the stricter
+`kaspa_signVaultTransaction` profile with transaction SafeJSON:
 
 ```json
 {
@@ -104,6 +142,6 @@ input, preserves the covenant output byte-for-byte and at the same amount,
 allows change only to the session wallet, caps the total fee at 15,000,000
 sompi, and binds the exact transaction to the native review hash. Unknown
 protocols, profiles, scripts, output shapes and signing-index combinations fail
-closed. A dApp must request a separate typed Kaspire method/profile for a new
-marketplace or covenant protocol; it must never route unknown PSKT through this
-method.
+closed. This method is an optional protocol-specific safety profile; new dApps
+and marketplaces do not need a Kaspire-specific policy and should normally use
+`kaspa_signPskt`.

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Kaspire Developer Guide | Connect Kaspa dApps",
   description:
-    "Integrate Kaspire with a website using WalletConnect v2 for accounts, signatures, KAS, tokens, and policy-verified vault transactions.",
+    "Integrate Kaspire with a website using WalletConnect v2 for accounts, signatures, KAS, tokens, generic PSKT flows, and vault transactions.",
 };
 
 const installCode = `npm install @walletconnect/sign-client`;
@@ -30,6 +30,7 @@ const connectCode = `const { uri, approval } = await signClient.connect({
         "kaspa_sendTransaction",
         "kaspa_sendKrc20",
         "kaspa_sendKcc20",
+        "kaspa_signPskt",
         "kaspa_signVaultTransaction"
       ],
       events: ["accountsChanged"]
@@ -163,6 +164,25 @@ const vaultCode = `const result = await signClient.request({
 // Creation profiles use signInputIndexes: [0] and redeemScript: "".
 // Heartbeats must use exactly [0, 1] and the covenant redeem script.`;
 
+const psktCode = `const signedTxJson = await signClient.request({
+  topic: session.topic,
+  chainId: "kaspa:mainnet",
+  request: {
+    method: "kaspa_signPskt",
+    params: {
+      txJsonString: draft.txJson,
+      options: {
+        signInputs: [
+          { index: 0, sighashType: 1 } // SIGHASH_ALL
+        ]
+      }
+    }
+  }
+});
+
+// Kaspire returns the signed SafeJSON string.
+// Your dApp finalizes or combines the PSKT and decides when to broadcast.`;
+
 const eventsCode = `signClient.on("session_event", ({ params }) => {
   if (params.event.name === "accountsChanged") {
     const accounts = params.event.data;
@@ -212,8 +232,8 @@ export default function DevelopersPage() {
             <p>
               Connect websites to a selected Kaspire account through an encrypted
               WalletConnect v2 session. Request accounts, KIP-5 signatures, KAS
-              payments, KRC-20 transfers, and typed KCC20 covenant transfers
-              without exposing private keys to the browser.
+              payments, token transfers, and reviewed PSKT marketplace or
+              covenant flows without exposing private keys to the browser.
             </p>
             <div className="article-meta">
               <span>Android App Link</span><span>WalletConnect v2</span>
@@ -368,6 +388,7 @@ export default function DevelopersPage() {
                 <div><code>kaspa_sendTransaction</code><p>Builds, reviews, signs, and broadcasts a native KAS payment.</p></div>
                 <div><code>kaspa_sendKrc20</code><p>Executes the complete KRC-20 commit/reveal transfer flow.</p></div>
                 <div><code>kaspa_sendKcc20</code><p>Validates and executes a typed KCC20 covenant transfer.</p></div>
+                <div><code>kaspa_signPskt</code><p>Signs selected inputs of a fully reviewed Kaspa SafeJSON transaction.</p></div>
                 <div><code>kaspa_signVaultTransaction</code><p>Signs only a native Rust policy-approved vault create or DMS heartbeat transaction.</p></div>
               </div>
 
@@ -395,16 +416,45 @@ export default function DevelopersPage() {
                 live-cell mapping and reconstructs the covenant transition
                 locally before signing.
               </p>
+              <h3>Generic PSKT: marketplaces, KRC-721, KNS and covenants</h3>
+              <CodeBlock>{psktCode}</CodeBlock>
+              <p>
+                Use <code>kaspa_signPskt</code> when your dApp has already
+                constructed a Kaspa transaction and needs Kaspire to sign only
+                specified inputs. This method is dApp-independent: no
+                KaspaCom-specific, marketplace-specific, or vault-specific
+                cooperation is required. It supports transaction versions 0
+                and 1 and sighash values <code>1</code>, <code>2</code>,
+                <code>4</code>, <code>129</code>, <code>130</code>, and
+                <code>132</code>.
+              </p>
+              <div className="developer-note developer-note-emphasis">
+                <strong>Not a blind signer</strong>
+                <p>
+                  Kaspire&apos;s native Rust core parses the SafeJSON and every
+                  embedded UTXO, rejects duplicate outpoints and inconsistent
+                  fields, calculates the fee and wallet net effect, and binds
+                  all inputs, outputs, payload, covenant bindings and selected
+                  sighashes to the approval. The wallet displays every output
+                  and warns for partial signatures, non-standard scripts, and
+                  mutable sighashes. It signs only the requested inputs and
+                  never broadcasts automatically.
+                </p>
+                <p>
+                  Kaspire guarantees that the displayed transaction is the one
+                  signed. It cannot certify your dApp&apos;s marketplace price,
+                  royalty policy, listing semantics, or covenant intent.
+                  Reown&apos;s verified domain is anti-phishing context, not a
+                  substitute for user review.
+                </p>
+              </div>
               <h3>Vault policy transactions</h3>
               <CodeBlock>{vaultCode}</CodeBlock>
               <p>
-                This is deliberately not a generic <code>signPskt</code>
-                endpoint. Kaspire currently recognizes only the version-2
-                KasLab time-lock create, DMS create, and DMS heartbeat
-                profiles. The Rust core reconstructs the transaction, checks
-                every embedded UTXO and output, preserves covenant funds,
-                restricts change to the session wallet, caps fees, and rejects
-                every unknown profile or signing-index combination.
+                This is an optional stricter profile for the version-2 KasLab
+                time-lock create, DMS create, and DMS heartbeat flows. Other
+                dApps should use <code>kaspa_signPskt</code>; they do not need a
+                dedicated Kaspire policy.
               </p>
             </section>
 

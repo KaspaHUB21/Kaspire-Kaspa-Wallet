@@ -31,9 +31,8 @@ tablets, and foldables.
 
 ## Current release
 
-- Version: **0.10.14**
-- Android build: **49**
-- Build: **47**
+- Version: **0.10.15**
+- Android build: **50**
 - Network: **Kaspa Mainnet**
 - Android package: `space.kasvault.wallet`
 - License: [Apache-2.0](LICENSE)
@@ -346,6 +345,7 @@ Supported methods:
 - `kaspa_sendTransaction`
 - `kaspa_sendKrc20`
 - `kaspa_sendKcc20`
+- `kaspa_signPskt` (generic reviewed partial transaction signing)
 - `kaspa_signVaultTransaction` (policy-approved vault profiles only)
 
 Controls include:

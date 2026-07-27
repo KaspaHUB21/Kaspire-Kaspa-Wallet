@@ -19,4 +19,6 @@ object SecureCore {
     external fun signReveal(phrase: String, requestJson: String, reviewHash: String): String
     external fun preparePolicyTransaction(requestJson: String): String
     external fun signPolicyTransaction(secret: String, requestJson: String, reviewHash: String): String
+    external fun preparePskt(requestJson: String): String
+    external fun signPskt(secret: String, requestJson: String, reviewHash: String): String
 }

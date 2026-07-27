@@ -1341,9 +1341,8 @@ mod tests {
     fn selection_can_consolidate_when_it_lowers_storage_mass() {
         let cells = vec![
             Kcc20Cell {
-                covenant_id:
-                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                        .into(),
+                covenant_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .into(),
                 transaction_id: "1111111111111111111111111111111111111111111111111111111111111111"
                     .into(),
                 index: 0,
@@ -1354,9 +1353,8 @@ mod tests {
                 is_minter: false,
             },
             Kcc20Cell {
-                covenant_id:
-                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                        .into(),
+                covenant_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .into(),
                 transaction_id: "2222222222222222222222222222222222222222222222222222222222222222"
                     .into(),
                 index: 0,
@@ -1377,15 +1375,13 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_cell_outpoints_before_selection() {
-        let secret =
-            "private:0000000000000000000000000000000000000000000000000000000000000001";
+        let secret = "private:0000000000000000000000000000000000000000000000000000000000000001";
         let sender = derive_address(secret).unwrap().to_string();
         let covenant_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let cell = Kcc20Cell {
             covenant_id: covenant_id.into(),
-            transaction_id:
-                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-                    .into(),
+            transaction_id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                .into(),
             index: 0,
             value_sompi: 50_000_000,
             block_daa_score: 1,

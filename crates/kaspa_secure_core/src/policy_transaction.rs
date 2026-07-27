@@ -12,11 +12,12 @@ use kaspa_consensus_core::{
 use kaspa_txscript::{
     opcodes::codes::{
         OpCheckLockTimeVerify, OpCheckSequenceVerify, OpCheckSigVerify, OpElse, OpEndIf,
-        OpEqualVerify, OpGreaterThanOrEqual, OpIf, OpNumEqualVerify, OpSub,
-        OpTrue, OpTxInputAmount, OpTxInputCount, OpTxInputIndex, OpTxInputSpk,
-        OpTxOutputAmount, OpTxOutputCount, OpTxOutputSpk, OpVerify,
+        OpEqualVerify, OpGreaterThanOrEqual, OpIf, OpNumEqualVerify, OpSub, OpTrue,
+        OpTxInputAmount, OpTxInputCount, OpTxInputIndex, OpTxInputSpk, OpTxOutputAmount,
+        OpTxOutputCount, OpTxOutputSpk, OpVerify,
     },
-    pay_to_address_script, script_builder::ScriptBuilder,
+    pay_to_address_script,
+    script_builder::ScriptBuilder,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -86,8 +87,7 @@ pub fn sign_policy_transaction(
         return Err(CoreError::ReviewMismatch);
     }
     let key = derive_key(secret)?;
-    let populated =
-        SignableTransaction::with_entries(built.tx.clone(), built.entries.clone());
+    let populated = SignableTransaction::with_entries(built.tx.clone(), built.entries.clone());
     for index in &request.sign_input_indexes {
         let signature = sign_input(&populated.as_verifiable(), *index, &*key, SIG_HASH_ALL);
         built.tx.inputs[*index].signature_script = signature.clone();
@@ -96,8 +96,7 @@ pub fn sign_policy_transaction(
     built.tx.finalize();
     built.json["id"] = Value::String(built.tx.id().to_string());
     Ok(SignedPolicyTransaction {
-        signed_tx_json: serde_json::to_string(&built.json)
-            .map_err(|_| CoreError::Serialization)?,
+        signed_tx_json: serde_json::to_string(&built.json).map_err(|_| CoreError::Serialization)?,
         fee_sompi: built.review.fee_sompi,
         review_hash: built.review.review_hash,
     })
@@ -129,9 +128,12 @@ fn build_vault_create(request: &PolicyTransactionRequest) -> Result<BuiltPolicyT
         || request.sign_input_indexes != [0]
         || !request.redeem_script.is_empty()
     {
-        return Err(CoreError::InvalidRequest("invalid vault-create request".into()));
+        return Err(CoreError::InvalidRequest(
+            "invalid vault-create request".into(),
+        ));
     }
-    let sender = Address::try_from(request.sender.as_str()).map_err(|_| CoreError::InvalidAddress)?;
+    let sender =
+        Address::try_from(request.sender.as_str()).map_err(|_| CoreError::InvalidAddress)?;
     let value: Value = serde_json::from_str(&request.tx_json_string)
         .map_err(|_| CoreError::InvalidRequest("invalid transaction SafeJSON".into()))?;
     let version = u16_value(value.get("version"))?;
@@ -141,77 +143,133 @@ fn build_vault_create(request: &PolicyTransactionRequest) -> Result<BuiltPolicyT
         || value.get("subnetworkId").and_then(Value::as_str)
             != Some(SUBNETWORK_ID_NATIVE.to_string().as_str())
     {
-        return Err(CoreError::InvalidRequest("unsupported vault-create envelope".into()));
+        return Err(CoreError::InvalidRequest(
+            "unsupported vault-create envelope".into(),
+        ));
     }
     let payload_bytes = hex::decode(
-        value.get("payload").and_then(Value::as_str)
+        value
+            .get("payload")
+            .and_then(Value::as_str)
             .ok_or_else(|| CoreError::InvalidRequest("missing vault payload".into()))?,
-    ).map_err(|_| CoreError::InvalidRequest("invalid vault payload".into()))?;
+    )
+    .map_err(|_| CoreError::InvalidRequest("invalid vault payload".into()))?;
     let payload: Value = serde_json::from_slice(&payload_bytes)
         .map_err(|_| CoreError::InvalidRequest("invalid vault payload JSON".into()))?;
-    let action = payload.get("action").and_then(Value::as_str)
+    let action = payload
+        .get("action")
+        .and_then(Value::as_str)
         .ok_or_else(|| CoreError::InvalidRequest("missing vault action".into()))?;
     if payload.get("p").and_then(Value::as_str) != Some(VAULT_PROTOCOL)
         || payload.get("v").and_then(Value::as_u64) != Some(2)
         || !matches!(action, "create" | "dms-create")
         || payload.get("ownerAddress").and_then(Value::as_str) != Some(request.sender.as_str())
     {
-        return Err(CoreError::InvalidRequest("inconsistent vault-create policy".into()));
+        return Err(CoreError::InvalidRequest(
+            "inconsistent vault-create policy".into(),
+        ));
     }
-    let inputs_json = value.get("inputs").and_then(Value::as_array)
+    let inputs_json = value
+        .get("inputs")
+        .and_then(Value::as_array)
         .ok_or_else(|| CoreError::InvalidRequest("missing inputs".into()))?;
-    let outputs_json = value.get("outputs").and_then(Value::as_array)
+    let outputs_json = value
+        .get("outputs")
+        .and_then(Value::as_array)
         .ok_or_else(|| CoreError::InvalidRequest("missing outputs".into()))?;
     let expected_outputs = if action == "dms-create" { 3 } else { 2 };
     if inputs_json.len() != 1 || outputs_json.len() != expected_outputs {
-        return Err(CoreError::InvalidRequest("unexpected vault-create shape".into()));
+        return Err(CoreError::InvalidRequest(
+            "unexpected vault-create shape".into(),
+        ));
     }
     let item = &inputs_json[0];
-    if item.get("signatureScript").and_then(Value::as_str).unwrap_or("") != "" {
-        return Err(CoreError::InvalidRequest("pre-signed request rejected".into()));
+    if item
+        .get("signatureScript")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        != ""
+    {
+        return Err(CoreError::InvalidRequest(
+            "pre-signed request rejected".into(),
+        ));
     }
     let txid = kaspa_consensus_core::tx::TransactionId::from_str(
-        item.get("transactionId").and_then(Value::as_str)
-            .ok_or_else(|| CoreError::UntrustedUtxo("missing transaction id".into()))?
-    ).map_err(|_| CoreError::UntrustedUtxo("invalid transaction id".into()))?;
-    let utxo = item.get("utxo")
+        item.get("transactionId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CoreError::UntrustedUtxo("missing transaction id".into()))?,
+    )
+    .map_err(|_| CoreError::UntrustedUtxo("invalid transaction id".into()))?;
+    let utxo = item
+        .get("utxo")
         .ok_or_else(|| CoreError::UntrustedUtxo("missing embedded UTXO".into()))?;
     if utxo.get("isCoinbase").and_then(Value::as_bool) != Some(false) {
-        return Err(CoreError::UntrustedUtxo("coinbase or unknown maturity".into()));
+        return Err(CoreError::UntrustedUtxo(
+            "coinbase or unknown maturity".into(),
+        ));
     }
     let input_amount = u64_value(utxo.get("amount"))?;
-    let input_script = script_public_key(utxo.get("scriptPublicKey").and_then(Value::as_str)
-        .ok_or_else(|| CoreError::UntrustedUtxo("missing UTXO script".into()))?)?;
+    let input_script = script_public_key(
+        utxo.get("scriptPublicKey")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CoreError::UntrustedUtxo("missing UTXO script".into()))?,
+    )?;
     if input_script != pay_to_address_script(&sender) {
-        return Err(CoreError::UntrustedUtxo("input is not controlled by sender".into()));
+        return Err(CoreError::UntrustedUtxo(
+            "input is not controlled by sender".into(),
+        ));
     }
-    let entry = UtxoEntry::new(input_amount, input_script, u64_value(utxo.get("blockDaaScore")).unwrap_or(0), false, None);
+    let entry = UtxoEntry::new(
+        input_amount,
+        input_script,
+        u64_value(utxo.get("blockDaaScore")).unwrap_or(0),
+        false,
+        None,
+    );
     let input = TransactionInput::new(
         TransactionOutpoint::new(txid, u32_value(item.get("index"))?),
-        vec![], u64_value(item.get("sequence"))?,
-        u64_value(item.get("sigOpCount"))?.try_into()
+        vec![],
+        u64_value(item.get("sequence"))?,
+        u64_value(item.get("sigOpCount"))?
+            .try_into()
             .map_err(|_| CoreError::InvalidRequest("sigop count exceeds u8".into()))?,
     );
     let mut outputs = Vec::with_capacity(expected_outputs);
     let mut output_total = 0u64;
     for output in outputs_json {
         let amount = u64_value(output.get("value"))?;
-        output_total = output_total.checked_add(amount)
+        output_total = output_total
+            .checked_add(amount)
             .ok_or_else(|| CoreError::InvalidRequest("output amount overflow".into()))?;
-        outputs.push(TransactionOutput::new(amount, script_public_key(
-            output.get("scriptPublicKey").and_then(Value::as_str)
-                .ok_or_else(|| CoreError::InvalidRequest("missing output script".into()))?
-        )?));
+        outputs.push(TransactionOutput::new(
+            amount,
+            script_public_key(
+                output
+                    .get("scriptPublicKey")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| CoreError::InvalidRequest("missing output script".into()))?,
+            )?,
+        ));
     }
-    let vault_amount = payload.get("lockAmountSompi").and_then(Value::as_str)
+    let vault_amount = payload
+        .get("lockAmountSompi")
+        .and_then(Value::as_str)
         .and_then(|raw| raw.parse::<u64>().ok())
         .ok_or_else(|| CoreError::InvalidRequest("invalid locked amount".into()))?;
-    let vault_address = Address::try_from(payload.get("vaultAddress").and_then(Value::as_str)
-        .ok_or_else(|| CoreError::InvalidRequest("missing vault address".into()))?)
-        .map_err(|_| CoreError::InvalidAddress)?;
-    let redeem = hex::decode(payload.get("redeemScript").and_then(Value::as_str)
-        .ok_or_else(|| CoreError::InvalidRequest("missing redeem script".into()))?)
-        .map_err(|_| CoreError::InvalidRequest("invalid redeem script".into()))?;
+    let vault_address = Address::try_from(
+        payload
+            .get("vaultAddress")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CoreError::InvalidRequest("missing vault address".into()))?,
+    )
+    .map_err(|_| CoreError::InvalidAddress)?;
+    let redeem = hex::decode(
+        payload
+            .get("redeemScript")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CoreError::InvalidRequest("missing redeem script".into()))?,
+    )
+    .map_err(|_| CoreError::InvalidRequest("invalid redeem script".into()))?;
     let expected_redeem = expected_vault_redeem_script(&payload, &sender, action)?;
     if redeem != expected_redeem {
         return Err(CoreError::InvalidRequest(
@@ -224,24 +282,43 @@ fn build_vault_create(request: &PolicyTransactionRequest) -> Result<BuiltPolicyT
         || pay_to_address_script(&vault_address) != vault_script
         || outputs.last().unwrap().script_public_key != pay_to_address_script(&sender)
     {
-        return Err(CoreError::InvalidRequest("vault output policy mismatch".into()));
+        return Err(CoreError::InvalidRequest(
+            "vault output policy mismatch".into(),
+        ));
     }
     if action == "dms-create" {
-        let beneficiary = Address::try_from(payload.get("beneficiaryAddress").and_then(Value::as_str)
-            .ok_or_else(|| CoreError::InvalidRequest("missing beneficiary".into()))?)
-            .map_err(|_| CoreError::InvalidAddress)?;
+        let beneficiary = Address::try_from(
+            payload
+                .get("beneficiaryAddress")
+                .and_then(Value::as_str)
+                .ok_or_else(|| CoreError::InvalidRequest("missing beneficiary".into()))?,
+        )
+        .map_err(|_| CoreError::InvalidAddress)?;
         if outputs[1].value != 3_000_000
             || outputs[1].script_public_key != pay_to_address_script(&beneficiary)
         {
-            return Err(CoreError::InvalidRequest("beneficiary notice mismatch".into()));
+            return Err(CoreError::InvalidRequest(
+                "beneficiary notice mismatch".into(),
+            ));
         }
     }
-    let fee = input_amount.checked_sub(output_total)
+    let fee = input_amount
+        .checked_sub(output_total)
         .ok_or_else(|| CoreError::InvalidRequest("outputs exceed input".into()))?;
     if fee == 0 || fee > MAX_VAULT_FEE_SOMPI {
-        return Err(CoreError::InvalidRequest("vault fee exceeds safety policy".into()));
+        return Err(CoreError::InvalidRequest(
+            "vault fee exceeds safety policy".into(),
+        ));
     }
-    let mut tx = Transaction::new(version, vec![input], outputs, 0, SUBNETWORK_ID_NATIVE, 0, payload_bytes);
+    let mut tx = Transaction::new(
+        version,
+        vec![input],
+        outputs,
+        0,
+        SUBNETWORK_ID_NATIVE,
+        0,
+        payload_bytes,
+    );
     tx.finalize();
     if let Some(id) = value.get("id").and_then(Value::as_str) {
         if id != tx.id().to_string() {
@@ -254,33 +331,51 @@ fn build_vault_create(request: &PolicyTransactionRequest) -> Result<BuiltPolicyT
         "vaultAmountSompi":vault_amount,"feeSompi":fee,"transactionId":tx.id().to_string()
     });
     let review_hash = hex::encode(Sha256::digest(
-        serde_json::to_vec(&review_data).map_err(|_| CoreError::Serialization)?
+        serde_json::to_vec(&review_data).map_err(|_| CoreError::Serialization)?,
     ));
     Ok(BuiltPolicyTransaction {
-        tx, entries: vec![entry], json: value,
+        tx,
+        entries: vec![entry],
+        json: value,
         review: PreparedPolicyTransaction {
-            profile: format!("vault-{action}-v2"), action: action.into(),
-            sender: request.sender.clone(), input_count: 1,
-            output_count: expected_outputs, fee_sompi: fee,
-            vault_amount_sompi: vault_amount, review_hash,
-        }
+            profile: format!("vault-{action}-v2"),
+            action: action.into(),
+            sender: request.sender.clone(),
+            input_count: 1,
+            output_count: expected_outputs,
+            fee_sompi: fee,
+            vault_amount_sompi: vault_amount,
+            review_hash,
+        },
     })
 }
 
-fn expected_vault_redeem_script(payload: &Value, sender: &Address, action: &str) -> Result<Vec<u8>> {
+fn expected_vault_redeem_script(
+    payload: &Value,
+    sender: &Address,
+    action: &str,
+) -> Result<Vec<u8>> {
     let mut builder = ScriptBuilder::new();
     if action == "create" {
-        let unlock_time = payload.get("unlockTime").and_then(Value::as_str)
+        let unlock_time = payload
+            .get("unlockTime")
+            .and_then(Value::as_str)
             .and_then(|raw| raw.parse::<u64>().ok())
             .ok_or_else(|| CoreError::InvalidRequest("invalid unlock time".into()))?;
         let owner_script = script_with_version(&pay_to_address_script(sender));
-        if payload.get("pinnedOwnerAddress").and_then(Value::as_str) != Some(sender.to_string().as_str())
-            || payload.get("pinnedOwnerScriptPublicKey").and_then(Value::as_str)
+        if payload.get("pinnedOwnerAddress").and_then(Value::as_str)
+            != Some(sender.to_string().as_str())
+            || payload
+                .get("pinnedOwnerScriptPublicKey")
+                .and_then(Value::as_str)
                 != Some(hex::encode(&owner_script).as_str())
         {
-            return Err(CoreError::InvalidRequest("pinned owner policy mismatch".into()));
+            return Err(CoreError::InvalidRequest(
+                "pinned owner policy mismatch".into(),
+            ));
         }
-        builder.add_lock_time(unlock_time)
+        builder
+            .add_lock_time(unlock_time)
             .and_then(|b| b.add_op(OpCheckLockTimeVerify))
             .and_then(|b| b.add_op(OpTxInputCount))
             .and_then(|b| b.add_i64(1))
@@ -306,21 +401,32 @@ fn expected_vault_redeem_script(payload: &Value, sender: &Address, action: &str)
     }
 
     let beneficiary = Address::try_from(
-        payload.get("beneficiaryAddress").and_then(Value::as_str)
-            .ok_or_else(|| CoreError::InvalidRequest("missing beneficiary".into()))?
-    ).map_err(|_| CoreError::InvalidAddress)?;
+        payload
+            .get("beneficiaryAddress")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CoreError::InvalidRequest("missing beneficiary".into()))?,
+    )
+    .map_err(|_| CoreError::InvalidAddress)?;
     let beneficiary_script = script_with_version(&pay_to_address_script(&beneficiary));
     let owner_public_key = hex::decode(
-        payload.get("ownerPublicKey").and_then(Value::as_str)
-            .ok_or_else(|| CoreError::InvalidRequest("missing owner public key".into()))?
-    ).map_err(|_| CoreError::InvalidRequest("invalid owner public key".into()))?;
+        payload
+            .get("ownerPublicKey")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CoreError::InvalidRequest("missing owner public key".into()))?,
+    )
+    .map_err(|_| CoreError::InvalidRequest("invalid owner public key".into()))?;
     if owner_public_key.len() != 32 || owner_public_key.as_slice() != sender.payload.as_slice() {
-        return Err(CoreError::InvalidRequest("owner public key mismatch".into()));
+        return Err(CoreError::InvalidRequest(
+            "owner public key mismatch".into(),
+        ));
     }
-    let inactivity = payload.get("inactivityDaaBlocks").and_then(Value::as_str)
+    let inactivity = payload
+        .get("inactivityDaaBlocks")
+        .and_then(Value::as_str)
         .and_then(|raw| raw.parse::<u64>().ok())
         .ok_or_else(|| CoreError::InvalidRequest("invalid inactivity period".into()))?;
-    builder.add_op(OpIf)
+    builder
+        .add_op(OpIf)
         .and_then(|b| b.add_data(&owner_public_key))
         .and_then(|b| b.add_op(OpCheckSigVerify))
         .and_then(|b| b.add_op(OpTxInputCount))
@@ -380,7 +486,8 @@ fn build_vault_heartbeat(request: &PolicyTransactionRequest) -> Result<BuiltPoli
             "policy transaction exceeds size limit".into(),
         ));
     }
-    let sender = Address::try_from(request.sender.as_str()).map_err(|_| CoreError::InvalidAddress)?;
+    let sender =
+        Address::try_from(request.sender.as_str()).map_err(|_| CoreError::InvalidAddress)?;
     let mut value: Value = serde_json::from_str(&request.tx_json_string)
         .map_err(|_| CoreError::InvalidRequest("invalid transaction SafeJSON".into()))?;
     let object = value
@@ -394,10 +501,7 @@ fn build_vault_heartbeat(request: &PolicyTransactionRequest) -> Result<BuiltPoli
         .get("subnetworkId")
         .and_then(Value::as_str)
         .ok_or_else(|| CoreError::InvalidRequest("missing subnetwork".into()))?;
-    if version != 1
-        || lock_time != 0
-        || gas != 0
-        || subnetwork != SUBNETWORK_ID_NATIVE.to_string()
+    if version != 1 || lock_time != 0 || gas != 0 || subnetwork != SUBNETWORK_ID_NATIVE.to_string()
     {
         return Err(CoreError::InvalidRequest(
             "unsupported vault transaction envelope".into(),
@@ -410,7 +514,9 @@ fn build_vault_heartbeat(request: &PolicyTransactionRequest) -> Result<BuiltPoli
     let payload_bytes = hex::decode(payload_hex)
         .map_err(|_| CoreError::InvalidRequest("invalid vault payload".into()))?;
     if payload_bytes.len() > 16 * 1024 {
-        return Err(CoreError::InvalidRequest("vault payload is too large".into()));
+        return Err(CoreError::InvalidRequest(
+            "vault payload is too large".into(),
+        ));
     }
     let payload: Value = serde_json::from_slice(&payload_bytes)
         .map_err(|_| CoreError::InvalidRequest("invalid vault payload JSON".into()))?;
@@ -418,8 +524,7 @@ fn build_vault_heartbeat(request: &PolicyTransactionRequest) -> Result<BuiltPoli
         || payload.get("v").and_then(Value::as_u64) != Some(2)
         || payload.get("action").and_then(Value::as_str) != Some("dms-heartbeat")
         || payload.get("dmsMode").and_then(Value::as_str) != Some("heartbeat")
-        || payload.get("refreshMode").and_then(Value::as_str)
-            != Some("covenant-utxo-recreation")
+        || payload.get("refreshMode").and_then(Value::as_str) != Some("covenant-utxo-recreation")
         || payload.get("ownerAddress").and_then(Value::as_str) != Some(request.sender.as_str())
     {
         return Err(CoreError::InvalidRequest(
@@ -435,10 +540,7 @@ fn build_vault_heartbeat(request: &PolicyTransactionRequest) -> Result<BuiltPoli
         .get("outputs")
         .and_then(Value::as_array)
         .ok_or_else(|| CoreError::InvalidRequest("missing outputs".into()))?;
-    if inputs_json.len() != 2
-        || outputs_json.len() != 2
-        || request.sign_input_indexes != [0, 1]
-    {
+    if inputs_json.len() != 2 || outputs_json.len() != 2 || request.sign_input_indexes != [0, 1] {
         return Err(CoreError::InvalidRequest(
             "heartbeat must sign exactly its covenant and fee inputs".into(),
         ));
@@ -488,7 +590,12 @@ fn build_vault_heartbeat(request: &PolicyTransactionRequest) -> Result<BuiltPoli
             false,
             None,
         ));
-        if item.get("signatureScript").and_then(Value::as_str).unwrap_or("") != "" {
+        if item
+            .get("signatureScript")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            != ""
+        {
             return Err(CoreError::InvalidRequest(
                 "pre-signed policy transactions are rejected".into(),
             ));
@@ -533,12 +640,16 @@ fn build_vault_heartbeat(request: &PolicyTransactionRequest) -> Result<BuiltPoli
         .checked_sub(output_total)
         .ok_or_else(|| CoreError::InvalidRequest("outputs exceed inputs".into()))?;
     if fee == 0 || fee > MAX_VAULT_FEE_SOMPI {
-        return Err(CoreError::InvalidRequest("vault fee exceeds safety policy".into()));
+        return Err(CoreError::InvalidRequest(
+            "vault fee exceeds safety policy".into(),
+        ));
     }
     let redeem = hex::decode(request.redeem_script.trim_start_matches("0x"))
         .map_err(|_| CoreError::InvalidRequest("invalid redeem script".into()))?;
     if redeem.is_empty() {
-        return Err(CoreError::InvalidRequest("redeem script is required".into()));
+        return Err(CoreError::InvalidRequest(
+            "redeem script is required".into(),
+        ));
     }
     let expected_vault_script = kaspa_txscript::pay_to_script_hash_script(&redeem);
     if entries[0].script_public_key != expected_vault_script {
@@ -600,8 +711,8 @@ fn build_vault_heartbeat(request: &PolicyTransactionRequest) -> Result<BuiltPoli
 }
 
 fn script_public_key(raw: &str) -> Result<ScriptPublicKey> {
-    let bytes = hex::decode(raw)
-        .map_err(|_| CoreError::UntrustedUtxo("invalid script encoding".into()))?;
+    let bytes =
+        hex::decode(raw).map_err(|_| CoreError::UntrustedUtxo("invalid script encoding".into()))?;
     if bytes.len() < 2 {
         return Err(CoreError::UntrustedUtxo("short script encoding".into()));
     }
@@ -636,8 +747,7 @@ mod tests {
     use super::*;
     use kaspa_txscript::pay_to_script_hash_script;
 
-    const ADDRESS: &str =
-        "kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh";
+    const ADDRESS: &str = "kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh";
 
     fn script_json(script: &ScriptPublicKey) -> String {
         let mut bytes = script.version().to_be_bytes().to_vec();
@@ -700,11 +810,12 @@ mod tests {
         let redeem = expected_vault_redeem_script(&payload, &sender, "create").unwrap();
         payload["redeemScript"] = json!(hex::encode(&redeem));
         let vault_script = pay_to_script_hash_script(&redeem);
-        payload["vaultAddress"] = json!(
-            kaspa_txscript::extract_script_pub_key_address(
-                &vault_script, kaspa_addresses::Prefix::Mainnet
-            ).unwrap().to_string()
-        );
+        payload["vaultAddress"] = json!(kaspa_txscript::extract_script_pub_key_address(
+            &vault_script,
+            kaspa_addresses::Prefix::Mainnet
+        )
+        .unwrap()
+        .to_string());
         let safe = json!({
             "version":0,
             "inputs":[{
@@ -722,8 +833,10 @@ mod tests {
             "payload":hex::encode(serde_json::to_vec(&payload).unwrap())
         });
         PolicyTransactionRequest {
-            sender: ADDRESS.into(), tx_json_string: safe.to_string(),
-            sign_input_indexes: vec![0], redeem_script: String::new(),
+            sender: ADDRESS.into(),
+            tx_json_string: safe.to_string(),
+            sign_input_indexes: vec![0],
+            redeem_script: String::new(),
         }
     }
 
@@ -737,8 +850,7 @@ mod tests {
             sign_policy_transaction(secret, &request, "wrong"),
             Err(CoreError::ReviewMismatch)
         ));
-        let signed =
-            sign_policy_transaction(secret, &request, &prepared.review_hash).unwrap();
+        let signed = sign_policy_transaction(secret, &request, &prepared.review_hash).unwrap();
         let value: Value = serde_json::from_str(&signed.signed_tx_json).unwrap();
         assert!(!value["inputs"][0]["signatureScript"]
             .as_str()
@@ -782,9 +894,9 @@ mod tests {
         assert_eq!(prepared.profile, "vault-create-v2");
         let mut hostile = request;
         let mut value: Value = serde_json::from_str(&hostile.tx_json_string).unwrap();
-        let mut payload: Value = serde_json::from_slice(
-            &hex::decode(value["payload"].as_str().unwrap()).unwrap()
-        ).unwrap();
+        let mut payload: Value =
+            serde_json::from_slice(&hex::decode(value["payload"].as_str().unwrap()).unwrap())
+                .unwrap();
         payload["redeemScript"] = json!("51");
         value["payload"] = json!(hex::encode(serde_json::to_vec(&payload).unwrap()));
         hostile.tx_json_string = value.to_string();

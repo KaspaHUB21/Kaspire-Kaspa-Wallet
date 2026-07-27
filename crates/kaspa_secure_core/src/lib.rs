@@ -1,17 +1,18 @@
 mod inscription;
 mod kcc20;
 mod policy_transaction;
+mod pskt;
 mod transaction;
 
 #[cfg(target_os = "android")]
 mod android;
 
+use argon2::{Algorithm, Argon2, Params, Version as ArgonVersion};
 use kaspa_addresses::{Address, Prefix, Version};
 use kaspa_bip32::{
     DerivationPath, ExtendedPrivateKey, Language, Mnemonic, PrivateKey, SecretKey, WordCount,
 };
 use kaspa_hashes::PersonalMessageSigningHash;
-use argon2::{Algorithm, Argon2, Params, Version as ArgonVersion};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error;
@@ -28,6 +29,10 @@ pub use kcc20::{
 pub use policy_transaction::{
     prepare_policy_transaction, sign_policy_transaction, PolicyTransactionRequest,
     PreparedPolicyTransaction, SignedPolicyTransaction,
+};
+pub use pskt::{
+    prepare_pskt, sign_pskt, PreparedPskt, PsktInputReview, PsktOutputReview, PsktRequest,
+    PsktSignInput, SignedPskt,
 };
 pub use transaction::{
     prepare_transaction, sign_transaction, PreparedTransaction, SendRequest, SignedTransaction,

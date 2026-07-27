@@ -195,6 +195,8 @@ class _KasVaultAppState extends State<KasVaultApp> {
         'kaspa_sendTransaction' => 'Request KAS payments',
         'kaspa_sendKrc20' => 'Request reviewed KRC-20 transfers',
         'kaspa_sendKcc20' => 'Request verified KCC20 covenant transfers',
+        'kaspa_signPskt' =>
+          'Request reviewed partial transaction signatures (PSKT)',
         'kaspa_signVaultTransaction' =>
           'Request policy-verified vault heartbeat signatures',
         _ => method,
@@ -234,6 +236,8 @@ class _KasVaultAppState extends State<KasVaultApp> {
           await _handleDappKrc20(request, address);
         case 'kaspa_sendKcc20':
           await _handleDappKcc20(request, address);
+        case 'kaspa_signPskt':
+          await _handlePskt(request, address);
         case 'kaspa_signVaultTransaction':
           await _handleVaultTransaction(request, address);
       }
@@ -640,6 +644,179 @@ class _KasVaultAppState extends State<KasVaultApp> {
     } finally {
       messenger.hideCurrentSnackBar();
     }
+  }
+
+  Future<void> _handlePskt(
+    SessionRequestEvent request,
+    String address,
+  ) async {
+    final params = _paramsMap(request.params);
+    if (params.keys.any((key) => key != 'txJsonString' && key != 'options')) {
+      throw const FormatException('Unknown PSKT signing field.');
+    }
+    final txJson = params['txJsonString'];
+    final options = params['options'];
+    if (txJson is! String ||
+        txJson.isEmpty ||
+        txJson.length > 512 * 1024 ||
+        options is! Map) {
+      throw const FormatException('Invalid PSKT signing request.');
+    }
+    final optionsMap =
+        options.map((key, value) => MapEntry(key.toString(), value));
+    if (optionsMap.keys.any((key) => key != 'signInputs') ||
+        optionsMap['signInputs'] is! List) {
+      throw const FormatException('Invalid PSKT signing options.');
+    }
+    final rawInputs = optionsMap['signInputs']! as List;
+    if (rawInputs.isEmpty || rawInputs.length > 256) {
+      throw const FormatException('Invalid PSKT input selection.');
+    }
+    final signInputs = <Map<String, Object?>>[];
+    for (final raw in rawInputs) {
+      if (raw is! Map) {
+        throw const FormatException('Invalid PSKT input selection.');
+      }
+      final item = raw.map((key, value) => MapEntry(key.toString(), value));
+      if (item.keys.any((key) => key != 'index' && key != 'sighashType')) {
+        throw const FormatException('Unknown PSKT input field.');
+      }
+      final index = item['index'];
+      final sighash = item['sighashType'] ?? 1;
+      if (index is! int ||
+          index < 0 ||
+          index > 255 ||
+          sighash is! int ||
+          !const {1, 2, 4, 129, 130, 132}.contains(sighash)) {
+        throw const FormatException('Invalid PSKT input selection.');
+      }
+      signInputs.add({'index': index, 'sighashType': sighash});
+    }
+    if (!await _security.hasNativeWalletFor(address)) {
+      throw const FormatException('The session wallet is watch-only.');
+    }
+    final psktRequest = <String, Object?>{
+      'sender': address,
+      'txJsonString': txJson,
+      'signInputs': signInputs,
+    };
+    final review = await _security.preparePskt(psktRequest);
+    final context = await _contextWhenReady();
+    if (context == null || !context.mounted) {
+      throw const FormatException('Wallet UI is unavailable.');
+    }
+    final inputs = (review['inputs'] as List).whereType<Map>().toList();
+    final outputs = (review['outputs'] as List).whereType<Map>().toList();
+    final warnings =
+        (review['warnings'] as List).map((item) => item.toString()).toList();
+    final payloadText = review['payloadUtf8']?.toString();
+    final walletNet = (review['walletNetSompi'] as num).toInt();
+    final approved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text('${_dapps.dappName(request.topic)} requests PSKT signing'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Kaspire verified the Kaspa transaction structure and will sign only the selected inputs. You must decide whether the dApp action and any covenant rules are trustworthy.',
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Wallet effect: ${walletNet <= 0 ? '−' : '+'}${formatSompi(walletNet.abs())} KAS',
+                  style: const TextStyle(
+                      fontSize: 23, fontWeight: FontWeight.w900),
+                ),
+                Text(
+                    'Network fee: ${formatSompi((review['feeSompi'] as num).toInt())} KAS'),
+                Text(
+                    'Signing ${review['selectedInputCount']} of ${review['inputCount']} inputs · ${review['outputCount']} outputs'),
+                const SizedBox(height: 12),
+                const Text('Transaction ID',
+                    style: TextStyle(color: KasVaultTheme.muted)),
+                SelectableText(review['transactionId']!.toString()),
+                if (warnings.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Text('IMPORTANT WARNINGS',
+                      style: TextStyle(
+                          color: Color(0xFFFFC857),
+                          fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 6),
+                  ...warnings.map((warning) => Padding(
+                        padding: const EdgeInsets.only(bottom: 5),
+                        child: Text('• $warning',
+                            style:
+                                const TextStyle(color: Color(0xFFFFC857))),
+                      )),
+                ],
+                const SizedBox(height: 16),
+                const Text('INPUTS',
+                    style: TextStyle(fontWeight: FontWeight.w900)),
+                ...inputs.map((raw) {
+                  final item = raw.cast<String, Object?>();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 9),
+                    child: SelectableText(
+                      '#${item['index']} · ${formatSompi((item['amountSompi'] as num).toInt())} KAS'
+                      '${item['selected'] == true ? ' · SIGN ${item['sighashLabel']}' : ''}\n'
+                      '${item['address'] ?? 'Non-standard/covenant script'}\n'
+                      '${item['outpoint']}',
+                    ),
+                  );
+                }),
+                const SizedBox(height: 16),
+                const Text('OUTPUTS',
+                    style: TextStyle(fontWeight: FontWeight.w900)),
+                ...outputs.map((raw) {
+                  final item = raw.cast<String, Object?>();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 9),
+                    child: SelectableText(
+                      '#${item['index']} · ${formatSompi((item['amountSompi'] as num).toInt())} KAS'
+                      '${item['returnsToWallet'] == true ? ' · RETURNS TO WALLET' : ''}\n'
+                      '${item['address'] ?? 'Non-standard/covenant script'}'
+                      '${item['covenantId'] == null ? '' : '\nCovenant: ${item['covenantId']}'}\n'
+                      'Script: ${item['scriptPublicKey']}',
+                    ),
+                  );
+                }),
+                if ((review['payloadHex'] as String).isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Text('PAYLOAD',
+                      style: TextStyle(fontWeight: FontWeight.w900)),
+                  SelectableText(payloadText ?? review['payloadHex'] as String),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('REJECT'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('SIGN SELECTED INPUTS'),
+          ),
+        ],
+      ),
+    );
+    if (approved != true) {
+      await _dapps.respondError(request, 'User rejected.', code: 4001);
+      return;
+    }
+    final signed = await _security.signPskt(
+      psktRequest,
+      review['reviewHash']! as String,
+    );
+    // Kasware-compatible response: the signed SafeJSON transaction string.
+    await _dapps.respondResult(request, signed['signedTxJson']);
   }
 
   Future<void> _handleVaultTransaction(

@@ -12,8 +12,8 @@ use kaspa_consensus_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashSet;
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::str::FromStr;
 
 const MAX_INPUTS: usize = 80;
@@ -471,8 +471,7 @@ mod adversarial_tests {
     use super::*;
     use kaspa_addresses::Address;
 
-    const ADDRESS: &str =
-        "kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh";
+    const ADDRESS: &str = "kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh";
 
     #[test]
     fn malformed_utxo_corpus_fails_closed_without_panicking() {

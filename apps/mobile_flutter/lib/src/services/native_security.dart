@@ -355,6 +355,27 @@ class NativeSecurity {
     });
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
+
+  Future<Map<String, Object?>> preparePskt(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+        'preparePskt', {'request': jsonEncode(request)});
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> signPskt(
+      Map<String, Object?> request, String reviewHash) async {
+    final token = await _authorizeOperation(
+      operation: 'signPskt',
+      binding: reviewHash,
+    );
+    final raw = await _channel.invokeMethod<String>('signPskt', {
+      'request': jsonEncode(request),
+      'reviewHash': reviewHash,
+      'authorizationToken': token,
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
 }
 
 class NativeWalletInfo {
