@@ -9,7 +9,15 @@ use kaspa_consensus_core::{
         TransactionOutput, UtxoEntry,
     },
 };
-use kaspa_txscript::pay_to_address_script;
+use kaspa_txscript::{
+    opcodes::codes::{
+        OpCheckLockTimeVerify, OpCheckSequenceVerify, OpCheckSigVerify, OpElse, OpEndIf,
+        OpEqualVerify, OpGreaterThanOrEqual, OpIf, OpNumEqualVerify, OpSub,
+        OpTrue, OpTxInputAmount, OpTxInputCount, OpTxInputIndex, OpTxInputSpk,
+        OpTxOutputAmount, OpTxOutputCount, OpTxOutputSpk, OpVerify,
+    },
+    pay_to_address_script, script_builder::ScriptBuilder,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -204,6 +212,12 @@ fn build_vault_create(request: &PolicyTransactionRequest) -> Result<BuiltPolicyT
     let redeem = hex::decode(payload.get("redeemScript").and_then(Value::as_str)
         .ok_or_else(|| CoreError::InvalidRequest("missing redeem script".into()))?)
         .map_err(|_| CoreError::InvalidRequest("invalid redeem script".into()))?;
+    let expected_redeem = expected_vault_redeem_script(&payload, &sender, action)?;
+    if redeem != expected_redeem {
+        return Err(CoreError::InvalidRequest(
+            "vault redeem script does not match the native policy template".into(),
+        ));
+    }
     let vault_script = kaspa_txscript::pay_to_script_hash_script(&redeem);
     if outputs[0].value != vault_amount
         || outputs[0].script_public_key != vault_script
@@ -251,6 +265,113 @@ fn build_vault_create(request: &PolicyTransactionRequest) -> Result<BuiltPolicyT
             vault_amount_sompi: vault_amount, review_hash,
         }
     })
+}
+
+fn expected_vault_redeem_script(payload: &Value, sender: &Address, action: &str) -> Result<Vec<u8>> {
+    let mut builder = ScriptBuilder::new();
+    if action == "create" {
+        let unlock_time = payload.get("unlockTime").and_then(Value::as_str)
+            .and_then(|raw| raw.parse::<u64>().ok())
+            .ok_or_else(|| CoreError::InvalidRequest("invalid unlock time".into()))?;
+        let owner_script = script_with_version(&pay_to_address_script(sender));
+        if payload.get("pinnedOwnerAddress").and_then(Value::as_str) != Some(sender.to_string().as_str())
+            || payload.get("pinnedOwnerScriptPublicKey").and_then(Value::as_str)
+                != Some(hex::encode(&owner_script).as_str())
+        {
+            return Err(CoreError::InvalidRequest("pinned owner policy mismatch".into()));
+        }
+        builder.add_lock_time(unlock_time)
+            .and_then(|b| b.add_op(OpCheckLockTimeVerify))
+            .and_then(|b| b.add_op(OpTxInputCount))
+            .and_then(|b| b.add_i64(1))
+            .and_then(|b| b.add_op(OpNumEqualVerify))
+            .and_then(|b| b.add_op(OpTxOutputCount))
+            .and_then(|b| b.add_i64(1))
+            .and_then(|b| b.add_op(OpNumEqualVerify))
+            .and_then(|b| b.add_i64(0))
+            .and_then(|b| b.add_op(OpTxOutputSpk))
+            .and_then(|b| b.add_data(&owner_script))
+            .and_then(|b| b.add_op(OpEqualVerify))
+            .and_then(|b| b.add_i64(0))
+            .and_then(|b| b.add_op(OpTxOutputAmount))
+            .and_then(|b| b.add_op(OpTxInputIndex))
+            .and_then(|b| b.add_op(OpTxInputAmount))
+            .and_then(|b| b.add_i64(MAX_VAULT_FEE_SOMPI as i64))
+            .and_then(|b| b.add_op(OpSub))
+            .and_then(|b| b.add_op(OpGreaterThanOrEqual))
+            .and_then(|b| b.add_op(OpVerify))
+            .and_then(|b| b.add_op(OpTrue))
+            .map_err(|error| CoreError::Transaction(error.to_string()))?;
+        return Ok(builder.drain());
+    }
+
+    let beneficiary = Address::try_from(
+        payload.get("beneficiaryAddress").and_then(Value::as_str)
+            .ok_or_else(|| CoreError::InvalidRequest("missing beneficiary".into()))?
+    ).map_err(|_| CoreError::InvalidAddress)?;
+    let beneficiary_script = script_with_version(&pay_to_address_script(&beneficiary));
+    let owner_public_key = hex::decode(
+        payload.get("ownerPublicKey").and_then(Value::as_str)
+            .ok_or_else(|| CoreError::InvalidRequest("missing owner public key".into()))?
+    ).map_err(|_| CoreError::InvalidRequest("invalid owner public key".into()))?;
+    if owner_public_key.len() != 32 || owner_public_key.as_slice() != sender.payload.as_slice() {
+        return Err(CoreError::InvalidRequest("owner public key mismatch".into()));
+    }
+    let inactivity = payload.get("inactivityDaaBlocks").and_then(Value::as_str)
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .ok_or_else(|| CoreError::InvalidRequest("invalid inactivity period".into()))?;
+    builder.add_op(OpIf)
+        .and_then(|b| b.add_data(&owner_public_key))
+        .and_then(|b| b.add_op(OpCheckSigVerify))
+        .and_then(|b| b.add_op(OpTxInputCount))
+        .and_then(|b| b.add_i64(2))
+        .and_then(|b| b.add_op(OpNumEqualVerify))
+        .and_then(|b| b.add_op(OpTxOutputCount))
+        .and_then(|b| b.add_i64(2))
+        .and_then(|b| b.add_op(OpNumEqualVerify))
+        .and_then(|b| b.add_i64(0))
+        .and_then(|b| b.add_op(OpTxOutputSpk))
+        .and_then(|b| b.add_op(OpTxInputIndex))
+        .and_then(|b| b.add_op(OpTxInputSpk))
+        .and_then(|b| b.add_op(OpEqualVerify))
+        .and_then(|b| b.add_i64(0))
+        .and_then(|b| b.add_op(OpTxOutputAmount))
+        .and_then(|b| b.add_op(OpTxInputIndex))
+        .and_then(|b| b.add_op(OpTxInputAmount))
+        .and_then(|b| b.add_op(OpGreaterThanOrEqual))
+        .and_then(|b| b.add_op(OpVerify))
+        .and_then(|b| b.add_op(OpTrue))
+        .and_then(|b| b.add_op(OpElse))
+        .and_then(|b| b.add_sequence(inactivity))
+        .and_then(|b| b.add_op(OpCheckSequenceVerify))
+        .and_then(|b| b.add_op(OpTxInputCount))
+        .and_then(|b| b.add_i64(1))
+        .and_then(|b| b.add_op(OpNumEqualVerify))
+        .and_then(|b| b.add_op(OpTxOutputCount))
+        .and_then(|b| b.add_i64(1))
+        .and_then(|b| b.add_op(OpNumEqualVerify))
+        .and_then(|b| b.add_i64(0))
+        .and_then(|b| b.add_op(OpTxOutputSpk))
+        .and_then(|b| b.add_data(&beneficiary_script))
+        .and_then(|b| b.add_op(OpEqualVerify))
+        .and_then(|b| b.add_i64(0))
+        .and_then(|b| b.add_op(OpTxOutputAmount))
+        .and_then(|b| b.add_op(OpTxInputIndex))
+        .and_then(|b| b.add_op(OpTxInputAmount))
+        .and_then(|b| b.add_i64(MAX_VAULT_FEE_SOMPI as i64))
+        .and_then(|b| b.add_op(OpSub))
+        .and_then(|b| b.add_op(OpGreaterThanOrEqual))
+        .and_then(|b| b.add_op(OpVerify))
+        .and_then(|b| b.add_op(OpTrue))
+        .and_then(|b| b.add_op(OpEndIf))
+        .map_err(|error| CoreError::Transaction(error.to_string()))?;
+    Ok(builder.drain())
+}
+
+fn script_with_version(script: &ScriptPublicKey) -> Vec<u8> {
+    let mut bytes = script.version().to_be_bytes().to_vec();
+    bytes.extend_from_slice(script.script());
+    bytes
 }
 
 fn build_vault_heartbeat(request: &PolicyTransactionRequest) -> Result<BuiltPolicyTransaction> {
@@ -565,6 +686,47 @@ mod tests {
         }
     }
 
+    fn create_request() -> PolicyTransactionRequest {
+        let sender = Address::try_from(ADDRESS).unwrap();
+        let owner_script = pay_to_address_script(&sender);
+        let owner_script_hex = script_json(&owner_script);
+        let mut payload = json!({
+            "p":VAULT_PROTOCOL, "v":2, "action":"create",
+            "ownerAddress":ADDRESS, "pinnedOwnerAddress":ADDRESS,
+            "pinnedOwnerScriptPublicKey":owner_script_hex,
+            "unlockTime":"500000000", "lockAmountSompi":"10000000",
+            "vaultAddress":""
+        });
+        let redeem = expected_vault_redeem_script(&payload, &sender, "create").unwrap();
+        payload["redeemScript"] = json!(hex::encode(&redeem));
+        let vault_script = pay_to_script_hash_script(&redeem);
+        payload["vaultAddress"] = json!(
+            kaspa_txscript::extract_script_pub_key_address(
+                &vault_script, kaspa_addresses::Prefix::Mainnet
+            ).unwrap().to_string()
+        );
+        let safe = json!({
+            "version":0,
+            "inputs":[{
+                "transactionId":"33".repeat(32),"index":0,"sequence":"0",
+                "sigOpCount":1,"computeBudget":0,"signatureScript":"",
+                "utxo":{"amount":"30000000","scriptPublicKey":script_json(&owner_script),
+                    "blockDaaScore":"100","isCoinbase":false}
+            }],
+            "outputs":[
+                {"value":"10000000","scriptPublicKey":script_json(&vault_script)},
+                {"value":"19000000","scriptPublicKey":script_json(&owner_script)}
+            ],
+            "subnetworkId":SUBNETWORK_ID_NATIVE.to_string(),
+            "lockTime":"0","gas":"0","storageMass":"0",
+            "payload":hex::encode(serde_json::to_vec(&payload).unwrap())
+        });
+        PolicyTransactionRequest {
+            sender: ADDRESS.into(), tx_json_string: safe.to_string(),
+            sign_input_indexes: vec![0], redeem_script: String::new(),
+        }
+    }
+
     #[test]
     fn heartbeat_is_review_bound_and_signs_only_expected_inputs() {
         let request = request();
@@ -611,5 +773,21 @@ mod tests {
                 "accepted hostile mutation {mutate}"
             );
         }
+    }
+
+    #[test]
+    fn create_profile_requires_the_exact_native_redeem_template() {
+        let request = create_request();
+        let prepared = prepare_policy_transaction(&request).unwrap();
+        assert_eq!(prepared.profile, "vault-create-v2");
+        let mut hostile = request;
+        let mut value: Value = serde_json::from_str(&hostile.tx_json_string).unwrap();
+        let mut payload: Value = serde_json::from_slice(
+            &hex::decode(value["payload"].as_str().unwrap()).unwrap()
+        ).unwrap();
+        payload["redeemScript"] = json!("51");
+        value["payload"] = json!(hex::encode(serde_json::to_vec(&payload).unwrap()));
+        hostile.tx_json_string = value.to_string();
+        assert!(prepare_policy_transaction(&hostile).is_err());
     }
 }

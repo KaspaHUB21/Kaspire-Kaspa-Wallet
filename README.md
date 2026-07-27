@@ -31,8 +31,8 @@ tablets, and foldables.
 
 ## Current release
 
-- Version: **0.10.13**
-- Android build: **48**
+- Version: **0.10.14**
+- Android build: **49**
 - Build: **47**
 - Network: **Kaspa Mainnet**
 - Android package: `space.kasvault.wallet`
