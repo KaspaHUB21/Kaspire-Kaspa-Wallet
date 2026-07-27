@@ -195,6 +195,8 @@ class _KasVaultAppState extends State<KasVaultApp> {
         'kaspa_sendTransaction' => 'Request KAS payments',
         'kaspa_sendKrc20' => 'Request reviewed KRC-20 transfers',
         'kaspa_sendKcc20' => 'Request verified KCC20 covenant transfers',
+        'kaspa_signVaultTransaction' =>
+          'Request policy-verified vault heartbeat signatures',
         _ => method,
       };
 
@@ -232,6 +234,8 @@ class _KasVaultAppState extends State<KasVaultApp> {
           await _handleDappKrc20(request, address);
         case 'kaspa_sendKcc20':
           await _handleDappKcc20(request, address);
+        case 'kaspa_signVaultTransaction':
+          await _handleVaultTransaction(request, address);
       }
     } catch (error) {
       final message = error is FormatException
@@ -636,6 +640,106 @@ class _KasVaultAppState extends State<KasVaultApp> {
     } finally {
       messenger.hideCurrentSnackBar();
     }
+  }
+
+  Future<void> _handleVaultTransaction(
+    SessionRequestEvent request,
+    String address,
+  ) async {
+    final params = _paramsMap(request.params);
+    if (params.keys.any((key) =>
+        key != 'txJsonString' &&
+        key != 'signInputIndexes' &&
+        key != 'redeemScript')) {
+      throw const FormatException('Unknown vault-signing field.');
+    }
+    final txJson = params['txJsonString'];
+    final indexes = params['signInputIndexes'];
+    final redeemScript = params['redeemScript'];
+    final isCreate = indexes is List && indexes.length == 1 && indexes[0] == 0;
+    final isHeartbeat = indexes is List &&
+        indexes.length == 2 &&
+        indexes[0] == 0 &&
+        indexes[1] == 1;
+    if (txJson is! String ||
+        txJson.length > 256 * 1024 ||
+        (!isCreate && !isHeartbeat) ||
+        redeemScript is! String ||
+        (isHeartbeat &&
+            !RegExp(r'^(?:0x)?[0-9a-fA-F]+$').hasMatch(redeemScript)) ||
+        (isCreate && redeemScript.isNotEmpty) ||
+        redeemScript.length > 32768) {
+      throw const FormatException('Invalid vault-signing request.');
+    }
+    if (!await _security.hasNativeWalletFor(address)) {
+      throw const FormatException('The session wallet is watch-only.');
+    }
+    final policyRequest = <String, Object?>{
+      'sender': address,
+      'txJsonString': txJson,
+      'signInputIndexes': indexes,
+      'redeemScript': redeemScript,
+    };
+    final review = await _security.preparePolicyTransaction(policyRequest);
+    final context = await _contextWhenReady();
+    if (context == null || !context.mounted) {
+      throw const FormatException('Wallet UI is unavailable.');
+    }
+    final approved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text('${_dapps.dappName(request.topic)} requests a vault action'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Kaspire verified that this transaction recreates the same covenant with the same locked amount and returns all remaining change to this wallet.',
+              ),
+              const SizedBox(height: 14),
+              Text(
+                '${formatEnglishNumber((review['vaultAmountSompi'] as num).toInt() / 100000000)} KAS ${review['action'] == 'dms-heartbeat' ? 'remain locked' : 'will be locked'}',
+                style:
+                    const TextStyle(fontSize: 23, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Network fee: ${formatEnglishNumber((review['feeSompi'] as num).toInt() / 100000000)} KAS',
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Only the two reviewed inputs will be signed. Unknown PSKT and arbitrary scripts are rejected.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('REJECT'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('AUTHORIZE'),
+          ),
+        ],
+      ),
+    );
+    if (approved != true) {
+      await _dapps.respondError(request, 'User rejected.', code: 4001);
+      return;
+    }
+    final signed = await _security.signPolicyTransaction(
+      policyRequest,
+      review['reviewHash']! as String,
+    );
+    await _dapps.respondResult(request, <String, Object?>{
+      'signedTxJson': signed['signedTxJson'],
+      'profile': review['profile'],
+      'reviewHash': review['reviewHash'],
+    });
   }
 
   Future<void> _handleDappKcc20(

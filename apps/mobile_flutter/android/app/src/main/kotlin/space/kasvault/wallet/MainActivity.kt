@@ -176,6 +176,24 @@ class MainActivity : FlutterFragmentActivity() {
                             result,
                         )
                     }
+                    "preparePolicyTransaction" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        resultPreparedFromCore(
+                            SecureCore.preparePolicyTransaction(request),
+                            "signPolicyTransaction",
+                            result,
+                        )
+                    }
+                    "signPolicyTransaction" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
+                        requireAuthorization(call, "signPolicyTransaction", reviewHash)
+                        val secret = decryptSecret(JSONObject(request).getString("sender"))
+                        resultFromCore(
+                            SecureCore.signPolicyTransaction(secret, request, reviewHash),
+                            result,
+                        )
+                    }
                     "signReveal" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
@@ -922,6 +940,10 @@ class MainActivity : FlutterFragmentActivity() {
                 "Recipient ${json.getString("recipient")}\n" +
                     "${json.getString("kind").uppercase()} reveal · " +
                     "Fee ${json.getLong("feeSompi")} sompi"
+            "signPolicyTransaction" ->
+                "Vault ${json.getString("action")}\n" +
+                    "${json.getLong("vaultAmountSompi")} sompi governed by covenant · " +
+                    "Fee ${json.getLong("feeSompi")} sompi"
             else -> error("Unsupported native review operation")
         }
         synchronized(authorizationLock) {
@@ -1399,7 +1421,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun authorizationPrompt(operation: String, binding: String): String? = when (operation) {
-        "signTransaction", "signKcc20Transfer", "signReveal" ->
+        "signTransaction", "signKcc20Transfer", "signReveal", "signPolicyTransaction" ->
             synchronized(authorizationLock) {
                 nativeReviewSummaries[binding]
                     ?.takeIf {

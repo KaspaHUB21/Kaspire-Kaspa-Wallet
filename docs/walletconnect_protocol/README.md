@@ -10,6 +10,7 @@ methods: kaspa_getAccounts
          kaspa_sendTransaction
          kaspa_sendKrc20
          kaspa_sendKcc20
+         kaspa_signVaultTransaction
 events:  accountsChanged
 ```
 
@@ -76,3 +77,33 @@ KCC20 requests identify the token by its 64-hex covenant ID and use an exact raw
 Kaspire uses `kcc20.info` as its primary owner-balance, history and signing-data indexer. Kascov is used only when the primary service fails or explicitly reports an incomplete historical cell mapping. Kaspire accepts only indexer-verified tokens with a complete live-cell mapping. The native core recompiles each current and future KCC20 state from the vendored SilverScript source, compares the current state hashes, enforces token and transaction-value conservation, applies Toccata compute budgets and exactly 100 sompi/g, signs a typed version-1 transaction, and executes every input locally using its exact Mainnet script-unit allowance. Kascov's optional preflight is retained as advisory diagnostics; its fee field is never used. The signed transaction is broadcast through a compute-budget-preserving Toccata wRPC node, whose verdict is authoritative, and the returned transaction ID must match the locally signed ID.
 
 The wallet fetches untrusted UTXOs itself, then the native Rust core reconstructs the transaction and derives the confirmation screen from the canonical result. Human-readable dApp metadata is never accepted as proof of transaction contents. Every payment, KRC-20 transfer and personal signature receives fresh explicit confirmation and biometric or PIN approval.
+
+## Policy-verified vault transactions
+
+Kaspire deliberately does not expose a generic `signPskt` blind signer.
+Vault dApps request `kaspa_signVaultTransaction` with Kasware-compatible
+transaction SafeJSON:
+
+```json
+{
+  "txJsonString": "{\"version\":1,\"inputs\":[...]}",
+  "signInputIndexes": [0, 1],
+  "redeemScript": "..."
+}
+```
+
+The currently accepted profiles are `vault-create-v2`,
+`vault-dms-create-v2`, and `vault-dms-heartbeat-v2` for protocol
+`kaslab-time-lock-vault-v1`. Create transactions must sign only input `0`.
+Heartbeat transactions must sign exactly inputs `0` and `1` and include the
+redeem script.
+
+The Rust core parses the SafeJSON and embedded UTXOs, rejects duplicate
+outpoints and pre-existing signatures, binds the redeem script to the P2SH
+input, preserves the covenant output byte-for-byte and at the same amount,
+allows change only to the session wallet, caps the total fee at 15,000,000
+sompi, and binds the exact transaction to the native review hash. Unknown
+protocols, profiles, scripts, output shapes and signing-index combinations fail
+closed. A dApp must request a separate typed Kaspire method/profile for a new
+marketplace or covenant protocol; it must never route unknown PSKT through this
+method.

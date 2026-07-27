@@ -1,5 +1,6 @@
 mod inscription;
 mod kcc20;
+mod policy_transaction;
 mod transaction;
 
 #[cfg(target_os = "android")]
@@ -23,6 +24,10 @@ pub use inscription::{
 pub use kcc20::{
     kcc20_template_hash, prepare_kcc20_transfer, sign_kcc20_transfer, Kcc20Cell,
     Kcc20TransferRequest, PreparedKcc20Transfer, SignedKcc20Transfer,
+};
+pub use policy_transaction::{
+    prepare_policy_transaction, sign_policy_transaction, PolicyTransactionRequest,
+    PreparedPolicyTransaction, SignedPolicyTransaction,
 };
 pub use transaction::{
     prepare_transaction, sign_transaction, PreparedTransaction, SendRequest, SignedTransaction,

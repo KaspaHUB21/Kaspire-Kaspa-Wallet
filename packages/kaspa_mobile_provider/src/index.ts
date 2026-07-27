@@ -5,7 +5,8 @@ export type KaspaMethod =
   | "kaspa_signPersonal"
   | "kaspa_sendTransaction"
   | "kaspa_sendKrc20"
-  | "kaspa_sendKcc20";
+  | "kaspa_sendKcc20"
+  | "kaspa_signVaultTransaction";
 
 export interface WalletTransport {
   request<T>(method: KaspaMethod, params?: unknown): Promise<T>;
@@ -36,6 +37,15 @@ export interface Kcc20TransferResult {
   feeSompi: number;
   mass: number;
   validation: "toccata-node";
+}
+
+export interface PolicyTransactionResult {
+  signedTxJson: string;
+  profile:
+    | "vault-create-v2"
+    | "vault-dms-create-v2"
+    | "vault-dms-heartbeat-v2";
+  reviewHash: string;
 }
 
 export function kaspirePairingLink(walletConnectUri: string): string {
@@ -133,6 +143,29 @@ export class KaspireProvider {
       amount: rawAmount.toString(),
       ...(this.address ? { from: this.address } : {}),
     });
+  }
+
+  signVaultTransaction(
+    txJsonString: string,
+    signInputIndexes: readonly number[],
+    redeemScript = "",
+  ): Promise<PolicyTransactionResult> {
+    if (
+      !txJsonString ||
+      txJsonString.length > 256 * 1024 ||
+      !(
+        (signInputIndexes.length === 1 && signInputIndexes[0] === 0) ||
+        (signInputIndexes.length === 2 &&
+          signInputIndexes[0] === 0 &&
+          signInputIndexes[1] === 1)
+      )
+    ) {
+      return Promise.reject(new Error("Invalid vault policy transaction"));
+    }
+    return this.transport.request<PolicyTransactionResult>(
+      "kaspa_signVaultTransaction",
+      { txJsonString, signInputIndexes: [...signInputIndexes], redeemScript },
+    );
   }
 }
 

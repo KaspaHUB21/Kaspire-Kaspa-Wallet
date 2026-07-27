@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Kaspire Developer Guide | Connect Kaspa dApps",
   description:
-    "Integrate Kaspire with a website using WalletConnect v2 for accounts, KIP-5 signatures, KAS, KRC-20, and KCC20 transfers.",
+    "Integrate Kaspire with a website using WalletConnect v2 for accounts, signatures, KAS, tokens, and policy-verified vault transactions.",
 };
 
 const installCode = `npm install @walletconnect/sign-client`;
@@ -29,7 +29,8 @@ const connectCode = `const { uri, approval } = await signClient.connect({
         "kaspa_signPersonal",
         "kaspa_sendTransaction",
         "kaspa_sendKrc20",
-        "kaspa_sendKcc20"
+        "kaspa_sendKcc20",
+        "kaspa_signVaultTransaction"
       ],
       events: ["accountsChanged"]
     }
@@ -144,6 +145,23 @@ const kcc20Code = `const result = await signClient.request({
 //   transactionId, covenantId, ticker, amount,
 //   feeSompi, mass, validation: "toccata-node"
 // }`;
+
+const vaultCode = `const result = await signClient.request({
+  topic: session.topic,
+  chainId: "kaspa:mainnet",
+  request: {
+    method: "kaspa_signVaultTransaction",
+    params: {
+      txJsonString: draft.txJson,
+      signInputIndexes: [0, 1],
+      redeemScript: draft.redeemScript
+    }
+  }
+});
+
+// result: { signedTxJson, profile, reviewHash }
+// Creation profiles use signInputIndexes: [0] and redeemScript: "".
+// Heartbeats must use exactly [0, 1] and the covenant redeem script.`;
 
 const eventsCode = `signClient.on("session_event", ({ params }) => {
   if (params.event.name === "accountsChanged") {
@@ -350,6 +368,7 @@ export default function DevelopersPage() {
                 <div><code>kaspa_sendTransaction</code><p>Builds, reviews, signs, and broadcasts a native KAS payment.</p></div>
                 <div><code>kaspa_sendKrc20</code><p>Executes the complete KRC-20 commit/reveal transfer flow.</p></div>
                 <div><code>kaspa_sendKcc20</code><p>Validates and executes a typed KCC20 covenant transfer.</p></div>
+                <div><code>kaspa_signVaultTransaction</code><p>Signs only a native Rust policy-approved vault create or DMS heartbeat transaction.</p></div>
               </div>
 
               <h3>KIP-5 sign-in</h3>
@@ -375,6 +394,17 @@ export default function DevelopersPage() {
                 ticker. Kaspire accepts only a verified balance with a complete
                 live-cell mapping and reconstructs the covenant transition
                 locally before signing.
+              </p>
+              <h3>Vault policy transactions</h3>
+              <CodeBlock>{vaultCode}</CodeBlock>
+              <p>
+                This is deliberately not a generic <code>signPskt</code>
+                endpoint. Kaspire currently recognizes only the version-2
+                KasLab time-lock create, DMS create, and DMS heartbeat
+                profiles. The Rust core reconstructs the transaction, checks
+                every embedded UTXO and output, preserves covenant funds,
+                restricts change to the session wallet, caps fees, and rejects
+                every unknown profile or signing-index combination.
               </p>
             </section>
 

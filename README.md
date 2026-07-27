@@ -31,7 +31,8 @@ tablets, and foldables.
 
 ## Current release
 
-- Version: **0.10.12**
+- Version: **0.10.13**
+- Android build: **48**
 - Build: **47**
 - Network: **Kaspa Mainnet**
 - Android package: `space.kasvault.wallet`
@@ -345,6 +346,7 @@ Supported methods:
 - `kaspa_sendTransaction`
 - `kaspa_sendKrc20`
 - `kaspa_sendKcc20`
+- `kaspa_signVaultTransaction` (policy-approved vault profiles only)
 
 Controls include:
 
@@ -357,6 +359,8 @@ Controls include:
 - exact session-account and signing-wallet matching
 - rejection of watch-only signing
 - rejection of WalletConnect v1, unknown methods, events, and fields
+- no generic `signPskt` blind signer; external SafeJSON is accepted only when a
+  native Rust policy reconstructs and verifies the complete transaction
 
 Verified Android App Links associate
 `https://kaspire.kaslab.space/kaspire/wc` with Kaspire. Desktop dApps can show

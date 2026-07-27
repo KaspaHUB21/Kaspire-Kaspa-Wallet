@@ -17,4 +17,6 @@ object SecureCore {
     external fun prepareInscription(requestJson: String): String
     external fun prepareReveal(requestJson: String): String
     external fun signReveal(phrase: String, requestJson: String, reviewHash: String): String
+    external fun preparePolicyTransaction(requestJson: String): String
+    external fun signPolicyTransaction(secret: String, requestJson: String, reviewHash: String): String
 }

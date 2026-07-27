@@ -334,6 +334,27 @@ class NativeSecurity {
     });
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
+
+  Future<Map<String, Object?>> preparePolicyTransaction(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+        'preparePolicyTransaction', {'request': jsonEncode(request)});
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> signPolicyTransaction(
+      Map<String, Object?> request, String reviewHash) async {
+    final token = await _authorizeOperation(
+      operation: 'signPolicyTransaction',
+      binding: reviewHash,
+    );
+    final raw = await _channel.invokeMethod<String>('signPolicyTransaction', {
+      'request': jsonEncode(request),
+      'reviewHash': reviewHash,
+      'authorizationToken': token,
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
 }
 
 class NativeWalletInfo {
