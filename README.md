@@ -31,10 +31,10 @@ tablets, and foldables.
 
 ## Current release
 
-- Version: **0.10.16**
-- Android build: **51**
+- Version: **0.10.17**
+- Android build: **52**
 - Network: **Kaspa Mainnet**
-- Android package: `space.kasvault.wallet`
+- Android package: `space.kaspire.wallet`
 - License: [Apache-2.0](LICENSE)
 
 ## Features

@@ -29,6 +29,7 @@ class DappSessionService {
   final _requests = StreamController<SessionRequestEvent>.broadcast();
   final _changes = StreamController<void>.broadcast();
   final Set<String> _consumedPairingTopics = {};
+  final Set<String> _deliveredRequestIds = {};
   ReownWalletKit? _walletKit;
   Future<void>? _initializing;
   String? _lastError;
@@ -67,6 +68,7 @@ class DappSessionService {
       walletKit.onSessionExpire.subscribe((_) => _changes.add(null));
       _walletKit = walletKit;
       _lastError = null;
+      _replayPendingRequests();
     } catch (_) {
       _lastError = 'Could not initialize the encrypted dApp relay.';
     }
@@ -78,7 +80,21 @@ class DappSessionService {
   }
 
   void _onRequest(SessionRequestEvent? event) {
-    if (event != null) _requests.add(event);
+    if (event == null) return;
+    final key = "${event.topic}:${event.id}";
+    if (!_deliveredRequestIds.add(key)) return;
+    if (_deliveredRequestIds.length > 1024) {
+      _deliveredRequestIds.remove(_deliveredRequestIds.first);
+    }
+    _requests.add(event);
+  }
+
+  void _replayPendingRequests() {
+    final walletKit = _walletKit;
+    if (walletKit == null) return;
+    for (final request in walletKit.getPendingSessionRequests().values) {
+      _onRequest(SessionRequestEvent.fromSessionRequest(request));
+    }
   }
 
   Future<void> handleAppLink(Uri link) async {
@@ -87,7 +103,11 @@ class DappSessionService {
         (link.path.isEmpty || link.path == '/') &&
         link.query.isEmpty &&
         link.fragment.isEmpty;
-    if (trustedWakeLink) return;
+    if (trustedWakeLink) {
+      await initialize();
+      _replayPendingRequests();
+      return;
+    }
     final trustedHttps = link.scheme == 'https' &&
         (link.host == 'kaspire.kaslab.space' || link.host == 'kaslab.space') &&
         link.path == '/kaspire/wc';

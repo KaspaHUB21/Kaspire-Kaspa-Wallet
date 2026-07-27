@@ -1,0 +1,3 @@
+Fix WalletConnect approval delivery when Kaspire is opened from a sleeping
+mobile browser. Pending dApp requests are now restored on app launch and wake,
+so vault transaction confirmations appear reliably.
