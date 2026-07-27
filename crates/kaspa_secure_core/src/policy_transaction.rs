@@ -600,6 +600,11 @@ fn build_vault_heartbeat(request: &PolicyTransactionRequest) -> Result<BuiltPoli
                 "pre-signed policy transactions are rejected".into(),
             ));
         }
+        if u64_value(item.get("sigOpCount")).unwrap_or(0) != 0 {
+            return Err(CoreError::InvalidRequest(
+                "version-1 inputs must use compute budget, not sigop count".into(),
+            ));
+        }
         let compute_budget: u16 = u64_value(item.get("computeBudget"))
             .unwrap_or(0)
             .try_into()
@@ -772,11 +777,11 @@ mod tests {
             "version":1,
             "inputs":[
                 {"transactionId":"11".repeat(32),"index":0,"sequence":"0",
-                 "sigOpCount":1,"computeBudget":1000,"signatureScript":"",
+                 "sigOpCount":0,"computeBudget":1000,"signatureScript":"",
                  "utxo":{"amount":"200000000","scriptPublicKey":script_json(&vault_script),
                     "blockDaaScore":"100","isCoinbase":false}},
                 {"transactionId":"22".repeat(32),"index":1,"sequence":"0",
-                 "sigOpCount":1,"computeBudget":0,"signatureScript":"",
+                 "sigOpCount":0,"computeBudget":0,"signatureScript":"",
                  "utxo":{"amount":"10000000","scriptPublicKey":script_json(&owner_script),
                     "blockDaaScore":"100","isCoinbase":false}}
             ],
