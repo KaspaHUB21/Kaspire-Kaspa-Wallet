@@ -34,9 +34,9 @@ android {
     }
     defaultConfig {
         applicationId = "space.kaspire.wallet"
-        // Android 8.0 through Android 16. ARM64 covers current phones and
-        // tablets; ARMv7 keeps compatible 32-bit Android devices supported.
-        minSdk = 26
+        // Android 11 through Android 16. Requiring API 30 removes the
+        // incompatible pre-30 BiometricPrompt authenticator combinations.
+        minSdk = 30
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

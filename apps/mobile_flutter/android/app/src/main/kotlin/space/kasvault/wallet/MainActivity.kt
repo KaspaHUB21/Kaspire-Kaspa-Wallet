@@ -1258,6 +1258,67 @@ class MainActivity : FlutterFragmentActivity() {
             result.error("INVALID_AUTHORIZATION", "Invalid operation authorization request", null)
             return
         }
+        if (operation == "signPersonalMessage") {
+            showPersonalMessageReview(binding, promptText, operation, result)
+            return
+        }
+        authorizeAfterNativeReview(operation, binding, promptText, result)
+    }
+
+    private fun showPersonalMessageReview(
+        binding: String,
+        promptText: String,
+        operation: String,
+        result: MethodChannel.Result,
+    ) {
+        val separator = binding.indexOf('\u0000')
+        if (separator <= 0 || separator == binding.lastIndex) {
+            result.error("INVALID_AUTHORIZATION", "Invalid KIP-5 review binding", null)
+            return
+        }
+        val address = binding.substring(0, separator)
+        val message = binding.substring(separator + 1)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(8), dp(24), dp(8))
+            addView(TextView(this@MainActivity).apply {
+                text = "ADDRESS\n$address"
+                setTextIsSelectable(true)
+                setPadding(0, 0, 0, dp(16))
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "MESSAGE\n$message"
+                setTextIsSelectable(true)
+            })
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Review KIP-5 message")
+            .setView(ScrollView(this).apply { addView(content) })
+            .setNegativeButton("Cancel") { _, _ -> result.success(null) }
+            .setPositiveButton("Continue", null)
+            .setCancelable(false)
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                dialog.dismiss()
+                authorizeAfterNativeReview(
+                    operation,
+                    binding,
+                    promptText,
+                    result,
+                )
+            }
+        }
+        dialog.show()
+    }
+
+    private fun authorizeAfterNativeReview(
+        operation: String,
+        binding: String,
+        promptText: String,
+        result: MethodChannel.Result,
+    ) {
         val pinAvailable = hasPin()
         val authenticators = if (pinAvailable) {
             // A custom negative button cannot be combined with DEVICE_CREDENTIAL.
@@ -1347,7 +1408,7 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     ?.text
             }
-        "signPersonalMessage" -> "Sign the reviewed KIP-5 personal message"
+        "signPersonalMessage" -> "Authorize the KIP-5 address and message shown by Kaspire"
         "exportPrivateKey" -> "Reveal this wallet's private key"
         "exportRecoveryPhrase" -> "Reveal this wallet's recovery phrase"
         "exportEncryptedBackup" -> "Export this wallet as an encrypted backup"

@@ -1019,6 +1019,14 @@ class KaspaApi {
         cells.length > 1000) {
       throw KaspaApiException('Invalid KCC20 verification request.');
     }
+    final outpoints = cells
+        .map((cell) => '${cell.transactionId.toLowerCase()}:${cell.index}')
+        .toSet();
+    if (outpoints.length != cells.length) {
+      throw KaspaApiException(
+        'The KCC20 verification request contains a duplicate outpoint.',
+      );
+    }
     for (final cell in cells) {
       final transaction = _map(await _get(
         '/local-node/transactions/${Uri.encodeComponent(cell.transactionId)}',

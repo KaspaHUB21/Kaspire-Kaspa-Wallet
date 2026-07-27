@@ -392,7 +392,7 @@ export default function Home() {
               </div>
               <div className="hero-proof" aria-label="Release highlights">
                 <span>v{currentRelease.version}</span>
-                <span>Android 8–16</span>
+                <span>Android 11–16</span>
                 <span>ARM64 + ARMv7</span>
               </div>
             </div>
@@ -558,7 +558,7 @@ export default function Home() {
                 <strong>{currentRelease.version} <small>build {currentRelease.build}</small></strong>
               </div>
               <dl>
-                <div><dt>Platform</dt><dd>Android 8.0–16</dd></div>
+                <div><dt>Platform</dt><dd>Android 11–16</dd></div>
                 <div><dt>Network</dt><dd>Kaspa Mainnet</dd></div>
                 <div><dt>Architectures</dt><dd>ARM64 · ARMv7</dd></div>
                 <div><dt>Package</dt><dd>space.kaspire.wallet</dd></div>

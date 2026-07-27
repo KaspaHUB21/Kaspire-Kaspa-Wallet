@@ -8,7 +8,7 @@ wallet signs.
 > **Core principle:** Network services may provide data, but they are never
 > trusted to decide what the wallet signs.
 
-Kaspire supports Android 8.0 through Android 16 on ARM64 and ARMv7 phones,
+Kaspire supports Android 11 through Android 16 on ARM64 and ARMv7 phones,
 tablets, and foldables.
 
 ## Project links
@@ -33,8 +33,8 @@ tablets, and foldables.
 
 ## Current release
 
-- Version: **0.10.11**
-- Build: **44**
+- Version: **0.10.12**
+- Build: **47**
 - Network: **Kaspa Mainnet**
 - Android package: `space.kasvault.wallet`
 - License: [Apache-2.0](LICENSE)
@@ -164,7 +164,7 @@ Signing-wallet secrets are protected by:
 - a unique random initialization vector
 - a non-exportable Android Keystore key
 
-On Android 9 and newer, Kaspire first requests StrongBox. If unavailable, it
+On supported Android 11 and newer, Kaspire first requests StrongBox. If unavailable, it
 uses the strongest Keystore implementation reported by that device, potentially
 a Trusted Execution Environment.
 

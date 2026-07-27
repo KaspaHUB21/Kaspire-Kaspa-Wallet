@@ -282,6 +282,14 @@ fn build(request: &Kcc20TransferRequest) -> Result<BuiltKcc20> {
     if request.cells.is_empty() || request.cells.len() > 64 {
         return Err(CoreError::InvalidRequest("invalid KCC20 cell set".into()));
     }
+    let mut outpoints = std::collections::HashSet::with_capacity(request.cells.len());
+    for cell in &request.cells {
+        if !outpoints.insert((cell.transaction_id.to_lowercase(), cell.index)) {
+            return Err(CoreError::InvalidRequest(
+                "duplicate KCC20 cell outpoint".into(),
+            ));
+        }
+    }
     let mut cells = request.cells.clone();
     cells.sort_by_key(|cell| cell.token_amount);
     for cell in &cells {
@@ -1365,6 +1373,44 @@ mod tests {
             cell.transaction_id
                 == "2222222222222222222222222222222222222222222222222222222222222222"
         }));
+    }
+
+    #[test]
+    fn rejects_duplicate_cell_outpoints_before_selection() {
+        let secret =
+            "private:0000000000000000000000000000000000000000000000000000000000000001";
+        let sender = derive_address(secret).unwrap().to_string();
+        let covenant_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let cell = Kcc20Cell {
+            covenant_id: covenant_id.into(),
+            transaction_id:
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .into(),
+            index: 0,
+            value_sompi: 50_000_000,
+            block_daa_score: 1,
+            script_public_key: "00".into(),
+            token_amount: 1_000,
+            is_minter: false,
+        };
+        let request = Kcc20TransferRequest {
+            sender: sender.clone(),
+            recipient: sender,
+            covenant_id: covenant_id.into(),
+            ticker: "TEST".into(),
+            amount: 400,
+            decimals: 0,
+            fee_rate: 100.0,
+            template_hash: kcc20_template_hash().unwrap(),
+            cells: vec![cell.clone(), cell],
+            funding_utxos_json: "[]".into(),
+        };
+
+        let error = match build(&request) {
+            Err(error) => error,
+            Ok(_) => panic!("duplicate outpoints must be rejected"),
+        };
+        assert!(error.to_string().contains("duplicate KCC20 cell outpoint"));
     }
 
     #[test]

@@ -480,9 +480,37 @@ void main() {
     });
 
     await KaspaApi(client: client).verifyKcc20CellsOnOwnNode(
-      [cell, cell, cell],
+      [cell],
       covenantId,
     );
+  });
+
+  test('rejects duplicate KCC20 outpoints before querying the node', () async {
+    final transactionId = 'a' * 64;
+    final covenantId = 'b' * 64;
+    var requests = 0;
+    final client = MockClient((_) async {
+      requests++;
+      return http.Response('{}', 500);
+    });
+    final cell = Kcc20CellRecord(
+      covenantId: covenantId,
+      transactionId: transactionId,
+      index: 0,
+      valueSompi: 1,
+      blockDaaScore: 1,
+      scriptPublicKey: 'aa',
+      tokenAmount: 1,
+    );
+
+    await expectLater(
+      KaspaApi(client: client).verifyKcc20CellsOnOwnNode(
+        [cell, cell],
+        covenantId,
+      ),
+      throwsA(isA<KaspaApiException>()),
+    );
+    expect(requests, 0);
   });
 
   test('rejects an indexer covenant conflicting with the own node', () async {
