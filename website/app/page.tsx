@@ -2,7 +2,7 @@ import DagField from "./dag-field";
 import { currentRelease } from "./release";
 
 const downloadUrl =
-  "https://kaspire.kaslab.space/downloads/Kaspire-Android-mainnet-latest.apk";
+  `https://kaspire.kaslab.space/downloads/Kaspire-Android-mainnet-v${currentRelease.version}.apk`;
 
 const highlights = [
   {
