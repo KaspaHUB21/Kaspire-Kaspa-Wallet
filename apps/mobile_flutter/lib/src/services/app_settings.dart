@@ -16,14 +16,14 @@ class AppSettings {
   static const _showSubwalletsKey = 'wallet_show_subwallets_v1';
   static const _themeKey = 'appearance_theme_v1';
 
-  static final ValueNotifier<int> lockMinutes = ValueNotifier(0);
+  static final ValueNotifier<int> lockMinutes = ValueNotifier(15);
   static final ValueNotifier<bool> showSubwallets = ValueNotifier(true);
   static final ValueNotifier<KaspireTheme> theme =
       ValueNotifier(KaspireTheme.midnight);
 
   static Future<void> initialize() async {
     final preferences = await SharedPreferences.getInstance();
-    lockMinutes.value = preferences.getInt(_lockMinutesKey) ?? 0;
+    lockMinutes.value = preferences.getInt(_lockMinutesKey) ?? 15;
     showSubwallets.value = preferences.getBool(_showSubwalletsKey) ?? true;
     final stored = preferences.getString(_themeKey);
     theme.value = KaspireTheme.values.firstWhere(

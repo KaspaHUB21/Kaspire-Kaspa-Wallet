@@ -24,4 +24,11 @@ void main() {
   test('rejects unsupported lock intervals', () async {
     await expectLater(AppSettings.setLockMinutes(7), throwsArgumentError);
   });
+
+  test('defaults automatic locking to fifteen minutes', () async {
+    SharedPreferences.setMockInitialValues({});
+    await AppSettings.initialize();
+
+    expect(AppSettings.lockMinutes.value, 15);
+  });
 }

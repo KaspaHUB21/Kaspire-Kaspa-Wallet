@@ -54,18 +54,21 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(28),
-                  boxShadow: const [
-                    BoxShadow(color: Color(0x5549EACB), blurRadius: 40),
+                  boxShadow: [
+                    BoxShadow(
+                      color: KasVaultTheme.mint.withValues(alpha: .33),
+                      blurRadius: 40,
+                    ),
                   ],
                 ),
                 child: QrImageView(
                   data: paymentUri,
                   size: 238,
-                  eyeStyle: const QrEyeStyle(
+                  eyeStyle: QrEyeStyle(
                     eyeShape: QrEyeShape.square,
                     color: KasVaultTheme.ink,
                   ),
-                  dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleStyle: QrDataModuleStyle(
                     dataModuleShape: QrDataModuleShape.square,
                     color: KasVaultTheme.ink,
                   ),
@@ -95,7 +98,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
               child: Text(
                 widget.address,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'monospace',
                   color: KasVaultTheme.mint,
                   height: 1.45,

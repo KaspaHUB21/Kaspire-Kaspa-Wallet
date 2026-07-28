@@ -713,11 +713,11 @@ class _Krc20TokenOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fallback = ColoredBox(
-      color: const Color(0xFF12302E),
+      color: KasVaultTheme.mint.withValues(alpha: .12),
       child: Center(
         child: Text(
           asset.symbol.isEmpty ? '?' : asset.symbol.substring(0, 1),
-          style: const TextStyle(
+          style: TextStyle(
             color: KasVaultTheme.mint,
             fontWeight: FontWeight.w900,
           ),
@@ -731,7 +731,7 @@ class _Krc20TokenOption extends StatelessWidget {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: ColoredBox(
-              color: const Color(0xFF12302E),
+              color: KasVaultTheme.mint.withValues(alpha: .12),
               child: asset.imageUrl == null
                   ? fallback
                   : Padding(
@@ -864,16 +864,16 @@ class _Kcc20Review extends StatelessWidget {
               _Row('Compute budget', review['computeBudget'].toString()),
             ]),
             if ((review['lockedKasTopUpSompi'] as num?)?.toInt() != 0)
-              const Padding(
-                padding: EdgeInsets.only(top: 12),
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
                 child: Text(
                   'The reserve top-up adds only the KAS needed to keep the new token cells spendable. It is not a network fee.',
                   style: TextStyle(color: Color(0xFFFFC857)),
                 ),
               ),
             if ((review['lockedKasReleasedSompi'] as num?)?.toInt() != 0)
-              const Padding(
-                padding: EdgeInsets.only(top: 12),
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
                 child: Text(
                   'Excess KAS from the consumed token cells returns as normal wallet change.',
                   style: TextStyle(color: KasVaultTheme.mint),
@@ -883,7 +883,7 @@ class _Kcc20Review extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 14),
                 child: Text(status!,
-                    style: const TextStyle(color: KasVaultTheme.mint)),
+                    style: TextStyle(color: KasVaultTheme.mint)),
               ),
             if (error != null)
               Padding(
@@ -951,7 +951,7 @@ class _AssetReview extends StatelessWidget {
           Padding(
               padding: const EdgeInsets.only(top: 14),
               child: Text(status!,
-                  style: const TextStyle(color: KasVaultTheme.mint))),
+                  style: TextStyle(color: KasVaultTheme.mint))),
         const SizedBox(height: 20),
         FilledButton(
             onPressed: working ? null : onConfirm,
@@ -976,7 +976,7 @@ class _PendingView extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SafeArea(
           child: ListView(padding: const EdgeInsets.all(20), children: [
-        const Icon(Icons.sync_rounded, size: 58, color: KasVaultTheme.mint),
+        Icon(Icons.sync_rounded, size: 58, color: KasVaultTheme.mint),
         const SizedBox(height: 15),
         const Text('TRANSFER COMMIT SAVED',
             textAlign: TextAlign.center,
@@ -1022,7 +1022,7 @@ class _AssetReceipt extends StatelessWidget {
     final operation = (data['operation'] as Map);
     return SafeArea(
         child: ListView(padding: const EdgeInsets.all(20), children: [
-      const Icon(Icons.check_circle_rounded,
+      Icon(Icons.check_circle_rounded,
           size: 70, color: KasVaultTheme.mint),
       const Text('ASSET SENT',
           textAlign: TextAlign.center,

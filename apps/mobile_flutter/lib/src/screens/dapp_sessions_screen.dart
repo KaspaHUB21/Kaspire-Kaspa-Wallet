@@ -167,8 +167,11 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
           Container(
             padding: const EdgeInsets.all(22),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF0D312F), Color(0xFF102126)],
+              gradient: LinearGradient(
+                colors: [
+                  KasVaultTheme.mint.withValues(alpha: .22),
+                  KasVaultTheme.panel,
+                ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -178,7 +181,7 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(
+                Icon(
                   Icons.qr_code_scanner_rounded,
                   size: 46,
                   color: KasVaultTheme.mint,
@@ -261,7 +264,7 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
             return Card(
               color: KasVaultTheme.panel,
               child: ListTile(
-                leading: const Icon(
+                leading: Icon(
                   Icons.language_rounded,
                   color: KasVaultTheme.cyan,
                 ),

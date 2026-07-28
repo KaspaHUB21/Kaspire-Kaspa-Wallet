@@ -114,11 +114,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: DecoratedBox(
-        decoration: const BoxDecoration(
+          decoration: BoxDecoration(
           gradient: RadialGradient(
             center: Alignment(0.8, -0.7),
             radius: 1.2,
-            colors: [Color(0x3349EACB), KasVaultTheme.ink],
+            colors: [
+              KasVaultTheme.mint.withValues(alpha: .2),
+              KasVaultTheme.ink,
+            ],
           ),
         ),
         child: SafeArea(
@@ -260,11 +263,11 @@ class _SecurityNotice extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: KasVaultTheme.line),
         ),
-        child: const Row(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(Icons.shield_outlined, color: KasVaultTheme.mint, size: 21),
-            SizedBox(width: 12),
+            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 'Recovery words stay in the native Rust/Android security boundary and are encrypted with Android Keystore.',

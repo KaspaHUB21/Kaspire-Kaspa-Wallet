@@ -1104,7 +1104,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                   style: TextStyle(color: Color(0xFFFFC857)),
                 ),
               if ((review['lockedKasReleasedSompi'] as num?)?.toInt() != 0)
-                const Text(
+                Text(
                   'Excess KAS from the consumed token cells returns as normal wallet change.',
                   style: TextStyle(color: KasVaultTheme.mint),
                 ),

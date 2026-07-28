@@ -49,6 +49,9 @@ class _HomeShellState extends State<HomeShell> {
       MaterialPageRoute<String>(
         builder: (_) => WalletManagerScreen(
           currentAddress: widget.address,
+          onWalletChanged: () {
+            if (mounted) setState(() => _walletRevision++);
+          },
         ),
       ),
     );

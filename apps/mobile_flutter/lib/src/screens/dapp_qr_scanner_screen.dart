@@ -22,7 +22,7 @@ class _DappQrScannerScreenState extends State<DappQrScannerScreen> {
   QRViewController? _controller;
 
   void _onScannerCreated(QRViewController controller) {
-    _controller = controller;
+    setState(() => _controller = controller);
     _subscription = controller.scannedDataStream.listen((barcode) {
       if (_handled || !mounted) return;
       final value = barcode.code;
@@ -70,14 +70,17 @@ class _DappQrScannerScreenState extends State<DappQrScannerScreen> {
                 ),
               ),
             ),
-            Align(
-              alignment: const Alignment(0, .58),
-              child: FilledButton.tonalIcon(
-                onPressed: _toggleTorch,
-                icon: Icon(
-                  _torchOn ? Icons.flashlight_off : Icons.flashlight_on,
+            Positioned(
+              top: 18,
+              right: 18,
+              child: SafeArea(
+                child: FilledButton.tonalIcon(
+                  onPressed: _controller == null ? null : _toggleTorch,
+                  icon: Icon(
+                    _torchOn ? Icons.flashlight_off : Icons.flashlight_on,
+                  ),
+                  label: Text(_torchOn ? 'LIGHT OFF' : 'LIGHT ON'),
                 ),
-                label: Text(_torchOn ? 'TURN OFF LIGHT' : 'TURN ON LIGHT'),
               ),
             ),
             Align(

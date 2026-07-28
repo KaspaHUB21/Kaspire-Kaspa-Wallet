@@ -249,7 +249,8 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                                                 vertical: 4,
                                               ),
                                               decoration: BoxDecoration(
-                                                color: const Color(0x2249EACB),
+                                                color: KasVaultTheme.mint
+                                                    .withValues(alpha: .13),
                                                 borderRadius:
                                                     BorderRadius.circular(9),
                                               ),
@@ -257,7 +258,7 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                                                 nft.rarityRank == null
                                                     ? 'RANK —'
                                                     : 'RANK #${nft.rarityRank}',
-                                                style: const TextStyle(
+                                                style: TextStyle(
                                                   color: KasVaultTheme.mint,
                                                   fontSize: 9,
                                                   fontWeight: FontWeight.w900,
@@ -308,9 +309,9 @@ class _NoImage extends StatelessWidget {
   const _NoImage();
 
   @override
-  Widget build(BuildContext context) => const ColoredBox(
-        color: Color(0xFF0B151A),
-        child: Center(
+  Widget build(BuildContext context) => ColoredBox(
+        color: KasVaultTheme.panel,
+        child: const Center(
           child: Icon(Icons.image_not_supported_outlined,
               color: KasVaultTheme.muted, size: 38),
         ),

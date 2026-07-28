@@ -415,10 +415,11 @@ class _PaymentSuccess extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 28, 20, 32),
           children: [
-            const Center(
+            Center(
               child: CircleAvatar(
                 radius: 38,
-                backgroundColor: Color(0x2249EACB),
+                backgroundColor:
+                    KasVaultTheme.mint.withValues(alpha: .13),
                 child: Icon(
                   Icons.check_rounded,
                   size: 48,
@@ -427,13 +428,13 @@ class _PaymentSuccess extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
-            const Text(
+            Text(
               'PAYMENT SENT',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 7),
-            const Text(
+            Text(
               'Broadcast accepted by the Kaspa Mainnet node',
               textAlign: TextAlign.center,
               style: TextStyle(color: KasVaultTheme.mint),
@@ -444,7 +445,9 @@ class _PaymentSuccess extends StatelessWidget {
               decoration: BoxDecoration(
                 color: KasVaultTheme.panel,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0x6649EACB)),
+                border: Border.all(
+                  color: KasVaultTheme.mint.withValues(alpha: .4),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -531,7 +534,7 @@ class _ReceiptAddress extends StatelessWidget {
         children: [
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               color: KasVaultTheme.muted,
               fontSize: 11,
               fontWeight: FontWeight.w900,
@@ -541,7 +544,7 @@ class _ReceiptAddress extends StatelessWidget {
           const SizedBox(height: 6),
           SelectableText(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               color: KasVaultTheme.mint,
               fontFamily: 'monospace',
               fontSize: 12,
@@ -558,11 +561,11 @@ class _ConfirmPayment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Row(
+        title: Row(
           children: [
             Icon(Icons.shield_outlined, color: KasVaultTheme.mint),
-            SizedBox(width: 10),
-            Text('Confirm payment'),
+            const SizedBox(width: 10),
+            const Text('Confirm payment'),
           ],
         ),
         content: SingleChildScrollView(
@@ -581,7 +584,7 @@ class _ConfirmPayment extends StatelessWidget {
               const SizedBox(height: 7),
               SelectableText(
                 recipient,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'monospace',
                   color: KasVaultTheme.mint,
                   fontSize: 12,

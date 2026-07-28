@@ -276,7 +276,7 @@ class _WalletScreenState extends State<WalletScreen> {
                   ),
                   const SizedBox(height: 32),
                 ],
-                const Row(
+                Row(
                   children: [
                     Expanded(
                       child: Text(
@@ -441,7 +441,7 @@ class _AssetOverview extends StatelessWidget {
               children: data.knsDomains
                   .map(
                     (domain) => ActionChip(
-                      avatar: const Icon(
+                      avatar: Icon(
                         Icons.language_rounded,
                         size: 17,
                         color: KasVaultTheme.mint,
@@ -469,7 +469,7 @@ class _AssetHeading extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: 9),
         child: Text(
           text,
-          style: const TextStyle(
+          style: TextStyle(
             color: KasVaultTheme.muted,
             fontSize: 11,
             fontWeight: FontWeight.w900,
@@ -553,11 +553,11 @@ class _AssetIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fallback = ColoredBox(
-      color: const Color(0xFF12302E),
+      color: KasVaultTheme.mint.withValues(alpha: .12),
       child: Center(
         child: Text(
           asset.symbol.isEmpty ? '?' : asset.symbol.substring(0, 1),
-          style: const TextStyle(
+          style: TextStyle(
             color: KasVaultTheme.mint,
             fontWeight: FontWeight.w900,
           ),
@@ -606,13 +606,25 @@ class _BalanceCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF122B2B), Color(0xFF0B151A)],
+        gradient: LinearGradient(
+          colors: [
+            Color.alphaBlend(
+              KasVaultTheme.mint.withValues(alpha: .22),
+              KasVaultTheme.panel,
+            ),
+            KasVaultTheme.panel,
+          ],
         ),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: const Color(0x6649EACB)),
-        boxShadow: const [
-          BoxShadow(color: Color(0x2249EACB), blurRadius: 34, spreadRadius: -8),
+        border: Border.all(
+          color: KasVaultTheme.mint.withValues(alpha: .4),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: KasVaultTheme.mint.withValues(alpha: .13),
+            blurRadius: 34,
+            spreadRadius: -8,
+          ),
         ],
       ),
       child: Column(
@@ -735,8 +747,8 @@ class _UtxoCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const CircleAvatar(
-              backgroundColor: Color(0x2249EACB),
+            CircleAvatar(
+              backgroundColor: KasVaultTheme.mint.withValues(alpha: .13),
               child: Icon(Icons.join_inner_rounded, color: KasVaultTheme.mint),
             ),
             const SizedBox(width: 13),
@@ -879,7 +891,7 @@ class _TransactionTile extends StatelessWidget {
             children: [
               CircleAvatar(
                 backgroundColor: transaction.incoming
-                    ? const Color(0x2249EACB)
+                    ? KasVaultTheme.mint.withValues(alpha: .13)
                     : const Color(0x22FF8A65),
                 child: Icon(
                   transaction.incoming
@@ -908,12 +920,13 @@ class _TransactionTile extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: const Color(0x2249EACB),
+                            color:
+                                KasVaultTheme.mint.withValues(alpha: .13),
                             borderRadius: BorderRadius.circular(7),
                           ),
                           child: Text(
                             transaction.assetKind,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: KasVaultTheme.mint,
                               fontSize: 9,
                               fontWeight: FontWeight.w900,
@@ -929,7 +942,7 @@ class _TransactionTile extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: switch (transaction.status) {
                               TransactionStatus.confirmed =>
-                                const Color(0x2249EACB),
+                                KasVaultTheme.mint.withValues(alpha: .13),
                               TransactionStatus.failed =>
                                 const Color(0x33FF6B6B),
                               _ => const Color(0x33FFB65C),
@@ -969,7 +982,7 @@ class _TransactionTile extends StatelessWidget {
                         '${_shortAddress(transaction.counterparty!)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: KasVaultTheme.mint,
                           fontFamily: 'monospace',
                           fontSize: 11,

@@ -275,7 +275,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 tileColor: KasVaultTheme.panel,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(18),
-                  side: const BorderSide(color: KasVaultTheme.line),
+                  side: BorderSide(color: KasVaultTheme.line),
                 ),
               ),
             ),
@@ -291,7 +291,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 items: const [
                   DropdownMenuItem(
                     value: 0,
-                    child: Text('Immediately after leaving Kaspire'),
+                    child: Text('Immediately'),
                   ),
                   DropdownMenuItem(value: 5, child: Text('After 5 minutes')),
                   DropdownMenuItem(value: 10, child: Text('After 10 minutes')),
@@ -324,7 +324,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 tileColor: KasVaultTheme.panel,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(18),
-                  side: const BorderSide(color: KasVaultTheme.line),
+                  side: BorderSide(color: KasVaultTheme.line),
                 ),
               ),
             ),
@@ -371,7 +371,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             InkWell(
               onTap: widget.onManageDapps,
               borderRadius: BorderRadius.circular(18),
-              child: const _SettingTile(
+              child: _SettingTile(
                 icon: Icons.link_rounded,
                 title: 'dApp sessions',
                 detail: 'Reown WalletKit · Kaspa Mainnet',
@@ -385,7 +385,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               borderRadius: BorderRadius.circular(18),
-              child: const _SettingTile(
+              child: _SettingTile(
                 icon: Icons.monitor_heart_outlined,
                 title: 'Network diagnostics',
                 detail: 'Node · indexers · WalletConnect',

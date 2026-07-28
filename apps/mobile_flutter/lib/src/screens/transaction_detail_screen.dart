@@ -141,7 +141,7 @@ class _Header extends StatelessWidget {
             CircleAvatar(
               radius: 25,
               backgroundColor: transaction.incoming
-                  ? const Color(0x2249EACB)
+                  ? KasVaultTheme.mint.withValues(alpha: .13)
                   : const Color(0x22FF8A65),
               child: Icon(
                 transaction.incoming
@@ -159,7 +159,7 @@ class _Header extends StatelessWidget {
                 children: [
                   Text(
                     transaction.incoming ? 'Received' : 'Sent',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w900,
                     ),
@@ -294,7 +294,7 @@ class _AddressRow extends StatelessWidget {
                 Expanded(
                   child: SelectableText(
                     address,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 11,
                       color: KasVaultTheme.mint,

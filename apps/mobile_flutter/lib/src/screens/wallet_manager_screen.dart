@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/kaspa_api.dart';
 import '../services/hd_discovery_service.dart';
@@ -12,8 +13,10 @@ class WalletManagerScreen extends StatefulWidget {
   const WalletManagerScreen({
     super.key,
     required this.currentAddress,
+    required this.onWalletChanged,
   });
   final String currentAddress;
+  final VoidCallback onWalletChanged;
 
   @override
   State<WalletManagerScreen> createState() => _WalletManagerScreenState();
@@ -316,6 +319,7 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
         await _preferences.renameWatchWallet(watch!.id, name);
       }
       await _load();
+      widget.onWalletChanged();
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
     }
@@ -345,7 +349,8 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                         (wallet) => [
                           _WalletTile(
                             name: wallet.name,
-                            detail: '${wallet.kind}\n${wallet.address}',
+                            detail: wallet.kind,
+                            address: wallet.address,
                             selected: wallet.address == widget.currentAddress ||
                                 wallet.addresses.any((item) =>
                                     item.address == widget.currentAddress),
@@ -371,7 +376,8 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                       const SizedBox(height: 8),
                       ..._watch.map((wallet) => _WalletTile(
                             name: wallet.name,
-                            detail: wallet.address,
+                            detail: 'Watch wallet',
+                            address: wallet.address,
                             selected: wallet.address == widget.currentAddress,
                             icon: Icons.visibility_outlined,
                             onTap: () => _selectAddress(wallet.address),
@@ -485,16 +491,24 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                       '${group.account} · Subwallet 0'
                   : 'Subwallet ${address.index}',
             ),
-            subtitle: Text(
-              '${address.derivationPath}\n${address.address}',
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(address.derivationPath),
+                _AddressLine(address: address.address),
+              ],
             ),
-            trailing: address.index == 0 && !legacy
-                ? IconButton(
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (address.index == 0 && !legacy)
+                  IconButton(
                     tooltip: 'Add address-index subwallet',
                     onPressed: () => _addSubwallet(wallet, group),
                     icon: const Icon(Icons.add_rounded),
-                  )
-                : null,
+                  ),
+              ],
+            ),
             onTap: () => _selectNative(wallet, address: address.address),
           ),
         );
@@ -507,6 +521,7 @@ class _WalletTile extends StatelessWidget {
   const _WalletTile(
       {required this.name,
       required this.detail,
+      required this.address,
       required this.selected,
       required this.icon,
       required this.onTap,
@@ -515,6 +530,7 @@ class _WalletTile extends StatelessWidget {
       this.onAddAccount});
   final String name;
   final String detail;
+  final String address;
   final bool selected;
   final IconData icon;
   final VoidCallback onTap;
@@ -523,14 +539,22 @@ class _WalletTile extends StatelessWidget {
   final VoidCallback? onAddAccount;
   @override
   Widget build(BuildContext context) => Card(
-        color: selected ? const Color(0x2249EACB) : KasVaultTheme.panel,
+        color: selected
+            ? KasVaultTheme.mint.withValues(alpha: .13)
+            : KasVaultTheme.panel,
         child: ListTile(
           onTap: onTap,
           leading: Icon(icon,
               color: selected ? KasVaultTheme.mint : KasVaultTheme.muted),
           title:
               Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
-          subtitle: Text(detail),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(detail),
+              _AddressLine(address: address),
+            ],
+          ),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -552,5 +576,45 @@ class _WalletTile extends StatelessWidget {
             ],
           ),
         ),
+      );
+}
+
+String _compactAddress(String address) {
+  if (address.length <= 12) return address;
+  final prefix = address.startsWith('kaspa:') ? 'kaspa:' : '';
+  return '$prefix…${address.substring(address.length - 6)}';
+}
+
+Future<void> _copyAddress(BuildContext context, String address) async {
+  await Clipboard.setData(ClipboardData(text: address));
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('Address copied')),
+  );
+}
+
+class _AddressLine extends StatelessWidget {
+  const _AddressLine({required this.address});
+
+  final String address;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _compactAddress(address),
+            style: TextStyle(color: Theme.of(context).colorScheme.primary),
+          ),
+          const SizedBox(width: 2),
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => _copyAddress(context, address),
+            child: const Padding(
+              padding: EdgeInsets.all(5),
+              child: Icon(Icons.copy_rounded, size: 16),
+            ),
+          ),
+        ],
       );
 }

@@ -101,7 +101,9 @@ class _DiagnosticCard extends StatelessWidget {
           color: KasVaultTheme.panel,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: check.ok ? const Color(0x5549EACB) : const Color(0x66FF8A65),
+            color: check.ok
+                ? KasVaultTheme.mint.withValues(alpha: .33)
+                : const Color(0x66FF8A65),
           ),
         ),
         child: Row(
