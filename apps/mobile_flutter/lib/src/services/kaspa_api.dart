@@ -75,21 +75,25 @@ class KaspaApi {
       krc20: [],
       krc721: [],
       domains: [],
+      warnings: [],
     );
-    var tokenIntegrityWarning = '';
+    final tokenIntegrityWarnings = <String>[];
     try {
       assets = _parseAssets(tokenWallet);
+      tokenIntegrityWarnings.addAll(assets.warnings);
     } on KaspaApiException catch (error) {
-      tokenIntegrityWarning =
-          'KRC/KNS indexer data was rejected: ${error.message}';
+      tokenIntegrityWarnings.add(
+        'KRC/KNS indexer response was rejected: ${error.message}',
+      );
     }
     final nativeTransactions = parseTransactions(transactionJson, address);
     var tokenTransactions = <WalletTransaction>[];
     try {
       tokenTransactions = _parseTokenTransactions(tokenWallet, address);
     } on KaspaApiException catch (error) {
-      tokenIntegrityWarning =
-          'KRC/KNS indexer data was rejected: ${error.message}';
+      tokenIntegrityWarnings.add(
+        'KRC/KNS activity was rejected: ${error.message}',
+      );
     }
     final krc20 = await Future.wait(
       assets.krc20.map(_withTokenImage),
@@ -97,7 +101,7 @@ class KaspaApi {
     final assetWarnings = <String>[
       if (tokenWallet == null)
         'KRC-20, KRC-721 and KNS data is temporarily unavailable.',
-      if (tokenIntegrityWarning.isNotEmpty) tokenIntegrityWarning,
+      ...tokenIntegrityWarnings,
       if (kcc20Wallet == null)
         'KCC20 covenant data is temporarily unavailable.',
       if (kcc20Wallet != null && kcc20Wallet.warning.isNotEmpty)
@@ -875,29 +879,36 @@ class KaspaApi {
 
   _WalletAssets _parseAssets(Object? raw) {
     final data = _map(_map(raw)['data']);
+    final warnings = <String>[];
+
     List<WalletAsset> assets(String key, String kind) {
-      return (data[key] as List? ?? const [])
-          .whereType<Map>()
-          .map((item) {
-            final map = item.cast<String, Object?>();
-            final symbol =
-                (map['symbol'] ?? map['ticker'] ?? '').toString().toUpperCase();
-            final balance = _asDouble(map['balance']);
-            final decimals = _asInt(map['decimals']);
-            final rawBalance = map['raw_balance']?.toString();
-            if (!RegExp(r'^[A-Z0-9_-]{1,32}$').hasMatch(symbol) ||
-                balance == null ||
-                !balance.isFinite ||
-                balance < 0 ||
-                decimals < 0 ||
-                decimals > 18 ||
-                (rawBalance != null &&
-                    !RegExp(r'^[0-9]{1,128}$').hasMatch(rawBalance))) {
-              throw KaspaApiException(
-                'invalid ${kind.toUpperCase()} token metadata',
-              );
-            }
-            return WalletAsset(
+      final valid = <WalletAsset>[];
+      var rejected = 0;
+      for (final item in (data[key] as List? ?? const [])) {
+        if (item is! Map) {
+          rejected++;
+          continue;
+        }
+        final map = item.cast<String, Object?>();
+        final symbol =
+            (map['symbol'] ?? map['ticker'] ?? '').toString().toUpperCase();
+        final balance = _asDouble(map['balance']);
+        final decimals = _asInt(map['decimals']);
+        final rawBalance = map['raw_balance']?.toString();
+        if (!RegExp(r'^[A-Z0-9_-]{1,32}$').hasMatch(symbol) ||
+            balance == null ||
+            !balance.isFinite ||
+            balance < 0 ||
+            decimals < 0 ||
+            decimals > 18 ||
+            (rawBalance != null &&
+                !RegExp(r'^[0-9]{1,128}$').hasMatch(rawBalance))) {
+          rejected++;
+          continue;
+        }
+        if (balance > 0) {
+          valid.add(
+            WalletAsset(
               symbol: symbol,
               balance: balance,
               kind: kind,
@@ -909,29 +920,56 @@ class KaspaApi {
                   ?.toString(),
               decimals: decimals,
               rawBalance: rawBalance,
-            );
-          })
-          .where((asset) => asset.balance > 0)
-          .toList();
+            ),
+          );
+        }
+      }
+      if (rejected > 0) {
+        warnings.add(
+          'The indexer returned $rejected unusable ${kind.toUpperCase()} '
+          '${rejected == 1 ? 'record' : 'records'}; the remaining holdings '
+          'are still shown.',
+        );
+      }
+      return valid;
     }
 
-    final domains =
-        (data['domains'] as List? ?? const []).whereType<Map>().map((item) {
-      final name = (item['name'] ?? '').toString().toLowerCase();
-      final status = item['status']?.toString().toLowerCase();
-      final assetId = item['asset_id']?.toString();
-      if (!RegExp(r'^[a-z0-9-]{1,63}\.kas$').hasMatch(name) ||
-          !const {'verified', 'default'}.contains(status) ||
-          (assetId != null &&
-              !RegExp(r'^[0-9a-fA-F]{64}i0$').hasMatch(assetId))) {
-        throw KaspaApiException('invalid or unverified KNS metadata');
+    final domains = <KnsDomain>[];
+    var rejectedDomains = 0;
+    for (final item in (data['domains'] as List? ?? const [])) {
+      if (item is! Map) {
+        rejectedDomains++;
+        continue;
       }
-      return KnsDomain(name: name, status: status, assetId: assetId);
-    }).toList();
+      final name = (item['name'] ?? '').toString().toLowerCase();
+      final rawStatus = item['status']?.toString().toLowerCase();
+      final rawAssetId = item['asset_id']?.toString();
+      if (!RegExp(r'^[a-z0-9-]{1,63}\.kas$').hasMatch(name)) {
+        rejectedDomains++;
+        continue;
+      }
+      final status =
+          rawStatus != null && RegExp(r'^[a-z0-9_-]{1,32}$').hasMatch(rawStatus)
+              ? rawStatus
+              : null;
+      final assetId = rawAssetId != null &&
+              RegExp(r'^[0-9a-fA-F]{64}i0$').hasMatch(rawAssetId)
+          ? rawAssetId
+          : null;
+      domains.add(KnsDomain(name: name, status: status, assetId: assetId));
+    }
+    if (rejectedDomains > 0) {
+      warnings.add(
+        'The indexer returned $rejectedDomains unusable KNS '
+        '${rejectedDomains == 1 ? 'record' : 'records'}; the remaining '
+        'holdings are still shown.',
+      );
+    }
     return _WalletAssets(
       krc20: assets('tokens', 'KRC-20'),
       krc721: assets('krc721_tokens', 'KRC-721'),
       domains: domains,
+      warnings: warnings,
     );
   }
 
@@ -1442,10 +1480,12 @@ class _WalletAssets {
     required this.krc20,
     required this.krc721,
     required this.domains,
+    required this.warnings,
   });
   final List<WalletAsset> krc20;
   final List<WalletAsset> krc721;
   final List<KnsDomain> domains;
+  final List<String> warnings;
 }
 
 class _Kcc20Wallet {

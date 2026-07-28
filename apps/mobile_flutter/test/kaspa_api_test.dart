@@ -205,7 +205,7 @@ void main() {
     final client = MockClient((request) async {
       if (request.url.host == 'kaspatoken.kaslab.space') {
         return http.Response(
-          '{"data":{"tokens":[{"symbol":"<script>","balance":1,"decimals":999}],"domains":[{"name":"spoof.kas","status":"unverified"}],"transactions":[]}}',
+          '{"data":{"tokens":[{"symbol":"<script>","balance":1,"decimals":999}],"domains":[{"name":"<script>.kas","status":"unverified"}],"transactions":[]}}',
           200,
         );
       }
@@ -225,7 +225,37 @@ void main() {
     expect(snapshot.balanceSompi, 123);
     expect(snapshot.krc20Tokens, isEmpty);
     expect(snapshot.knsDomains, isEmpty);
-    expect(snapshot.assetWarning, contains('indexer data was rejected'));
+    expect(snapshot.assetWarning, contains('unusable KRC-20'));
+    expect(snapshot.assetWarning, contains('unusable KNS'));
+  });
+
+  test('missing optional KNS metadata does not hide valid holdings', () async {
+    final client = MockClient((request) async {
+      if (request.url.host == 'kaspatoken.kaslab.space') {
+        return http.Response(
+          '{"data":{"tokens":[{"symbol":"NACHO","balance":12.5,"decimals":8,"raw_balance":"1250000000"}],"krc721_tokens":[{"symbol":"TOCCATA","balance":2,"decimals":0}],"domains":[{"name":"broken.kas","status":null}],"transactions":[]}}',
+          200,
+        );
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":123}', 200);
+      }
+      if (request.url.path == '/info/price') {
+        return http.Response('{"price":0.1}', 200);
+      }
+      if (request.url.path.endsWith('/utxos')) {
+        return http.Response('[]', 200);
+      }
+      return http.Response('[]', 200);
+    });
+
+    final snapshot = await KaspaApi(client: client).loadWallet(address);
+    expect(snapshot.krc20Tokens.single.symbol, 'NACHO');
+    expect(snapshot.krc721Collections.single.symbol, 'TOCCATA');
+    expect(snapshot.knsDomains.single.name, 'broken.kas');
+    expect(snapshot.knsDomains.single.status, isNull);
+    expect(snapshot.assetWarning, isNot(contains('KRC/KNS')));
+    expect(snapshot.assetWarning, isNot(contains('unusable KNS')));
   });
 
   test('loads KCC20 cells when live_utxos is a numeric count', () async {
