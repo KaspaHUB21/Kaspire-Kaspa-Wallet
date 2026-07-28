@@ -5,6 +5,7 @@ import '../services/hd_discovery_service.dart';
 import '../services/hd_wallet_structure.dart';
 import '../services/native_security.dart';
 import '../services/preferences_service.dart';
+import '../services/app_settings.dart';
 import '../theme.dart';
 
 class WalletManagerScreen extends StatefulWidget {
@@ -320,10 +321,6 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
     }
   }
 
-  String _short(String address) => address.length < 24
-      ? address
-      : '${address.substring(0, 13)}…${address.substring(address.length - 8)}';
-
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Wallets')),
@@ -348,8 +345,7 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                         (wallet) => [
                           _WalletTile(
                             name: wallet.name,
-                            detail:
-                                '${wallet.kind} · ${_short(wallet.address)}',
+                            detail: '${wallet.kind}\n${wallet.address}',
                             selected: wallet.address == widget.currentAddress ||
                                 wallet.addresses.any((item) =>
                                     item.address == widget.currentAddress),
@@ -375,7 +371,7 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                       const SizedBox(height: 8),
                       ..._watch.map((wallet) => _WalletTile(
                             name: wallet.name,
-                            detail: _short(wallet.address),
+                            detail: wallet.address,
                             selected: wallet.address == widget.currentAddress,
                             icon: Icons.visibility_outlined,
                             onTap: () => _selectAddress(wallet.address),
@@ -462,7 +458,11 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
     if (wallet.kind != 'mnemonic') return const [];
     return HdWalletStructure.receiveGroups(wallet.addresses).expand((group) {
       final legacy = group.coinType == 972;
-      return group.addresses.map((address) {
+      return group.addresses
+          .where(
+        (address) => AppSettings.showSubwallets.value || address.index == 0,
+      )
+          .map((address) {
         final selected = address.address == widget.currentAddress;
         return Padding(
           padding: EdgeInsets.only(
@@ -486,9 +486,7 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                   : 'Subwallet ${address.index}',
             ),
             subtitle: Text(
-              '${address.derivationPath} · ${_short(address.address)}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              '${address.derivationPath}\n${address.address}',
             ),
             trailing: address.index == 0 && !legacy
                 ? IconButton(
@@ -532,7 +530,7 @@ class _WalletTile extends StatelessWidget {
               color: selected ? KasVaultTheme.mint : KasVaultTheme.muted),
           title:
               Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
-          subtitle: Text(detail, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(detail),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [

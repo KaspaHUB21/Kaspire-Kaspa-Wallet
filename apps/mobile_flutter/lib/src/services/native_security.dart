@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 
+import 'app_settings.dart';
+
 class NativeSecurity {
   static const _channel = MethodChannel('space.kasvault/security');
   final LocalAuthentication _auth = LocalAuthentication();
@@ -54,7 +56,7 @@ class NativeSecurity {
     }
     try {
       if (!await _auth.isDeviceSupported()) return false;
-      return await _auth.authenticate(
+      final authenticated = await _auth.authenticate(
         localizedReason: reason,
         options: AuthenticationOptions(
           biometricOnly: pinAvailable && biometricsAvailable,
@@ -62,6 +64,10 @@ class NativeSecurity {
           useErrorDialogs: true,
         ),
       );
+      if (authenticated || !pinAvailable) return authenticated;
+      return await _channel
+              .invokeMethod<bool>('verifyPin', {'reason': reason}) ??
+          false;
     } on PlatformException {
       return false;
     }
@@ -123,6 +129,7 @@ class NativeSecurity {
     final token = await _channel.invokeMethod<String>('authorizeOperation', {
       'operation': operation,
       'binding': binding,
+      'sessionMinutes': AppSettings.lockMinutes.value,
     });
     if (token == null) throw StateError('Authorization cancelled.');
     return token;

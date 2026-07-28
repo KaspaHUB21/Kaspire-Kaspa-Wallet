@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'src/app.dart';
 import 'src/services/network_settings.dart';
 import 'src/services/privacy_settings.dart';
+import 'src/services/app_settings.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,6 +13,7 @@ Future<void> main() async {
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   await NetworkSettings.initialize();
   await PrivacySettings.initialize();
+  await AppSettings.initialize();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,

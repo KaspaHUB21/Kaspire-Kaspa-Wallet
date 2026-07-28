@@ -16,6 +16,8 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.util.Base64
 import android.widget.EditText
+import android.widget.AutoCompleteTextView
+import android.widget.ArrayAdapter
 import android.widget.ScrollView
 import android.widget.TextView
 import android.view.Gravity
@@ -67,6 +69,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val deviceCredentialRequestCode = 7109
     private var pendingDeviceCredentialAuthorization:
         Triple<String, String, MethodChannel.Result>? = null
+    private var lastSessionAuthenticationAtMs = 0L
     private val channelName = "space.kasvault/security"
     private val vaultAlias = "kaspire_secret_wrap_v4"
     private val preferencesName = "kaspire_native_v4"
@@ -79,6 +82,12 @@ class MainActivity : FlutterFragmentActivity() {
     private val pinHashKey = "pin_hash_v1"
     private val pinFailuresKey = "pin_failures_v1"
     private val pinLockedUntilKey = "pin_locked_until_v1"
+    private val bip39Words: List<String> by lazy {
+        assets.open("bip39_english.txt").bufferedReader().use { reader ->
+            reader.readText().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        }.also { check(it.size == 2048) { "Invalid embedded BIP-39 word list" } }
+    }
+    private val bip39WordSet: Set<String> by lazy { bip39Words.toHashSet() }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -121,6 +130,7 @@ class MainActivity : FlutterFragmentActivity() {
                     "authorizeOperation" -> authorizeOperation(
                         call.argument<String>("operation") ?: error("Missing operation"),
                         call.argument<String>("binding") ?: error("Missing operation binding"),
+                        call.argument<Int>("sessionMinutes") ?: 0,
                         result,
                     )
                     "verifyPin" -> verifyPinDialog(call.argument<String>("reason") ?: "Authorize Kaspire", result)
@@ -358,6 +368,13 @@ class MainActivity : FlutterFragmentActivity() {
                 check(selectedCount == 12 || selectedCount == 24) { "Choose 12 or 24 words first" }
                 val phrase = view.fields.take(selectedCount)
                     .joinToString(" ") { it.text.toString().trim() }.trim()
+                val invalid = view.fields.take(selectedCount).filter {
+                    !bip39WordSet.contains(it.text.toString().trim().lowercase())
+                }
+                invalid.forEach { it.error = "Not an English BIP-39 word" }
+                check(invalid.isEmpty()) {
+                    "Correct the highlighted recovery words before importing"
+                }
                 val passphrase = selectedPassphrase(view)
                 val material = parseCore(SecureCore.importWallet(phrase, passphrase))
                 val normalized = material.getString("mnemonic")
@@ -423,8 +440,23 @@ class MainActivity : FlutterFragmentActivity() {
             setPadding(0, 0, 0, dp(12))
         }
         val fieldHolders = mutableListOf<LinearLayout>()
-        val fields = (0 until wordCount).map { index ->
-            val field = EditText(this).apply {
+        val fields: List<EditText> = (0 until wordCount).map { index ->
+            val field: EditText = if (words == null) {
+                AutoCompleteTextView(this).apply {
+                    threshold = 3
+                    setAdapter(
+                        ArrayAdapter(
+                            this@MainActivity,
+                            android.R.layout.simple_dropdown_item_1line,
+                            bip39Words,
+                        )
+                    )
+                    dropDownHeight = dp(220)
+                }
+            } else {
+                EditText(this)
+            }
+            field.apply {
                 setText(words?.getOrNull(index) ?: "")
                 hint = "word"
                 textSize = 15f
@@ -594,6 +626,23 @@ class MainActivity : FlutterFragmentActivity() {
                     distributing = false
                 }
             })
+            fields.forEach { field ->
+                field.addTextChangedListener(object : TextWatcher {
+                    override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                    override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                    override fun afterTextChanged(value: Editable?) {
+                        if (distributing) return
+                        val entered = value.toString().trim().lowercase()
+                        field.error = when {
+                            entered.isEmpty() -> null
+                            bip39WordSet.contains(entered) -> null
+                            bip39Words.none { word -> word.startsWith(entered) } ->
+                                "Not an English BIP-39 word"
+                            else -> null
+                        }
+                    }
+                })
+            }
         }
         root.addView(
             ScrollView(this).apply { addView(scrollContent) },
@@ -1301,18 +1350,35 @@ class MainActivity : FlutterFragmentActivity() {
     private fun authorizeOperation(
         operation: String,
         binding: String,
+        sessionMinutes: Int,
         result: MethodChannel.Result,
     ) {
+        check(sessionMinutes == 0 || sessionMinutes == 5 ||
+            sessionMinutes == 10 || sessionMinutes == 15) {
+            "Invalid authorization session duration"
+        }
         val promptText = authorizationPrompt(operation, binding)
         if (promptText == null || binding.isEmpty() || binding.length > 16_384) {
             result.error("INVALID_AUTHORIZATION", "Invalid operation authorization request", null)
             return
         }
         if (operation == "signPersonalMessage") {
-            showPersonalMessageReview(binding, promptText, operation, result)
+            showPersonalMessageReview(
+                binding,
+                promptText,
+                operation,
+                result,
+                sessionMinutes,
+            )
             return
         }
-        authorizeAfterNativeReview(operation, binding, promptText, result)
+        authorizeAfterNativeReview(
+            operation,
+            binding,
+            promptText,
+            result,
+            sessionMinutes,
+        )
     }
 
     private fun showPersonalMessageReview(
@@ -1320,6 +1386,7 @@ class MainActivity : FlutterFragmentActivity() {
         promptText: String,
         operation: String,
         result: MethodChannel.Result,
+        sessionMinutes: Int,
     ) {
         val separator = binding.indexOf('\u0000')
         if (separator <= 0 || separator == binding.lastIndex) {
@@ -1357,6 +1424,7 @@ class MainActivity : FlutterFragmentActivity() {
                     binding,
                     promptText,
                     result,
+                    sessionMinutes,
                 )
             }
         }
@@ -1368,7 +1436,29 @@ class MainActivity : FlutterFragmentActivity() {
         binding: String,
         promptText: String,
         result: MethodChannel.Result,
+        sessionMinutes: Int,
     ) {
+        val sessionActive = sessionMinutes > 0 &&
+            System.currentTimeMillis() - lastSessionAuthenticationAtMs <
+                sessionMinutes * 60_000L
+        if (sessionActive) {
+            AlertDialog.Builder(this)
+                .setTitle("Review Kaspire operation")
+                .setMessage(promptText)
+                .setNegativeButton("Cancel") { _, _ -> result.success(null) }
+                .setPositiveButton("Approve") { _, _ ->
+                    result.success(issueAuthorization(operation, binding))
+                }
+                .setCancelable(false)
+                .create()
+                .apply {
+                    setOnShowListener {
+                        window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    }
+                    show()
+                }
+            return
+        }
         val pinAvailable = hasPin()
         val authenticators = if (pinAvailable) {
             // A custom negative button cannot be combined with DEVICE_CREDENTIAL.
@@ -1397,7 +1487,10 @@ class MainActivity : FlutterFragmentActivity() {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(
                     authenticationResult: BiometricPrompt.AuthenticationResult,
-                ) = result.success(issueAuthorization(operation, binding))
+                ) {
+                    lastSessionAuthenticationAtMs = System.currentTimeMillis()
+                    result.success(issueAuthorization(operation, binding))
+                }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     if (pinAvailable &&
@@ -1435,6 +1528,7 @@ class MainActivity : FlutterFragmentActivity() {
         verifyPinDialog(promptText, object : MethodChannel.Result {
             override fun success(value: Any?) {
                 if (value == true) {
+                    lastSessionAuthenticationAtMs = System.currentTimeMillis()
                     result.success(issueAuthorization(operation, binding))
                 } else {
                     result.success(null)
@@ -1511,6 +1605,7 @@ class MainActivity : FlutterFragmentActivity() {
             pendingDeviceCredentialAuthorization = null
             if (pending != null) {
                 if (resultCode == RESULT_OK) {
+                    lastSessionAuthenticationAtMs = System.currentTimeMillis()
                     pending.third.success(issueAuthorization(pending.first, pending.second))
                 } else {
                     pending.third.success(null)

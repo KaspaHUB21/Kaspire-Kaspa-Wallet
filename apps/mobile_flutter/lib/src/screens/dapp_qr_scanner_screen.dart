@@ -17,9 +17,12 @@ class _DappQrScannerScreenState extends State<DappQrScannerScreen> {
   final _scannerKey = GlobalKey(debugLabel: 'kaspire-dapp-qr-scanner');
   StreamSubscription<Barcode>? _subscription;
   bool _handled = false;
+  bool _torchOn = false;
   String? _error;
+  QRViewController? _controller;
 
   void _onScannerCreated(QRViewController controller) {
+    _controller = controller;
     _subscription = controller.scannedDataStream.listen((barcode) {
       if (_handled || !mounted) return;
       final value = barcode.code;
@@ -41,6 +44,11 @@ class _DappQrScannerScreenState extends State<DappQrScannerScreen> {
     super.dispose();
   }
 
+  Future<void> _toggleTorch() async {
+    await _controller?.toggleFlash();
+    if (mounted) setState(() => _torchOn = !_torchOn);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Scan dApp QR code')),
@@ -60,6 +68,16 @@ class _DappQrScannerScreenState extends State<DappQrScannerScreen> {
                   border: Border.all(color: KasVaultTheme.mint, width: 3),
                   borderRadius: BorderRadius.circular(30),
                 ),
+              ),
+            ),
+            Align(
+              alignment: const Alignment(0, .58),
+              child: FilledButton.tonalIcon(
+                onPressed: _toggleTorch,
+                icon: Icon(
+                  _torchOn ? Icons.flashlight_off : Icons.flashlight_on,
+                ),
+                label: Text(_torchOn ? 'TURN OFF LIGHT' : 'TURN ON LIGHT'),
               ),
             ),
             Align(

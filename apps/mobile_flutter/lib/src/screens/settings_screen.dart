@@ -7,6 +7,7 @@ import '../services/kaspa_api.dart';
 import '../services/hd_discovery_service.dart';
 import '../services/network_settings.dart';
 import '../services/privacy_settings.dart';
+import '../services/app_settings.dart';
 import '../theme.dart';
 import 'diagnostics_screen.dart';
 
@@ -276,6 +277,80 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   borderRadius: BorderRadius.circular(18),
                   side: const BorderSide(color: KasVaultTheme.line),
                 ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<int>(
+              valueListenable: AppSettings.lockMinutes,
+              builder: (context, minutes, _) => DropdownButtonFormField<int>(
+                initialValue: minutes,
+                decoration: const InputDecoration(
+                  labelText: 'Automatic wallet lock',
+                  prefixIcon: Icon(Icons.lock_clock_outlined),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 0,
+                    child: Text('Immediately after leaving Kaspire'),
+                  ),
+                  DropdownMenuItem(value: 5, child: Text('After 5 minutes')),
+                  DropdownMenuItem(value: 10, child: Text('After 10 minutes')),
+                  DropdownMenuItem(value: 15, child: Text('After 15 minutes')),
+                ],
+                onChanged: (value) {
+                  if (value != null) AppSettings.setLockMinutes(value);
+                },
+              ),
+            ),
+            const SizedBox(height: 24),
+            const _Heading('WALLET DISPLAY'),
+            ValueListenableBuilder<bool>(
+              valueListenable: AppSettings.showSubwallets,
+              builder: (context, visible, _) => SwitchListTile(
+                value: visible,
+                onChanged: AppSettings.setShowSubwallets,
+                secondary: Icon(
+                  Icons.account_tree_outlined,
+                  color: KasVaultTheme.mint,
+                ),
+                title: const Text(
+                  'Show subwallets',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Text(
+                  'Hide address-index subwallets from the Wallets overview. '
+                  'BIP-44 accounts remain available.',
+                ),
+                tileColor: KasVaultTheme.panel,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: const BorderSide(color: KasVaultTheme.line),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<KaspireTheme>(
+              valueListenable: AppSettings.theme,
+              builder: (context, selected, _) =>
+                  DropdownButtonFormField<KaspireTheme>(
+                initialValue: selected,
+                decoration: const InputDecoration(
+                  labelText: 'Kaspire design',
+                  prefixIcon: Icon(Icons.palette_outlined),
+                ),
+                items: KaspireTheme.values
+                    .map(
+                      (theme) => DropdownMenuItem(
+                        value: theme,
+                        child: Text(
+                          theme.name[0].toUpperCase() + theme.name.substring(1),
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) AppSettings.setTheme(value);
+                },
               ),
             ),
             const SizedBox(height: 24),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/asset_send_intent.dart';
 import 'receive_screen.dart';
@@ -29,6 +30,7 @@ class _HomeShellState extends State<HomeShell> {
   int _sendRevision = 0;
   int _walletRevision = 0;
   AssetSendIntent? _sendIntent;
+  DateTime? _exitRequestedAt;
 
   void _openKasSend() => setState(() {
         _sendIntent = null;
@@ -107,30 +109,50 @@ class _HomeShellState extends State<HomeShell> {
         onManageAddressBook: _openAddressBook,
       ),
     ];
-    return Scaffold(
-      body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: _selectDestination,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            selectedIcon: Icon(Icons.account_balance_wallet),
-            label: 'Wallet',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.arrow_upward_rounded),
-            label: 'Send',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.qr_code_2_rounded),
-            label: 'Receive',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.tune_rounded),
-            label: 'Settings',
-          ),
-        ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_index != 0) {
+          setState(() => _index = 0);
+          return;
+        }
+        final now = DateTime.now();
+        if (_exitRequestedAt == null ||
+            now.difference(_exitRequestedAt!) > const Duration(seconds: 2)) {
+          _exitRequestedAt = now;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Press back again to exit Kaspire')),
+          );
+          return;
+        }
+        SystemNavigator.pop();
+      },
+      child: Scaffold(
+        body: IndexedStack(index: _index, children: pages),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _index,
+          onDestinationSelected: _selectDestination,
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.account_balance_wallet_outlined),
+              selectedIcon: Icon(Icons.account_balance_wallet),
+              label: 'Wallet',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.arrow_upward_rounded),
+              label: 'Send',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.qr_code_2_rounded),
+              label: 'Receive',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.tune_rounded),
+              label: 'Settings',
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -31,8 +31,8 @@ tablets, and foldables.
 
 ## Current release
 
-- Version: **0.10.22**
-- Android build: **57**
+- Version: **0.11.0**
+- Android build: **58**
 - Network: **Kaspa Mainnet**
 - Android package: `space.kaspire.wallet`
 - License: [Apache-2.0](LICENSE)
@@ -43,6 +43,8 @@ tablets, and foldables.
 
 - New 24-word BIP-39 wallets
 - Import of 12-word and 24-word recovery phrases
+- BIP-39 autocomplete and immediate word-list validation against all 2,048
+  official English words
 - Optional BIP-39 passphrases
 - Private-key import and watch-only wallets
 - Multiple independent signing and watch wallets
@@ -68,6 +70,7 @@ tablets, and foldables.
 
 - Send, Receive, Copy, and Send Max
 - QR payment scanning and generation
+- Scanner flashlight controls for payments and dApp pairing
 - Kaspa payment URIs and KNS recipients
 - Encrypted local address book
 - Persistent pending/accepted/confirmed/failed transaction state
@@ -76,6 +79,10 @@ tablets, and foldables.
   navigation, and three-button navigation
 - Optional Privacy Mode that masks wallet, asset and activity amounts without
   hiding exact values from transaction authorization dialogs
+- Configurable immediate/5/10/15-minute inactivity lock with biometric,
+  Android credential and Kaspire-PIN fallback
+- Midnight, Emerald, Amethyst, Sakura, Crimson, Phoenix and Cypherpunk themes
+- Optional hiding of address-index subwallets in the Wallets overview
 - In-app diagnostics for the configured Kaspa gateway, UTXO integrity,
   KRC/KNS and KCC20 indexers, and WalletConnect
 

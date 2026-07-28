@@ -14,9 +14,12 @@ class QrScannerScreen extends StatefulWidget {
 class _QrScannerScreenState extends State<QrScannerScreen> {
   final _scannerKey = GlobalKey(debugLabel: 'kaspire-qr-scanner');
   bool _handled = false;
+  bool _torchOn = false;
   String? _error;
+  QRViewController? _controller;
 
   void _onScannerCreated(QRViewController controller) {
+    _controller = controller;
     controller.scannedDataStream.listen((barcode) {
       if (_handled || !mounted) return;
       final value = barcode.code;
@@ -28,6 +31,16 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       }
       setState(() => _error = 'This is not a Kaspa payment QR code.');
     });
+  }
+
+  Future<void> _toggleTorch() async {
+    await _controller?.toggleFlash();
+    if (mounted) setState(() => _torchOn = !_torchOn);
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   @override
@@ -48,6 +61,18 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                 decoration: BoxDecoration(
                   border: Border.all(color: KasVaultTheme.mint, width: 3),
                   borderRadius: BorderRadius.circular(28),
+                ),
+              ),
+            ),
+            Align(
+              alignment: const Alignment(0, .62),
+              child: SafeArea(
+                child: FilledButton.tonalIcon(
+                  onPressed: _toggleTorch,
+                  icon: Icon(
+                    _torchOn ? Icons.flashlight_off : Icons.flashlight_on,
+                  ),
+                  label: Text(_torchOn ? 'TURN OFF LIGHT' : 'TURN ON LIGHT'),
                 ),
               ),
             ),

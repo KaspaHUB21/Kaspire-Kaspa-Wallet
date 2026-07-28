@@ -14,6 +14,7 @@ import 'services/activity_store.dart';
 import 'services/kaspa_api.dart';
 import 'services/native_security.dart';
 import 'services/preferences_service.dart';
+import 'services/app_settings.dart';
 import 'services/signer_service.dart';
 import 'theme.dart';
 
@@ -24,7 +25,7 @@ class KasVaultApp extends StatefulWidget {
   State<KasVaultApp> createState() => _KasVaultAppState();
 }
 
-class _KasVaultAppState extends State<KasVaultApp> {
+class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   final _preferences = PreferencesService();
   final _security = NativeSecurity();
   final _dapps = DappSessionService.instance;
@@ -37,10 +38,16 @@ class _KasVaultAppState extends State<KasVaultApp> {
   final Set<String> _handledAppLinks = {};
   final Set<String> _handledRequestIds = {};
   late Future<String?> _address;
+  DateTime _lastActivity = DateTime.now();
+  DateTime? _backgroundedAt;
+  Timer? _inactivityTimer;
+  bool _locked = false;
+  bool _unlocking = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _address = _loadInitialAddress();
     _proposalSubscription = _dapps.proposals.listen(
       (event) => _enqueueDapp(() => _handleProposal(event)),
@@ -51,14 +58,74 @@ class _KasVaultAppState extends State<KasVaultApp> {
     _linkSubscription = _appLinks.uriLinkStream.listen(_queueAppLink);
     unawaited(_loadInitialAppLink());
     _dapps.initialize();
+    _inactivityTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _checkInactivity(),
+    );
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _inactivityTimer?.cancel();
     _linkSubscription?.cancel();
     _proposalSubscription?.cancel();
     _requestSubscription?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      _backgroundedAt ??= DateTime.now();
+      if (AppSettings.lockMinutes.value == 0 && mounted) {
+        setState(() => _locked = true);
+      }
+      return;
+    }
+    if (state == AppLifecycleState.resumed) {
+      final since = _backgroundedAt;
+      _backgroundedAt = null;
+      final minutes = AppSettings.lockMinutes.value;
+      if (since != null &&
+          (minutes == 0 ||
+              DateTime.now().difference(since) >= Duration(minutes: minutes)) &&
+          mounted) {
+        setState(() => _locked = true);
+      }
+    }
+  }
+
+  void _recordActivity() => _lastActivity = DateTime.now();
+
+  void _checkInactivity() {
+    final minutes = AppSettings.lockMinutes.value;
+    if (minutes == 0 || _locked || !mounted) return;
+    if (DateTime.now().difference(_lastActivity) >=
+        Duration(minutes: minutes)) {
+      setState(() => _locked = true);
+    }
+  }
+
+  Future<void> _unlock() async {
+    if (_unlocking) return;
+    final context = _navigatorKey.currentContext;
+    if (context == null) return;
+    setState(() => _unlocking = true);
+    final authenticated = await _security.authenticate(
+      context,
+      'Unlock Kaspire',
+    );
+    if (!mounted) return;
+    setState(() {
+      _unlocking = false;
+      if (authenticated) {
+        _locked = false;
+        _lastActivity = DateTime.now();
+      }
+    });
   }
 
   void _enqueueDapp(Future<void> Function() operation) {
@@ -1126,32 +1193,94 @@ class _KasVaultAppState extends State<KasVaultApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: _navigatorKey,
-      title: 'Kaspire',
-      debugShowCheckedModeBanner: false,
-      theme: KasVaultTheme.dark,
-      home: FutureBuilder<String?>(
-        future: _address,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          final address = snapshot.data;
-          return address == null
-              ? OnboardingScreen(onConnected: _openWallet)
-              : HomeShell(
-                  key: ValueKey(address),
-                  address: address,
-                  onSwitchWallet: _openWallet,
-                  onDisconnect: _reset,
-                );
-        },
+    return ValueListenableBuilder<KaspireTheme>(
+      valueListenable: AppSettings.theme,
+      builder: (context, selectedTheme, _) => MaterialApp(
+        navigatorKey: _navigatorKey,
+        title: 'Kaspire',
+        debugShowCheckedModeBanner: false,
+        theme: KasVaultTheme.forTheme(selectedTheme),
+        builder: (context, child) => Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) => _recordActivity(),
+          child: child,
+        ),
+        home: FutureBuilder<String?>(
+          future: _address,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
+            final address = snapshot.data;
+            if (address != null && _locked) {
+              return _KaspireLockScreen(
+                unlocking: _unlocking,
+                onUnlock: _unlock,
+              );
+            }
+            return address == null
+                ? OnboardingScreen(onConnected: _openWallet)
+                : HomeShell(
+                    key: ValueKey(address),
+                    address: address,
+                    onSwitchWallet: _openWallet,
+                    onDisconnect: _reset,
+                  );
+          },
+        ),
       ),
     );
   }
+}
+
+class _KaspireLockScreen extends StatelessWidget {
+  const _KaspireLockScreen({
+    required this.unlocking,
+    required this.onUnlock,
+  });
+
+  final bool unlocking;
+  final VoidCallback onUnlock;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock_rounded, size: 58),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Kaspire is locked',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Authenticate to restore your wallet session.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  FilledButton.icon(
+                    onPressed: unlocking ? null : onUnlock,
+                    icon: unlocking
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.fingerprint_rounded),
+                    label: const Text('UNLOCK KASPIRE'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 class _DappVerification extends StatelessWidget {

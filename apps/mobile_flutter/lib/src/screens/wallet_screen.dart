@@ -8,6 +8,7 @@ import '../services/kaspa_api.dart';
 import '../services/activity_store.dart';
 import '../services/native_security.dart';
 import '../services/privacy_settings.dart';
+import '../services/preferences_service.dart';
 import '../services/signer_service.dart';
 import '../models/asset_send_intent.dart';
 import '../theme.dart';
@@ -38,6 +39,7 @@ class WalletScreen extends StatefulWidget {
 
 class _WalletScreenState extends State<WalletScreen> {
   late Future<WalletSnapshot> _snapshot;
+  late Future<String> _walletName;
   int _historyLimit = 20;
   bool _compounding = false;
 
@@ -45,6 +47,21 @@ class _WalletScreenState extends State<WalletScreen> {
   void initState() {
     super.initState();
     _snapshot = _loadSnapshot();
+    _walletName = _loadWalletName();
+  }
+
+  Future<String> _loadWalletName() async {
+    final native = await NativeSecurity().listWallets();
+    for (final wallet in native) {
+      if (wallet.address == widget.address ||
+          wallet.addresses.any((item) => item.address == widget.address)) {
+        return wallet.name;
+      }
+    }
+    for (final wallet in await PreferencesService().getWatchWallets()) {
+      if (wallet.address == widget.address) return wallet.name;
+    }
+    return 'Wallet';
   }
 
   Future<WalletSnapshot> _loadSnapshot() async {
@@ -171,15 +188,19 @@ class _WalletScreenState extends State<WalletScreen> {
                         vertical: 7,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0x2249EACB),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: .14),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Row(
+                      child: Row(
                         children: [
                           Icon(Icons.circle,
-                              size: 8, color: KasVaultTheme.mint),
-                          SizedBox(width: 7),
-                          Text(
+                              size: 8,
+                              color: Theme.of(context).colorScheme.primary),
+                          const SizedBox(width: 7),
+                          const Text(
                             'MAINNET',
                             style: TextStyle(
                               fontSize: 11,
@@ -192,7 +213,16 @@ class _WalletScreenState extends State<WalletScreen> {
                   ],
                 ),
                 const SizedBox(height: 28),
-                _BalanceCard(snapshot: snapshot, hideAmounts: hideAmounts),
+                FutureBuilder<String>(
+                  future: _walletName,
+                  builder: (context, name) => _BalanceCard(
+                    snapshot: snapshot,
+                    hideAmounts: hideAmounts,
+                    walletName: name.data ?? 'Wallet',
+                    onTogglePrivacy: () =>
+                        PrivacySettings.setHideAmounts(!hideAmounts),
+                  ),
+                ),
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -550,9 +580,16 @@ class _AssetIcon extends StatelessWidget {
 }
 
 class _BalanceCard extends StatelessWidget {
-  const _BalanceCard({required this.snapshot, required this.hideAmounts});
+  const _BalanceCard({
+    required this.snapshot,
+    required this.hideAmounts,
+    required this.walletName,
+    required this.onTogglePrivacy,
+  });
   final AsyncSnapshot<WalletSnapshot> snapshot;
   final bool hideAmounts;
+  final String walletName;
+  final VoidCallback onTogglePrivacy;
   @override
   Widget build(BuildContext context) {
     final data = snapshot.data;
@@ -581,14 +618,42 @@ class _BalanceCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'TOTAL BALANCE',
-            style: TextStyle(
-              color: KasVaultTheme.muted,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.2,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      walletName,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'TOTAL BALANCE',
+                      style: TextStyle(
+                        color: KasVaultTheme.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: onTogglePrivacy,
+                tooltip: hideAmounts ? 'Show balances' : 'Hide balances',
+                icon: Icon(
+                  hideAmounts
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           FittedBox(
@@ -604,8 +669,8 @@ class _BalanceCard extends StatelessWidget {
           const SizedBox(height: 7),
           Text(
             fiat,
-            style: const TextStyle(
-              color: KasVaultTheme.mint,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.primary,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -633,7 +698,7 @@ class _Action extends StatelessWidget {
           ),
           child: Column(
             children: [
-              Icon(icon, color: KasVaultTheme.mint),
+              Icon(icon, color: Theme.of(context).colorScheme.primary),
               const SizedBox(height: 7),
               Text(
                 label,
