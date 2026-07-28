@@ -494,6 +494,26 @@ mod tests {
     }
 
     #[test]
+    fn exports_the_private_key_for_the_selected_hd_subwallet() {
+        let root_secret = format!("mnemonic:{VECTOR}");
+        let selected_path = "m/44'/111111'/0'/0/2";
+        let selected_secret = format!("hd-path:{selected_path}:{root_secret}");
+        let primary_key = export_private_key(&root_secret).unwrap();
+        let selected_key = export_private_key(&selected_secret).unwrap();
+        assert_ne!(selected_key, primary_key);
+
+        let selected_address =
+            derive_address_range(&root_secret, MODERN_COIN_TYPE, 0, 0, 2, 1)
+                .unwrap()
+                .remove(0)
+                .address;
+        assert_eq!(
+            import_private_key(&selected_key).unwrap().address,
+            selected_address
+        );
+    }
+
+    #[test]
     fn prepares_signs_and_binds_review() {
         let wallet = import_wallet(VECTOR).unwrap();
         let address = Address::try_from(wallet.address.as_str()).unwrap();

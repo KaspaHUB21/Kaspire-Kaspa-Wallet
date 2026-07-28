@@ -130,8 +130,13 @@ class MainActivity : FlutterFragmentActivity() {
                     "importWallet" -> importWallet(result)
                     "importPrivateKey" -> importPrivateKey(result)
                     "exportPrivateKey" -> {
-                        requireAuthorization(call, "exportPrivateKey", activeWalletAddress() ?: "")
-                        exportPrivateKey(result)
+                        val address = call.argument<String>("address") ?: error("Missing export address")
+                        val id = activeWalletId() ?: error("No active signing wallet")
+                        check(controlsAddress(id, address)) {
+                            "The active wallet does not control the requested export address"
+                        }
+                        requireAuthorization(call, "exportPrivateKey", address)
+                        exportPrivateKey(address, result)
                     }
                     "exportRecoveryPhrase" -> {
                         requireAuthorization(call, "exportRecoveryPhrase", activeWalletAddress() ?: "")
@@ -702,8 +707,8 @@ class MainActivity : FlutterFragmentActivity() {
         dialog.show()
     }
 
-    private fun exportPrivateKey(result: MethodChannel.Result) {
-        val secret = decryptSecret()
+    private fun exportPrivateKey(address: String, result: MethodChannel.Result) {
+        val secret = decryptSecret(address)
         val json = parseCore(SecureCore.exportPrivateKey(secret))
         showSecret("Private key", json.getString("privateKey"), result)
     }
@@ -1454,7 +1459,7 @@ class MainActivity : FlutterFragmentActivity() {
                     ?.text
             }
         "signPersonalMessage" -> "Authorize the KIP-5 address and message shown by Kaspire"
-        "exportPrivateKey" -> "Reveal this wallet's private key"
+        "exportPrivateKey" -> "Reveal the private key for\n$binding"
         "exportRecoveryPhrase" -> "Reveal this wallet's recovery phrase"
         "exportEncryptedBackup" -> "Export this wallet as an encrypted backup"
         "deleteWallet" -> "Permanently delete this wallet from the device"

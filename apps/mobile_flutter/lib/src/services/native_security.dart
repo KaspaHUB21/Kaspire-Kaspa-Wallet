@@ -128,15 +128,17 @@ class NativeSecurity {
     return token;
   }
 
-  Future<void> exportPrivateKey() async {
-    final binding = await getNativeAddress() ?? '';
+  Future<void> exportPrivateKey(String address) async {
     final token = await _authorizeOperation(
       operation: 'exportPrivateKey',
-      binding: binding,
+      binding: address,
     );
     await _channel.invokeMethod<void>(
       'exportPrivateKey',
-      {'authorizationToken': token},
+      {
+        'address': address,
+        'authorizationToken': token,
+      },
     );
   }
 
@@ -356,10 +358,9 @@ class NativeSecurity {
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
-  Future<Map<String, Object?>> preparePskt(
-      Map<String, Object?> request) async {
-    final raw = await _channel.invokeMethod<String>(
-        'preparePskt', {'request': jsonEncode(request)});
+  Future<Map<String, Object?>> preparePskt(Map<String, Object?> request) async {
+    final raw = await _channel
+        .invokeMethod<String>('preparePskt', {'request': jsonEncode(request)});
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 

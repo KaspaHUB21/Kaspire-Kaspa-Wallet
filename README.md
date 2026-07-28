@@ -31,8 +31,8 @@ tablets, and foldables.
 
 ## Current release
 
-- Version: **0.10.18**
-- Android build: **53**
+- Version: **0.10.19**
+- Android build: **54**
 - Network: **Kaspa Mainnet**
 - Android package: `space.kaspire.wallet`
 - License: [Apache-2.0](LICENSE)

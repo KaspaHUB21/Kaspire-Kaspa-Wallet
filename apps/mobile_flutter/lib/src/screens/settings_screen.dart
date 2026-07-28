@@ -69,7 +69,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _export({required bool privateKey}) async {
     try {
       if (privateKey) {
-        await _security.exportPrivateKey();
+        await _security.exportPrivateKey(widget.address);
       } else {
         await _security.exportRecoveryPhrase();
       }
