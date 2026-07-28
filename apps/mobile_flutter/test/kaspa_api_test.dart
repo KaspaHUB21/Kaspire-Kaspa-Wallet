@@ -233,7 +233,7 @@ void main() {
     final client = MockClient((request) async {
       if (request.url.host == 'kaspatoken.kaslab.space') {
         return http.Response(
-          '{"data":{"tokens":[{"symbol":"NACHO","balance":12.5,"decimals":8,"raw_balance":"1250000000"}],"krc721_tokens":[{"symbol":"TOCCATA","balance":2,"decimals":0}],"domains":[{"name":"broken.kas","status":null}],"transactions":[]}}',
+          '{"data":{"tokens":[{"symbol":"NACHO","balance":12.5,"decimals":8,"raw_balance":"1250000000"}],"krc721_tokens":[{"symbol":"TOCCATA","balance":2,"decimals":0}],"domains":[{"name":"broken.kas","status":null},{"name":"chr1.runningcode.c.02.antx.kas","status":"default","asset_id":"080450581c0f6195263a50f17aafb235566e9c5038fed5b2ef4f1f39e01261bbi0"}],"transactions":[]}}',
           200,
         );
       }
@@ -252,8 +252,13 @@ void main() {
     final snapshot = await KaspaApi(client: client).loadWallet(address);
     expect(snapshot.krc20Tokens.single.symbol, 'NACHO');
     expect(snapshot.krc721Collections.single.symbol, 'TOCCATA');
-    expect(snapshot.knsDomains.single.name, 'broken.kas');
-    expect(snapshot.knsDomains.single.status, isNull);
+    expect(snapshot.knsDomains, hasLength(2));
+    expect(snapshot.knsDomains.first.name, 'broken.kas');
+    expect(snapshot.knsDomains.first.status, isNull);
+    expect(
+      snapshot.knsDomains.last.name,
+      'chr1.runningcode.c.02.antx.kas',
+    );
     expect(snapshot.assetWarning, isNot(contains('KRC/KNS')));
     expect(snapshot.assetWarning, isNot(contains('unusable KNS')));
   });
@@ -414,8 +419,11 @@ void main() {
       (_) async => http.Response('{"data":{"address":"$resolved"}}', 200),
     );
 
-    expect(await KaspaApi(client: client).resolveWalletInput('Demo.KAS'),
-        resolved);
+    expect(
+      await KaspaApi(client: client)
+          .resolveWalletInput('CHR1.RunningCode.C.02.ANTX.KAS'),
+      resolved,
+    );
   });
 
   test('broadcasts KCC20 SafeJSON through Toccata wRPC transport', () async {

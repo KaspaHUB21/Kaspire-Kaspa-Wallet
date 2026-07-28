@@ -130,7 +130,7 @@ class KaspaApi {
     if (RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(normalized)) {
       return normalized;
     }
-    if (!RegExp(r'^[a-z0-9-]+\.kas$').hasMatch(normalized)) {
+    if (!_isKnsName(normalized)) {
       throw KaspaApiException(
           'Enter a Kaspa address or a valid name.kas domain.');
     }
@@ -944,7 +944,7 @@ class KaspaApi {
       final name = (item['name'] ?? '').toString().toLowerCase();
       final rawStatus = item['status']?.toString().toLowerCase();
       final rawAssetId = item['asset_id']?.toString();
-      if (!RegExp(r'^[a-z0-9-]{1,63}\.kas$').hasMatch(name)) {
+      if (!_isKnsName(name)) {
         rejectedDomains++;
         continue;
       }
@@ -1472,6 +1472,15 @@ class KaspaApi {
       return '${base.scheme}://${base.authority}$value';
     }
     return null;
+  }
+
+  static bool _isKnsName(String value) {
+    if (value.length > 253) return false;
+    final labels = value.split('.');
+    if (labels.length < 2 || labels.last != 'kas') return false;
+    return labels
+        .take(labels.length - 1)
+        .every((label) => RegExp(r'^[a-z0-9-]{1,63}$').hasMatch(label));
   }
 }
 
