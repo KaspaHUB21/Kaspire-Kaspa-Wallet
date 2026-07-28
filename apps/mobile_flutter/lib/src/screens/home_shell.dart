@@ -42,16 +42,20 @@ class _HomeShellState extends State<HomeShell> {
         _index = 1;
       });
 
-  void _openWalletManager() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
+  Future<void> _openWalletManager() async {
+    final selected = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
         builder: (_) => WalletManagerScreen(
           currentAddress: widget.address,
-          onSelected: widget.onSwitchWallet,
-          onEmpty: widget.onDisconnect,
         ),
       ),
     );
+    if (!mounted || selected == null) return;
+    if (selected.isEmpty) {
+      widget.onDisconnect();
+    } else {
+      widget.onSwitchWallet(selected);
+    }
   }
 
   void _openDappSessions() {

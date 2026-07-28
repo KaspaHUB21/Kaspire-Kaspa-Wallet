@@ -11,12 +11,8 @@ class WalletManagerScreen extends StatefulWidget {
   const WalletManagerScreen({
     super.key,
     required this.currentAddress,
-    required this.onSelected,
-    required this.onEmpty,
   });
   final String currentAddress;
-  final ValueChanged<String> onSelected;
-  final VoidCallback onEmpty;
 
   @override
   State<WalletManagerScreen> createState() => _WalletManagerScreenState();
@@ -28,6 +24,8 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
   List<NativeWalletInfo> _native = const [];
   List<WatchWalletInfo> _watch = const [];
   bool _loading = true;
+  bool _working = false;
+  String? _workingLabel;
   String? _error;
 
   @override
@@ -70,8 +68,7 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
 
   Future<void> _selectAddress(String address) async {
     await _preferences.setAddress(address);
-    widget.onSelected(address);
-    if (mounted) Navigator.pop(context);
+    if (mounted) Navigator.pop(context, address);
   }
 
   Future<void> _addNative(String mode) async {
@@ -83,6 +80,14 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
             : 'Import another Kaspire wallet',
       );
       if (!authenticated) return;
+      if (mounted) {
+        setState(() {
+          _working = true;
+          _workingLabel =
+              mode == 'create' ? 'Creating wallet…' : 'Importing wallet…';
+          _error = null;
+        });
+      }
       var address = mode == 'create'
           ? await _security.createWallet()
           : mode == 'private'
@@ -97,8 +102,11 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
       await _selectAddress(address);
     } catch (error) {
       if (mounted) {
-        setState(
-            () => _error = error.toString().replaceFirst('Bad state: ', ''));
+        setState(() {
+          _working = false;
+          _workingLabel = null;
+          _error = error.toString().replaceFirst('Bad state: ', '');
+        });
       }
     }
   }
@@ -264,8 +272,7 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
       await _selectAddress(_watch.first.address);
     } else {
       await _preferences.clearAddress();
-      widget.onEmpty();
-      if (mounted) Navigator.pop(context);
+      if (mounted) Navigator.pop(context, '');
     }
   }
 
@@ -322,85 +329,131 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
         appBar: AppBar(title: const Text('Wallets')),
         body: _loading
             ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  20,
-                  20,
-                  36 + MediaQuery.viewPaddingOf(context).bottom,
-                ),
+            : Stack(
                 children: [
-                  const Text('SIGNING WALLETS',
-                      style: TextStyle(
-                          color: KasVaultTheme.muted,
-                          fontWeight: FontWeight.w900)),
-                  const SizedBox(height: 8),
-                  ..._native.expand(
-                    (wallet) => [
-                      _WalletTile(
-                        name: wallet.name,
-                        detail: '${wallet.kind} · ${_short(wallet.address)}',
-                        selected: wallet.address == widget.currentAddress ||
-                            wallet.addresses.any((item) =>
-                                item.address == widget.currentAddress),
-                        icon: Icons.key_rounded,
-                        onTap: () => _selectNative(wallet),
-                        onRename: () => _rename(native: wallet),
-                        onDelete: () => _delete(native: wallet),
-                        onAddAccount: wallet.kind == 'mnemonic'
-                            ? () => _addAccount(wallet)
-                            : null,
+                  ListView(
+                    padding: EdgeInsets.fromLTRB(
+                      20,
+                      20,
+                      20,
+                      36 + MediaQuery.viewPaddingOf(context).bottom,
+                    ),
+                    children: [
+                      const Text('SIGNING WALLETS',
+                          style: TextStyle(
+                              color: KasVaultTheme.muted,
+                              fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 8),
+                      ..._native.expand(
+                        (wallet) => [
+                          _WalletTile(
+                            name: wallet.name,
+                            detail:
+                                '${wallet.kind} · ${_short(wallet.address)}',
+                            selected: wallet.address == widget.currentAddress ||
+                                wallet.addresses.any((item) =>
+                                    item.address == widget.currentAddress),
+                            icon: Icons.key_rounded,
+                            onTap: () => _selectNative(wallet),
+                            onRename: () => _rename(native: wallet),
+                            onDelete: () => _delete(native: wallet),
+                            onAddAccount: wallet.kind == 'mnemonic'
+                                ? () => _addAccount(wallet)
+                                : null,
+                          ),
+                          ..._accountEntries(wallet),
+                        ],
                       ),
-                      ..._accountEntries(wallet),
+                      if (_native.isEmpty)
+                        const Text('No signing wallets stored.',
+                            style: TextStyle(color: KasVaultTheme.muted)),
+                      const SizedBox(height: 22),
+                      const Text('WATCH WALLETS',
+                          style: TextStyle(
+                              color: KasVaultTheme.muted,
+                              fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 8),
+                      ..._watch.map((wallet) => _WalletTile(
+                            name: wallet.name,
+                            detail: _short(wallet.address),
+                            selected: wallet.address == widget.currentAddress,
+                            icon: Icons.visibility_outlined,
+                            onTap: () => _selectAddress(wallet.address),
+                            onRename: () => _rename(watch: wallet),
+                            onDelete: () => _delete(watch: wallet),
+                          )),
+                      if (_watch.isEmpty)
+                        const Text('No watch wallets stored.',
+                            style: TextStyle(color: KasVaultTheme.muted)),
+                      if (_error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 14),
+                          child: Text(_error!,
+                              style: const TextStyle(color: Color(0xFFFF8A65))),
+                        ),
+                      const SizedBox(height: 28),
+                      FilledButton.icon(
+                          onPressed:
+                              _working ? null : () => _addNative('create'),
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text('CREATE WALLET')),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                          onPressed:
+                              _working ? null : () => _addNative('mnemonic'),
+                          icon: const Icon(Icons.format_list_numbered_rounded),
+                          label: const Text('IMPORT 12 / 24 WORDS')),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                          onPressed:
+                              _working ? null : () => _addNative('private'),
+                          icon: const Icon(Icons.password_rounded),
+                          label: const Text('IMPORT PRIVATE KEY')),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                          onPressed: _working ? null : _addWatch,
+                          icon: const Icon(Icons.visibility_outlined),
+                          label: const Text('ADD WATCH WALLET')),
                     ],
                   ),
-                  if (_native.isEmpty)
-                    const Text('No signing wallets stored.',
-                        style: TextStyle(color: KasVaultTheme.muted)),
-                  const SizedBox(height: 22),
-                  const Text('WATCH WALLETS',
-                      style: TextStyle(
-                          color: KasVaultTheme.muted,
-                          fontWeight: FontWeight.w900)),
-                  const SizedBox(height: 8),
-                  ..._watch.map((wallet) => _WalletTile(
-                        name: wallet.name,
-                        detail: _short(wallet.address),
-                        selected: wallet.address == widget.currentAddress,
-                        icon: Icons.visibility_outlined,
-                        onTap: () => _selectAddress(wallet.address),
-                        onRename: () => _rename(watch: wallet),
-                        onDelete: () => _delete(watch: wallet),
-                      )),
-                  if (_watch.isEmpty)
-                    const Text('No watch wallets stored.',
-                        style: TextStyle(color: KasVaultTheme.muted)),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 14),
-                      child: Text(_error!,
-                          style: const TextStyle(color: Color(0xFFFF8A65))),
+                  if (_working)
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: const Color(0xB000090C),
+                        child: Center(
+                          child: Container(
+                            margin: const EdgeInsets.all(28),
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: KasVaultTheme.panel,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: KasVaultTheme.line),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const CircularProgressIndicator(),
+                                const SizedBox(height: 16),
+                                Text(
+                                  _workingLabel ?? 'Loading wallet…',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Discovering accounts and subwallets. This can take a moment.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: KasVaultTheme.muted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
-                  const SizedBox(height: 28),
-                  FilledButton.icon(
-                      onPressed: () => _addNative('create'),
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('CREATE WALLET')),
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                      onPressed: () => _addNative('mnemonic'),
-                      icon: const Icon(Icons.format_list_numbered_rounded),
-                      label: const Text('IMPORT 12 / 24 WORDS')),
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                      onPressed: () => _addNative('private'),
-                      icon: const Icon(Icons.password_rounded),
-                      label: const Text('IMPORT PRIVATE KEY')),
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                      onPressed: _addWatch,
-                      icon: const Icon(Icons.visibility_outlined),
-                      label: const Text('ADD WATCH WALLET')),
                 ],
               ),
       );
