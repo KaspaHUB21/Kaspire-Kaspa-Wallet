@@ -73,7 +73,7 @@ void main() {
       if (request.url.path.endsWith('/balance')) {
         return http.Response('{"balance":0}', 200);
       }
-      if (request.url.path == '/info/price') {
+      if (request.url.path.endsWith('/info/price')) {
         return http.Response('{"price":0.1}', 200);
       }
       if (request.url.host == 'kaspatoken.kaslab.space' ||
@@ -176,7 +176,7 @@ void main() {
       if (request.url.path.endsWith('/balance')) {
         return http.Response('{"balance":0}', 200);
       }
-      if (request.url.path == '/info/price') {
+      if (request.url.path.endsWith('/info/price')) {
         return http.Response('{"price":0.1}', 200);
       }
       return http.Response('[]', 200);
@@ -198,6 +198,64 @@ void main() {
     expect(tokenActivity.assetKind, 'KRC-20');
     expect(tokenActivity.incoming, isTrue);
     expect(tokenActivity.amountLabel, '2.5 NACHO');
+  });
+
+  test('falls back to direct KRC20, KRC721 and KNS indexers', () async {
+    final client = MockClient((request) async {
+      if (request.url.host == 'kaspatoken.kaslab.space') {
+        return http.Response('unavailable', 503);
+      }
+      if (request.url.host == 'api.kasplex.org' &&
+          request.url.path.contains('/tokenlist')) {
+        return http.Response(
+          '{"result":[{"tick":"NACHO","balance":"1250000000","dec":8}]}',
+          200,
+        );
+      }
+      if (request.url.host == 'api.kasplex.org' &&
+          request.url.path.endsWith('/oplist')) {
+        return http.Response('{"result":[]}', 200);
+      }
+      if (request.url.host == 'api.knsdomains.org') {
+        return http.Response(
+          '{"data":{"assets":[{"asset":"fallback.kas","assetId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaai0","owner":"$address","status":"default"}],"pagination":{"totalPages":1}}}',
+          200,
+        );
+      }
+      if (request.url.host == 'krc721-indexer.kaspa.com') {
+        return http.Response(
+          '{"result":[{"tick":"TOCCATA","tokenId":"7"}]}',
+          200,
+        );
+      }
+      if (request.url.host == 'api.kaspa.com' &&
+          request.url.path == '/api/floor-price') {
+        return http.Response(
+          '{"data":[{"ticker":"NACHO","floor_price":2.5}]}',
+          200,
+        );
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":0}', 200);
+      }
+      if (request.url.path.endsWith('/info/price')) {
+        return http.Response('{"price":0.1}', 200);
+      }
+      if (request.url.path.contains('/full-transactions') ||
+          request.url.path.endsWith('/utxos')) {
+        return http.Response('[]', 200);
+      }
+      return http.Response('[]', 200);
+    });
+
+    final snapshot = await KaspaApi(client: client).loadWallet(address);
+    expect(snapshot.krc20Tokens.single.symbol, 'NACHO');
+    expect(snapshot.krc20Tokens.single.balance, 12.5);
+    expect(snapshot.krc20Tokens.single.priceKas, 2.5);
+    expect(snapshot.krc20Tokens.single.priceUsd, closeTo(0.25, 0.000001));
+    expect(snapshot.krc721Collections.single.symbol, 'TOCCATA');
+    expect(snapshot.krc721Collections.single.balance, 1);
+    expect(snapshot.knsDomains.single.name, 'fallback.kas');
   });
 
   test('rejects manipulated token metadata while preserving KAS data',

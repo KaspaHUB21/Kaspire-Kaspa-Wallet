@@ -10,6 +10,7 @@ import '../services/native_security.dart';
 import '../services/signer_service.dart';
 import '../services/activity_store.dart';
 import '../theme.dart';
+import '../services/app_settings.dart';
 import 'asset_send_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'address_book_screen.dart';
@@ -76,6 +77,7 @@ class _KasSendPanelState extends State<_KasSendPanel> {
   _PaymentReceipt? _receipt;
   bool _working = false;
   bool _sendAll = false;
+  late final Future<WalletSnapshot> _wallet = _api.loadWallet(widget.address);
 
   @override
   void dispose() {
@@ -252,8 +254,8 @@ class _KasSendPanelState extends State<_KasSendPanel> {
         padding: const EdgeInsets.all(20),
         children: [
           const SizedBox(height: 8),
-          const Text(
-            'SEND KAS',
+          Text(
+            displayLabel('SEND KAS'),
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w900,
@@ -271,8 +273,8 @@ class _KasSendPanelState extends State<_KasSendPanel> {
             autocorrect: false,
             enableSuggestions: false,
             decoration: InputDecoration(
-              labelText: 'Recipient',
-              hintText: 'kaspa:q…',
+              labelText: 'Address / KNS name',
+              hintText: 'Long press to paste',
               suffixIcon: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -315,9 +317,28 @@ class _KasSendPanelState extends State<_KasSendPanel> {
                   _sendAll = !_sendAll;
                   if (_sendAll) _amount.clear();
                 }),
-                child: Text(_sendAll ? 'CANCEL' : 'MAX'),
+                child: Text(buttonLabel(_sendAll ? 'CANCEL' : 'MAX')),
               ),
             ],
+          ),
+          const SizedBox(height: 5),
+          FutureBuilder<WalletSnapshot>(
+            future: _wallet,
+            builder: (context, snapshot) => Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Available',
+                  style: TextStyle(color: KasVaultTheme.muted, fontSize: 12),
+                ),
+                Text(
+                  snapshot.hasData
+                      ? '${formatEnglishNumber(snapshot.data!.balanceKas, decimals: 8, trimTrailingZeros: true)} KAS'
+                      : '— KAS',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           Container(
@@ -355,7 +376,9 @@ class _KasSendPanelState extends State<_KasSendPanel> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.shield_outlined),
-            label: Text(_working ? 'PREPARING…' : 'REVIEW TRANSACTION'),
+            label: Text(buttonLabel(
+              _working ? 'PREPARING…' : 'REVIEW TRANSACTION',
+            )),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(58),
               backgroundColor: KasVaultTheme.mint,
@@ -418,8 +441,7 @@ class _PaymentSuccess extends StatelessWidget {
             Center(
               child: CircleAvatar(
                 radius: 38,
-                backgroundColor:
-                    KasVaultTheme.mint.withValues(alpha: .13),
+                backgroundColor: KasVaultTheme.mint.withValues(alpha: .13),
                 child: Icon(
                   Icons.check_rounded,
                   size: 48,
@@ -502,7 +524,7 @@ class _PaymentSuccess extends StatelessWidget {
                       );
                     },
                     icon: const Icon(Icons.copy_rounded),
-                    label: const Text('COPY TX ID'),
+                    label: Text(buttonLabel('COPY TX ID')),
                   ),
                 ],
               ),
@@ -511,7 +533,7 @@ class _PaymentSuccess extends StatelessWidget {
             FilledButton.icon(
               onPressed: onDone,
               icon: const Icon(Icons.account_balance_wallet_rounded),
-              label: const Text('BACK TO WALLET'),
+              label: Text(buttonLabel('BACK TO WALLET')),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(58),
                 backgroundColor: KasVaultTheme.mint,
@@ -618,11 +640,11 @@ class _ConfirmPayment extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('CANCEL'),
+            child: Text(buttonLabel('CANCEL')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('AUTHORIZE'),
+            child: Text(buttonLabel('AUTHORIZE')),
           ),
         ],
       );

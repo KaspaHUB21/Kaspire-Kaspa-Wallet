@@ -5,6 +5,7 @@ import '../services/dapp_session_service.dart';
 import '../services/kaspa_api.dart';
 import '../services/network_settings.dart';
 import '../theme.dart';
+import '../services/app_settings.dart';
 
 class DiagnosticsScreen extends StatefulWidget {
   const DiagnosticsScreen({super.key, required this.address});
@@ -80,7 +81,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
               FilledButton.icon(
                 onPressed: _retry,
                 icon: const Icon(Icons.refresh_rounded),
-                label: const Text('RUN AGAIN'),
+                label: Text(buttonLabel('RUN AGAIN')),
               ),
             ],
           ),

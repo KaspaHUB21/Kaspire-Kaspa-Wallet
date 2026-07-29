@@ -130,10 +130,10 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('CANCEL')),
+              child: Text(buttonLabel('CANCEL'))),
           FilledButton(
               onPressed: () => Navigator.pop(context, controller.text),
-              child: const Text('ADD')),
+              child: Text(buttonLabel('ADD'))),
         ],
       ),
     );
@@ -249,10 +249,10 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('CANCEL')),
+              child: Text(buttonLabel('CANCEL'))),
           FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('DELETE')),
+              child: Text(buttonLabel('DELETE'))),
         ],
       ),
     );
@@ -299,11 +299,11 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('CANCEL'),
+            child: Text(buttonLabel('CANCEL')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('SAVE'),
+            child: Text(buttonLabel('SAVE')),
           ),
         ],
       ),
@@ -340,7 +340,7 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                       36 + MediaQuery.viewPaddingOf(context).bottom,
                     ),
                     children: [
-                      const Text('SIGNING WALLETS',
+                      Text(displayLabel('SIGNING WALLETS'),
                           style: TextStyle(
                               color: KasVaultTheme.muted,
                               fontWeight: FontWeight.w900)),
@@ -369,7 +369,7 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                         const Text('No signing wallets stored.',
                             style: TextStyle(color: KasVaultTheme.muted)),
                       const SizedBox(height: 22),
-                      const Text('WATCH WALLETS',
+                      Text(displayLabel('WATCH WALLETS'),
                           style: TextStyle(
                               color: KasVaultTheme.muted,
                               fontWeight: FontWeight.w900)),
@@ -398,24 +398,24 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                           onPressed:
                               _working ? null : () => _addNative('create'),
                           icon: const Icon(Icons.add_rounded),
-                          label: const Text('CREATE WALLET')),
+                          label: Text(buttonLabel('CREATE WALLET'))),
                       const SizedBox(height: 10),
                       OutlinedButton.icon(
                           onPressed:
                               _working ? null : () => _addNative('mnemonic'),
                           icon: const Icon(Icons.format_list_numbered_rounded),
-                          label: const Text('IMPORT 12 / 24 WORDS')),
+                          label: Text(buttonLabel('IMPORT 12 / 24 WORDS'))),
                       const SizedBox(height: 10),
                       OutlinedButton.icon(
                           onPressed:
                               _working ? null : () => _addNative('private'),
                           icon: const Icon(Icons.password_rounded),
-                          label: const Text('IMPORT PRIVATE KEY')),
+                          label: Text(buttonLabel('IMPORT PRIVATE KEY'))),
                       const SizedBox(height: 10),
                       OutlinedButton.icon(
                           onPressed: _working ? null : _addWatch,
                           icon: const Icon(Icons.visibility_outlined),
-                          label: const Text('ADD WATCH WALLET')),
+                          label: Text(buttonLabel('ADD WATCH WALLET'))),
                     ],
                   ),
                   if (_working)
@@ -461,14 +461,12 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
       );
 
   List<Widget> _accountEntries(NativeWalletInfo wallet) {
-    if (wallet.kind != 'mnemonic') return const [];
+    if (wallet.kind != 'mnemonic' || !AppSettings.showSubwallets.value) {
+      return const [];
+    }
     return HdWalletStructure.receiveGroups(wallet.addresses).expand((group) {
       final legacy = group.coinType == 972;
-      return group.addresses
-          .where(
-        (address) => AppSettings.showSubwallets.value || address.index == 0,
-      )
-          .map((address) {
+      return group.addresses.map((address) {
         final selected = address.address == widget.currentAddress;
         return Padding(
           padding: EdgeInsets.only(

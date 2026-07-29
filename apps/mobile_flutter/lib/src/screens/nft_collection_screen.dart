@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/wallet_snapshot.dart';
 import '../services/kaspa_api.dart';
 import '../theme.dart';
+import '../services/app_settings.dart';
 
 class NftCollectionScreen extends StatefulWidget {
   const NftCollectionScreen({
@@ -133,7 +134,7 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                         children: [
                           TextButton(
                             onPressed: () => Navigator.pop(context),
-                            child: const Text('CLOSE'),
+                            child: Text(buttonLabel('CLOSE')),
                           ),
                           const SizedBox(width: 8),
                           FilledButton.icon(
@@ -143,7 +144,7 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                               widget.onSend(nft);
                             },
                             icon: const Icon(Icons.send_rounded),
-                            label: const Text('SEND NFT'),
+                            label: Text(buttonLabel('SEND NFT')),
                           ),
                         ],
                       ),
@@ -283,7 +284,9 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                               onPressed:
                                   _loadingMore ? null : () => _load(more: true),
                               child: Text(
-                                _loadingMore ? 'LOADING…' : 'LOAD MORE',
+                                buttonLabel(
+                                  _loadingMore ? 'LOADING…' : 'LOAD MORE',
+                                ),
                               ),
                             ),
                           ),
@@ -332,7 +335,10 @@ class _ErrorState extends StatelessWidget {
             children: [
               Text(message, textAlign: TextAlign.center),
               const SizedBox(height: 16),
-              FilledButton(onPressed: onRetry, child: const Text('RETRY')),
+              FilledButton(
+                onPressed: onRetry,
+                child: Text(buttonLabel('RETRY')),
+              ),
             ],
           ),
         ),

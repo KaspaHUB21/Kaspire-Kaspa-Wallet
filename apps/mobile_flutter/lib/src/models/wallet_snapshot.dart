@@ -52,6 +52,8 @@ class WalletAsset {
     this.id,
     this.decimals = 0,
     this.rawBalance,
+    this.priceKas,
+    this.priceUsd,
     this.covenantId,
     this.templateHash,
     this.validationStatus,
@@ -66,6 +68,8 @@ class WalletAsset {
   final String? id;
   final int decimals;
   final String? rawBalance;
+  final double? priceKas;
+  final double? priceUsd;
   final String? covenantId;
   final String? templateHash;
   final String? validationStatus;

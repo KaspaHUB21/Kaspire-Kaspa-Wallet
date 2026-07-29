@@ -39,6 +39,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   final Set<String> _handledRequestIds = {};
   late Future<String?> _address;
   DateTime _lastActivity = DateTime.now();
+  DateTime? _lastPersistedActivity;
   DateTime? _backgroundedAt;
   Timer? _inactivityTimer;
   bool _locked = false;
@@ -80,6 +81,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.hidden) {
       _backgroundedAt ??= DateTime.now();
+      unawaited(AppSettings.recordBackgroundedAt(_backgroundedAt!));
       if (AppSettings.lockMinutes.value == 0 && mounted) {
         setState(() => _locked = true);
       }
@@ -98,7 +100,15 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     }
   }
 
-  void _recordActivity() => _lastActivity = DateTime.now();
+  void _recordActivity() {
+    final now = DateTime.now();
+    _lastActivity = now;
+    if (_lastPersistedActivity == null ||
+        now.difference(_lastPersistedActivity!) > const Duration(seconds: 15)) {
+      _lastPersistedActivity = now;
+      unawaited(AppSettings.recordBackgroundedAt(now));
+    }
+  }
 
   void _checkInactivity() {
     final minutes = AppSettings.lockMinutes.value;
@@ -124,6 +134,8 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       if (authenticated) {
         _locked = false;
         _lastActivity = DateTime.now();
+        _lastPersistedActivity = _lastActivity;
+        unawaited(AppSettings.recordBackgroundedAt(_lastActivity));
       }
     });
   }
@@ -240,11 +252,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('REJECT'),
+            child: Text(buttonLabel('REJECT')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('CONNECT'),
+            child: Text(buttonLabel('CONNECT')),
           ),
         ],
       ),
@@ -383,10 +395,10 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('REJECT')),
+              child: Text(buttonLabel('REJECT'))),
           FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('SIGN')),
+              child: Text(buttonLabel('SIGN'))),
         ],
       ),
     );
@@ -476,10 +488,10 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('REJECT')),
+              child: Text(buttonLabel('REJECT'))),
           FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('PAY')),
+              child: Text(buttonLabel('PAY'))),
         ],
       ),
     );
@@ -614,11 +626,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('REJECT'),
+            child: Text(buttonLabel('REJECT')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('CONTINUE'),
+            child: Text(buttonLabel('CONTINUE')),
           ),
         ],
       ),
@@ -870,11 +882,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('REJECT'),
+            child: Text(buttonLabel('REJECT')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('SIGN SELECTED INPUTS'),
+            child: Text(buttonLabel('SIGN SELECTED INPUTS')),
           ),
         ],
       ),
@@ -968,11 +980,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('REJECT'),
+            child: Text(buttonLabel('REJECT')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('AUTHORIZE'),
+            child: Text(buttonLabel('AUTHORIZE')),
           ),
         ],
       ),
@@ -1118,11 +1130,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('REJECT'),
+            child: Text(buttonLabel('REJECT')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('VERIFY + SEND'),
+            child: Text(buttonLabel('VERIFY + SEND')),
           ),
         ],
       ),
@@ -1173,6 +1185,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       if (!await _security.hasNativeWalletFor(saved)) {
         await _preferences.addWatchWallet(saved);
       }
+      final lastActive = await AppSettings.lastBackgroundedAt();
+      final minutes = AppSettings.lockMinutes.value;
+      _locked = minutes == 0 ||
+          lastActive == null ||
+          DateTime.now().difference(lastActive) >= Duration(minutes: minutes);
       return saved;
     }
     final nativeAddress = await _security.getNativeAddress();
@@ -1195,40 +1212,43 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<KaspireTheme>(
       valueListenable: AppSettings.theme,
-      builder: (context, selectedTheme, _) => MaterialApp(
-        navigatorKey: _navigatorKey,
-        title: 'Kaspire',
-        debugShowCheckedModeBanner: false,
-        theme: KasVaultTheme.forTheme(selectedTheme),
-        builder: (context, child) => Listener(
-          behavior: HitTestBehavior.translucent,
-          onPointerDown: (_) => _recordActivity(),
-          child: child,
-        ),
-        home: FutureBuilder<String?>(
-          future: _address,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
-            final address = snapshot.data;
-            if (address != null && _locked) {
-              return _KaspireLockScreen(
-                unlocking: _unlocking,
-                onUnlock: _unlock,
-              );
-            }
-            return address == null
-                ? OnboardingScreen(onConnected: _openWallet)
-                : HomeShell(
-                    key: ValueKey(address),
-                    address: address,
-                    onSwitchWallet: _openWallet,
-                    onDisconnect: _reset,
-                  );
-          },
+      builder: (context, selectedTheme, _) => ValueListenableBuilder<bool>(
+        valueListenable: AppSettings.uppercaseButtons,
+        builder: (context, _, __) => MaterialApp(
+          navigatorKey: _navigatorKey,
+          title: 'Kaspire',
+          debugShowCheckedModeBanner: false,
+          theme: KasVaultTheme.forTheme(selectedTheme),
+          builder: (context, child) => Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) => _recordActivity(),
+            child: child,
+          ),
+          home: FutureBuilder<String?>(
+            future: _address,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final address = snapshot.data;
+              if (address != null && _locked) {
+                return _KaspireLockScreen(
+                  unlocking: _unlocking,
+                  onUnlock: _unlock,
+                );
+              }
+              return address == null
+                  ? OnboardingScreen(onConnected: _openWallet)
+                  : HomeShell(
+                      key: ValueKey(address),
+                      address: address,
+                      onSwitchWallet: _openWallet,
+                      onDisconnect: _reset,
+                    );
+            },
+          ),
         ),
       ),
     );
@@ -1273,7 +1293,7 @@ class _KaspireLockScreen extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.fingerprint_rounded),
-                    label: const Text('UNLOCK KASPIRE'),
+                    label: Text(buttonLabel('UNLOCK KASPIRE')),
                   ),
                 ],
               ),

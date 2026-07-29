@@ -15,9 +15,12 @@ class AppSettings {
   static const _lockMinutesKey = 'security_lock_minutes_v1';
   static const _showSubwalletsKey = 'wallet_show_subwallets_v1';
   static const _themeKey = 'appearance_theme_v1';
+  static const _uppercaseButtonsKey = 'appearance_uppercase_buttons_v1';
+  static const _lastBackgroundAtKey = 'security_last_background_at_v1';
 
   static final ValueNotifier<int> lockMinutes = ValueNotifier(15);
   static final ValueNotifier<bool> showSubwallets = ValueNotifier(true);
+  static final ValueNotifier<bool> uppercaseButtons = ValueNotifier(true);
   static final ValueNotifier<KaspireTheme> theme =
       ValueNotifier(KaspireTheme.midnight);
 
@@ -25,6 +28,7 @@ class AppSettings {
     final preferences = await SharedPreferences.getInstance();
     lockMinutes.value = preferences.getInt(_lockMinutesKey) ?? 15;
     showSubwallets.value = preferences.getBool(_showSubwalletsKey) ?? true;
+    uppercaseButtons.value = preferences.getBool(_uppercaseButtonsKey) ?? true;
     final stored = preferences.getString(_themeKey);
     theme.value = KaspireTheme.values.firstWhere(
       (item) => item.name == stored,
@@ -52,4 +56,51 @@ class AppSettings {
     await (await SharedPreferences.getInstance())
         .setString(_themeKey, value.name);
   }
+
+  static Future<void> setUppercaseButtons(bool value) async {
+    uppercaseButtons.value = value;
+    await (await SharedPreferences.getInstance())
+        .setBool(_uppercaseButtonsKey, value);
+  }
+
+  static Future<void> recordBackgroundedAt(DateTime value) async {
+    await (await SharedPreferences.getInstance())
+        .setInt(_lastBackgroundAtKey, value.millisecondsSinceEpoch);
+  }
+
+  static Future<DateTime?> lastBackgroundedAt() async {
+    final milliseconds =
+        (await SharedPreferences.getInstance()).getInt(_lastBackgroundAtKey);
+    return milliseconds == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
+  }
 }
+
+String displayLabel(String uppercase) {
+  if (AppSettings.uppercaseButtons.value) return uppercase;
+  const preserved = {
+    'KAS': 'KAS',
+    'KRC-20': 'KRC-20',
+    'KRC-721': 'KRC-721',
+    'KCC20': 'KCC20',
+    'KNS': 'KNS',
+    'NFT': 'NFT',
+    'PIN': 'PIN',
+    'QR': 'QR',
+    'TX': 'TX',
+    'DAPP': 'dApp',
+    'KASPIRE': 'Kaspire',
+  };
+  return uppercase.split(' ').map((word) {
+    final punctuation = word.endsWith('…') ? '…' : '';
+    final raw = punctuation.isEmpty ? word : word.substring(0, word.length - 1);
+    final kept = preserved[raw];
+    if (kept != null) return '$kept$punctuation';
+    if (raw.isEmpty) return punctuation;
+    final lower = raw.toLowerCase();
+    return '${lower[0].toUpperCase()}${lower.substring(1)}$punctuation';
+  }).join(' ');
+}
+
+String buttonLabel(String uppercase) => displayLabel(uppercase);

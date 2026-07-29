@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/dapp_session_service.dart';
 import '../theme.dart';
+import '../services/app_settings.dart';
 import 'dapp_qr_scanner_screen.dart';
 
 class DappSessionsScreen extends StatefulWidget {
@@ -102,11 +103,11 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('CANCEL'),
+            child: Text(buttonLabel('CANCEL')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('DISCONNECT'),
+            child: Text(buttonLabel('DISCONNECT')),
           ),
         ],
       ),
@@ -202,7 +203,7 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
                 FilledButton.icon(
                   onPressed: _working || !_service.ready ? null : _scan,
                   icon: const Icon(Icons.center_focus_strong_rounded),
-                  label: const Text('SCAN DAPP QR CODE'),
+                  label: Text(buttonLabel('SCAN DAPP QR CODE')),
                 ),
               ],
             ),
@@ -235,7 +236,7 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.add_link_rounded),
-            label: const Text('PAIR SECURELY'),
+            label: Text(buttonLabel('PAIR SECURELY')),
           ),
           if (_message != null) ...[
             const SizedBox(height: 10),
@@ -245,8 +246,8 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
             ),
           ],
           const SizedBox(height: 28),
-          const Text(
-            'ACTIVE SESSIONS',
+          Text(
+            displayLabel('ACTIVE SESSIONS'),
             style: TextStyle(
               color: KasVaultTheme.muted,
               fontWeight: FontWeight.w900,

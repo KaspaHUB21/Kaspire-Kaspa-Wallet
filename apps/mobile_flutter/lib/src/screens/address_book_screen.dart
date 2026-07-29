@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/kaspa_api.dart';
 import '../services/preferences_service.dart';
 import '../theme.dart';
+import '../services/app_settings.dart';
 
 class AddressBookScreen extends StatefulWidget {
   const AddressBookScreen({super.key, this.selectAddress = false});
@@ -64,7 +65,7 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('CANCEL'),
+              child: Text(buttonLabel('CANCEL')),
             ),
             FilledButton(
               onPressed: () async {
@@ -88,7 +89,7 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
                       () => error = '$value'.replaceFirst('Bad state: ', ''));
                 }
               },
-              child: const Text('SAVE'),
+              child: Text(buttonLabel('SAVE')),
             ),
           ],
         ),
@@ -105,7 +106,7 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
         floatingActionButton: FloatingActionButton.extended(
           onPressed: _add,
           icon: const Icon(Icons.person_add_alt_1_rounded),
-          label: const Text('ADD CONTACT'),
+          label: Text(buttonLabel('ADD CONTACT')),
         ),
         body: SafeArea(
           child: _entries.isEmpty

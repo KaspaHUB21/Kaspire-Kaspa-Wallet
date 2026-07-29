@@ -34,13 +34,13 @@ class NativeSecurity {
                 FilledButton.icon(
                   onPressed: () => Navigator.pop(context, false),
                   icon: const Icon(Icons.fingerprint_rounded),
-                  label: const Text('USE BIOMETRICS'),
+                  label: Text(buttonLabel('USE BIOMETRICS')),
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
                   onPressed: () => Navigator.pop(context, true),
                   icon: const Icon(Icons.pin_rounded),
-                  label: const Text('USE KASPIRE PIN'),
+                  label: Text(buttonLabel('USE KASPIRE PIN')),
                 ),
               ],
             ),

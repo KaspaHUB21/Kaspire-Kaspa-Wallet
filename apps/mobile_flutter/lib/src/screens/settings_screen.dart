@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -151,14 +152,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('CANCEL'),
+              child: Text(buttonLabel('CANCEL')),
             ),
             TextButton(
               onPressed: () => Navigator.pop(
                 context,
                 NetworkSettings.publicKaspaRestUrl,
               ),
-              child: const Text('USE KASPIRE'),
+              child: Text(buttonLabel('USE KASPIRE')),
             ),
             FilledButton(
               onPressed: () async {
@@ -175,7 +176,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       error = '$value'.replaceFirst('FormatException: ', ''));
                 }
               },
-              child: const Text('TEST & SAVE'),
+              child: Text(buttonLabel('TEST & SAVE')),
             ),
           ],
         ),
@@ -200,9 +201,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
           padding: const EdgeInsets.all(20),
           children: [
             const SizedBox(height: 8),
-            const Text(
-              'SETTINGS',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    displayLabel('SETTINGS'),
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                InkWell(
+                  onTap: () => launchUrl(
+                    Uri.parse('https://kaslab.space/'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Image.asset(
+                      'assets/branding/hub21_wordmark.png',
+                      width: 92,
+                      height: 36,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 28),
             const _Heading('SECURITY'),
@@ -318,8 +344,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
                 subtitle: const Text(
-                  'Hide address-index subwallets from the Wallets overview. '
-                  'BIP-44 accounts remain available.',
+                  'Hide BIP-44 accounts and address-index subwallets from the '
+                  'Wallets overview. They remain available when enabled again.',
                 ),
                 tileColor: KasVaultTheme.panel,
                 shape: RoundedRectangleBorder(
@@ -351,6 +377,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onChanged: (value) {
                   if (value != null) AppSettings.setTheme(value);
                 },
+              ),
+            ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<bool>(
+              valueListenable: AppSettings.uppercaseButtons,
+              builder: (context, uppercase, _) => SwitchListTile(
+                value: uppercase,
+                onChanged: AppSettings.setUppercaseButtons,
+                secondary: Icon(
+                  Icons.text_fields_rounded,
+                  color: KasVaultTheme.mint,
+                ),
+                title: const Text(
+                  'Uppercase text',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: Text(
+                  uppercase
+                      ? 'Headings and controls use uppercase labels.'
+                      : 'Headings and controls use conventional capitalization.',
+                ),
+                tileColor: KasVaultTheme.panel,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: BorderSide(color: KasVaultTheme.line),
+                ),
               ),
             ),
             const SizedBox(height: 24),
@@ -403,9 +455,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         : null,
                     icon: const Icon(Icons.pin_rounded),
                     label: Text(
-                      snapshot.data == true
-                          ? 'CHANGE KASPIRE PIN'
-                          : 'CREATE 4–8 DIGIT PIN',
+                      buttonLabel(
+                        snapshot.data == true
+                            ? 'CHANGE KASPIRE PIN'
+                            : 'CREATE 4–8 DIGIT PIN',
+                      ),
                     ),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
@@ -416,7 +470,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     TextButton.icon(
                       onPressed: _removePin,
                       icon: const Icon(Icons.remove_circle_outline_rounded),
-                      label: const Text('REMOVE KASPIRE PIN'),
+                      label: Text(buttonLabel('REMOVE KASPIRE PIN')),
                     ),
                   ],
                 ],
@@ -430,7 +484,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? () => _portableBackup(restore: false)
                     : null,
                 icon: const Icon(Icons.enhanced_encryption_rounded),
-                label: const Text('EXPORT ENCRYPTED BACKUP'),
+                label: Text(buttonLabel('EXPORT ENCRYPTED BACKUP')),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(52),
                 ),
@@ -440,7 +494,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             OutlinedButton.icon(
               onPressed: () => _portableBackup(restore: true),
               icon: const Icon(Icons.restore_rounded),
-              label: const Text('RESTORE ENCRYPTED BACKUP'),
+              label: Text(buttonLabel('RESTORE ENCRYPTED BACKUP')),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
               ),
@@ -455,7 +509,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ? () => _export(privateKey: true)
                         : null,
                     icon: const Icon(Icons.key_rounded),
-                    label: const Text('EXPORT PRIVATE KEY'),
+                    label: Text(buttonLabel('EXPORT PRIVATE KEY')),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                     ),
@@ -466,7 +520,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ? () => _export(privateKey: false)
                         : null,
                     icon: const Icon(Icons.format_list_numbered_rounded),
-                    label: const Text('EXPORT RECOVERY PHRASE'),
+                    label: Text(buttonLabel('EXPORT RECOVERY PHRASE')),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                     ),
@@ -478,7 +532,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             OutlinedButton.icon(
               onPressed: widget.onManageDapps,
               icon: const Icon(Icons.language_rounded),
-              label: const Text('MANAGE DAPP SESSIONS'),
+              label: Text(buttonLabel('MANAGE DAPP SESSIONS')),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(54),
               ),
@@ -487,7 +541,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             OutlinedButton.icon(
               onPressed: widget.onManageAddressBook,
               icon: const Icon(Icons.contacts_outlined),
-              label: const Text('ADDRESS BOOK'),
+              label: Text(buttonLabel('ADDRESS BOOK')),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(54),
               ),
@@ -496,7 +550,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             FilledButton.icon(
               onPressed: widget.onManageWallets,
               icon: const Icon(Icons.account_balance_wallet_rounded),
-              label: const Text('MANAGE / SWITCH WALLETS'),
+              label: Text(buttonLabel('MANAGE / SWITCH WALLETS')),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(54),
               ),
@@ -526,7 +580,7 @@ class _Heading extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: Text(
-          text,
+          displayLabel(text),
           style: const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w900,

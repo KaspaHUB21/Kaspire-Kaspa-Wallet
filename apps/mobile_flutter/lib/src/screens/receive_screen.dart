@@ -4,6 +4,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../theme.dart';
+import '../services/app_settings.dart';
 import '../models/kaspa_payment_request.dart';
 
 class ReceiveScreen extends StatefulWidget {
@@ -117,7 +118,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                       );
                     },
                     icon: const Icon(Icons.copy_rounded),
-                    label: const Text('COPY'),
+                    label: Text(buttonLabel('COPY')),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size.fromHeight(54),
                     ),
@@ -131,7 +132,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                       subject: 'Kaspa payment request',
                     ),
                     icon: const Icon(Icons.ios_share_rounded),
-                    label: const Text('SHARE'),
+                    label: Text(buttonLabel('SHARE')),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(54),
                       backgroundColor: KasVaultTheme.mint,

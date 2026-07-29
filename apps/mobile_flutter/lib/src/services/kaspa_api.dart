@@ -20,6 +20,13 @@ class KaspaApi {
     http.Client? client,
     String? baseUrl,
     this.tokenExplorerBaseUrl = 'https://kaspatoken.kaslab.space/api',
+    this.kasplexBaseUrl = 'https://api.kasplex.org/v1',
+    this.knsIndexerBaseUrl = 'https://api.knsdomains.org/mainnet',
+    this.krc721IndexerBaseUrl =
+        'https://krc721-indexer.kaspa.com/api/v1/krc721/mainnet',
+    this.krc721CacheBaseUrl =
+        'https://krc721-cache.kaspa.com/krc721/mainnet/optimized',
+    this.kaspaComBaseUrl = 'https://api.kaspa.com',
     this.nftMetadataBaseUrl = 'https://api.kaspa.com',
     this.kcc20IndexerBaseUrl = 'https://kcc20.info',
     this.kascovBaseUrl = 'https://kascov.io/data/mainnet',
@@ -32,10 +39,16 @@ class KaspaApi {
   final String? _baseUrlOverride;
   String get baseUrl => _baseUrlOverride ?? NetworkSettings.kaspaRestUrl;
   final String tokenExplorerBaseUrl;
+  final String kasplexBaseUrl;
+  final String knsIndexerBaseUrl;
+  final String krc721IndexerBaseUrl;
+  final String krc721CacheBaseUrl;
+  final String kaspaComBaseUrl;
   final String nftMetadataBaseUrl;
   final String kcc20IndexerBaseUrl;
   final String kascovBaseUrl;
   final String toccataBroadcastUrl;
+  Future<Map<String, double>>? _floorPrices;
 
   Future<WalletSnapshot> loadWallet(
     String address, {
@@ -96,7 +109,7 @@ class KaspaApi {
       );
     }
     final krc20 = await Future.wait(
-      assets.krc20.map(_withTokenImage),
+      assets.krc20.map((asset) => _withTokenMarket(asset, kasUsd)),
     );
     final assetWarnings = <String>[
       if (tokenWallet == null)
@@ -144,17 +157,333 @@ class KaspaApi {
   }
 
   Future<Object?> _loadTokenWallet(String addressOrDomain) async {
-    final response = await _client
-        .get(
-          Uri.parse(
-            '$tokenExplorerBaseUrl/wallet/krc20/${Uri.encodeComponent(addressOrDomain)}',
-          ),
-        )
-        .timeout(const Duration(seconds: 20));
+    try {
+      final response = await _client
+          .get(
+            Uri.parse(
+              '$tokenExplorerBaseUrl/wallet/krc20/${Uri.encodeComponent(addressOrDomain)}',
+            ),
+          )
+          .timeout(const Duration(seconds: 20));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw KaspaApiException(
+          'KaspaToken returned ${response.statusCode}',
+        );
+      }
+      return jsonDecode(response.body);
+    } catch (_) {
+      return _loadTokenWalletFromUpstreams(addressOrDomain);
+    }
+  }
+
+  Future<Object?> _loadTokenWalletFromUpstreams(
+    String addressOrDomain,
+  ) async {
+    var address = addressOrDomain.trim().toLowerCase();
+    if (_isKnsName(address)) {
+      final result = _map(await _externalGet(
+        knsIndexerBaseUrl,
+        '/api/v1/assets',
+        query: {
+          'asset': address,
+          'page': '1',
+          'pageSize': '10',
+          'type': 'domain',
+        },
+      ));
+      final data = _map(result['data']);
+      final exact = (data['assets'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => item.cast<String, Object?>())
+          .where((item) =>
+              (item['asset'] ?? item['name'])?.toString().toLowerCase() ==
+              address)
+          .firstOrNull;
+      final owner = exact?['owner']?.toString().toLowerCase();
+      if (owner == null ||
+          !RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(owner)) {
+        throw KaspaApiException('KNS domain not found or has no owner.');
+      }
+      address = owner;
+    }
+    if (!RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(address)) {
+      throw KaspaApiException('Invalid Kaspa wallet address.');
+    }
+
+    final results = await Future.wait([
+      _loadKasplexWalletTokens(address).catchError(
+        (_) => <Map<String, Object?>>[],
+      ),
+      _loadKnsWalletDomains(address).catchError(
+        (_) => <Map<String, Object?>>[],
+      ),
+      _loadKrc721WalletHoldings(address).catchError(
+        (_) => <Map<String, Object?>>[],
+      ),
+      _loadKasplexWalletTransactions(address).catchError(
+        (_) => <Map<String, Object?>>[],
+      ),
+    ]);
+    return {
+      'data': {
+        'address': address,
+        'tokens': results[0],
+        'domains': results[1],
+        'krc721_tokens': results[2],
+        'transactions': results[3],
+      },
+      'source_mode': 'DIRECT_FALLBACK',
+      'warnings': const [
+        'KaspaToken is unavailable. Kaspire is using the direct Kasplex, '
+            'KNS and KRC-721 indexers.',
+      ],
+    };
+  }
+
+  Future<List<Map<String, Object?>>> _loadKasplexWalletTokens(
+    String address,
+  ) async {
+    final tokens = <String, Map<String, Object?>>{};
+    String? cursor;
+    for (var page = 0; page < 20; page++) {
+      final raw = _map(await _externalGet(
+        kasplexBaseUrl,
+        '/krc20/address/${Uri.encodeComponent(address)}/tokenlist',
+        query: {if (cursor != null) 'next': cursor},
+      ));
+      final items = _externalItems(raw);
+      for (final item in items) {
+        final symbol = (item['tick'] ?? item['ticker'] ?? item['symbol'] ?? '')
+            .toString()
+            .toUpperCase();
+        final decimals = _asInt(item['dec'] ?? item['decimals'] ?? 8);
+        final rawBalance =
+            (item['balance'] ?? item['amount'] ?? '0').toString();
+        final integer = BigInt.tryParse(rawBalance);
+        if (symbol.isEmpty ||
+            integer == null ||
+            integer <= BigInt.zero ||
+            decimals < 0 ||
+            decimals > 18) {
+          continue;
+        }
+        tokens[symbol] = {
+          'token_id': 'krc20-${symbol.toLowerCase()}',
+          'symbol': symbol,
+          'balance': integer.toDouble() / _pow10(decimals),
+          'decimals': decimals,
+          'raw_balance': rawBalance,
+        };
+      }
+      cursor = _externalCursor(raw);
+      if (cursor == null || items.isEmpty) break;
+    }
+    return tokens.values.toList()
+      ..sort((left, right) => (_asDouble(right['balance']) ?? 0)
+          .compareTo(_asDouble(left['balance']) ?? 0));
+  }
+
+  Future<List<Map<String, Object?>>> _loadKnsWalletDomains(
+    String address,
+  ) async {
+    final domains = <String, Map<String, Object?>>{};
+    const pageSize = 100;
+    for (var page = 1; page <= 100; page++) {
+      final raw = _map(await _externalGet(
+        knsIndexerBaseUrl,
+        '/api/v1/assets',
+        query: {
+          'owner': address,
+          'page': '$page',
+          'pageSize': '$pageSize',
+          'type': 'domain',
+        },
+      ));
+      final data = _map(raw['data']);
+      final items = (data['assets'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => item.cast<String, Object?>())
+          .toList();
+      for (final item in items) {
+        final name = (item['asset'] ?? item['domain'] ?? item['name'] ?? '')
+            .toString()
+            .toLowerCase();
+        if (!_isKnsName(name)) continue;
+        final assetId =
+            (item['assetId'] ?? item['asset_id'])?.toString().toLowerCase();
+        domains[assetId ?? name] = {
+          'name': name,
+          'status': item['status'],
+          'asset_id': assetId,
+        };
+      }
+      final pagination = _map(data['pagination']);
+      final totalPages = _asInt(
+        pagination['totalPages'] ?? pagination['total_pages'],
+      );
+      if (items.isEmpty ||
+          (totalPages > 0 ? page >= totalPages : items.length < pageSize)) {
+        break;
+      }
+    }
+    return domains.values.toList()
+      ..sort((left, right) =>
+          left['name'].toString().compareTo(right['name'].toString()));
+  }
+
+  Future<List<Map<String, Object?>>> _loadKrc721WalletHoldings(
+    String address,
+  ) async {
+    final grouped = <String, List<String>>{};
+    String? cursor;
+    for (var page = 0; page < 100; page++) {
+      final raw = _map(await _externalGet(
+        krc721IndexerBaseUrl,
+        '/address/${Uri.encodeComponent(address)}',
+        query: {
+          'limit': '500',
+          'direction': 'forward',
+          if (cursor != null) 'offset': cursor,
+        },
+      ));
+      final items = _externalItems(raw);
+      for (final item in items) {
+        final symbol = (item['tick'] ?? item['ticker'] ?? item['symbol'] ?? '')
+            .toString()
+            .toUpperCase();
+        final tokenId =
+            (item['tokenId'] ?? item['id'] ?? item['nftId'])?.toString();
+        if (symbol.isNotEmpty && tokenId != null && tokenId.isNotEmpty) {
+          grouped.putIfAbsent(symbol, () => []).add(tokenId);
+        }
+      }
+      cursor = _externalCursor(raw);
+      if (cursor == null || items.isEmpty) break;
+    }
+    return grouped.entries
+        .map((entry) => <String, Object?>{
+              'token_id': 'krc721-${entry.key.toLowerCase()}',
+              'symbol': entry.key,
+              'balance': entry.value.length,
+              'decimals': 0,
+              'image_url': entry.value.isEmpty
+                  ? null
+                  : '$krc721CacheBaseUrl/'
+                      '${entry.key.toLowerCase()}/'
+                      '${Uri.encodeComponent(entry.value.first)}',
+            })
+        .toList();
+  }
+
+  Future<List<Map<String, Object?>>> _loadKasplexWalletTransactions(
+    String address,
+  ) async {
+    final transactions = <Map<String, Object?>>[];
+    String? cursor;
+    for (var page = 0; page < 3; page++) {
+      final raw = _map(await _externalGet(
+        kasplexBaseUrl,
+        '/krc20/oplist',
+        query: {
+          'address': address,
+          if (cursor != null) 'next': cursor,
+        },
+      ));
+      final items = _externalItems(raw);
+      for (final item in items) {
+        final from =
+            (item['from'] ?? item['fromAddress'] ?? item['sender'])?.toString();
+        final to =
+            (item['to'] ?? item['toAddress'] ?? item['receiver'])?.toString();
+        final timestamp = _externalTimestamp(item);
+        final rawAmount =
+            (item['amt'] ?? item['amount'] ?? item['value'])?.toString();
+        final decimals = _asInt(item['dec'] ?? item['decimals'] ?? 8);
+        final amountInteger = BigInt.tryParse(rawAmount ?? '');
+        if (timestamp == null ||
+            amountInteger == null ||
+            amountInteger < BigInt.zero) {
+          continue;
+        }
+        final symbol = (item['tick'] ?? item['ticker'] ?? item['symbol'] ?? '')
+            .toString()
+            .toUpperCase();
+        transactions.add({
+          'id': (item['opScore'] ??
+                  item['operationId'] ??
+                  item['txid'] ??
+                  item['hashRev'] ??
+                  '${timestamp.microsecondsSinceEpoch}')
+              .toString(),
+          'type': 'transfer',
+          'token_id': 'krc20-${symbol.toLowerCase()}',
+          'token_symbol': symbol,
+          'amount': formatRawTokenAmount(amountInteger, decimals),
+          'from_wallet': from,
+          'to_wallet': to,
+          'timestamp': timestamp.toUtc().toIso8601String(),
+        });
+      }
+      cursor = _externalCursor(raw);
+      if (cursor == null || items.isEmpty) break;
+    }
+    return transactions;
+  }
+
+  Future<Object?> _externalGet(
+    String base,
+    String path, {
+    Map<String, String>? query,
+  }) async {
+    final uri = Uri.parse('$base$path').replace(queryParameters: query);
+    final response =
+        await _client.get(uri).timeout(const Duration(seconds: 20));
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw KaspaApiException('Token indexer returned ${response.statusCode}');
+      throw KaspaApiException(
+        '${uri.host} returned ${response.statusCode}',
+      );
     }
     return jsonDecode(response.body);
+  }
+
+  List<Map<String, Object?>> _externalItems(Map<String, Object?> raw) {
+    for (final key in const ['result', 'data', 'items', 'list']) {
+      final value = raw[key];
+      if (value is List) {
+        return value
+            .whereType<Map>()
+            .map((item) => item.cast<String, Object?>())
+            .toList();
+      }
+      if (value is Map) {
+        final nested = _externalItems(value.cast<String, Object?>());
+        if (nested.isNotEmpty) return nested;
+      }
+    }
+    return const [];
+  }
+
+  String? _externalCursor(Map<String, Object?> raw) {
+    for (final key in const ['next', 'next_cursor', 'nextCursor', 'offset']) {
+      final value = raw[key]?.toString();
+      if (value != null && value.isNotEmpty && value != 'null') return value;
+    }
+    final data = raw['data'];
+    return data is Map ? _externalCursor(data.cast<String, Object?>()) : null;
+  }
+
+  DateTime? _externalTimestamp(Map<String, Object?> item) {
+    final raw = item['timestamp'] ??
+        item['blockTime'] ??
+        item['mtsAdd'] ??
+        item['opScore'];
+    if (raw == null) return null;
+    final parsed = DateTime.tryParse(raw.toString());
+    if (parsed != null) return parsed;
+    final number = int.tryParse(raw.toString());
+    if (number == null) return null;
+    final milliseconds = number > 1000000000000 ? number : number * 1000;
+    return DateTime.fromMillisecondsSinceEpoch(milliseconds);
   }
 
   Future<_Kcc20Wallet> _loadKcc20Wallet(String address) async {
@@ -764,27 +1093,73 @@ class KaspaApi {
     return _map(jsonDecode(response.body));
   }
 
-  Future<WalletAsset> _withTokenImage(WalletAsset asset) async {
-    if (asset.imageUrl != null || asset.id == null) return asset;
+  Future<WalletAsset> _withTokenMarket(
+    WalletAsset asset,
+    double? kasUsd,
+  ) async {
+    if (asset.id == null) return asset;
+    String? imageUrl = asset.imageUrl;
+    double? priceKas;
+    double? priceUsd;
     try {
       final response = await _client
           .get(Uri.parse('$tokenExplorerBaseUrl/token/${asset.id}'))
           .timeout(const Duration(seconds: 8));
-      if (response.statusCode < 200 || response.statusCode >= 300) return asset;
-      final data = _map(_map(jsonDecode(response.body))['data']);
-      final imageUrl = _absoluteImageUrl(data['image_url']?.toString());
-      return WalletAsset(
-        symbol: asset.symbol,
-        balance: asset.balance,
-        kind: asset.kind,
-        imageUrl: imageUrl,
-        id: asset.id,
-        decimals: asset.decimals,
-        rawBalance: asset.rawBalance,
-      );
-    } catch (_) {
-      return asset;
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final data = _map(_map(jsonDecode(response.body))['data']);
+        imageUrl ??= _absoluteImageUrl(data['image_url']?.toString());
+        priceKas = _validPrice(data['price_kas']);
+        priceUsd = _validPrice(data['price_usd']);
+      }
+    } catch (_) {}
+    if (priceKas == null) {
+      try {
+        priceKas = (await (_floorPrices ??= _loadFloorPrices()))[asset.symbol];
+        if (priceKas != null && kasUsd != null) {
+          priceUsd = priceKas * kasUsd;
+        }
+      } catch (_) {}
     }
+    return WalletAsset(
+      symbol: asset.symbol,
+      balance: asset.balance,
+      kind: asset.kind,
+      imageUrl: imageUrl,
+      id: asset.id,
+      decimals: asset.decimals,
+      rawBalance: asset.rawBalance,
+      priceKas: priceKas,
+      priceUsd: priceUsd,
+    );
+  }
+
+  Future<Map<String, double>> _loadFloorPrices() async {
+    final raw = await _externalGet(kaspaComBaseUrl, '/api/floor-price');
+    final map = _map(raw);
+    final items = raw is List
+        ? raw.whereType<Map>()
+        : (map['data'] as List? ??
+                map['items'] as List? ??
+                map['result'] as List? ??
+                const [])
+            .whereType<Map>();
+    return {
+      for (final item in items)
+        if ((item['ticker'] ?? item['tick'] ?? item['symbol'])
+                ?.toString()
+                .isNotEmpty ==
+            true)
+          (item['ticker'] ?? item['tick'] ?? item['symbol']).toString().toUpperCase():
+              _validPrice(
+                    item['floor_price'] ?? item['price'],
+                  ) ??
+                  0,
+    }..removeWhere((_, value) => value <= 0);
+  }
+
+  double? _validPrice(Object? raw) {
+    final value = _asDouble(raw);
+    return value != null && value.isFinite && value >= 0 ? value : null;
   }
 
   Future<NftCollectionPage> loadNftCollection(
@@ -792,15 +1167,22 @@ class KaspaApi {
     String ticker, {
     int offset = 0,
   }) async {
-    final response = await _client
-        .get(
-          Uri.parse(
-            '$tokenExplorerBaseUrl/wallet/krc20/${Uri.encodeComponent(address)}/krc721/${Uri.encodeComponent(ticker)}?limit=48&offset=$offset',
-          ),
-        )
-        .timeout(const Duration(seconds: 20));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw KaspaApiException('NFT indexer returned ${response.statusCode}');
+    http.Response response;
+    try {
+      response = await _client
+          .get(
+            Uri.parse(
+              '$tokenExplorerBaseUrl/wallet/krc20/${Uri.encodeComponent(address)}/krc721/${Uri.encodeComponent(ticker)}?limit=48&offset=$offset',
+            ),
+          )
+          .timeout(const Duration(seconds: 20));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw KaspaApiException(
+          'KaspaToken NFT route returned ${response.statusCode}',
+        );
+      }
+    } catch (_) {
+      return _loadNftCollectionFromIndexer(address, ticker, offset: offset);
     }
     final data = _map(_map(jsonDecode(response.body))['data']);
     final nfts = (data['nfts'] as List? ?? const [])
@@ -837,6 +1219,72 @@ class KaspaApi {
       total: _asInt(data['total']),
       nfts: rankedNfts,
       nextOffset: _nullableInt(data['next_offset']),
+    );
+  }
+
+  Future<NftCollectionPage> _loadNftCollectionFromIndexer(
+    String address,
+    String ticker, {
+    required int offset,
+  }) async {
+    final normalizedTicker = ticker.toUpperCase();
+    final tokenIds = <String>[];
+    String? cursor;
+    for (var page = 0; page < 100; page++) {
+      final raw = _map(await _externalGet(
+        krc721IndexerBaseUrl,
+        '/address/${Uri.encodeComponent(address)}',
+        query: {
+          'limit': '500',
+          'direction': 'forward',
+          if (cursor != null) 'offset': cursor,
+        },
+      ));
+      final items = _externalItems(raw);
+      for (final item in items) {
+        final itemTicker =
+            (item['tick'] ?? item['ticker'] ?? item['symbol'] ?? '')
+                .toString()
+                .toUpperCase();
+        final tokenId =
+            (item['tokenId'] ?? item['id'] ?? item['nftId'])?.toString();
+        if (itemTicker == normalizedTicker &&
+            tokenId != null &&
+            tokenId.isNotEmpty) {
+          tokenIds.add(tokenId);
+        }
+      }
+      cursor = _externalCursor(raw);
+      if (cursor == null || items.isEmpty) break;
+    }
+    final unique = tokenIds.toSet().toList()
+      ..sort((left, right) {
+        final a = int.tryParse(left);
+        final b = int.tryParse(right);
+        return a != null && b != null ? a.compareTo(b) : left.compareTo(right);
+      });
+    final pageIds = unique.skip(offset).take(48).toList();
+    final ranks = await _loadNftRanks(normalizedTicker, pageIds);
+    return NftCollectionPage(
+      ticker: normalizedTicker,
+      total: unique.length,
+      nfts: pageIds
+          .map(
+            (tokenId) => WalletNft(
+              ticker: normalizedTicker,
+              tokenId: tokenId,
+              imageUrl: '$krc721CacheBaseUrl/${normalizedTicker.toLowerCase()}/'
+                  '${Uri.encodeComponent(tokenId)}',
+              rarityRank: ranks[tokenId],
+              nexusUrl: 'https://kaspanftnexus.com/nft/'
+                  '${normalizedTicker.toLowerCase()}/'
+                  '${Uri.encodeComponent(tokenId)}',
+            ),
+          )
+          .toList(),
+      nextOffset: offset + pageIds.length < unique.length
+          ? offset + pageIds.length
+          : null,
     );
   }
 
@@ -878,8 +1326,13 @@ class KaspaApi {
   }
 
   _WalletAssets _parseAssets(Object? raw) {
-    final data = _map(_map(raw)['data']);
-    final warnings = <String>[];
+    final envelope = _map(raw);
+    final data = _map(envelope['data']);
+    final warnings = <String>[
+      ...(envelope['warnings'] as List? ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty),
+    ];
 
     List<WalletAsset> assets(String key, String kind) {
       final valid = <WalletAsset>[];

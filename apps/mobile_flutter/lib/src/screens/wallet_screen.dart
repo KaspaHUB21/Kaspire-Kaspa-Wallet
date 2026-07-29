@@ -8,11 +8,13 @@ import '../services/kaspa_api.dart';
 import '../services/activity_store.dart';
 import '../services/native_security.dart';
 import '../services/privacy_settings.dart';
+import '../services/app_settings.dart';
 import '../services/preferences_service.dart';
 import '../services/signer_service.dart';
 import '../models/asset_send_intent.dart';
 import '../theme.dart';
 import 'nft_collection_screen.dart';
+import 'krc20_token_detail_screen.dart';
 import 'transaction_detail_screen.dart';
 import '../widgets/kaspire_brand.dart';
 
@@ -253,8 +255,8 @@ class _WalletScreenState extends State<WalletScreen> {
                 ),
                 const SizedBox(height: 32),
                 if (snapshot.hasData) ...[
-                  const Text(
-                    'ASSETS & NAMES',
+                  Text(
+                    displayLabel('ASSETS & NAMES'),
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w900,
@@ -280,7 +282,7 @@ class _WalletScreenState extends State<WalletScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        'ACTIVITY',
+                        displayLabel('ACTIVITY'),
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w900,
@@ -327,7 +329,7 @@ class _WalletScreenState extends State<WalletScreen> {
                       });
                     },
                     icon: const Icon(Icons.expand_more_rounded),
-                    label: const Text('LOAD MORE ACTIVITY'),
+                    label: Text(buttonLabel('LOAD MORE ACTIVITY')),
                   ),
               ],
             ),
@@ -365,116 +367,144 @@ class _AssetOverview extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (data.assetWarning != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                data.assetWarning!,
-                style: const TextStyle(color: Color(0xFFFFB65C), fontSize: 12),
-              ),
-            ),
-          if (empty && data.assetWarning == null)
+          if (empty)
             const Text(
               'No KRC-20, KRC-721 or KNS assets found for this address.',
               style: TextStyle(color: KasVaultTheme.muted),
             ),
-          if (data.krc20Tokens.isNotEmpty) ...[
-            const _AssetHeading('KRC-20 TOKENS'),
-            ...data.krc20Tokens.map(
-              (asset) => _AssetRow(
-                asset: asset,
-                hideAmount: hideAmounts,
-                onTap: () => onSendAsset(AssetSendIntent.krc20(asset.symbol)),
-              ),
-            ),
-          ],
-          if (data.kcc20Tokens.isNotEmpty) ...[
-            if (data.krc20Tokens.isNotEmpty) const Divider(height: 26),
-            const _AssetHeading('KCC20 COVENANT TOKENS'),
-            ...data.kcc20Tokens.map(
-              (asset) => _AssetRow(
-                asset: asset,
-                hideAmount: hideAmounts,
-                onTap: () => onSendAsset(
-                  AssetSendIntent.kcc20(
-                    asset.symbol,
-                    asset.covenantId ?? asset.id ?? '',
-                  ),
-                ),
-              ),
-            ),
-          ],
-          if (data.krc721Collections.isNotEmpty) ...[
-            if (data.krc20Tokens.isNotEmpty || data.kcc20Tokens.isNotEmpty)
-              const Divider(height: 26),
-            const _AssetHeading('KRC-721 COLLECTIONS'),
-            ...data.krc721Collections.map(
-              (asset) => _AssetRow(
-                asset: asset,
-                hideAmount: hideAmounts,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => NftCollectionScreen(
-                      address: address,
-                      ticker: asset.symbol,
-                      onSend: (nft) => onSendAsset(
-                        AssetSendIntent.krc721(
-                          nft.ticker,
-                          tokenId: nft.tokenId,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-          if (data.knsDomains.isNotEmpty) ...[
-            if (data.krc20Tokens.isNotEmpty ||
-                data.kcc20Tokens.isNotEmpty ||
-                data.krc721Collections.isNotEmpty)
-              const Divider(height: 26),
-            const _AssetHeading('KNS DOMAINS'),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: data.knsDomains
+          if (data.krc20Tokens.isNotEmpty)
+            _AssetSection(
+              title: 'KRC-20 TOKENS',
+              count: data.krc20Tokens.length,
+              children: data.krc20Tokens
                   .map(
-                    (domain) => ActionChip(
-                      avatar: Icon(
-                        Icons.language_rounded,
-                        size: 17,
-                        color: KasVaultTheme.mint,
-                      ),
-                      label: Text(domain.name),
-                      onPressed: () => onSendAsset(
-                        AssetSendIntent.kns(domain.name, domain.assetId),
+                    (asset) => _AssetRow(
+                      asset: asset,
+                      hideAmount: hideAmounts,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => Krc20TokenDetailScreen(
+                            asset: asset,
+                            onSend: () => onSendAsset(
+                              AssetSendIntent.krc20(asset.symbol),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   )
                   .toList(),
             ),
-          ],
+          if (data.kcc20Tokens.isNotEmpty)
+            _AssetSection(
+              title: 'KCC20 COVENANT TOKENS',
+              count: data.kcc20Tokens.length,
+              children: data.kcc20Tokens
+                  .map(
+                    (asset) => _AssetRow(
+                      asset: asset,
+                      hideAmount: hideAmounts,
+                      onTap: () => onSendAsset(
+                        AssetSendIntent.kcc20(
+                          asset.symbol,
+                          asset.covenantId ?? asset.id ?? '',
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          if (data.krc721Collections.isNotEmpty)
+            _AssetSection(
+              title: 'KRC-721 COLLECTIONS',
+              count: data.krc721Collections.length,
+              children: data.krc721Collections
+                  .map(
+                    (asset) => _AssetRow(
+                      asset: asset,
+                      hideAmount: hideAmounts,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => NftCollectionScreen(
+                            address: address,
+                            ticker: asset.symbol,
+                            onSend: (nft) => onSendAsset(
+                              AssetSendIntent.krc721(
+                                nft.ticker,
+                                tokenId: nft.tokenId,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          if (data.knsDomains.isNotEmpty)
+            _AssetSection(
+              title: 'KNS DOMAINS',
+              count: data.knsDomains.length,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: data.knsDomains
+                      .map(
+                        (domain) => ActionChip(
+                          avatar: Icon(
+                            Icons.language_rounded,
+                            size: 17,
+                            color: KasVaultTheme.mint,
+                          ),
+                          label: Text(domain.name),
+                          onPressed: () => onSendAsset(
+                            AssetSendIntent.kns(domain.name, domain.assetId),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
+            ),
         ],
       ),
     );
   }
 }
 
-class _AssetHeading extends StatelessWidget {
-  const _AssetHeading(this.text);
-  final String text;
+class _AssetSection extends StatelessWidget {
+  const _AssetSection({
+    required this.title,
+    required this.count,
+    required this.children,
+  });
+
+  final String title;
+  final int count;
+  final List<Widget> children;
+
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 9),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: KasVaultTheme.muted,
-            fontSize: 11,
-            fontWeight: FontWeight.w900,
-            letterSpacing: .8,
+  Widget build(BuildContext context) => Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          key: PageStorageKey(title),
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: const EdgeInsets.only(bottom: 10),
+          leading: Icon(
+            Icons.layers_outlined,
+            color: KasVaultTheme.mint,
           ),
+          title: Text(
+            displayLabel(title),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              letterSpacing: .7,
+            ),
+          ),
+          subtitle: Text('$count asset${count == 1 ? '' : 's'}'),
+          children: children,
         ),
       );
 }
@@ -644,8 +674,8 @@ class _BalanceCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
-                      'TOTAL BALANCE',
+                    Text(
+                      displayLabel('TOTAL BALANCE'),
                       style: TextStyle(
                         color: KasVaultTheme.muted,
                         fontSize: 12,
@@ -713,7 +743,7 @@ class _Action extends StatelessWidget {
               Icon(icon, color: Theme.of(context).colorScheme.primary),
               const SizedBox(height: 7),
               Text(
-                label,
+                buttonLabel(label),
                 style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w900,
@@ -779,7 +809,9 @@ class _UtxoCard extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.compress_rounded, size: 18),
-              label: Text(working ? 'WORKING' : 'COMPOUND'),
+              label: Text(
+                buttonLabel(working ? 'WORKING' : 'COMPOUND'),
+              ),
             ),
           ],
         ),
@@ -829,11 +861,11 @@ class _ConfirmCompound extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('CANCEL'),
+            child: Text(buttonLabel('CANCEL')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('AUTHORIZE'),
+            child: Text(buttonLabel('AUTHORIZE')),
           ),
         ],
       );
@@ -920,8 +952,7 @@ class _TransactionTile extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color:
-                                KasVaultTheme.mint.withValues(alpha: .13),
+                            color: KasVaultTheme.mint.withValues(alpha: .13),
                             borderRadius: BorderRadius.circular(7),
                           ),
                           child: Text(

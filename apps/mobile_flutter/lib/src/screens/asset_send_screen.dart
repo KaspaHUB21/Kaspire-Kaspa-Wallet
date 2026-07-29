@@ -5,13 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/asset_send_intent.dart';
+import '../models/kaspa_payment_request.dart';
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
 import '../services/kaspa_api.dart';
 import '../services/activity_store.dart';
+import '../services/app_settings.dart';
 import '../services/native_security.dart';
 import '../services/signer_service.dart';
 import '../theme.dart';
+import 'address_book_screen.dart';
+import 'qr_scanner_screen.dart';
 
 enum _AssetKind { krc20, kcc20, krc721, kns }
 
@@ -505,6 +509,134 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
     return formatEnglishNumber(asset.balance, trimTrailingZeros: true);
   }
 
+  WalletAsset? get _selectedFungible => switch (_kind) {
+        _AssetKind.krc20 => _token,
+        _AssetKind.kcc20 => _covenantToken,
+        _ => null,
+      };
+
+  void _useMaximum() {
+    final asset = _selectedFungible;
+    if (asset != null) _amount.text = _assetInputBalance(asset);
+  }
+
+  String _assetInputBalance(WalletAsset asset) {
+    final raw = BigInt.tryParse(asset.rawBalance ?? '');
+    if (raw == null) {
+      return asset.balance
+          .toStringAsFixed(asset.decimals.clamp(0, 18))
+          .replaceFirst(RegExp(r'\.?0+$'), '');
+    }
+    if (asset.decimals <= 0) return raw.toString();
+    final digits = raw.toString().padLeft(asset.decimals + 1, '0');
+    final split = digits.length - asset.decimals;
+    final fraction = digits.substring(split).replaceFirst(RegExp(r'0+$'), '');
+    return fraction.isEmpty
+        ? digits.substring(0, split)
+        : '${digits.substring(0, split)}.$fraction';
+  }
+
+  Future<void> _scanRecipient() async {
+    final value = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(builder: (_) => const QrScannerScreen()),
+    );
+    if (value == null) return;
+    final request = KaspaPaymentRequest.tryParse(value);
+    if (request != null) _recipient.text = request.address;
+  }
+
+  Future<void> _chooseContact() async {
+    final address = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => const AddressBookScreen(selectAddress: true),
+      ),
+    );
+    if (address != null) _recipient.text = address;
+  }
+
+  Widget _recipientInput() => TextField(
+        controller: _recipient,
+        autocorrect: false,
+        decoration: InputDecoration(
+          labelText: 'Address / KNS name',
+          hintText: 'Long press to paste',
+          suffixIcon: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Address book',
+                onPressed: _chooseContact,
+                icon: const Icon(Icons.contacts_outlined),
+              ),
+              IconButton(
+                tooltip: 'Scan recipient QR code',
+                onPressed: _scanRecipient,
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _amountInput(WalletAsset asset) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _amount,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Amount'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 56,
+                child: OutlinedButton(
+                  onPressed: _useMaximum,
+                  child: Text(buttonLabel('MAX')),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Available',
+                style: TextStyle(color: KasVaultTheme.muted, fontSize: 12),
+              ),
+              Text(
+                '${_assetBalance(asset)} ${asset.symbol}',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+        ],
+      );
+
+  Widget _networkSummary() => Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: KasVaultTheme.panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: KasVaultTheme.line),
+        ),
+        child: const Column(
+          children: [
+            _TransferFact(label: 'Network', value: 'Kaspa Mainnet'),
+            SizedBox(height: 12),
+            _TransferFact(label: 'Fee', value: 'Live node estimate'),
+            SizedBox(height: 12),
+            _TransferFact(label: 'Signer', value: 'Rusty Kaspa v2.0.1'),
+          ],
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     if (_receipt != null) {
@@ -557,7 +689,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
     return SafeArea(
       top: false,
       child: ListView(padding: const EdgeInsets.all(20), children: [
-        const Text('SEND ASSET',
+        Text(displayLabel('SEND ASSET'),
             style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
         const SizedBox(height: 8),
         const Text(
@@ -580,7 +712,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
               initialValue: _token,
               isExpanded: true,
               isDense: false,
-              itemHeight: 76,
+              itemHeight: 86,
               decoration: const InputDecoration(
                 labelText: 'Token',
                 floatingLabelBehavior: FloatingLabelBehavior.always,
@@ -591,7 +723,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                   .map((a) => DropdownMenuItem(
                       value: a,
                       child: SizedBox(
-                        height: 60,
+                        height: 70,
                         width: double.infinity,
                         child: _Krc20TokenOption(
                           asset: a,
@@ -600,19 +732,13 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                       )))
                   .toList(),
               onChanged: (v) => setState(() => _token = v)),
-          const SizedBox(height: 14),
-          TextField(
-              controller: _amount,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Amount')),
         ],
         if (_kind == _AssetKind.kcc20) ...[
           DropdownButtonFormField<WalletAsset>(
               initialValue: _covenantToken,
               isExpanded: true,
               isDense: false,
-              itemHeight: 76,
+              itemHeight: 86,
               decoration: const InputDecoration(
                 labelText: 'Verified token',
                 floatingLabelBehavior: FloatingLabelBehavior.always,
@@ -623,7 +749,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                   .map((asset) => DropdownMenuItem(
                       value: asset,
                       child: SizedBox(
-                        height: 60,
+                        height: 70,
                         width: double.infinity,
                         child: _Krc20TokenOption(
                           asset: asset,
@@ -645,12 +771,6 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                 fontSize: 12,
               ),
             ),
-          const SizedBox(height: 14),
-          TextField(
-              controller: _amount,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Amount')),
         ],
         if (_kind == _AssetKind.krc721) ...[
           DropdownButtonFormField<WalletAsset>(
@@ -683,12 +803,14 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                   .map((d) => DropdownMenuItem(value: d, child: Text(d.name)))
                   .toList(),
               onChanged: (v) => setState(() => _domain = v)),
-        const SizedBox(height: 14),
-        TextField(
-            controller: _recipient,
-            autocorrect: false,
-            decoration: const InputDecoration(
-                labelText: 'Recipient', hintText: 'kaspa:q… or name.kas')),
+        const SizedBox(height: 18),
+        _recipientInput(),
+        if (_selectedFungible != null) ...[
+          const SizedBox(height: 14),
+          _amountInput(_selectedFungible!),
+        ],
+        const SizedBox(height: 22),
+        _networkSummary(),
         if (_error != null)
           Padding(
               padding: const EdgeInsets.only(top: 14),
@@ -698,7 +820,9 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         FilledButton.icon(
             onPressed: _working ? null : _prepare,
             icon: const Icon(Icons.shield_outlined),
-            label: Text(_working ? 'PREPARING…' : 'REVIEW ASSET TRANSFER')),
+            label: Text(buttonLabel(
+              _working ? 'PREPARING…' : 'REVIEW ASSET TRANSFER',
+            ))),
       ]),
     );
   }
@@ -882,8 +1006,8 @@ class _Kcc20Review extends StatelessWidget {
             if (status != null)
               Padding(
                 padding: const EdgeInsets.only(top: 14),
-                child: Text(status!,
-                    style: TextStyle(color: KasVaultTheme.mint)),
+                child:
+                    Text(status!, style: TextStyle(color: KasVaultTheme.mint)),
               ),
             if (error != null)
               Padding(
@@ -895,11 +1019,13 @@ class _Kcc20Review extends StatelessWidget {
             FilledButton.icon(
               onPressed: working ? null : onConfirm,
               icon: const Icon(Icons.send_rounded),
-              label: Text(working ? 'SENDING ON-CHAIN…' : 'SEND ON-CHAIN'),
+              label: Text(buttonLabel(
+                working ? 'SENDING ON-CHAIN…' : 'SEND ON-CHAIN',
+              )),
             ),
             TextButton(
               onPressed: working ? null : onCancel,
-              child: const Text('CANCEL'),
+              child: Text(buttonLabel('CANCEL')),
             ),
           ],
         ),
@@ -923,7 +1049,7 @@ class _AssetReview extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SafeArea(
           child: ListView(padding: const EdgeInsets.all(20), children: [
-        const Text('REVIEW ASSET TRANSFER',
+        Text(displayLabel('REVIEW ASSET TRANSFER'),
             style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900)),
         const SizedBox(height: 18),
         _Card(children: [
@@ -950,15 +1076,43 @@ class _AssetReview extends StatelessWidget {
         if (status != null)
           Padding(
               padding: const EdgeInsets.only(top: 14),
-              child: Text(status!,
-                  style: TextStyle(color: KasVaultTheme.mint))),
+              child:
+                  Text(status!, style: TextStyle(color: KasVaultTheme.mint))),
         const SizedBox(height: 20),
         FilledButton(
             onPressed: working ? null : onConfirm,
-            child: Text(working ? 'WORKING…' : 'AUTHORIZE COMMIT + REVEAL')),
+            child: Text(buttonLabel(
+              working ? 'WORKING…' : 'AUTHORIZE COMMIT + REVEAL',
+            ))),
         TextButton(
-            onPressed: working ? null : onCancel, child: const Text('CANCEL')),
+            onPressed: working ? null : onCancel,
+            child: Text(buttonLabel('CANCEL'))),
       ]));
+}
+
+class _TransferFact extends StatelessWidget {
+  const _TransferFact({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(color: KasVaultTheme.muted),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      );
 }
 
 class _PendingView extends StatelessWidget {
@@ -978,7 +1132,7 @@ class _PendingView extends StatelessWidget {
           child: ListView(padding: const EdgeInsets.all(20), children: [
         Icon(Icons.sync_rounded, size: 58, color: KasVaultTheme.mint),
         const SizedBox(height: 15),
-        const Text('TRANSFER COMMIT SAVED',
+        Text(displayLabel('TRANSFER COMMIT SAVED'),
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
         const SizedBox(height: 16),
@@ -1004,7 +1158,9 @@ class _PendingView extends StatelessWidget {
         FilledButton.icon(
             onPressed: working ? null : onResume,
             icon: const Icon(Icons.play_arrow_rounded),
-            label: Text(working ? 'CHECKING…' : 'RESUME REVEAL')),
+            label: Text(
+              buttonLabel(working ? 'CHECKING…' : 'RESUME REVEAL'),
+            )),
       ]));
 }
 
@@ -1022,9 +1178,8 @@ class _AssetReceipt extends StatelessWidget {
     final operation = (data['operation'] as Map);
     return SafeArea(
         child: ListView(padding: const EdgeInsets.all(20), children: [
-      Icon(Icons.check_circle_rounded,
-          size: 70, color: KasVaultTheme.mint),
-      const Text('ASSET SENT',
+      Icon(Icons.check_circle_rounded, size: 70, color: KasVaultTheme.mint),
+      Text(displayLabel('ASSET SENT'),
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
       const SizedBox(height: 18),
@@ -1048,12 +1203,12 @@ class _AssetReceipt extends StatelessWidget {
       FilledButton.icon(
         onPressed: onSendAnother,
         icon: const Icon(Icons.add_rounded),
-        label: const Text('SEND ANOTHER ASSET'),
+        label: Text(buttonLabel('SEND ANOTHER ASSET')),
       ),
       const SizedBox(height: 10),
       OutlinedButton(
         onPressed: onDone,
-        child: const Text('BACK TO WALLET'),
+        child: Text(buttonLabel('BACK TO WALLET')),
       ),
     ]));
   }

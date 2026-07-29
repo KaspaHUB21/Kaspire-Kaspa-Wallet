@@ -3,6 +3,7 @@ import 'package:qr_code_scanner_plus/qr_code_scanner_plus.dart';
 
 import '../models/kaspa_payment_request.dart';
 import '../theme.dart';
+import '../services/app_settings.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key});
@@ -72,7 +73,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                   icon: Icon(
                     _torchOn ? Icons.flashlight_off : Icons.flashlight_on,
                   ),
-                  label: Text(_torchOn ? 'TURN OFF LIGHT' : 'TURN ON LIGHT'),
+                  label: Text(buttonLabel(
+                    _torchOn ? 'TURN OFF LIGHT' : 'TURN ON LIGHT',
+                  )),
                 ),
               ),
             ),

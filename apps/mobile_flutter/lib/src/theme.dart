@@ -40,12 +40,12 @@ class KasVaultTheme {
             muted: Color(0xFFBCA4CA),
           ),
         KaspireTheme.sakura => const _KaspirePalette(
-            accent: Color(0xFFFF72B6),
-            secondary: Color(0xFFFFB1D4),
-            background: Color(0xFF16070F),
-            panel: Color(0xFF2B101F),
-            line: Color(0xFF68304D),
-            muted: Color(0xFFCDA5B8),
+            accent: Color(0xFFFF4FB3),
+            secondary: Color(0xFFFFA6D8),
+            background: Color(0xFF1B0714),
+            panel: Color(0xFF351126),
+            line: Color(0xFF8A2D64),
+            muted: Color(0xFFE1A9C8),
           ),
         KaspireTheme.crimson => const _KaspirePalette(
             accent: Color(0xFFFF4E62),
@@ -98,7 +98,9 @@ class KasVaultTheme {
       canvasColor: palette.background,
       cardColor: palette.panel,
       dividerColor: palette.line,
-      shadowColor: accent.withValues(alpha: 0.18),
+      shadowColor: accent.withValues(
+        alpha: theme == KaspireTheme.sakura ? 0.42 : 0.18,
+      ),
       splashColor: accent.withValues(alpha: 0.12),
       highlightColor: accent.withValues(alpha: 0.08),
       useMaterial3: true,
@@ -155,9 +157,8 @@ class KasVaultTheme {
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
-          (states) => states.contains(WidgetState.selected)
-              ? accent
-              : palette.muted,
+          (states) =>
+              states.contains(WidgetState.selected) ? accent : palette.muted,
         ),
         trackColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)
@@ -171,16 +172,14 @@ class KasVaultTheme {
         indicatorColor: accent.withValues(alpha: 0.24),
         iconTheme: WidgetStateProperty.resolveWith(
           (states) => IconThemeData(
-            color: states.contains(WidgetState.selected)
-                ? accent
-                : palette.muted,
+            color:
+                states.contains(WidgetState.selected) ? accent : palette.muted,
           ),
         ),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => TextStyle(
-            color: states.contains(WidgetState.selected)
-                ? accent
-                : palette.muted,
+            color:
+                states.contains(WidgetState.selected) ? accent : palette.muted,
             fontSize: 12,
             fontWeight: FontWeight.w700,
           ),

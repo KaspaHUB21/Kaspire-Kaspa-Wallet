@@ -5,6 +5,7 @@ import 'package:qr_code_scanner_plus/qr_code_scanner_plus.dart';
 
 import '../services/dapp_session_service.dart';
 import '../theme.dart';
+import '../services/app_settings.dart';
 
 class DappQrScannerScreen extends StatefulWidget {
   const DappQrScannerScreen({super.key});
@@ -79,7 +80,9 @@ class _DappQrScannerScreenState extends State<DappQrScannerScreen> {
                   icon: Icon(
                     _torchOn ? Icons.flashlight_off : Icons.flashlight_on,
                   ),
-                  label: Text(_torchOn ? 'LIGHT OFF' : 'LIGHT ON'),
+                  label: Text(
+                    buttonLabel(_torchOn ? 'LIGHT OFF' : 'LIGHT ON'),
+                  ),
                 ),
               ),
             ),

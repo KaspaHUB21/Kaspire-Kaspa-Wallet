@@ -5,6 +5,7 @@ import '../services/native_security.dart';
 import '../services/kaspa_api.dart';
 import '../services/hd_discovery_service.dart';
 import '../theme.dart';
+import '../services/app_settings.dart';
 import '../widgets/kaspire_brand.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -114,7 +115,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: DecoratedBox(
-          decoration: BoxDecoration(
+        decoration: BoxDecoration(
           gradient: RadialGradient(
             center: Alignment(0.8, -0.7),
             radius: 1.2,
@@ -152,7 +153,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               FilledButton.icon(
                 onPressed: _saving ? null : () => _nativeWallet(create: true),
                 icon: const Icon(Icons.add_rounded),
-                label: const Text('CREATE 24-WORD WALLET'),
+                label: Text(buttonLabel('CREATE 24-WORD WALLET')),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(58),
                   backgroundColor: KasVaultTheme.mint,
@@ -166,7 +167,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               OutlinedButton.icon(
                 onPressed: _saving ? null : () => _nativeWallet(create: false),
                 icon: const Icon(Icons.key_rounded),
-                label: const Text('IMPORT 12 / 24 WORDS'),
+                label: Text(buttonLabel('IMPORT 12 / 24 WORDS')),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(58),
                   shape: RoundedRectangleBorder(
@@ -178,7 +179,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               OutlinedButton.icon(
                 onPressed: _saving ? null : _importPrivateKey,
                 icon: const Icon(Icons.password_rounded),
-                label: const Text('IMPORT PRIVATE KEY'),
+                label: Text(buttonLabel('IMPORT PRIVATE KEY')),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(58),
                   shape: RoundedRectangleBorder(
@@ -186,23 +187,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                 ),
               ),
-              const Padding(
+              Padding(
                 padding: EdgeInsets.symmetric(vertical: 22),
                 child: Row(
                   children: [
-                    Expanded(child: Divider()),
+                    const Expanded(child: Divider()),
                     Padding(
                       padding: EdgeInsets.symmetric(horizontal: 12),
                       child: Text(
-                        'OR WATCH ONLY',
-                        style: TextStyle(
+                        displayLabel('OR WATCH ONLY'),
+                        style: const TextStyle(
                           color: KasVaultTheme.muted,
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                     ),
-                    Expanded(child: Divider()),
+                    const Expanded(child: Divider()),
                   ],
                 ),
               ),
@@ -230,7 +231,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                 ),
                 child: Text(
-                  _saving ? 'CONNECTING…' : 'OPEN WALLET',
+                  buttonLabel(_saving ? 'CONNECTING…' : 'OPEN WALLET'),
                   style: const TextStyle(
                     fontWeight: FontWeight.w900,
                     letterSpacing: .8,
