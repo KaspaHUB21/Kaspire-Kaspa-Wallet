@@ -5,7 +5,7 @@
     ],
     "target": {
       "namespace": "android_app",
-      "package_name": "space.kasvault.wallet",
+      "package_name": "space.kaspire.wallet",
       "sha256_cert_fingerprints": [
         "04:C5:9B:4E:13:98:4D:13:94:66:E1:5D:C2:2E:A3:31:37:F2:FC:6F:5E:13:4D:54:1C:1D:25:98:39:1F:69:31",
         "67:91:6D:CB:9D:EB:76:30:F7:20:67:EA:12:86:D2:EA:67:66:EF:49:AD:72:DF:5F:51:8B:7A:37:15:90:7F:3E",
