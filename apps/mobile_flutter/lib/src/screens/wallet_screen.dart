@@ -385,6 +385,9 @@ class _AssetOverview extends StatelessWidget {
                         MaterialPageRoute<void>(
                           builder: (_) => Krc20TokenDetailScreen(
                             asset: asset,
+                            usdToFiat: data.usdToFiat,
+                            fiatCode: data.fiatCode,
+                            fiatSymbol: data.fiatSymbol,
                             onSend: () => onSendAsset(
                               AssetSendIntent.krc20(asset.symbol),
                             ),
@@ -632,7 +635,7 @@ class _BalanceCard extends StatelessWidget {
         ? 'Amounts hidden'
         : data?.fiatValue == null
             ? 'Live balance'
-            : '\$${formatEnglishNumber(data!.fiatValue!, decimals: 2)} USD';
+            : '${data!.fiatSymbol}${formatEnglishNumber(data.fiatValue!, decimals: 2)} ${data.fiatCode}';
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(

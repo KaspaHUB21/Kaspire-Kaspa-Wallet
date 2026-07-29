@@ -196,7 +196,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => SafeArea(
+  Widget build(BuildContext context) => _SettingsOverview(
+        address: widget.address,
+        hardware: _hardware,
+        nativeWallet: _nativeWallet,
+        pinEnabled: _pinEnabled,
+        version: _version,
+        nodeEndpoint: _nodeEndpoint,
+        onConfigurePin: _configurePin,
+        onRemovePin: _removePin,
+        onConfigureNode: _configureNode,
+        onManageDapps: widget.onManageDapps,
+        onManageAddressBook: widget.onManageAddressBook,
+        onManageWallets: widget.onManageWallets,
+        onExportBackup: () => _portableBackup(restore: false),
+        onRestoreBackup: () => _portableBackup(restore: true),
+        onExportPrivateKey: () => _export(privateKey: true),
+        onExportRecoveryPhrase: () => _export(privateKey: false),
+      );
+
+  // Kept temporarily as a layout reference while the categorized settings
+  // screen is validated on different Android display sizes.
+  // ignore: unused_element
+  Widget _legacyBuild(BuildContext context) => SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
@@ -570,6 +592,547 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ],
         ),
+      );
+}
+
+class _SettingsOverview extends StatelessWidget {
+  const _SettingsOverview({
+    required this.address,
+    required this.hardware,
+    required this.nativeWallet,
+    required this.pinEnabled,
+    required this.version,
+    required this.nodeEndpoint,
+    required this.onConfigurePin,
+    required this.onRemovePin,
+    required this.onConfigureNode,
+    required this.onManageDapps,
+    required this.onManageAddressBook,
+    required this.onManageWallets,
+    required this.onExportBackup,
+    required this.onRestoreBackup,
+    required this.onExportPrivateKey,
+    required this.onExportRecoveryPhrase,
+  });
+
+  final String address;
+  final Future<bool> hardware;
+  final Future<bool> nativeWallet;
+  final Future<bool> pinEnabled;
+  final Future<String> version;
+  final Future<String> nodeEndpoint;
+  final VoidCallback onConfigurePin;
+  final VoidCallback onRemovePin;
+  final VoidCallback onConfigureNode;
+  final VoidCallback onManageDapps;
+  final VoidCallback onManageAddressBook;
+  final VoidCallback onManageWallets;
+  final VoidCallback onExportBackup;
+  final VoidCallback onRestoreBackup;
+  final VoidCallback onExportPrivateKey;
+  final VoidCallback onExportRecoveryPhrase;
+
+  Future<void> _open(String url) async {
+    await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    displayLabel('SETTINGS'),
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                InkWell(
+                  onTap: () => _open('https://kaslab.space/'),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Image.asset(
+                      'assets/branding/hub21_wordmark.png',
+                      width: 92,
+                      height: 36,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _SettingsSection(
+              icon: Icons.shield_outlined,
+              title: 'Security',
+              subtitle: 'Locking, authorization and wallet mode',
+              children: [
+                ValueListenableBuilder<int>(
+                  valueListenable: AppSettings.lockMinutes,
+                  builder: (context, minutes, _) =>
+                      DropdownButtonFormField<int>(
+                    initialValue: minutes,
+                    decoration: const InputDecoration(
+                      labelText: 'Automatic wallet lock',
+                      prefixIcon: Icon(Icons.lock_clock_outlined),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 0, child: Text('Immediately')),
+                      DropdownMenuItem(
+                          value: 5, child: Text('After 5 minutes')),
+                      DropdownMenuItem(
+                          value: 10, child: Text('After 10 minutes')),
+                      DropdownMenuItem(
+                          value: 15, child: Text('After 15 minutes')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) AppSettings.setLockMinutes(value);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                FutureBuilder<bool>(
+                  future: hardware,
+                  builder: (context, snapshot) => _SettingTile(
+                    icon: Icons.memory_rounded,
+                    title: 'Hardware-backed vault',
+                    detail: snapshot.connectionState != ConnectionState.done
+                        ? 'Checking…'
+                        : snapshot.data == true
+                            ? 'Available'
+                            : 'Unavailable / emulator',
+                    color: KasVaultTheme.mint,
+                  ),
+                ),
+                FutureBuilder<bool>(
+                  future: pinEnabled,
+                  builder: (context, snapshot) => Column(
+                    children: [
+                      _SettingTile(
+                        icon: snapshot.data == true
+                            ? Icons.pin_rounded
+                            : Icons.fingerprint_rounded,
+                        title: 'Transaction approval',
+                        detail: snapshot.data == true
+                            ? 'Biometrics or Kaspire PIN'
+                            : 'Biometrics · optional Kaspire PIN',
+                        color: KasVaultTheme.mint,
+                      ),
+                      OutlinedButton.icon(
+                        onPressed:
+                            snapshot.connectionState == ConnectionState.done
+                                ? onConfigurePin
+                                : null,
+                        icon: const Icon(Icons.pin_rounded),
+                        label: Text(buttonLabel(
+                          snapshot.data == true
+                              ? 'CHANGE KASPIRE PIN'
+                              : 'CREATE 4–8 DIGIT PIN',
+                        )),
+                      ),
+                      if (snapshot.data == true)
+                        TextButton.icon(
+                          onPressed: onRemovePin,
+                          icon: const Icon(Icons.remove_circle_outline_rounded),
+                          label: Text(buttonLabel('REMOVE KASPIRE PIN')),
+                        ),
+                    ],
+                  ),
+                ),
+                FutureBuilder<bool>(
+                  future: nativeWallet,
+                  builder: (context, snapshot) => _SettingTile(
+                    icon: snapshot.data == true
+                        ? Icons.key_rounded
+                        : Icons.visibility_outlined,
+                    title: 'Wallet mode',
+                    detail: snapshot.data == true
+                        ? 'Native signing wallet · Rusty Kaspa v2.0.1'
+                        : 'Watch-only · no signing key',
+                    color: KasVaultTheme.mint,
+                  ),
+                ),
+              ],
+            ),
+            _SettingsSection(
+              icon: Icons.palette_outlined,
+              title: 'Wallet display',
+              subtitle: 'Currency, theme, wallets and privacy',
+              children: [
+                ValueListenableBuilder<FiatCurrency>(
+                  valueListenable: AppSettings.fiatCurrency,
+                  builder: (context, selected, _) =>
+                      DropdownButtonFormField<FiatCurrency>(
+                    initialValue: selected,
+                    decoration: const InputDecoration(
+                      labelText: 'Currency',
+                      prefixIcon: Icon(Icons.monetization_on_outlined),
+                    ),
+                    items: FiatCurrency.values
+                        .map(
+                          (currency) => DropdownMenuItem(
+                            value: currency,
+                            child: Text(
+                              '${currency.symbol} ${currency.label} '
+                              '(${currency.code})',
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) AppSettings.setFiatCurrency(value);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ValueListenableBuilder<bool>(
+                  valueListenable: AppSettings.showSubwallets,
+                  builder: (context, visible, _) => SwitchListTile(
+                    value: visible,
+                    onChanged: AppSettings.setShowSubwallets,
+                    secondary: Icon(
+                      Icons.account_tree_outlined,
+                      color: KasVaultTheme.mint,
+                    ),
+                    title: const Text('Show subwallets'),
+                  ),
+                ),
+                ValueListenableBuilder<KaspireTheme>(
+                  valueListenable: AppSettings.theme,
+                  builder: (context, selected, _) =>
+                      DropdownButtonFormField<KaspireTheme>(
+                    initialValue: selected,
+                    decoration: const InputDecoration(
+                      labelText: 'Kaspire design',
+                      prefixIcon: Icon(Icons.color_lens_outlined),
+                    ),
+                    items: KaspireTheme.values
+                        .map(
+                          (theme) => DropdownMenuItem(
+                            value: theme,
+                            child: Text(
+                              theme.name[0].toUpperCase() +
+                                  theme.name.substring(1),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) AppSettings.setTheme(value);
+                    },
+                  ),
+                ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: AppSettings.uppercaseButtons,
+                  builder: (context, uppercase, _) => SwitchListTile(
+                    value: uppercase,
+                    onChanged: AppSettings.setUppercaseButtons,
+                    secondary: Icon(
+                      Icons.text_fields_rounded,
+                      color: KasVaultTheme.mint,
+                    ),
+                    title: const Text('Uppercase text'),
+                  ),
+                ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: PrivacySettings.hideAmounts,
+                  builder: (context, hidden, _) => SwitchListTile(
+                    value: hidden,
+                    onChanged: PrivacySettings.setHideAmounts,
+                    secondary: Icon(
+                      hidden
+                          ? Icons.visibility_off_rounded
+                          : Icons.visibility_rounded,
+                      color: KasVaultTheme.mint,
+                    ),
+                    title: const Text('Hide wallet amounts'),
+                    subtitle: const Text('Privacy'),
+                  ),
+                ),
+              ],
+            ),
+            _SettingsSection(
+              icon: Icons.language_rounded,
+              title: 'Network',
+              subtitle: 'Mainnet, dApps and diagnostics',
+              children: [
+                InkWell(
+                  onTap: onConfigureNode,
+                  child: FutureBuilder<String>(
+                    future: nodeEndpoint,
+                    builder: (context, snapshot) => _SettingTile(
+                      icon: Icons.hub_outlined,
+                      title: 'Kaspa Mainnet endpoint',
+                      detail: snapshot.data ?? 'Loading…',
+                      color: KasVaultTheme.cyan,
+                    ),
+                  ),
+                ),
+                InkWell(
+                  onTap: onManageDapps,
+                  child: _SettingTile(
+                    icon: Icons.link_rounded,
+                    title: 'dApp sessions',
+                    detail: 'Reown WalletKit · Kaspa Mainnet',
+                    color: KasVaultTheme.cyan,
+                  ),
+                ),
+                InkWell(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => DiagnosticsScreen(address: address),
+                    ),
+                  ),
+                  child: _SettingTile(
+                    icon: Icons.monitor_heart_outlined,
+                    title: 'Network diagnostics',
+                    detail: 'Node · indexers · WalletConnect',
+                    color: KasVaultTheme.cyan,
+                  ),
+                ),
+              ],
+            ),
+            _NavigationSetting(
+              icon: Icons.contacts_outlined,
+              title: 'Address book',
+              subtitle: 'Saved recipients',
+              onTap: onManageAddressBook,
+            ),
+            _SettingsSection(
+              icon: Icons.backup_outlined,
+              title: 'Backups',
+              subtitle: 'Encrypted backup and recovery exports',
+              children: [
+                FutureBuilder<bool>(
+                  future: nativeWallet,
+                  builder: (context, snapshot) => Column(
+                    children: [
+                      _FullAction(
+                        icon: Icons.enhanced_encryption_rounded,
+                        label: 'EXPORT ENCRYPTED BACKUP',
+                        onPressed:
+                            snapshot.data == true ? onExportBackup : null,
+                      ),
+                      _FullAction(
+                        icon: Icons.restore_rounded,
+                        label: 'RESTORE ENCRYPTED BACKUP',
+                        onPressed: onRestoreBackup,
+                      ),
+                      _FullAction(
+                        icon: Icons.key_rounded,
+                        label: 'EXPORT PRIVATE KEY',
+                        onPressed:
+                            snapshot.data == true ? onExportPrivateKey : null,
+                      ),
+                      _FullAction(
+                        icon: Icons.format_list_numbered_rounded,
+                        label: 'EXPORT RECOVERY PHRASE',
+                        onPressed: snapshot.data == true
+                            ? onExportRecoveryPhrase
+                            : null,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            _SettingsSection(
+              icon: Icons.build_circle_outlined,
+              title: 'HUB21 Toolbox',
+              subtitle: 'Explorers, vaults and developer tools',
+              children: [
+                _ToolLink(
+                  icon: Icons.token_outlined,
+                  title: 'Token Explorer',
+                  url: 'https://kaspatoken.kaslab.space/',
+                  onOpen: _open,
+                ),
+                _ToolLink(
+                  icon: Icons.shield_outlined,
+                  title: 'KasCoven Vaults',
+                  url: 'https://vaults.kaslab.space/',
+                  onOpen: _open,
+                ),
+                _ToolLink(
+                  icon: Icons.code_rounded,
+                  title: 'Kaspa Dev Tools',
+                  url: 'https://devtools.kaslab.space/',
+                  onOpen: _open,
+                ),
+                _ToolLink(
+                  icon: Icons.dataset_linked_outlined,
+                  title: 'KCC20 Indexer',
+                  url: 'https://kcc20.info/',
+                  onOpen: _open,
+                ),
+                _ToolLink(
+                  icon: Icons.explore_outlined,
+                  title: 'Discover more',
+                  url: 'https://kaslab.space/',
+                  onOpen: _open,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: onManageWallets,
+              icon: const Icon(Icons.account_balance_wallet_rounded),
+              label: Text(buttonLabel('MANAGE / SWITCH WALLETS')),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(54),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Center(
+              child: FutureBuilder<String>(
+                future: version,
+                builder: (context, snapshot) => Text(
+                  snapshot.data ?? 'Kaspire · Mainnet',
+                  style: const TextStyle(
+                    color: KasVaultTheme.muted,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
+class _SettingsSection extends StatelessWidget {
+  const _SettingsSection({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: KasVaultTheme.panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: KasVaultTheme.line),
+        ),
+        child: ExpansionTile(
+          leading: Icon(icon, color: KasVaultTheme.mint),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          subtitle: Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
+          children: children,
+        ),
+      );
+}
+
+class _NavigationSetting extends StatelessWidget {
+  const _NavigationSetting({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: KasVaultTheme.panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: KasVaultTheme.line),
+        ),
+        child: ListTile(
+          onTap: onTap,
+          leading: Icon(icon, color: KasVaultTheme.mint),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right_rounded),
+        ),
+      );
+}
+
+class _FullAction extends StatelessWidget {
+  const _FullAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: OutlinedButton.icon(
+          onPressed: onPressed,
+          icon: Icon(icon),
+          label: Text(buttonLabel(label)),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(50),
+          ),
+        ),
+      );
+}
+
+class _ToolLink extends StatelessWidget {
+  const _ToolLink({
+    required this.icon,
+    required this.title,
+    required this.url,
+    required this.onOpen,
+  });
+
+  final IconData icon;
+  final String title;
+  final String url;
+  final Future<void> Function(String) onOpen;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+        onTap: () => onOpen(url),
+        leading: Icon(icon, color: KasVaultTheme.cyan),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: Text(
+          Uri.parse(url).host,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(Icons.open_in_new_rounded, size: 19),
       );
 }
 

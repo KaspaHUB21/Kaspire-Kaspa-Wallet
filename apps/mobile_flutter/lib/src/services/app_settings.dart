@@ -11,24 +11,47 @@ enum KaspireTheme {
   cypherpunk,
 }
 
+enum FiatCurrency {
+  usd('USD', r'$', 'US Dollar'),
+  eur('EUR', '€', 'Euro'),
+  gbp('GBP', '£', 'British Pound'),
+  aud('AUD', r'A$', 'Australian Dollar'),
+  cad('CAD', r'C$', 'Canadian Dollar'),
+  jpy('JPY', '¥', 'Japanese Yen'),
+  cny('CNY', '¥', 'Chinese Yuan');
+
+  const FiatCurrency(this.code, this.symbol, this.label);
+  final String code;
+  final String symbol;
+  final String label;
+}
+
 class AppSettings {
   static const _lockMinutesKey = 'security_lock_minutes_v1';
   static const _showSubwalletsKey = 'wallet_show_subwallets_v1';
   static const _themeKey = 'appearance_theme_v1';
   static const _uppercaseButtonsKey = 'appearance_uppercase_buttons_v1';
   static const _lastBackgroundAtKey = 'security_last_background_at_v1';
+  static const _fiatCurrencyKey = 'appearance_fiat_currency_v1';
 
   static final ValueNotifier<int> lockMinutes = ValueNotifier(15);
   static final ValueNotifier<bool> showSubwallets = ValueNotifier(true);
   static final ValueNotifier<bool> uppercaseButtons = ValueNotifier(true);
   static final ValueNotifier<KaspireTheme> theme =
       ValueNotifier(KaspireTheme.midnight);
+  static final ValueNotifier<FiatCurrency> fiatCurrency =
+      ValueNotifier(FiatCurrency.usd);
 
   static Future<void> initialize() async {
     final preferences = await SharedPreferences.getInstance();
     lockMinutes.value = preferences.getInt(_lockMinutesKey) ?? 15;
     showSubwallets.value = preferences.getBool(_showSubwalletsKey) ?? true;
     uppercaseButtons.value = preferences.getBool(_uppercaseButtonsKey) ?? true;
+    final storedCurrency = preferences.getString(_fiatCurrencyKey);
+    fiatCurrency.value = FiatCurrency.values.firstWhere(
+      (item) => item.code == storedCurrency,
+      orElse: () => FiatCurrency.usd,
+    );
     final stored = preferences.getString(_themeKey);
     theme.value = KaspireTheme.values.firstWhere(
       (item) => item.name == stored,
@@ -61,6 +84,12 @@ class AppSettings {
     uppercaseButtons.value = value;
     await (await SharedPreferences.getInstance())
         .setBool(_uppercaseButtonsKey, value);
+  }
+
+  static Future<void> setFiatCurrency(FiatCurrency value) async {
+    fiatCurrency.value = value;
+    await (await SharedPreferences.getInstance())
+        .setString(_fiatCurrencyKey, value.code);
   }
 
   static Future<void> recordBackgroundedAt(DateTime value) async {

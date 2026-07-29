@@ -1214,40 +1214,43 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       valueListenable: AppSettings.theme,
       builder: (context, selectedTheme, _) => ValueListenableBuilder<bool>(
         valueListenable: AppSettings.uppercaseButtons,
-        builder: (context, _, __) => MaterialApp(
-          navigatorKey: _navigatorKey,
-          title: 'Kaspire',
-          debugShowCheckedModeBanner: false,
-          theme: KasVaultTheme.forTheme(selectedTheme),
-          builder: (context, child) => Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) => _recordActivity(),
-            child: child,
-          ),
-          home: FutureBuilder<String?>(
-            future: _address,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
-                );
-              }
-              final address = snapshot.data;
-              if (address != null && _locked) {
-                return _KaspireLockScreen(
-                  unlocking: _unlocking,
-                  onUnlock: _unlock,
-                );
-              }
-              return address == null
-                  ? OnboardingScreen(onConnected: _openWallet)
-                  : HomeShell(
-                      key: ValueKey(address),
-                      address: address,
-                      onSwitchWallet: _openWallet,
-                      onDisconnect: _reset,
-                    );
-            },
+        builder: (context, _, __) => ValueListenableBuilder<FiatCurrency>(
+          valueListenable: AppSettings.fiatCurrency,
+          builder: (context, selectedCurrency, ___) => MaterialApp(
+            navigatorKey: _navigatorKey,
+            title: 'Kaspire',
+            debugShowCheckedModeBanner: false,
+            theme: KasVaultTheme.forTheme(selectedTheme),
+            builder: (context, child) => Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (_) => _recordActivity(),
+              child: child,
+            ),
+            home: FutureBuilder<String?>(
+              future: _address,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                final address = snapshot.data;
+                if (address != null && _locked) {
+                  return _KaspireLockScreen(
+                    unlocking: _unlocking,
+                    onUnlock: _unlock,
+                  );
+                }
+                return address == null
+                    ? OnboardingScreen(onConnected: _openWallet)
+                    : HomeShell(
+                        key: ValueKey('$address-${selectedCurrency.code}'),
+                        address: address,
+                        onSwitchWallet: _openWallet,
+                        onDisconnect: _reset,
+                      );
+              },
+            ),
           ),
         ),
       ),

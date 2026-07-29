@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:kasvault_wallet/src/models/wallet_snapshot.dart';
 import 'package:kasvault_wallet/src/services/kaspa_api.dart';
+import 'package:kasvault_wallet/src/services/app_settings.dart';
 
 void main() {
   const address =
@@ -85,6 +86,35 @@ void main() {
 
     final snapshot = await KaspaApi(client: client).loadWallet(address);
     expect(snapshot.utxoCount, 2);
+  });
+
+  test('converts the wallet fiat value into the selected currency', () async {
+    AppSettings.fiatCurrency.value = FiatCurrency.eur;
+    final client = MockClient((request) async {
+      if (request.url.host == 'open.er-api.com') {
+        return http.Response('{"rates":{"EUR":0.8}}', 200);
+      }
+      if (request.url.path.endsWith('/utxos')) {
+        return http.Response('[]', 200);
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":100000000}', 200);
+      }
+      if (request.url.path.endsWith('/info/price')) {
+        return http.Response('{"price":0.1}', 200);
+      }
+      if (request.url.host == 'kaspatoken.kaslab.space' ||
+          request.url.host == 'kascov.io') {
+        return http.Response('{}', 503);
+      }
+      return http.Response('[]', 200);
+    });
+
+    final snapshot = await KaspaApi(client: client).loadWallet(address);
+    expect(snapshot.fiatCode, 'EUR');
+    expect(snapshot.fiatSymbol, '€');
+    expect(snapshot.fiatValue, closeTo(0.08, 0.0000001));
+    AppSettings.fiatCurrency.value = FiatCurrency.usd;
   });
 
   test('rejects UTXOs attributed to another wallet', () {

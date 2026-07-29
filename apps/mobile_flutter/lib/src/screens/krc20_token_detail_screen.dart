@@ -10,15 +10,20 @@ class Krc20TokenDetailScreen extends StatelessWidget {
   const Krc20TokenDetailScreen({
     super.key,
     required this.asset,
+    required this.usdToFiat,
+    required this.fiatCode,
+    required this.fiatSymbol,
     required this.onSend,
   });
 
   final WalletAsset asset;
+  final double usdToFiat;
+  final String fiatCode;
+  final String fiatSymbol;
   final VoidCallback onSend;
 
-  String _price(double? value, String unit) {
-    if (value == null) return '—';
-    final prefix = unit == 'USD' ? '\$' : '';
+  String _price(double? value, String unit, {String prefix = ''}) {
+    if (value == null || !value.isFinite) return '—';
     return '$prefix${formatEnglishNumber(value, decimals: 8, trimTrailingZeros: true)} $unit';
   }
 
@@ -53,6 +58,11 @@ class Krc20TokenDetailScreen extends StatelessWidget {
         asset.priceKas == null ? null : asset.priceKas! * asset.balance;
     final valueUsd =
         asset.priceUsd == null ? null : asset.priceUsd! * asset.balance;
+    final floorFiat = asset.priceUsd == null || !usdToFiat.isFinite
+        ? null
+        : asset.priceUsd! * usdToFiat;
+    final valueFiat =
+        valueUsd == null || !usdToFiat.isFinite ? null : valueUsd * usdToFiat;
     return Scaffold(
       appBar: AppBar(title: Text(asset.symbol)),
       body: SafeArea(
@@ -84,13 +94,21 @@ class Krc20TokenDetailScreen extends StatelessWidget {
             _PricePanel(
               title: 'Floor price',
               kas: _price(asset.priceKas, 'KAS'),
-              usd: _price(asset.priceUsd, 'USD'),
+              fiat: _price(
+                floorFiat,
+                fiatCode,
+                prefix: fiatSymbol,
+              ),
             ),
             const SizedBox(height: 12),
             _PricePanel(
               title: 'Balance value',
               kas: _price(valueKas, 'KAS'),
-              usd: _price(valueUsd, 'USD'),
+              fiat: _price(
+                valueFiat,
+                fiatCode,
+                prefix: fiatSymbol,
+              ),
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
@@ -118,12 +136,12 @@ class _PricePanel extends StatelessWidget {
   const _PricePanel({
     required this.title,
     required this.kas,
-    required this.usd,
+    required this.fiat,
   });
 
   final String title;
   final String kas;
-  final String usd;
+  final String fiat;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -159,7 +177,7 @@ class _PricePanel extends StatelessWidget {
             ),
             const SizedBox(height: 3),
             Text(
-              usd,
+              fiat,
               style: TextStyle(
                 color: KasVaultTheme.mint,
                 fontSize: 15,

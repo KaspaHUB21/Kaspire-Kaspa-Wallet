@@ -7,6 +7,7 @@ import '../models/network_diagnostics.dart';
 import '../kaspa_address.dart';
 import '../number_format.dart';
 import 'network_settings.dart';
+import 'app_settings.dart';
 
 class KaspaApiException implements Exception {
   KaspaApiException(this.message);
@@ -65,6 +66,9 @@ class KaspaApi {
           .then<Object?>((value) => value)
           .catchError((_) => null),
       loadUtxos(address).catchError((_) => '[]'),
+      _loadUsdExchangeRate(AppSettings.fiatCurrency.value).catchError(
+        (_) => double.nan,
+      ),
     ]);
     final balanceJson = results[0];
     final priceJson = results[1];
@@ -72,6 +76,8 @@ class KaspaApi {
     final tokenWallet = results[3];
     final kcc20Wallet = results[4] as _Kcc20Wallet?;
     final utxoCount = (jsonDecode(results[5] as String) as List).length;
+    final currency = AppSettings.fiatCurrency.value;
+    final usdToFiat = results[6] as double;
     final balanceSompi = _asInt(_map(balanceJson)['balance']);
     final kasUsd = _asDouble(_map(priceJson)['price']);
     if (balanceSompi < 0) {
@@ -123,6 +129,9 @@ class KaspaApi {
     return WalletSnapshot(
       balanceSompi: balanceSompi,
       kasUsd: kasUsd,
+      usdToFiat: usdToFiat,
+      fiatCode: currency.code,
+      fiatSymbol: currency.symbol,
       transactions: [
         ...nativeTransactions,
         ...tokenTransactions,
@@ -136,6 +145,23 @@ class KaspaApi {
       hasMoreTransactions: nativeTransactions.length >= transactionLimit,
       utxoCount: utxoCount,
     );
+  }
+
+  Future<double> _loadUsdExchangeRate(FiatCurrency currency) async {
+    if (currency == FiatCurrency.usd) return 1;
+    final response = await _client
+        .get(Uri.parse('https://open.er-api.com/v6/latest/USD'))
+        .timeout(const Duration(seconds: 8));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw KaspaApiException('Currency rates are temporarily unavailable.');
+    }
+    final envelope = _map(jsonDecode(response.body));
+    final rates = _map(envelope['rates']);
+    final rate = _asDouble(rates[currency.code]);
+    if (rate == null || !rate.isFinite || rate <= 0) {
+      throw KaspaApiException('The selected currency rate is unavailable.');
+    }
+    return rate;
   }
 
   Future<String> resolveWalletInput(String input) async {

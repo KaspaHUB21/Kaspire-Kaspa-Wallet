@@ -10,17 +10,20 @@ void main() {
     await AppSettings.setLockMinutes(15);
     await AppSettings.setShowSubwallets(false);
     await AppSettings.setUppercaseButtons(false);
+    await AppSettings.setFiatCurrency(FiatCurrency.eur);
     await AppSettings.setTheme(KaspireTheme.amethyst);
 
     AppSettings.lockMinutes.value = 0;
     AppSettings.showSubwallets.value = true;
     AppSettings.uppercaseButtons.value = true;
+    AppSettings.fiatCurrency.value = FiatCurrency.usd;
     AppSettings.theme.value = KaspireTheme.midnight;
     await AppSettings.initialize();
 
     expect(AppSettings.lockMinutes.value, 15);
     expect(AppSettings.showSubwallets.value, isFalse);
     expect(AppSettings.uppercaseButtons.value, isFalse);
+    expect(AppSettings.fiatCurrency.value, FiatCurrency.eur);
     expect(AppSettings.theme.value, KaspireTheme.amethyst);
   });
 
@@ -34,6 +37,7 @@ void main() {
 
     expect(AppSettings.lockMinutes.value, 15);
     expect(AppSettings.uppercaseButtons.value, isTrue);
+    expect(AppSettings.fiatCurrency.value, FiatCurrency.usd);
   });
 
   test('persists the last background time across process restarts', () async {

@@ -4,6 +4,9 @@ class WalletSnapshot {
   const WalletSnapshot({
     required this.balanceSompi,
     required this.kasUsd,
+    this.usdToFiat = 1,
+    this.fiatCode = 'USD',
+    this.fiatSymbol = r'$',
     required this.transactions,
     required this.krc20Tokens,
     this.kcc20Tokens = const [],
@@ -16,6 +19,9 @@ class WalletSnapshot {
 
   final int balanceSompi;
   final double? kasUsd;
+  final double usdToFiat;
+  final String fiatCode;
+  final String fiatSymbol;
   final List<WalletTransaction> transactions;
   final List<WalletAsset> krc20Tokens;
   final List<WalletAsset> kcc20Tokens;
@@ -26,12 +32,17 @@ class WalletSnapshot {
   final int utxoCount;
 
   double get balanceKas => balanceSompi / 100000000;
-  double? get fiatValue => kasUsd == null ? null : balanceKas * kasUsd!;
+  double? get fiatValue => kasUsd == null || !usdToFiat.isFinite
+      ? null
+      : balanceKas * kasUsd! * usdToFiat;
 
   WalletSnapshot withTransactions(List<WalletTransaction> value) =>
       WalletSnapshot(
         balanceSompi: balanceSompi,
         kasUsd: kasUsd,
+        usdToFiat: usdToFiat,
+        fiatCode: fiatCode,
+        fiatSymbol: fiatSymbol,
         transactions: value,
         krc20Tokens: krc20Tokens,
         kcc20Tokens: kcc20Tokens,
