@@ -6,5 +6,13 @@
       "package_name": "space.kaspire.wallet",
       "sha256_cert_fingerprints": ["REPLACE_WITH_RELEASE_CERTIFICATE_SHA256"]
     }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "space.kasvault.wallet",
+      "sha256_cert_fingerprints": ["REPLACE_WITH_LEGACY_RELEASE_CERTIFICATE_SHA256"]
+    }
   }
 ]

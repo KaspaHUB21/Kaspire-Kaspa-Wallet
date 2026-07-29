@@ -13,5 +13,35 @@
         "0E:61:95:B9:3A:39:D6:8D:99:AE:6B:95:19:22:0B:46:F2:D2:B6:0A:E4:16:BF:A8:B8:ED:57:13:F1:ED:6C:3D"
       ]
     }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "space.kasvault.wallet",
+      "sha256_cert_fingerprints": [
+        "04:C5:9B:4E:13:98:4D:13:94:66:E1:5D:C2:2E:A3:31:37:F2:FC:6F:5E:13:4D:54:1C:1D:25:98:39:1F:69:31",
+        "67:91:6D:CB:9D:EB:76:30:F7:20:67:EA:12:86:D2:EA:67:66:EF:49:AD:72:DF:5F:51:8B:7A:37:15:90:7F:3E",
+        "89:B3:08:6B:C3:1A:73:34:53:C4:D4:91:5B:1C:8B:29:4C:F0:29:DC:86:73:19:5A:19:02:8A:B3:1E:83:85:BB",
+        "0E:61:95:B9:3A:39:D6:8D:99:AE:6B:95:19:22:0B:46:F2:D2:B6:0A:E4:16:BF:A8:B8:ED:57:13:F1:ED:6C:3D"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "space.kasvault.wallet",
+      "sha256_cert_fingerprints": [
+        "04:C5:9B:4E:13:98:4D:13:94:66:E1:5D:C2:2E:A3:31:37:F2:FC:6F:5E:13:4D:54:1C:1D:25:98:39:1F:69:31",
+        "67:91:6D:CB:9D:EB:76:30:F7:20:67:EA:12:86:D2:EA:67:66:EF:49:AD:72:DF:5F:51:8B:7A:37:15:90:7F:3E",
+        "89:B3:08:6B:C3:1A:73:34:53:C4:D4:91:5B:1C:8B:29:4C:F0:29:DC:86:73:19:5A:19:02:8A:B3:1E:83:85:BB",
+        "0E:61:95:B9:3A:39:D6:8D:99:AE:6B:95:19:22:0B:46:F2:D2:B6:0A:E4:16:BF:A8:B8:ED:57:13:F1:ED:6C:3D"
+      ]
+    }
   }
 ]
