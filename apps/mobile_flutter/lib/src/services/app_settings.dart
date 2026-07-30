@@ -18,7 +18,27 @@ enum FiatCurrency {
   aud('AUD', r'A$', 'Australian Dollar'),
   cad('CAD', r'C$', 'Canadian Dollar'),
   jpy('JPY', '¥', 'Japanese Yen'),
-  cny('CNY', '¥', 'Chinese Yuan');
+  cny('CNY', 'CN¥', 'Chinese Yuan'),
+  inr('INR', '₹', 'Indian Rupee'),
+  brl('BRL', r'R$', 'Brazilian Real'),
+  chf('CHF', 'CHF', 'Swiss Franc'),
+  krw('KRW', '₩', 'South Korean Won'),
+  sgd('SGD', r'S$', 'Singapore Dollar'),
+  hkd('HKD', r'HK$', 'Hong Kong Dollar'),
+  nzd('NZD', r'NZ$', 'New Zealand Dollar'),
+  mxn('MXN', r'MX$', 'Mexican Peso'),
+  zar('ZAR', 'R', 'South African Rand'),
+  sek('SEK', 'kr', 'Swedish Krona'),
+  nok('NOK', 'kr', 'Norwegian Krone'),
+  dkk('DKK', 'kr', 'Danish Krone'),
+  pln('PLN', 'zł', 'Polish Zloty'),
+  tryCurrency('TRY', '₺', 'Turkish Lira'),
+  idr('IDR', 'Rp', 'Indonesian Rupiah'),
+  aed('AED', 'د.إ', 'UAE Dirham'),
+  sar('SAR', '﷼', 'Saudi Riyal'),
+  thb('THB', '฿', 'Thai Baht'),
+  myr('MYR', 'RM', 'Malaysian Ringgit'),
+  php('PHP', '₱', 'Philippine Peso');
 
   const FiatCurrency(this.code, this.symbol, this.label);
   final String code;

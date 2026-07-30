@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -102,15 +104,11 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
         // discovery. The wallet remains available even if scanning is slow,
         // interrupted or an endpoint is temporarily unavailable.
         await _preferences.setAddress(address);
-        if (mounted) {
-          setState(() => _workingLabel = 'Scanning wallet addresses…');
-        }
-        address = await HdDiscoveryService().discoverAndRegister(
-          address,
-          _security,
-          onProgress: (status) {
-            if (mounted) setState(() => _workingLabel = status);
-          },
+        unawaited(
+          HdDiscoveryService().discoverAndRegister(
+            address,
+            _security,
+          ),
         );
       }
       final wallets = await _security.listWallets();

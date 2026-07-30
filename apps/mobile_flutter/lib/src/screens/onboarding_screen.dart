@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/preferences_service.dart';
@@ -20,7 +22,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _controller = TextEditingController();
   String? _error;
   bool _saving = false;
-  String? _scanStatus;
 
   @override
   void dispose() {
@@ -52,15 +53,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         // its standard receive address before online HD discovery so a slow
         // or interrupted scan can never make the imported wallet disappear.
         await PreferencesService().setAddress(address);
-        if (mounted) {
-          setState(() => _scanStatus = 'Scanning wallet addresses…');
-        }
-        address = await HdDiscoveryService().discoverAndRegister(
-          address,
-          security,
-          onProgress: (status) {
-            if (mounted) setState(() => _scanStatus = status);
-          },
+        unawaited(
+          HdDiscoveryService().discoverAndRegister(
+            address,
+            security,
+          ),
         );
       }
       final wallets = await security.listWallets();
@@ -86,7 +83,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       if (mounted) {
         setState(() {
           _saving = false;
-          _scanStatus = null;
         });
       }
     }
@@ -202,34 +198,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                 ),
               ),
-              if (_scanStatus != null) ...[
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: KasVaultTheme.panel,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: KasVaultTheme.line),
-                  ),
-                  child: Row(
-                    children: [
-                      const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          '$_scanStatus\nThe wallet is already encrypted on '
-                          'this device.',
-                          style: const TextStyle(height: 1.35),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: _saving ? null : _importPrivateKey,
