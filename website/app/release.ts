@@ -1,5 +1,5 @@
 export const currentRelease = {
-  version: "0.11.6",
-  build: 64,
-  sha256: "a42aaeb6bcf853d7f100277265e8ca6d6bf50fea7c01124001321a0f579b2ec4",
+  version: "0.11.7",
+  build: 65,
+  sha256: "dc0508a89bcafdbb4fd3e034419c02afb4de076ad56e126e87964616841fedc2",
 } as const;

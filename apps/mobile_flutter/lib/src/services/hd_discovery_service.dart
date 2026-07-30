@@ -7,6 +7,7 @@ class HdDiscoveryService {
   static const gapLimit = 20;
   static const maxAddressesPerBranch = 100;
   static const maxAccounts = 10;
+  static const discoveryTimeLimit = Duration(seconds: 45);
   static const _coinTypes = [111111, 972];
   final KaspaApi _api;
 
@@ -16,9 +17,14 @@ class HdDiscoveryService {
     void Function(String status)? onProgress,
   }) async {
     try {
+      final deadline = DateTime.now().add(discoveryTimeLimit);
       final discovered = <NativeHdAddress>[];
       for (final coinType in _coinTypes) {
         for (var account = 0; account < maxAccounts; account++) {
+          if (DateTime.now().isAfter(deadline)) {
+            onProgress?.call('Finishing wallet import…');
+            break;
+          }
           onProgress?.call(
             'Scanning ${coinType == 111111 ? 'Kaspa' : 'legacy'} '
             'account ${account + 1}…',
@@ -30,6 +36,7 @@ class HdDiscoveryService {
                 coinType: coinType,
                 account: account,
                 change: change,
+                deadline: deadline,
               ),
             ),
           );
@@ -68,12 +75,14 @@ class HdDiscoveryService {
     required int coinType,
     required int account,
     required int change,
+    required DateTime deadline,
   }) async {
     final result = <NativeHdAddress>[];
     var consecutiveUnused = 0;
     for (var start = 0;
         start < maxAddressesPerBranch && consecutiveUnused < gapLimit;
         start += gapLimit) {
+      if (DateTime.now().isAfter(deadline)) break;
       final batch = await security.deriveAddresses(
         coinType: coinType,
         account: account,
@@ -82,7 +91,16 @@ class HdDiscoveryService {
         count: gapLimit,
       );
       final activity = await Future.wait(
-        batch.map((item) => _api.addressHasActivity(item.address)),
+        batch.map(
+          (item) => _api
+              .addressHasActivity(item.address)
+              .timeout(
+                deadline.difference(DateTime.now()).isNegative
+                    ? Duration.zero
+                    : deadline.difference(DateTime.now()),
+              )
+              .catchError((_) => false),
+        ),
       );
       for (var index = 0; index < batch.length; index++) {
         final used = activity[index];

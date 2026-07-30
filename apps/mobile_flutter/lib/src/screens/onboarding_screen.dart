@@ -48,6 +48,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ? await security.createWallet()
           : await security.importWallet();
       if (!create) {
+        // The native import has already encrypted and stored the wallet. Save
+        // its standard receive address before online HD discovery so a slow
+        // or interrupted scan can never make the imported wallet disappear.
+        await PreferencesService().setAddress(address);
         if (mounted) {
           setState(() => _scanStatus = 'Scanning wallet addresses…');
         }

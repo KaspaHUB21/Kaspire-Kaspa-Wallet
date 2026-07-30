@@ -98,6 +98,10 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
               ? await _security.importPrivateKey()
               : await _security.importWallet();
       if (mode == 'mnemonic') {
+        // Persist the imported wallet's primary address before network-based
+        // discovery. The wallet remains available even if scanning is slow,
+        // interrupted or an endpoint is temporarily unavailable.
+        await _preferences.setAddress(address);
         if (mounted) {
           setState(() => _workingLabel = 'Scanning wallet addresses…');
         }
