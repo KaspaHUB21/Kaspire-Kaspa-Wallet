@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -56,9 +57,11 @@ class KaspaApi {
     int transactionLimit = 20,
   }) async {
     final results = await Future.wait([
-      _get('/addresses/${Uri.encodeComponent(address)}/balance'),
-      _get('/info/price'),
-      _get(
+      _getReadOnlyWithFallback(
+        '/addresses/${Uri.encodeComponent(address)}/balance',
+      ),
+      _getReadOnlyWithFallback('/info/price'),
+      _getReadOnlyWithFallback(
         '/addresses/${Uri.encodeComponent(address)}/full-transactions?limit=$transactionLimit&offset=0&resolve_previous_outpoints=light',
       ),
       _loadTokenWallet(address).catchError((_) => null),
@@ -1806,6 +1809,33 @@ class KaspaApi {
         .timeout(const Duration(seconds: 12));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw KaspaApiException('Kaspa API returned ${response.statusCode}');
+    }
+    return jsonDecode(response.body);
+  }
+
+  Future<Object?> _getReadOnlyWithFallback(String path) async {
+    try {
+      return await _get(path);
+    } on TimeoutException {
+      return _getFromPublicFallback(path);
+    } on http.ClientException {
+      return _getFromPublicFallback(path);
+    } on KaspaApiException {
+      return _getFromPublicFallback(path);
+    }
+  }
+
+  Future<Object?> _getFromPublicFallback(String path) async {
+    if (baseUrl == NetworkSettings.publicKaspaFallbackRestUrl) {
+      return _get(path);
+    }
+    final response = await _client
+        .get(Uri.parse('${NetworkSettings.publicKaspaFallbackRestUrl}$path'))
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw KaspaApiException(
+        'Kaspa read fallback returned ${response.statusCode}',
+      );
     }
     return jsonDecode(response.body);
   }

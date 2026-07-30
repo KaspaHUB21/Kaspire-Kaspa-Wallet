@@ -2,14 +2,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class NetworkSettings {
   static const publicKaspaRestUrl = 'https://kaspire.kaslab.space/api';
-  static const _legacyPublicKaspaRestUrl = 'https://api.kaspa.org';
+  static const publicKaspaFallbackRestUrl = 'https://api.kaspa.org';
   static const _key = 'kaspa_rest_endpoint_v1';
   static String kaspaRestUrl = publicKaspaRestUrl;
 
   static Future<void> initialize() async {
     final preferences = await SharedPreferences.getInstance();
     final stored = preferences.getString(_key);
-    if (stored == _legacyPublicKaspaRestUrl) {
+    if (stored == publicKaspaFallbackRestUrl) {
       await preferences.remove(_key);
       kaspaRestUrl = publicKaspaRestUrl;
     } else if (stored != null && isValidEndpoint(stored)) {

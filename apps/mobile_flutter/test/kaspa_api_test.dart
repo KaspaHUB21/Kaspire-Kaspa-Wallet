@@ -88,6 +88,45 @@ void main() {
     expect(snapshot.utxoCount, 2);
   });
 
+  test('falls back to public Kaspa reads when the own gateway fails', () async {
+    final fallbackPaths = <String>[];
+    final client = MockClient((request) async {
+      if (request.url.host == 'primary.example' &&
+          (request.url.path.endsWith('/balance') ||
+              request.url.path.endsWith('/info/price') ||
+              request.url.path.contains('/full-transactions'))) {
+        return http.Response('gateway timeout', 504);
+      }
+      if (request.url.host == 'api.kaspa.org') {
+        fallbackPaths.add(request.url.path);
+        if (request.url.path.endsWith('/balance')) {
+          return http.Response('{"balance":123000000}', 200);
+        }
+        if (request.url.path.endsWith('/info/price')) {
+          return http.Response('{"price":0.1}', 200);
+        }
+        return http.Response('[]', 200);
+      }
+      if (request.url.path.endsWith('/utxos')) {
+        return http.Response('[]', 200);
+      }
+      if (request.url.host == 'kaspatoken.kaslab.space' ||
+          request.url.host == 'kascov.io') {
+        return http.Response('{}', 503);
+      }
+      return http.Response('[]', 200);
+    });
+
+    final snapshot = await KaspaApi(
+      client: client,
+      baseUrl: 'https://primary.example',
+    ).loadWallet(address);
+
+    expect(snapshot.balanceSompi, 123000000);
+    expect(snapshot.kasUsd, 0.1);
+    expect(fallbackPaths, hasLength(3));
+  });
+
   test('converts the wallet fiat value into the selected currency', () async {
     AppSettings.fiatCurrency.value = FiatCurrency.eur;
     final client = MockClient((request) async {
