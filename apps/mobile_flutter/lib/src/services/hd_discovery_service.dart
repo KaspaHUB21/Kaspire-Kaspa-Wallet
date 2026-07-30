@@ -12,23 +12,28 @@ class HdDiscoveryService {
 
   Future<String> discoverAndRegister(
     String fallbackAddress,
-    NativeSecurity security,
-  ) async {
+    NativeSecurity security, {
+    void Function(String status)? onProgress,
+  }) async {
     try {
       final discovered = <NativeHdAddress>[];
       for (final coinType in _coinTypes) {
         for (var account = 0; account < maxAccounts; account++) {
-          final accountAddresses = <NativeHdAddress>[];
-          for (final change in const [0, 1]) {
-            accountAddresses.addAll(
-              await _scanBranch(
+          onProgress?.call(
+            'Scanning ${coinType == 111111 ? 'Kaspa' : 'legacy'} '
+            'account ${account + 1}…',
+          );
+          final branches = await Future.wait(
+            const [0, 1].map(
+              (change) => _scanBranch(
                 security: security,
                 coinType: coinType,
                 account: account,
                 change: change,
               ),
-            );
-          }
+            ),
+          );
+          final accountAddresses = branches.expand((items) => items).toList();
           final hasActivity = accountAddresses.any((item) => item.used);
           if (hasActivity || (coinType == 111111 && account == 0)) {
             discovered.addAll(accountAddresses);

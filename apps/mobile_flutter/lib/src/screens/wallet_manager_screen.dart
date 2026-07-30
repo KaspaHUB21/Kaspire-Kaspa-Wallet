@@ -98,9 +98,26 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
               ? await _security.importPrivateKey()
               : await _security.importWallet();
       if (mode == 'mnemonic') {
+        if (mounted) {
+          setState(() => _workingLabel = 'Scanning wallet addresses…');
+        }
         address = await HdDiscoveryService().discoverAndRegister(
           address,
           _security,
+          onProgress: (status) {
+            if (mounted) setState(() => _workingLabel = status);
+          },
+        );
+      }
+      final wallets = await _security.listWallets();
+      if (!wallets.any(
+        (wallet) =>
+            wallet.address == address ||
+            wallet.addresses.any((item) => item.address == address),
+      )) {
+        throw StateError(
+          'The imported wallet was encrypted but could not be selected. '
+          'Reload Wallets and select it manually.',
         );
       }
       await _selectAddress(address);

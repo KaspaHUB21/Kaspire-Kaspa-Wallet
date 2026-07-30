@@ -31,59 +31,63 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Network diagnostics')),
-        body: FutureBuilder<List<DiagnosticCheck>>(
-          future: _checks,
-          builder: (context, snapshot) => ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              Text(
-                'Checks the configured Kaspa node gateway, token indexers and '
-                'encrypted WalletConnect relay. No secret or private key is sent.',
-                style: const TextStyle(color: KasVaultTheme.muted),
-              ),
-              const SizedBox(height: 14),
-              SelectableText(
-                'Kaspa endpoint\n${NetworkSettings.kaspaRestUrl}',
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-              ),
-              const SizedBox(height: 20),
-              if (snapshot.connectionState == ConnectionState.waiting)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(32),
-                    child: CircularProgressIndicator(),
-                  ),
+        body: SafeArea(
+          bottom: true,
+          child: FutureBuilder<List<DiagnosticCheck>>(
+            future: _checks,
+            builder: (context, snapshot) => ListView(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 104),
+              children: [
+                Text(
+                  'Checks the configured Kaspa node gateway, token indexers and '
+                  'encrypted WalletConnect relay. No secret or private key is sent.',
+                  style: const TextStyle(color: KasVaultTheme.muted),
                 ),
-              if (snapshot.hasError)
+                const SizedBox(height: 14),
+                SelectableText(
+                  'Kaspa endpoint\n${NetworkSettings.kaspaRestUrl}',
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                ),
+                const SizedBox(height: 20),
+                if (snapshot.connectionState == ConnectionState.waiting)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(32),
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                if (snapshot.hasError)
+                  _DiagnosticCard(
+                    check: DiagnosticCheck(
+                      name: 'Diagnostics',
+                      endpoint: '',
+                      ok: false,
+                      detail: '${snapshot.error}',
+                      elapsedMs: 0,
+                    ),
+                  ),
+                ...?snapshot.data
+                    ?.map((check) => _DiagnosticCard(check: check)),
                 _DiagnosticCard(
                   check: DiagnosticCheck(
-                    name: 'Diagnostics',
-                    endpoint: '',
-                    ok: false,
-                    detail: '${snapshot.error}',
+                    name: 'WalletConnect',
+                    endpoint: 'Reown encrypted relay',
+                    ok: DappSessionService.instance.ready,
+                    detail: DappSessionService.instance.ready
+                        ? 'WalletKit initialized and ready'
+                        : DappSessionService.instance.lastError ??
+                            'WalletKit is still initializing',
                     elapsedMs: 0,
                   ),
                 ),
-              ...?snapshot.data?.map((check) => _DiagnosticCard(check: check)),
-              _DiagnosticCard(
-                check: DiagnosticCheck(
-                  name: 'WalletConnect',
-                  endpoint: 'Reown encrypted relay',
-                  ok: DappSessionService.instance.ready,
-                  detail: DappSessionService.instance.ready
-                      ? 'WalletKit initialized and ready'
-                      : DappSessionService.instance.lastError ??
-                          'WalletKit is still initializing',
-                  elapsedMs: 0,
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _retry,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(buttonLabel('RUN AGAIN')),
                 ),
-              ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _retry,
-                icon: const Icon(Icons.refresh_rounded),
-                label: Text(buttonLabel('RUN AGAIN')),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );

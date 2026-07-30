@@ -20,6 +20,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _controller = TextEditingController();
   String? _error;
   bool _saving = false;
+  String? _scanStatus;
 
   @override
   void dispose() {
@@ -47,13 +48,30 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ? await security.createWallet()
           : await security.importWallet();
       if (!create) {
+        if (mounted) {
+          setState(() => _scanStatus = 'Scanning wallet addresses…');
+        }
         address = await HdDiscoveryService().discoverAndRegister(
           address,
           security,
+          onProgress: (status) {
+            if (mounted) setState(() => _scanStatus = status);
+          },
+        );
+      }
+      final wallets = await security.listWallets();
+      if (!wallets.any(
+        (wallet) =>
+            wallet.address == address ||
+            wallet.addresses.any((item) => item.address == address),
+      )) {
+        throw StateError(
+          'The imported wallet was encrypted but could not be selected. '
+          'Open Wallets and select it manually.',
         );
       }
       await PreferencesService().setAddress(address);
-      widget.onConnected(address);
+      if (mounted) widget.onConnected(address);
     } catch (error) {
       if (mounted) {
         setState(
@@ -61,7 +79,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _scanStatus = null;
+        });
+      }
     }
   }
 
@@ -175,6 +198,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                 ),
               ),
+              if (_scanStatus != null) ...[
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: KasVaultTheme.panel,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: KasVaultTheme.line),
+                  ),
+                  child: Row(
+                    children: [
+                      const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          '$_scanStatus\nThe wallet is already encrypted on '
+                          'this device.',
+                          style: const TextStyle(height: 1.35),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: _saving ? null : _importPrivateKey,
