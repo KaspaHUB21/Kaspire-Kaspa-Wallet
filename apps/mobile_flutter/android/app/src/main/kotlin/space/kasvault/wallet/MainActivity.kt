@@ -1195,7 +1195,7 @@ class MainActivity : FlutterFragmentActivity() {
         cipher.init(Cipher.ENCRYPT_MODE, ensureVaultKey())
         val plaintext = secret.toByteArray(Charsets.UTF_8)
         val encrypted = try { cipher.doFinal(plaintext) } finally { plaintext.fill(0) }
-        prefs.edit()
+        val committed = prefs.edit()
             .putString(walletKey(id, "ciphertext"), Base64.encodeToString(encrypted, Base64.NO_WRAP))
             .putString(walletKey(id, "iv"), Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
             .putString(walletKey(id, "address"), address)
@@ -1213,6 +1213,14 @@ class MainActivity : FlutterFragmentActivity() {
             .putString(walletIdsKey, JSONArray(ids).toString())
             .commit()
         encrypted.fill(0)
+        check(committed) { "Android rejected the encrypted wallet write" }
+        check(walletIds().contains(id)) { "Encrypted wallet registration was not persisted" }
+        check(prefs.getString(walletKey(id, "address"), null) == address) {
+            "Stored wallet address verification failed"
+        }
+        check(prefs.contains(walletKey(id, "ciphertext")) && prefs.contains(walletKey(id, "iv"))) {
+            "Stored wallet encryption record verification failed"
+        }
     }
 
     private fun decryptSecret(address: String? = null): String {

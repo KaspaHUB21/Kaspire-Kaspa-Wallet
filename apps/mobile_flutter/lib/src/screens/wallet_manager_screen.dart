@@ -104,22 +104,26 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
         // discovery. The wallet remains available even if scanning is slow,
         // interrupted or an endpoint is temporarily unavailable.
         await _preferences.setAddress(address);
-        unawaited(
-          HdDiscoveryService().discoverAndRegister(
-            address,
-            _security,
-          ),
-        );
       }
       final wallets = await _security.listWallets();
-      if (!wallets.any(
+      final importedWallet = wallets.where(
         (wallet) =>
             wallet.address == address ||
             wallet.addresses.any((item) => item.address == address),
-      )) {
+      );
+      if (importedWallet.isEmpty) {
         throw StateError(
-          'The imported wallet was encrypted but could not be selected. '
-          'Reload Wallets and select it manually.',
+          'The seed derived $address, but the encrypted signing wallet was '
+          'not registered. The existing wallets were not changed.',
+        );
+      }
+      await _security.selectWallet(importedWallet.first.id);
+      if (mode == 'mnemonic') {
+        unawaited(
+          Future<void>.delayed(const Duration(milliseconds: 300))
+              .then<void>((_) async {
+            await HdDiscoveryService().discoverAndRegister(address, _security);
+          }),
         );
       }
       await _selectAddress(address);

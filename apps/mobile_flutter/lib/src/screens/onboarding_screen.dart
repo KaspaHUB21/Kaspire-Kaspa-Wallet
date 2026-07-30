@@ -53,26 +53,30 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         // its standard receive address before online HD discovery so a slow
         // or interrupted scan can never make the imported wallet disappear.
         await PreferencesService().setAddress(address);
-        unawaited(
-          HdDiscoveryService().discoverAndRegister(
-            address,
-            security,
-          ),
-        );
       }
       final wallets = await security.listWallets();
-      if (!wallets.any(
+      final importedWallet = wallets.where(
         (wallet) =>
             wallet.address == address ||
             wallet.addresses.any((item) => item.address == address),
-      )) {
+      );
+      if (importedWallet.isEmpty) {
         throw StateError(
-          'The imported wallet was encrypted but could not be selected. '
-          'Open Wallets and select it manually.',
+          'The seed derived $address, but the encrypted signing wallet was '
+          'not registered. No seed data was lost.',
         );
       }
+      await security.selectWallet(importedWallet.first.id);
       await PreferencesService().setAddress(address);
       if (mounted) widget.onConnected(address);
+      if (!create) {
+        unawaited(
+          Future<void>.delayed(const Duration(milliseconds: 300))
+              .then<void>((_) async {
+            await HdDiscoveryService().discoverAndRegister(address, security);
+          }),
+        );
+      }
     } catch (error) {
       if (mounted) {
         setState(
