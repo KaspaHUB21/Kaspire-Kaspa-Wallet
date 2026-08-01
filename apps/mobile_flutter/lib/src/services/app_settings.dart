@@ -53,6 +53,7 @@ class AppSettings {
   static const _uppercaseButtonsKey = 'appearance_uppercase_buttons_v1';
   static const _lastBackgroundAtKey = 'security_last_background_at_v1';
   static const _fiatCurrencyKey = 'appearance_fiat_currency_v1';
+  static const _recipientAllowlistKey = 'security_recipient_allowlist_v1';
 
   static final ValueNotifier<int> lockMinutes = ValueNotifier(15);
   static final ValueNotifier<bool> showSubwallets = ValueNotifier(true);
@@ -61,12 +62,15 @@ class AppSettings {
       ValueNotifier(KaspireTheme.midnight);
   static final ValueNotifier<FiatCurrency> fiatCurrency =
       ValueNotifier(FiatCurrency.usd);
+  static final ValueNotifier<bool> recipientAllowlist = ValueNotifier(false);
 
   static Future<void> initialize() async {
     final preferences = await SharedPreferences.getInstance();
     lockMinutes.value = preferences.getInt(_lockMinutesKey) ?? 15;
     showSubwallets.value = preferences.getBool(_showSubwalletsKey) ?? true;
     uppercaseButtons.value = preferences.getBool(_uppercaseButtonsKey) ?? true;
+    recipientAllowlist.value =
+        preferences.getBool(_recipientAllowlistKey) ?? false;
     final storedCurrency = preferences.getString(_fiatCurrencyKey);
     fiatCurrency.value = FiatCurrency.values.firstWhere(
       (item) => item.code == storedCurrency,
@@ -110,6 +114,12 @@ class AppSettings {
     fiatCurrency.value = value;
     await (await SharedPreferences.getInstance())
         .setString(_fiatCurrencyKey, value.code);
+  }
+
+  static Future<void> setRecipientAllowlist(bool value) async {
+    recipientAllowlist.value = value;
+    await (await SharedPreferences.getInstance())
+        .setBool(_recipientAllowlistKey, value);
   }
 
   static Future<void> recordBackgroundedAt(DateTime value) async {

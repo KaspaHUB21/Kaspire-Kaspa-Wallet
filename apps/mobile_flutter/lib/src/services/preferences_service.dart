@@ -11,6 +11,7 @@ class PreferencesService {
   static const _addressKey = 'watch_address_v1';
   static const _watchWalletsKey = 'watch_wallets_v2';
   static const _addressBookKey = 'address_book_v1';
+  static const _subwalletNamesKey = 'subwallet_names_v1';
 
   Future<String?> getAddress() async =>
       (await SharedPreferences.getInstance()).getString(_addressKey);
@@ -119,6 +120,41 @@ class PreferencesService {
       _addressBookKey,
       jsonEncode(entries.map((item) => item.toJson()).toList()),
     );
+  }
+
+  Future<bool> isAddressBookRecipient(String address) async {
+    final normalized = address.trim().toLowerCase();
+    return (await getAddressBook())
+        .any((entry) => entry.address.toLowerCase() == normalized);
+  }
+
+  Future<Map<String, String>> getSubwalletNames() async {
+    final raw =
+        await readWithPlaintextMigration(_encryptedStore, _subwalletNamesKey);
+    if (raw == null) return {};
+    try {
+      return (jsonDecode(raw) as Map).map(
+        (key, value) => MapEntry(key.toString(), value.toString()),
+      );
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> renameSubwallet(String address, String name) async {
+    final normalized = name.trim();
+    if (normalized.isEmpty || normalized.length > 40) {
+      throw ArgumentError('Subwallet name must contain 1 to 40 characters.');
+    }
+    final names = await getSubwalletNames();
+    names[address.toLowerCase()] = normalized;
+    await _encryptedStore.write(_subwalletNamesKey, jsonEncode(names));
+  }
+
+  Future<void> removeSubwalletName(String address) async {
+    final names = await getSubwalletNames();
+    names.remove(address.toLowerCase());
+    await _encryptedStore.write(_subwalletNamesKey, jsonEncode(names));
   }
 }
 

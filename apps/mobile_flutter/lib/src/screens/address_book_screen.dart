@@ -29,15 +29,23 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
   }
 
   Future<void> _add() async {
+    await _edit();
+  }
+
+  Future<void> _edit([AddressBookEntry? existing]) async {
     final name = TextEditingController();
     final address = TextEditingController();
+    if (existing != null) {
+      name.text = existing.name;
+      address.text = existing.address;
+    }
     String? error;
     final saved = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Add contact'),
+          title: Text(existing == null ? 'Add contact' : 'Edit contact'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -78,7 +86,8 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
                   );
                   await _preferences.saveAddressBookEntry(
                     AddressBookEntry(
-                      id: 'contact-${DateTime.now().microsecondsSinceEpoch}',
+                      id: existing?.id ??
+                          'contact-${DateTime.now().microsecondsSinceEpoch}',
                       name: name.text.trim(),
                       address: resolved,
                     ),
@@ -109,43 +118,79 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
           label: Text(buttonLabel('ADD CONTACT')),
         ),
         body: SafeArea(
-          child: _entries.isEmpty
-              ? const Center(
-                  child: Text(
-                    'No saved contacts.',
-                    style: TextStyle(color: KasVaultTheme.muted),
+          child: Column(
+            children: [
+              ValueListenableBuilder<bool>(
+                valueListenable: AppSettings.recipientAllowlist,
+                builder: (context, enabled, _) => SwitchListTile(
+                  value: enabled,
+                  onChanged: AppSettings.setRecipientAllowlist,
+                  secondary: Icon(
+                    Icons.verified_user_outlined,
+                    color: KasVaultTheme.mint,
                   ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                  itemCount: _entries.length,
-                  itemBuilder: (context, index) {
-                    final entry = _entries[index];
-                    return Card(
-                      child: ListTile(
-                        onTap: widget.selectAddress
-                            ? () => Navigator.pop(context, entry.address)
-                            : null,
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.person_outline_rounded),
-                        ),
-                        title: Text(entry.name),
-                        subtitle: Text(
-                          entry.address,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: IconButton(
-                          onPressed: () async {
-                            await _preferences.removeAddressBookEntry(entry.id);
-                            await _load();
-                          },
-                          icon: const Icon(Icons.delete_outline_rounded),
-                        ),
-                      ),
-                    );
-                  },
+                  title: const Text('Only allow saved recipients'),
+                  subtitle: const Text(
+                    'Blocks KAS, token, NFT and KNS transfers to addresses '
+                    'that are not in this address book.',
+                  ),
                 ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: _entries.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No saved contacts.',
+                          style: TextStyle(color: KasVaultTheme.muted),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                        itemCount: _entries.length,
+                        itemBuilder: (context, index) {
+                          final entry = _entries[index];
+                          return Card(
+                            child: ListTile(
+                              onTap: widget.selectAddress
+                                  ? () => Navigator.pop(context, entry.address)
+                                  : null,
+                              leading: const CircleAvatar(
+                                child: Icon(Icons.person_outline_rounded),
+                              ),
+                              title: Text(entry.name),
+                              subtitle: Text(
+                                entry.address,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Edit contact',
+                                    onPressed: () => _edit(entry),
+                                    icon: const Icon(Icons.edit_outlined),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Delete contact',
+                                    onPressed: () async {
+                                      await _preferences
+                                          .removeAddressBookEntry(entry.id);
+                                      await _load();
+                                    },
+                                    icon: const Icon(
+                                        Icons.delete_outline_rounded),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
       );
 }

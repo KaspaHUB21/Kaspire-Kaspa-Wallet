@@ -25,6 +25,43 @@ void main() {
     final remaining = await preferences.getWatchWallets();
     expect(remaining.map((wallet) => wallet.address), ['kaspa:qsecond']);
   });
+
+  test('edits allowlisted contacts and matches resolved addresses', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = _MemoryEncryptedStore();
+    final preferences = PreferencesService(encryptedStore: store);
+    const id = 'contact-1';
+
+    await preferences.saveAddressBookEntry(
+      const AddressBookEntry(id: id, name: 'Alice', address: 'kaspa:qalice'),
+    );
+    await preferences.saveAddressBookEntry(
+      const AddressBookEntry(
+        id: id,
+        name: 'Alice vault',
+        address: 'kaspa:qvault',
+      ),
+    );
+
+    expect(await preferences.isAddressBookRecipient('KASPA:QVAULT'), isTrue);
+    expect(await preferences.isAddressBookRecipient('kaspa:qother'), isFalse);
+    expect((await preferences.getAddressBook()).single.name, 'Alice vault');
+  });
+
+  test('stores and removes encrypted subwallet display names', () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences =
+        PreferencesService(encryptedStore: _MemoryEncryptedStore());
+
+    await preferences.renameSubwallet('kaspa:qsub', 'Minting wallet');
+    expect(
+      (await preferences.getSubwalletNames())['kaspa:qsub'],
+      'Minting wallet',
+    );
+
+    await preferences.removeSubwalletName('kaspa:qsub');
+    expect(await preferences.getSubwalletNames(), isEmpty);
+  });
 }
 
 class _MemoryEncryptedStore implements EncryptedStore {

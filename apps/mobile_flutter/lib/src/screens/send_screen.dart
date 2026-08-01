@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/asset_send_intent.dart';
+import '../decimal_input_formatter.dart';
 import '../models/kaspa_payment_request.dart';
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
@@ -11,6 +12,7 @@ import '../services/signer_service.dart';
 import '../services/activity_store.dart';
 import '../theme.dart';
 import '../services/app_settings.dart';
+import '../services/preferences_service.dart';
 import 'asset_send_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'address_book_screen.dart';
@@ -39,8 +41,7 @@ class _SendScreenState extends State<SendScreen> {
           children: [
             const SafeArea(
               bottom: false,
-              child: TabBar(
-                  tabs: [Tab(text: 'KAS'), Tab(text: 'TOKENS / NFT / KNS')]),
+              child: TabBar(tabs: [Tab(text: 'KAS'), Tab(text: 'ASSETS')]),
             ),
             Expanded(
               child: TabBarView(
@@ -73,6 +74,7 @@ class _KasSendPanelState extends State<_KasSendPanel> {
   final _api = KaspaApi();
   final _signer = SignerService();
   final _security = NativeSecurity();
+  final _preferences = PreferencesService();
   String? _error;
   _PaymentReceipt? _receipt;
   bool _working = false;
@@ -142,6 +144,13 @@ class _KasSendPanelState extends State<_KasSendPanel> {
     try {
       recipient = paymentRequest?.address ??
           await _api.resolveWalletInput(_recipient.text);
+      if (AppSettings.recipientAllowlist.value &&
+          !await _preferences.isAddressBookRecipient(recipient)) {
+        throw StateError(
+          'This recipient is not in your address book. Add it first or '
+          'disable the recipient allowlist.',
+        );
+      }
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -304,6 +313,7 @@ class _KasSendPanelState extends State<_KasSendPanel> {
                   },
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [DecimalInputFormatter(decimalPlaces: 8)],
                   decoration: InputDecoration(
                     labelText: 'Amount',
                     hintText: _sendAll ? 'Entire spendable balance' : '0.00',
@@ -313,10 +323,29 @@ class _KasSendPanelState extends State<_KasSendPanel> {
               ),
               const SizedBox(width: 10),
               OutlinedButton(
-                onPressed: () => setState(() {
-                  _sendAll = !_sendAll;
-                  if (_sendAll) _amount.clear();
-                }),
+                onPressed: () async {
+                  if (_sendAll) {
+                    setState(() {
+                      _sendAll = false;
+                      _amount.clear();
+                    });
+                    return;
+                  }
+                  try {
+                    final wallet = await _wallet;
+                    if (!mounted) return;
+                    setState(() {
+                      _sendAll = true;
+                      _amount.text = formatEnglishNumber(
+                        wallet.balanceKas,
+                        decimals: 8,
+                        trimTrailingZeros: true,
+                      );
+                    });
+                  } catch (error) {
+                    if (mounted) setState(() => _error = '$error');
+                  }
+                },
                 child: Text(buttonLabel(_sendAll ? 'CANCEL' : 'MAX')),
               ),
             ],
@@ -350,11 +379,11 @@ class _KasSendPanelState extends State<_KasSendPanel> {
             ),
             child: const Column(
               children: [
-                _ReviewRow('Network', 'Kaspa Mainnet'),
-                SizedBox(height: 10),
-                _ReviewRow('Fee', 'Live node estimate'),
-                SizedBox(height: 10),
-                _ReviewRow('Signer', 'Rusty Kaspa v2.0.1'),
+                _SendFact(label: 'Network', value: 'Kaspa Mainnet'),
+                SizedBox(height: 12),
+                _SendFact(label: 'Fee', value: 'Live node estimate'),
+                SizedBox(height: 12),
+                _SendFact(label: 'Signer', value: 'Rusty Kaspa v2.0.1'),
               ],
             ),
           ),
@@ -664,6 +693,30 @@ class _ReviewRow extends StatelessWidget {
               value,
               textAlign: TextAlign.right,
               style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      );
+}
+
+class _SendFact extends StatelessWidget {
+  const _SendFact({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(color: KasVaultTheme.muted),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
         ],

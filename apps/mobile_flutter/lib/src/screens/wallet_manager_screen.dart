@@ -29,6 +29,7 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
   final _preferences = PreferencesService();
   List<NativeWalletInfo> _native = const [];
   List<WatchWalletInfo> _watch = const [];
+  Map<String, String> _subwalletNames = const {};
   bool _loading = true;
   bool _working = false;
   String? _workingLabel;
@@ -45,11 +46,13 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
       final results = await Future.wait([
         _security.listWallets(),
         _preferences.getWatchWallets(),
+        _preferences.getSubwalletNames(),
       ]);
       if (mounted) {
         setState(() {
           _native = results[0] as List<NativeWalletInfo>;
           _watch = results[1] as List<WatchWalletInfo>;
+          _subwalletNames = results[2] as Map<String, String>;
           _loading = false;
           _error = null;
         });
@@ -348,6 +351,98 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
     }
   }
 
+  Future<void> _renameSubwallet(NativeHdAddress address) async {
+    final fallback = address.index == 0
+        ? 'Account ${address.account} · Subwallet 0'
+        : 'Subwallet ${address.index}';
+    final current = _subwalletNames[address.address.toLowerCase()] ?? fallback;
+    final controller = TextEditingController(text: current);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename subwallet'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 40,
+          decoration: const InputDecoration(labelText: 'Subwallet name'),
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(buttonLabel('CANCEL')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: Text(buttonLabel('SAVE')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || name.trim().isEmpty || name.trim() == current) return;
+    try {
+      await _preferences.renameSubwallet(address.address, name);
+      await _load();
+      widget.onWalletChanged();
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    }
+  }
+
+  Future<void> _deleteSubwallet(
+    NativeWalletInfo wallet,
+    NativeHdAddress address,
+  ) async {
+    if (address.index == 0) return;
+    final name = _subwalletNames[address.address.toLowerCase()] ??
+        'Subwallet ${address.index}';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Remove $name?'),
+        content: const Text(
+          'This removes the subwallet from Kaspire’s active wallet list. '
+          'The seed and funds are not deleted, and the address can be '
+          'derived again later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(buttonLabel('CANCEL')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(buttonLabel('REMOVE')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final authenticated = await _security.authenticate(
+        context,
+        'Remove $name from the wallet list',
+      );
+      if (!authenticated) return;
+      await _security.selectWallet(wallet.id);
+      await _security.registerHdAddresses(
+        wallet.addresses
+            .where((item) => item.address != address.address)
+            .toList(),
+      );
+      await _preferences.removeSubwalletName(address.address);
+      if (address.address == widget.currentAddress) {
+        await _preferences.setAddress(wallet.address);
+      }
+      await _load();
+      widget.onWalletChanged();
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Wallets')),
@@ -507,10 +602,11 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
               size: 20,
             ),
             title: Text(
-              address.index == 0
-                  ? '${legacy ? 'Legacy account' : 'Account'} '
-                      '${group.account} · Subwallet 0'
-                  : 'Subwallet ${address.index}',
+              _subwalletNames[address.address.toLowerCase()] ??
+                  (address.index == 0
+                      ? '${legacy ? 'Legacy account' : 'Account'} '
+                          '${group.account} · Subwallet 0'
+                      : 'Subwallet ${address.index}'),
             ),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -527,6 +623,17 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                     tooltip: 'Add address-index subwallet',
                     onPressed: () => _addSubwallet(wallet, group),
                     icon: const Icon(Icons.add_rounded),
+                  ),
+                IconButton(
+                  tooltip: 'Rename subwallet',
+                  onPressed: () => _renameSubwallet(address),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+                if (address.index > 0)
+                  IconButton(
+                    tooltip: 'Remove subwallet',
+                    onPressed: () => _deleteSubwallet(wallet, address),
+                    icon: const Icon(Icons.delete_outline_rounded),
                   ),
               ],
             ),

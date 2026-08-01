@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/asset_send_intent.dart';
+import '../decimal_input_formatter.dart';
 import '../models/kaspa_payment_request.dart';
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
@@ -13,6 +14,7 @@ import '../services/activity_store.dart';
 import '../services/app_settings.dart';
 import '../services/native_security.dart';
 import '../services/signer_service.dart';
+import '../services/preferences_service.dart';
 import '../theme.dart';
 import 'address_book_screen.dart';
 import 'qr_scanner_screen.dart';
@@ -39,6 +41,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
   final _api = KaspaApi();
   final _security = NativeSecurity();
   final _signer = SignerService();
+  final _preferences = PreferencesService();
   final _recipient = TextEditingController();
   final _amount = TextEditingController();
   WalletSnapshot? _wallet;
@@ -203,6 +206,13 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         throw StateError('This is a watch-only wallet.');
       }
       final recipient = await _api.resolveWalletInput(_recipient.text);
+      if (AppSettings.recipientAllowlist.value &&
+          !await _preferences.isAddressBookRecipient(recipient)) {
+        throw StateError(
+          'This recipient is not in your address book. Add it first or '
+          'disable the recipient allowlist.',
+        );
+      }
       final operation = <String, Object?>{
         'kind': _kind.name,
         'sender': widget.address,
@@ -589,6 +599,11 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                   controller: _amount,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    DecimalInputFormatter(
+                      decimalPlaces: asset.decimals.clamp(0, 8),
+                    ),
+                  ],
                   decoration: const InputDecoration(labelText: 'Amount'),
                 ),
               ),
