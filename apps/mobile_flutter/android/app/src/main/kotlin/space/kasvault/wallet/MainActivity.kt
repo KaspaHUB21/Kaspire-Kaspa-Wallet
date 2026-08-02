@@ -39,8 +39,11 @@ import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
 import org.json.JSONArray
 import java.security.KeyStore
+import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.security.Signature
+import java.security.spec.X509EncodedKeySpec
 import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -96,6 +99,10 @@ class MainActivity : FlutterFragmentActivity() {
                 when (call.method) {
                     "initializeVault" -> { ensureVaultKey(); migrateLegacyWallet(); result.success(null) }
                     "isHardwareBacked" -> result.success(isHardwareBacked())
+                    "verifyUpdateManifest" -> result.success(verifyUpdateManifest(
+                        call.argument<String>("payload") ?: error("Missing update payload"),
+                        call.argument<String>("signature") ?: error("Missing update signature"),
+                    ))
                     "hasNativeWallet" -> result.success(hasNativeWallet(call.argument<String>("address")))
                     "getNativeAddress" -> result.success(activeWalletAddress())
                     "listWallets" -> result.success(listWalletsJson().toString())
@@ -1291,6 +1298,30 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun hasPin(): Boolean = preferences().contains(pinSaltKey) && preferences().contains(pinHashKey)
+
+    private fun verifyUpdateManifest(payloadBase64: String, signatureBase64: String): Boolean {
+        return try {
+            val payload = Base64.decode(payloadBase64, Base64.NO_WRAP)
+            val signatureBytes = Base64.decode(signatureBase64, Base64.NO_WRAP)
+            val publicKeyBytes = Base64.decode(updateManifestPublicKey, Base64.NO_WRAP)
+            val publicKey = KeyFactory.getInstance("RSA")
+                .generatePublic(X509EncodedKeySpec(publicKeyBytes))
+            Signature.getInstance("SHA256withRSA").run {
+                initVerify(publicKey)
+                update(payload)
+                verify(signatureBytes)
+            }.also {
+                payload.fill(0)
+                signatureBytes.fill(0)
+                publicKeyBytes.fill(0)
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private val updateManifestPublicKey =
+        "MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAmp4KFfshDFHNu8Cf2fZFdgocNGVDjGuXHD0LXcikROMVXumX18+wtL8n6tDA4EN2mKyIGMJFydCFXd8w1LoC2zs/SD10QF4yFmd9AxQ5y44nzQbyimLmLVYK3uHKzxRum8CU/KPwC/aBA1GnQWHsJqDQv55bmXsyEM3eWQ+a/PcPHdNqXpuRkHk8IP+mFxrBCTQ4Y7G299llcCQ5/IL5lOtJqpPb2vdiYrO5IaAE/6kw6bV3ur29Yy2gUWCzGlFhABaWjEzUOqrmCATTfsOhs0tiQY8P2Dvxc1/uHbjwPmOmBDUqZcGGWShbv6hmO2oorCZ5zHCR3LTPxndj0vL6EYuR3u5XYH4camhYieehnvYFJA5RClxlo/BlPzqZqT0K7sREfwfyVUE4GkX7Qq3JN75qHKi1jEVOdGTWg1AQnYRPoUIDmaZZ38Nf4ulZLDzki4/SU3mvstbHvprB8hK3mmsM48il+ihu+4JhO9FE9WT8eyTziD6ZYPqG5c1qr72460/YhMecjJq5GGI3NYl5l7UzR+giEx0hDfYMTW+PQRIYO5q3OBQlDIanX579TjrfrP2+9Jg8ebemZwlCTpxW8iJJBLQqag6GTdO+gtENHJSnaSll6JLzZWK+D+3gcvkLa+52H//YS2RUeVDzkbTkZi/tKh+67DzfCg0I/VcIYx0CAwEAAQ=="
 
     private fun pinDigest(pin: CharArray, salt: ByteArray): ByteArray {
         val spec = PBEKeySpec(pin, salt, 210_000, 256)

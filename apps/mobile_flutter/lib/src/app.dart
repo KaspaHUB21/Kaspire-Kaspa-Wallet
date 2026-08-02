@@ -16,6 +16,7 @@ import 'services/native_security.dart';
 import 'services/preferences_service.dart';
 import 'services/app_settings.dart';
 import 'services/signer_service.dart';
+import 'services/update_service.dart';
 import 'theme.dart';
 
 class KasVaultApp extends StatefulWidget {
@@ -59,6 +60,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     _linkSubscription = _appLinks.uriLinkStream.listen(_queueAppLink);
     unawaited(_loadInitialAppLink());
     _dapps.initialize();
+    unawaited(UpdateService.instance.checkIfDue());
     _inactivityTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) => _checkInactivity(),

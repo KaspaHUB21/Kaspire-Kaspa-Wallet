@@ -31,8 +31,8 @@ tablets, and foldables.
 
 ## Current release
 
-- Version: **0.11.11**
-- Android build: **69**
+- Version: **0.11.12**
+- Android build: **70**
 - Network: **Kaspa Mainnet**
 - Android package: `space.kaspire.wallet`
 - License: [Apache-2.0](LICENSE)
@@ -85,6 +85,8 @@ tablets, and foldables.
 - Optional hiding of address-index subwallets in the Wallets overview
 - In-app diagnostics for the configured Kaspa gateway, UTXO integrity,
   KRC/KNS and KCC20 indexers, and WalletConnect
+- Cryptographically signed in-app update checks with daily/manual modes,
+  release notes, download links and a 24-hour reminder option
 
 ---
 

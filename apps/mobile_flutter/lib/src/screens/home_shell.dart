@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/asset_send_intent.dart';
 import 'receive_screen.dart';
@@ -9,6 +10,9 @@ import 'dapp_sessions_screen.dart';
 import 'wallet_screen.dart';
 import 'wallet_manager_screen.dart';
 import 'address_book_screen.dart';
+import '../services/update_service.dart';
+import '../services/app_settings.dart';
+import '../theme.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({
@@ -132,7 +136,84 @@ class _HomeShellState extends State<HomeShell> {
         SystemNavigator.pop();
       },
       child: Scaffold(
-        body: IndexedStack(index: _index, children: pages),
+        body: Column(
+          children: [
+            if (_index == 0)
+              ValueListenableBuilder<UpdateCheckState>(
+                valueListenable: UpdateService.instance.state,
+                builder: (context, state, _) {
+                  final update = state.update;
+                  if (update == null) return const SizedBox.shrink();
+                  return SafeArea(
+                    bottom: false,
+                    child: Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+                      decoration: BoxDecoration(
+                        color: update.critical
+                            ? const Color(0xFF4A1717)
+                            : KasVaultTheme.mint.withValues(alpha: .12),
+                        border: Border.all(
+                          color: update.critical
+                              ? const Color(0xFFFF8A65)
+                              : KasVaultTheme.mint,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            update.critical
+                                ? Icons.warning_amber_rounded
+                                : Icons.system_update_alt_rounded,
+                            color: update.critical
+                                ? const Color(0xFFFF8A65)
+                                : KasVaultTheme.mint,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Kaspire ${update.version} is available',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                Text(
+                                  'Build ${update.build}${update.critical ? ' · Security update' : ''}',
+                                  style: const TextStyle(
+                                    color: KasVaultTheme.muted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => launchUrl(
+                              update.apkUrl,
+                              mode: LaunchMode.externalApplication,
+                            ),
+                            child: Text(buttonLabel('DOWNLOAD')),
+                          ),
+                          IconButton(
+                            tooltip: 'Remind me tomorrow',
+                            onPressed: () =>
+                                UpdateService.instance.remindLater(update),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            Expanded(child: IndexedStack(index: _index, children: pages)),
+          ],
+        ),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _index,
           onDestinationSelected: _selectDestination,

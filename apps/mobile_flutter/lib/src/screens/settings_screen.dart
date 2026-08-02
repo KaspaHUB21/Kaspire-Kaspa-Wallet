@@ -9,6 +9,7 @@ import '../services/hd_discovery_service.dart';
 import '../services/network_settings.dart';
 import '../services/privacy_settings.dart';
 import '../services/app_settings.dart';
+import '../services/update_service.dart';
 import '../theme.dart';
 import 'diagnostics_screen.dart';
 
@@ -942,6 +943,94 @@ class _SettingsOverview extends StatelessWidget {
                       ),
                     ],
                   ),
+                ),
+              ],
+            ),
+            _SettingsSection(
+              icon: Icons.system_update_alt_rounded,
+              title: 'Kaspire updates',
+              subtitle: 'Signed in-app update checks',
+              children: [
+                ValueListenableBuilder<bool>(
+                  valueListenable: UpdateService.instance.automaticChecks,
+                  builder: (context, enabled, _) => SwitchListTile(
+                    value: enabled,
+                    onChanged: UpdateService.instance.setAutomaticChecks,
+                    secondary: Icon(
+                      Icons.update_rounded,
+                      color: KasVaultTheme.mint,
+                    ),
+                    title: const Text('Automatic daily checks'),
+                    subtitle: const Text(
+                      'Checks only the signed Kaspire release manifest.',
+                    ),
+                  ),
+                ),
+                ValueListenableBuilder<UpdateCheckState>(
+                  valueListenable: UpdateService.instance.state,
+                  builder: (context, state, _) {
+                    final update = state.update;
+                    final checked = state.lastCheckedAt?.toLocal();
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _SettingTile(
+                          icon: update == null
+                              ? Icons.verified_outlined
+                              : Icons.new_releases_outlined,
+                          title: update == null
+                              ? 'Installed version status'
+                              : 'Kaspire ${update.version} available',
+                          detail: state.checking
+                              ? 'Checking signed manifest…'
+                              : update != null
+                                  ? 'Build ${update.build}${update.critical ? ' · Security update' : ''}'
+                                  : state.error != null
+                                      ? state.error!
+                                      : checked == null
+                                          ? 'Not checked yet'
+                                          : 'Last checked ${checked.toString().split('.').first}',
+                          color: update == null
+                              ? KasVaultTheme.mint
+                              : const Color(0xFFFFB65C),
+                        ),
+                        FilledButton.icon(
+                          onPressed: state.checking
+                              ? null
+                              : () => UpdateService.instance.checkNow(),
+                          icon: state.checking
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.refresh_rounded),
+                          label: Text(buttonLabel('CHECK FOR UPDATES')),
+                        ),
+                        if (update != null) ...[
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: () => _open(update.apkUrl.toString()),
+                            icon: const Icon(Icons.download_rounded),
+                            label: Text(buttonLabel('DOWNLOAD UPDATE')),
+                          ),
+                          TextButton.icon(
+                            onPressed: () =>
+                                _open(update.releaseNotesUrl.toString()),
+                            icon: const Icon(Icons.article_outlined),
+                            label: Text(buttonLabel('VIEW CHANGES')),
+                          ),
+                          TextButton(
+                            onPressed: () =>
+                                UpdateService.instance.remindLater(update),
+                            child: Text(buttonLabel('REMIND ME LATER')),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
                 ),
               ],
             ),

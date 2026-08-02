@@ -90,6 +90,16 @@ class NativeSecurity {
     }
   }
 
+  Future<bool> verifyUpdateManifest({
+    required String payload,
+    required String signature,
+  }) async =>
+      await _channel.invokeMethod<bool>('verifyUpdateManifest', {
+        'payload': payload,
+        'signature': signature,
+      }) ??
+      false;
+
   Future<void> initializeVault() =>
       _channel.invokeMethod<void>('initializeVault');
 
