@@ -502,11 +502,10 @@ mod tests {
         let selected_key = export_private_key(&selected_secret).unwrap();
         assert_ne!(selected_key, primary_key);
 
-        let selected_address =
-            derive_address_range(&root_secret, MODERN_COIN_TYPE, 0, 0, 2, 1)
-                .unwrap()
-                .remove(0)
-                .address;
+        let selected_address = derive_address_range(&root_secret, MODERN_COIN_TYPE, 0, 0, 2, 1)
+            .unwrap()
+            .remove(0)
+            .address;
         assert_eq!(
             import_private_key(&selected_key).unwrap().address,
             selected_address

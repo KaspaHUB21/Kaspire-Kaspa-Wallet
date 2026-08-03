@@ -8,7 +8,10 @@ String kaspaOwnerIdFromAddress(String address) {
   }
   final prefixText = normalized.substring(0, separator);
   final encoded = normalized.substring(separator + 1);
-  if (prefixText != 'kaspa' || encoded.length < 8) return '';
+  if (!const {'kaspa', 'kaspatest'}.contains(prefixText) ||
+      encoded.length < 8) {
+    return '';
+  }
   final values = <int>[];
   for (final character in encoded.codeUnits) {
     final value = _kaspaCharset.indexOf(String.fromCharCode(character));
@@ -25,7 +28,7 @@ String kaspaOwnerIdFromAddress(String address) {
       .join();
 }
 
-String kaspaAddressFromOwnerId(String ownerId) {
+String kaspaAddressFromOwnerId(String ownerId, {String prefix = 'kaspa'}) {
   final normalized = ownerId.trim().toLowerCase();
   if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(normalized)) return '';
   final payload = <int>[0];
@@ -33,9 +36,10 @@ String kaspaAddressFromOwnerId(String ownerId) {
     payload.add(int.parse(normalized.substring(index, index + 2), radix: 16));
   }
   final fiveBitPayload = _convert8To5(payload);
-  final prefix = 'kaspa'.codeUnits.map((value) => value & 31);
+  if (!const {'kaspa', 'kaspatest'}.contains(prefix)) return '';
+  final prefixValues = prefix.codeUnits.map((value) => value & 31);
   final checksum = _polymod([
-    ...prefix,
+    ...prefixValues,
     0,
     ...fiveBitPayload,
     ...List.filled(8, 0),
@@ -47,7 +51,13 @@ String kaspaAddressFromOwnerId(String ownerId) {
     ...fiveBitPayload,
     ..._convert8To5(checksumBytes),
   ].map((value) => _kaspaCharset[value]).join();
-  return 'kaspa:$encoded';
+  return '$prefix:$encoded';
+}
+
+String kaspaAddressWithPrefix(String address, String targetPrefix) {
+  final ownerId = kaspaOwnerIdFromAddress(address);
+  if (ownerId.isEmpty) return '';
+  return kaspaAddressFromOwnerId(ownerId, prefix: targetPrefix);
 }
 
 List<int>? _convert5To8(List<int> payload) {

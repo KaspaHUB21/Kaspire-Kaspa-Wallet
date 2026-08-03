@@ -337,4 +337,12 @@ class DappSessionService {
     );
     _changes.add(null);
   }
+
+  Future<void> disconnectAll() async {
+    await initialize();
+    final topics = activeSessions().keys.toList(growable: false);
+    for (final topic in topics) {
+      await disconnect(topic);
+    }
+  }
 }

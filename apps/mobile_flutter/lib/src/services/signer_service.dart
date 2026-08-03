@@ -1,4 +1,5 @@
 import 'native_security.dart';
+import 'network_settings.dart';
 
 class PreparedPayment {
   const PreparedPayment({
@@ -47,6 +48,7 @@ class SignerService {
   }) async {
     final request = <String, Object?>{
       'sender': sender,
+      'walletAddress': NetworkSettings.storageAddress(sender),
       'recipient': recipient,
       'amountSompi': amountSompi,
       'feeRate': feeRate,

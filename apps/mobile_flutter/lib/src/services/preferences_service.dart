@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
 import 'encrypted_store.dart';
+import 'network_settings.dart';
 
 class PreferencesService {
   PreferencesService({EncryptedStore? encryptedStore})
@@ -123,9 +124,11 @@ class PreferencesService {
   }
 
   Future<bool> isAddressBookRecipient(String address) async {
-    final normalized = address.trim().toLowerCase();
-    return (await getAddressBook())
-        .any((entry) => entry.address.toLowerCase() == normalized);
+    final normalized =
+        NetworkSettings.storageAddress(address).trim().toLowerCase();
+    return (await getAddressBook()).any((entry) =>
+        NetworkSettings.storageAddress(entry.address).toLowerCase() ==
+        normalized);
   }
 
   Future<Map<String, String>> getSubwalletNames() async {

@@ -1,7 +1,7 @@
 use crate::{derive_address, derive_key, CoreError, Result};
-use kaspa_addresses::Address;
+use kaspa_addresses::{Address, Prefix};
 use kaspa_consensus_core::{
-    config::params::MAINNET_PARAMS,
+    config::params::{MAINNET_PARAMS, TESTNET_PARAMS},
     mass::{ContextualMasses, Mass, MassCalculator},
     sign::sign_with_multiple_v2,
     subnets::SUBNETWORK_ID_NATIVE,
@@ -77,7 +77,11 @@ pub fn sign_transaction(
     request: &SendRequest,
     approved_review_hash: &str,
 ) -> Result<SignedTransaction> {
-    let derived = derive_address(phrase)?.to_string();
+    let sender =
+        Address::try_from(request.sender.as_str()).map_err(|_| CoreError::InvalidAddress)?;
+    let mut derived = derive_address(phrase)?;
+    derived.prefix = sender.prefix;
+    let derived = derived.to_string();
     if derived != request.sender {
         return Err(CoreError::InvalidRequest(
             "seed does not control sender".into(),
@@ -116,9 +120,16 @@ fn build(request: &SendRequest) -> Result<Built> {
         Address::try_from(request.sender.as_str()).map_err(|_| CoreError::InvalidAddress)?;
     let recipient =
         Address::try_from(request.recipient.as_str()).map_err(|_| CoreError::InvalidAddress)?;
-    if !request.sender.starts_with("kaspa:") || !request.recipient.starts_with("kaspa:") {
+    if !matches!(sender.prefix, Prefix::Mainnet | Prefix::Testnet)
+        || recipient.prefix != sender.prefix
+    {
         return Err(CoreError::InvalidAddress);
     }
+    let params = if sender.prefix == Prefix::Testnet {
+        &TESTNET_PARAMS
+    } else {
+        &MAINNET_PARAMS
+    };
     let mut available = parse_utxos(&request.utxos_json, &sender)?;
     available.sort_by(|a, b| b.entry.amount.cmp(&a.entry.amount));
     if request.send_all {
@@ -128,7 +139,7 @@ fn build(request: &SendRequest) -> Result<Built> {
     let mut total_input = 0u64;
     let mut cursor = 0usize;
     let mut fee = 0u64;
-    let mass_calculator = MassCalculator::new_with_consensus_params(&MAINNET_PARAMS);
+    let mass_calculator = MassCalculator::new_with_consensus_params(params);
 
     let (unsigned_tx, mass, change) = loop {
         while total_input <= request.amount_sompi.saturating_add(fee) {
@@ -177,7 +188,7 @@ fn build(request: &SendRequest) -> Result<Built> {
             non_contextual,
             ContextualMasses::new(contextual.storage_mass),
         )
-        .normalized_max(&MAINNET_PARAMS.mempool_block_mass_cofactors().after());
+        .normalized_max(&params.mempool_block_mass_cofactors().after());
         let required_fee = (request.fee_rate * mass as f64).ceil() as u64;
         if actual_fee >= required_fee {
             let unsigned = make_transaction(
@@ -203,7 +214,7 @@ fn build(request: &SendRequest) -> Result<Built> {
     let signable = SignableTransaction::with_entries(unsigned_tx.clone(), entries);
     let final_fee = total_input - request.amount_sompi - change;
     let review_without_hash = json!({
-        "network": "kaspa:mainnet",
+        "network": if sender.prefix == Prefix::Testnet { "kaspa:testnet-10" } else { "kaspa:mainnet" },
         "version": unsigned_tx.version,
         "sender": sender.to_string(),
         "recipient": recipient.to_string(),
@@ -249,7 +260,12 @@ fn build_send_all(
             .checked_add(item.entry.amount)
             .ok_or_else(|| CoreError::InvalidRequest("input overflow".into()))
     })?;
-    let mass_calculator = MassCalculator::new_with_consensus_params(&MAINNET_PARAMS);
+    let params = if sender.prefix == Prefix::Testnet {
+        &TESTNET_PARAMS
+    } else {
+        &MAINNET_PARAMS
+    };
+    let mass_calculator = MassCalculator::new_with_consensus_params(params);
     let mut fee = 0u64;
     let (mut unsigned_tx, mass, amount) = loop {
         let amount = total_input
@@ -272,7 +288,7 @@ fn build_send_all(
             non_contextual,
             ContextualMasses::new(contextual.storage_mass),
         )
-        .normalized_max(&MAINNET_PARAMS.mempool_block_mass_cofactors().after());
+        .normalized_max(&params.mempool_block_mass_cofactors().after());
         let required_fee = (request.fee_rate * mass as f64).ceil() as u64;
         if fee >= required_fee {
             break (
@@ -291,7 +307,7 @@ fn build_send_all(
         .collect::<Vec<_>>();
     let signable = SignableTransaction::with_entries(unsigned_tx.clone(), entries);
     let review_without_hash = json!({
-        "network": "kaspa:mainnet", "version": unsigned_tx.version,
+        "network": if sender.prefix == Prefix::Testnet { "kaspa:testnet-10" } else { "kaspa:mainnet" }, "version": unsigned_tx.version,
         "sender": sender.to_string(), "recipient": recipient.to_string(),
         "amountSompi": amount, "totalInputSompi": total_input,
         "changeSompi": 0, "feeSompi": fee, "mass": mass,

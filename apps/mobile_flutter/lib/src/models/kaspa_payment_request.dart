@@ -11,7 +11,9 @@ class KaspaPaymentRequest {
     final address = (separator < 0 ? raw : raw.substring(0, separator))
         .trim()
         .toLowerCase();
-    if (!RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(address)) return null;
+    if (!RegExp(r'^(kaspa|kaspatest):[a-z0-9]{61,63}$').hasMatch(address)) {
+      return null;
+    }
     if (separator < 0) return KaspaPaymentRequest(address: address);
     final Map<String, List<String>> query;
     try {

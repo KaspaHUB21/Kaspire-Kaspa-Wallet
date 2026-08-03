@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/kaspa_api.dart';
 import '../services/preferences_service.dart';
 import '../theme.dart';
 import '../services/app_settings.dart';
+import '../services/native_security.dart';
+import '../services/network_settings.dart';
 
 class AddressBookScreen extends StatefulWidget {
   const AddressBookScreen({super.key, this.selectAddress = false});
@@ -89,7 +92,7 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
                       id: existing?.id ??
                           'contact-${DateTime.now().microsecondsSinceEpoch}',
                       name: name.text.trim(),
-                      address: resolved,
+                      address: NetworkSettings.storageAddress(resolved),
                     ),
                   );
                   if (context.mounted) Navigator.pop(context, true);
@@ -109,13 +112,118 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
     if (saved == true) await _load();
   }
 
+  Future<void> _myWallets() async {
+    final native = await NativeSecurity().listWallets();
+    final watch = await _preferences.getWatchWallets();
+    final subwalletNames = await _preferences.getSubwalletNames();
+    if (!mounted) return;
+    final wallets = <({String name, String detail, String address})>[
+      for (final wallet in native)
+        for (final item in wallet.addresses)
+          (
+            name: item.address == wallet.address
+                ? wallet.name
+                : subwalletNames[item.address.toLowerCase()] ??
+                    'Subwallet ${item.index}',
+            detail: item.derivationPath,
+            address: NetworkSettings.addressForNetwork(item.address),
+          ),
+      for (final wallet in watch)
+        (
+          name: wallet.name,
+          detail: 'Watch wallet',
+          address: NetworkSettings.addressForNetwork(wallet.address),
+        ),
+    ];
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * .7,
+          child: Column(
+            children: [
+              Text(
+                displayLabel('MY WALLETS'),
+                style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: wallets.isEmpty
+                    ? const Center(child: Text('No wallets available.'))
+                    : ListView.builder(
+                        itemCount: wallets.length,
+                        itemBuilder: (context, index) {
+                          final wallet = wallets[index];
+                          return ListTile(
+                            leading: const Icon(
+                                Icons.account_balance_wallet_outlined),
+                            title: Text(wallet.name),
+                            subtitle: Text(
+                              '${wallet.detail}\n${wallet.address}',
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onTap: () => Navigator.pop(context, wallet.address),
+                            trailing: IconButton(
+                              tooltip: 'Copy address',
+                              onPressed: () async {
+                                await Clipboard.setData(
+                                  ClipboardData(text: wallet.address),
+                                );
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content: Text('Address copied')),
+                                  );
+                                }
+                              },
+                              icon: const Icon(Icons.copy_rounded),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    if (widget.selectAddress) {
+      Navigator.pop(context, selected);
+    } else {
+      await Clipboard.setData(ClipboardData(text: selected));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Wallet address copied')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Address book')),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _add,
-          icon: const Icon(Icons.person_add_alt_1_rounded),
-          label: Text(buttonLabel('ADD CONTACT')),
+        floatingActionButton: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FloatingActionButton.extended(
+              heroTag: 'my-wallets',
+              onPressed: _myWallets,
+              icon: const Icon(Icons.account_balance_wallet_outlined),
+              label: Text(buttonLabel('MY WALLETS')),
+            ),
+            const SizedBox(width: 10),
+            FloatingActionButton.extended(
+              heroTag: 'add-contact',
+              onPressed: _add,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: Text(buttonLabel('ADD CONTACT')),
+            ),
+          ],
         ),
         body: SafeArea(
           child: Column(
@@ -153,14 +261,20 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
                           return Card(
                             child: ListTile(
                               onTap: widget.selectAddress
-                                  ? () => Navigator.pop(context, entry.address)
+                                  ? () => Navigator.pop(
+                                        context,
+                                        NetworkSettings.addressForNetwork(
+                                          entry.address,
+                                        ),
+                                      )
                                   : null,
                               leading: const CircleAvatar(
                                 child: Icon(Icons.person_outline_rounded),
                               ),
                               title: Text(entry.name),
                               subtitle: Text(
-                                entry.address,
+                                NetworkSettings.addressForNetwork(
+                                    entry.address),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),

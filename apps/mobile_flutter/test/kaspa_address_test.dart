@@ -23,6 +23,15 @@ void main() {
     expect(kaspaOwnerIdFromAddress(address), owner);
   });
 
+  test('converts the same wallet safely between Mainnet and TN10', () {
+    const mainnet =
+        'kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh';
+    final testnet = kaspaAddressWithPrefix(mainnet, 'kaspatest');
+    expect(testnet, startsWith('kaspatest:'));
+    expect(kaspaOwnerIdFromAddress(testnet), kaspaOwnerIdFromAddress(mainnet));
+    expect(kaspaAddressWithPrefix(testnet, 'kaspa'), mainnet);
+  });
+
   test('rejects malformed or checksum-invalid Kaspa addresses', () {
     expect(kaspaOwnerIdFromAddress('kaspa:qtestaddress'), isEmpty);
     expect(

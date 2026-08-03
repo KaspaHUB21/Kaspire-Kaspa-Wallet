@@ -246,7 +246,13 @@ class MainActivity : FlutterFragmentActivity() {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
                         requireAuthorization(call, "signTransaction", reviewHash)
-                        val secret = decryptSecret(JSONObject(request).getString("sender"))
+                        val requestObject = JSONObject(request)
+                        val secret = decryptSecret(
+                            requestObject.optString(
+                                "walletAddress",
+                                requestObject.getString("sender"),
+                            ),
+                        )
                         try {
                             resultFromCore(SecureCore.signTransaction(secret, request, reviewHash), result)
                         } finally {

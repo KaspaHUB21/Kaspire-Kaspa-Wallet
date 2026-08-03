@@ -1,4 +1,4 @@
-use crate::{CoreError, Result, derive_address, derive_key};
+use crate::{derive_address, derive_key, CoreError, Result};
 use kaspa_addresses::Address;
 use kaspa_consensus_core::{
     hashing::sighash_type::SIG_HASH_ALL,
@@ -20,7 +20,7 @@ use kaspa_txscript::{
     script_builder::ScriptBuilder,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::HashSet, str::FromStr};
 
@@ -821,14 +821,12 @@ mod tests {
         let redeem = expected_vault_redeem_script(&payload, &sender, "create").unwrap();
         payload["redeemScript"] = json!(hex::encode(&redeem));
         let vault_script = pay_to_script_hash_script(&redeem);
-        payload["vaultAddress"] = json!(
-            kaspa_txscript::extract_script_pub_key_address(
-                &vault_script,
-                kaspa_addresses::Prefix::Mainnet
-            )
-            .unwrap()
-            .to_string()
-        );
+        payload["vaultAddress"] = json!(kaspa_txscript::extract_script_pub_key_address(
+            &vault_script,
+            kaspa_addresses::Prefix::Mainnet
+        )
+        .unwrap()
+        .to_string());
         let safe = json!({
             "version":0,
             "inputs":[{
@@ -865,18 +863,14 @@ mod tests {
         ));
         let signed = sign_policy_transaction(secret, &request, &prepared.review_hash).unwrap();
         let value: Value = serde_json::from_str(&signed.signed_tx_json).unwrap();
-        assert!(
-            !value["inputs"][0]["signatureScript"]
-                .as_str()
-                .unwrap()
-                .is_empty()
-        );
-        assert!(
-            !value["inputs"][1]["signatureScript"]
-                .as_str()
-                .unwrap()
-                .is_empty()
-        );
+        assert!(!value["inputs"][0]["signatureScript"]
+            .as_str()
+            .unwrap()
+            .is_empty());
+        assert!(!value["inputs"][1]["signatureScript"]
+            .as_str()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

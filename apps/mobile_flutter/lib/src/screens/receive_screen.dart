@@ -4,6 +4,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../theme.dart';
+import '../services/network_settings.dart';
 import '../services/app_settings.dart';
 import '../models/kaspa_payment_request.dart';
 
@@ -44,8 +45,10 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Share this address for Kaspa mainnet payments.',
+            Text(
+              NetworkSettings.isTestnet
+                  ? 'Share this address for TN10 test KAS payments.'
+                  : 'Share this address for Kaspa mainnet payments.',
               style: TextStyle(color: KasVaultTheme.muted),
             ),
             const SizedBox(height: 34),
@@ -143,15 +146,18 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
               ],
             ),
             const SizedBox(height: 20),
-            const Row(
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline, size: 18, color: KasVaultTheme.muted),
-                SizedBox(width: 9),
+                const Icon(Icons.info_outline,
+                    size: 18, color: KasVaultTheme.muted),
+                const SizedBox(width: 9),
                 Expanded(
                   child: Text(
-                    'Only send Kaspa mainnet assets to this address. Always verify the first and last characters.',
-                    style: TextStyle(
+                    NetworkSettings.isTestnet
+                        ? 'Only send TN10 test KAS to this kaspatest: address.'
+                        : 'Only send Kaspa mainnet assets to this address. Always verify the first and last characters.',
+                    style: const TextStyle(
                       color: KasVaultTheme.muted,
                       height: 1.4,
                       fontSize: 12,

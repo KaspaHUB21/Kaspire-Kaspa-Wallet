@@ -12,6 +12,7 @@ import 'wallet_manager_screen.dart';
 import 'address_book_screen.dart';
 import '../services/update_service.dart';
 import '../services/app_settings.dart';
+import '../services/network_settings.dart';
 import '../theme.dart';
 
 class HomeShell extends StatefulWidget {
@@ -52,7 +53,7 @@ class _HomeShellState extends State<HomeShell> {
     final selected = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(
         builder: (_) => WalletManagerScreen(
-          currentAddress: widget.address,
+          currentAddress: NetworkSettings.storageAddress(widget.address),
           onWalletChanged: () {
             if (mounted) setState(() => _walletRevision++);
           },
@@ -88,11 +89,17 @@ class _HomeShellState extends State<HomeShell> {
       });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ValueListenableBuilder<KaspaNetwork>(
+        valueListenable: NetworkSettings.network,
+        builder: (context, _, __) => _buildNetwork(context),
+      );
+
+  Widget _buildNetwork(BuildContext context) {
+    final activeAddress = NetworkSettings.addressForNetwork(widget.address);
     final pages = [
       WalletScreen(
-        key: ValueKey(_walletRevision),
-        address: widget.address,
+        key: ValueKey('$_walletRevision-${NetworkSettings.network.value.name}'),
+        address: activeAddress,
         onSend: _openKasSend,
         onSendAsset: _openAssetSend,
         onReceive: () => setState(() => _index = 2),
@@ -100,17 +107,17 @@ class _HomeShellState extends State<HomeShell> {
         onSwitchWallet: _openWalletManager,
       ),
       SendScreen(
-        key: ValueKey(_sendRevision),
-        address: widget.address,
+        key: ValueKey('$_sendRevision-${NetworkSettings.network.value.name}'),
+        address: activeAddress,
         initialAsset: _sendIntent,
         onDone: () => setState(() {
           _walletRevision++;
           _index = 0;
         }),
       ),
-      ReceiveScreen(address: widget.address),
+      ReceiveScreen(address: activeAddress),
       SettingsScreen(
-        address: widget.address,
+        address: activeAddress,
         onManageWallets: _openWalletManager,
         onManageDapps: _openDappSessions,
         onManageAddressBook: _openAddressBook,

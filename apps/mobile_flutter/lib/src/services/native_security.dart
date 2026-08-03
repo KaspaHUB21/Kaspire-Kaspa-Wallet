@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 
 import 'app_settings.dart';
+import 'network_settings.dart';
 
 class NativeSecurity {
   static const _channel = MethodChannel('space.kasvault/security');
@@ -107,8 +108,9 @@ class NativeSecurity {
       await _channel.invokeMethod<bool>('hasNativeWallet') ?? false;
 
   Future<bool> hasNativeWalletFor(String address) async =>
-      await _channel
-          .invokeMethod<bool>('hasNativeWallet', {'address': address}) ??
+      await _channel.invokeMethod<bool>('hasNativeWallet', {
+        'address': NetworkSettings.storageAddress(address),
+      }) ??
       false;
 
   Future<String?> getNativeAddress() =>
@@ -146,6 +148,7 @@ class NativeSecurity {
   }
 
   Future<void> exportPrivateKey(String address) async {
+    address = NetworkSettings.storageAddress(address);
     final token = await _authorizeOperation(
       operation: 'exportPrivateKey',
       binding: address,

@@ -17,6 +17,7 @@ import 'services/preferences_service.dart';
 import 'services/app_settings.dart';
 import 'services/signer_service.dart';
 import 'services/update_service.dart';
+import 'services/network_settings.dart';
 import 'theme.dart';
 
 class KasVaultApp extends StatefulWidget {
@@ -193,6 +194,13 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   }
 
   Future<void> _handleProposal(SessionProposalEvent event) async {
+    if (NetworkSettings.isTestnet) {
+      await _dapps.reject(
+        event,
+        message: 'WalletConnect is available on Kaspa Mainnet only.',
+      );
+      return;
+    }
     final problem = _dapps.proposalProblem(event);
     final address = await _preferences.getAddress();
     final methods = _dapps.requestedMethods(event).toList()..sort();
@@ -284,6 +292,13 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       };
 
   Future<void> _handleRequest(SessionRequestEvent request) async {
+    if (NetworkSettings.isTestnet) {
+      await _dapps.respondError(
+        request,
+        'Switch Kaspire to Mainnet before approving dApp requests.',
+      );
+      return;
+    }
     final requestKey = '${request.topic}:${request.id}';
     if (!_handledRequestIds.add(requestKey)) {
       await _dapps.respondError(request, 'Duplicate request rejected.',

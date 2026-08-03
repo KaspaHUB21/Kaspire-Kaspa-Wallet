@@ -56,18 +56,25 @@ class KaspaApi {
     String address, {
     int transactionLimit = 20,
   }) async {
+    final testnet = NetworkSettings.isTestnet;
     final results = await Future.wait([
       _getReadOnlyWithFallback(
         '/addresses/${Uri.encodeComponent(address)}/balance',
       ),
-      _getReadOnlyWithFallback('/info/price'),
+      testnet
+          ? Future<Object?>.value(null)
+          : _getReadOnlyWithFallback('/info/price'),
       _getReadOnlyWithFallback(
         '/addresses/${Uri.encodeComponent(address)}/full-transactions?limit=$transactionLimit&offset=0&resolve_previous_outpoints=light',
       ),
-      _loadTokenWallet(address).catchError((_) => null),
-      _loadKcc20Wallet(address)
-          .then<Object?>((value) => value)
-          .catchError((_) => null),
+      testnet
+          ? Future<Object?>.value(null)
+          : _loadTokenWallet(address).catchError((_) => null),
+      testnet
+          ? Future<Object?>.value(null)
+          : _loadKcc20Wallet(address)
+              .then<Object?>((value) => value)
+              .catchError((_) => null),
       loadUtxos(address).catchError((_) => '[]'),
       _loadUsdExchangeRate(AppSettings.fiatCurrency.value).catchError(
         (_) => double.nan,
@@ -121,10 +128,10 @@ class KaspaApi {
       assets.krc20.map((asset) => _withTokenMarket(asset, kasUsd)),
     );
     final assetWarnings = <String>[
-      if (tokenWallet == null)
+      if (!testnet && tokenWallet == null)
         'KRC-20, KRC-721 and KNS data is temporarily unavailable.',
       ...tokenIntegrityWarnings,
-      if (kcc20Wallet == null)
+      if (!testnet && kcc20Wallet == null)
         'KCC20 covenant data is temporarily unavailable.',
       if (kcc20Wallet != null && kcc20Wallet.warning.isNotEmpty)
         kcc20Wallet.warning,
@@ -169,8 +176,12 @@ class KaspaApi {
 
   Future<String> resolveWalletInput(String input) async {
     final normalized = input.trim().toLowerCase();
-    if (RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(normalized)) {
+    final prefix = NetworkSettings.isTestnet ? 'kaspatest' : 'kaspa';
+    if (RegExp('^$prefix:[a-z0-9]{61,63}\$').hasMatch(normalized)) {
       return normalized;
+    }
+    if (NetworkSettings.isTestnet) {
+      throw KaspaApiException('Enter a valid TN10 kaspatest: address.');
     }
     if (!_isKnsName(normalized)) {
       throw KaspaApiException(
@@ -1482,10 +1493,10 @@ class KaspaApi {
       final now = DateTime.now();
       if ((from != null &&
               from.isNotEmpty &&
-              !RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(from)) ||
+              !RegExp(r'^(kaspa|kaspatest):[a-z0-9]{61,63}$').hasMatch(from)) ||
           (to != null &&
               to.isNotEmpty &&
-              !RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(to)) ||
+              !RegExp(r'^(kaspa|kaspatest):[a-z0-9]{61,63}$').hasMatch(to)) ||
           timestamp.isBefore(DateTime.utc(2020)) ||
           timestamp.isAfter(now.add(const Duration(minutes: 5))) ||
           displayAmount == null ||

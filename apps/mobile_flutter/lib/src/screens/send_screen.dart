@@ -13,6 +13,7 @@ import '../services/activity_store.dart';
 import '../theme.dart';
 import '../services/app_settings.dart';
 import '../services/preferences_service.dart';
+import '../services/network_settings.dart';
 import 'asset_send_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'address_book_screen.dart';
@@ -47,11 +48,13 @@ class _SendScreenState extends State<SendScreen> {
               child: TabBarView(
                 children: [
                   _KasSendPanel(address: widget.address, onDone: widget.onDone),
-                  AssetSendScreen(
-                    address: widget.address,
-                    onDone: widget.onDone,
-                    initialAsset: widget.initialAsset,
-                  ),
+                  NetworkSettings.isTestnet
+                      ? const _TestnetAssetsUnavailable()
+                      : AssetSendScreen(
+                          address: widget.address,
+                          onDone: widget.onDone,
+                          initialAsset: widget.initialAsset,
+                        ),
                 ],
               ),
             ),
@@ -142,8 +145,9 @@ class _KasSendPanelState extends State<_KasSendPanel> {
     });
     final String recipient;
     try {
-      recipient = paymentRequest?.address ??
-          await _api.resolveWalletInput(_recipient.text);
+      recipient = await _api.resolveWalletInput(
+        paymentRequest?.address ?? _recipient.text,
+      );
       if (AppSettings.recipientAllowlist.value &&
           !await _preferences.isAddressBookRecipient(recipient)) {
         throw StateError(
@@ -377,13 +381,13 @@ class _KasSendPanelState extends State<_KasSendPanel> {
               borderRadius: BorderRadius.circular(18),
               border: Border.all(color: KasVaultTheme.line),
             ),
-            child: const Column(
+            child: Column(
               children: [
-                _SendFact(label: 'Network', value: 'Kaspa Mainnet'),
-                SizedBox(height: 12),
-                _SendFact(label: 'Fee', value: 'Live node estimate'),
-                SizedBox(height: 12),
-                _SendFact(label: 'Signer', value: 'Rusty Kaspa v2.0.1'),
+                _SendFact(label: 'Network', value: NetworkSettings.displayName),
+                const SizedBox(height: 12),
+                const _SendFact(label: 'Fee', value: 'Live node estimate'),
+                const SizedBox(height: 12),
+                const _SendFact(label: 'Signer', value: 'Rusty Kaspa v2.0.1'),
               ],
             ),
           ),
@@ -427,6 +431,23 @@ class _KasSendPanelState extends State<_KasSendPanel> {
       ),
     );
   }
+}
+
+class _TestnetAssetsUnavailable extends StatelessWidget {
+  const _TestnetAssetsUnavailable();
+
+  @override
+  Widget build(BuildContext context) => const Center(
+        child: Padding(
+          padding: EdgeInsets.all(28),
+          child: Text(
+            'TN10 currently supports native test KAS only. Mainnet assets '
+            'remain unchanged and become available again after switching '
+            'back to Mainnet.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
 }
 
 class _PaymentReceipt {
@@ -486,7 +507,7 @@ class _PaymentSuccess extends StatelessWidget {
             ),
             const SizedBox(height: 7),
             Text(
-              'Broadcast accepted by the Kaspa Mainnet node',
+              'Broadcast accepted by the ${NetworkSettings.displayName} node',
               textAlign: TextAlign.center,
               style: TextStyle(color: KasVaultTheme.mint),
             ),
@@ -527,7 +548,7 @@ class _PaymentSuccess extends StatelessWidget {
                     '${receipt.kas(receipt.changeSompi)} KAS',
                   ),
                   const SizedBox(height: 11),
-                  _ReviewRow('Network', 'Kaspa Mainnet'),
+                  _ReviewRow('Network', NetworkSettings.displayName),
                   const SizedBox(height: 11),
                   _ReviewRow(
                     'Inputs / outputs',

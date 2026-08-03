@@ -11,6 +11,8 @@ import '../services/privacy_settings.dart';
 import '../services/app_settings.dart';
 import '../services/preferences_service.dart';
 import '../services/signer_service.dart';
+import '../services/network_settings.dart';
+import '../services/dapp_session_service.dart';
 import '../models/asset_send_intent.dart';
 import '../theme.dart';
 import 'nft_collection_screen.dart';
@@ -53,15 +55,16 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   Future<String> _loadWalletName() async {
+    final storedAddress = NetworkSettings.storageAddress(widget.address);
     final native = await NativeSecurity().listWallets();
     for (final wallet in native) {
-      if (wallet.address == widget.address ||
-          wallet.addresses.any((item) => item.address == widget.address)) {
+      if (wallet.address == storedAddress ||
+          wallet.addresses.any((item) => item.address == storedAddress)) {
         return wallet.name;
       }
     }
     for (final wallet in await PreferencesService().getWatchWallets()) {
-      if (wallet.address == widget.address) return wallet.name;
+      if (wallet.address == storedAddress) return wallet.name;
     }
     return 'Wallet';
   }
@@ -81,6 +84,38 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   void _refresh() => setState(() => _snapshot = _loadSnapshot());
+
+  Future<void> _chooseNetwork() async {
+    final selected = await showDialog<KaspaNetwork>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Select Kaspa network'),
+        children: [
+          ListTile(
+            leading: Icon(NetworkSettings.isTestnet
+                ? Icons.radio_button_unchecked
+                : Icons.radio_button_checked),
+            title: const Text('Mainnet'),
+            subtitle: const Text('Real KAS and Mainnet assets'),
+            onTap: () => Navigator.pop(context, KaspaNetwork.mainnet),
+          ),
+          ListTile(
+            leading: Icon(NetworkSettings.isTestnet
+                ? Icons.radio_button_checked
+                : Icons.radio_button_unchecked),
+            title: const Text('TN10 Testnet'),
+            subtitle: const Text('Test KAS only · no monetary value'),
+            onTap: () => Navigator.pop(context, KaspaNetwork.tn10),
+          ),
+        ],
+      ),
+    );
+    if (selected == null || selected == NetworkSettings.network.value) return;
+    if (selected == KaspaNetwork.tn10) {
+      await DappSessionService.instance.disconnectAll();
+    }
+    await NetworkSettings.setNetwork(selected);
+  }
 
   Future<void> _compoundUtxos() async {
     if (_compounding) return;
@@ -184,32 +219,36 @@ class _WalletScreenState extends State<WalletScreen> {
                       tooltip: 'Switch wallet',
                       icon: const Icon(Icons.account_balance_wallet_outlined),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .primary
-                            .withValues(alpha: .14),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.circle,
-                              size: 8,
-                              color: Theme.of(context).colorScheme.primary),
-                          const SizedBox(width: 7),
-                          const Text(
-                            'MAINNET',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
+                    InkWell(
+                      onTap: _chooseNetwork,
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withValues(alpha: .14),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.circle,
+                                size: 8,
+                                color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 7),
+                            Text(
+                              NetworkSettings.label,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -247,8 +286,16 @@ class _WalletScreenState extends State<WalletScreen> {
                     Expanded(
                       child: _Action(
                         icon: Icons.qr_code_scanner_rounded,
-                        label: 'PAIR DAPPS',
-                        onTap: widget.onPairDapps,
+                        label: 'PAIR DAPP',
+                        onTap: NetworkSettings.isTestnet
+                            ? () => ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'dApp sessions are available on Mainnet.',
+                                    ),
+                                  ),
+                                )
+                            : widget.onPairDapps,
                       ),
                     ),
                   ],
