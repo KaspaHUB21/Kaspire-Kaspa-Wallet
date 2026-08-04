@@ -3,41 +3,47 @@ Categories:
 License: Apache-2.0
 AntiFeatures:
   NonFreeNet:
-    en-US: Depends on public Kaspa indexers and the Reown WalletConnect relay.
+    en-US: Depends on Kaspa RPC/indexer services and the Reown WalletConnect relay.
 AuthorName: Kaspire
 WebSite: https://kaspire.kaslab.space
 SourceCode: https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet
 IssueTracker: https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/issues
+Changelog: https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases
 
 AutoName: Kaspire
-Summary: Self-custody wallet for the Kaspa ecosystem
+Summary: Self-custody wallet for Kaspa and its L1 assets
 Description: |-
-  Kaspire is a native Android self-custody wallet for Kaspa Mainnet.
+  Kaspire is an open-source Android self-custody wallet for the Kaspa
+  ecosystem. It supports Kaspa Mainnet and TN10 Testnet.
 
-  Seeds and private keys remain encrypted on the device. Wallet creation,
-  derivation, transaction validation and signing cross a native Rust security
-  boundary. Kaspire supports KAS, KRC-20, KRC-721, KNS and verified KCC20
-  covenant assets, multiple wallets, BIP39 passphrases, address-index
-  subwallets, transaction details, UTXO compound and encrypted backups.
+  Create or import BIP39 wallets, use optional BIP39 passphrases, manage
+  multiple wallets, BIP44 accounts and address-index subwallets, or add
+  watch-only wallets. Kaspire supports KAS, KRC20, KRC721, KNS, legacy KCC20
+  and KRON KCC20 assets, detailed transaction activity, UTXO compounding,
+  encrypted WalletConnect sessions and policy-bound PSKT signing.
 
-  WalletConnect uses Kaspire's public Reown project identifier and the Reown
-  relay. No advertising, analytics or proprietary Google Play service is
-  included.
+  Sensitive wallet operations cross a native Rust security boundary. Seeds
+  and private keys are encrypted locally, transaction data is independently
+  validated before signing, and portable backups use Argon2id with
+  AES-256-GCM.
+
+  Kaspire contains no advertising, analytics or proprietary Google Play
+  service. Network access is required for blockchain data, token metadata and
+  WalletConnect relay transport.
 
 RepoType: git
 Repo: https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet.git
 
 Builds:
-  - versionName: 0.10.7
-    versionCode: 42
-    commit: v0.10.7
+  - versionName: 0.11.15
+    versionCode: 73
+    commit: v0.11.15
     subdir: apps/mobile_flutter
     output: build/app/outputs/flutter-apk/app-release.apk
     srclibs:
       - flutter@3.44.6
       - rustup@1.28.2
     rm:
-      - Kaspire-Android-mainnet-v0.9.1.apk
       - apps/mobile_flutter/android/app/src/main/jniLibs
       - target
     prebuild:
@@ -58,5 +64,5 @@ Builds:
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
 UpdateCheckData: apps/mobile_flutter/pubspec.yaml|version:\s(.+)\+|.|version:.*\+(\d+)
-CurrentVersion: 0.10.7
-CurrentVersionCode: 42
+CurrentVersion: 0.11.15
+CurrentVersionCode: 73

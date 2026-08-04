@@ -1,0 +1,6 @@
+Add KRON KCC20 discovery and transfers alongside legacy KCC20 assets.
+
+Improve wallet and subwallet management, configurable display and security
+settings, transaction reviews, activity details, in-app update notices,
+network diagnostics and dApp pairing. Update the Android release to Kaspire
+0.11.15 with the native Rust security core built for ARM64 and ARMv7.
