@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Kaspire Developer Guide | Connect Kaspa dApps",
+  title: "Kaspire Mobile Developer Guide | WalletConnect for Kaspa dApps",
   description:
     "Integrate Kaspire with a website using WalletConnect v2 for accounts, signatures, KAS, tokens, generic PSKT flows, and vault transactions.",
 };
@@ -219,6 +219,7 @@ export default function DevelopersPage() {
             <img className="header-brand-wordmark" src="/kaspire-wordmark.png" alt="Kaspire" />
           </a>
           <nav aria-label="Developer guide navigation">
+            <a href="/developers/extension">Extension guide</a>
             <a href="#quick-start">Quick start</a>
             <a href="#desktop-qr">Desktop QR</a>
             <a href="#methods">Methods</a>
@@ -231,8 +232,8 @@ export default function DevelopersPage() {
       <main id="developer-guide" className="developer-page">
         <section className="developer-hero">
           <div className="shell developer-hero-inner">
-            <p className="kicker">Kaspire protocol v2 · Kaspa Mainnet</p>
-            <h1>Bring Kaspire into your dApp.</h1>
+            <p className="kicker">Kaspire Mobile · WalletConnect v2 · Kaspa Mainnet</p>
+            <h1>Connect to Kaspire Mobile.</h1>
             <p>
               Connect websites to a selected Kaspire account through an encrypted
               WalletConnect v2 session. Request accounts, KIP-5 signatures, KAS
@@ -242,6 +243,18 @@ export default function DevelopersPage() {
             <div className="article-meta">
               <span>Android App Link</span><span>WalletConnect v2</span>
               <span>Explicit approval</span><span>Raw integer amounts</span>
+            </div>
+            <div className="developer-guide-switch" aria-label="Choose a Kaspire integration">
+              <a className="active" href="/developers">
+                <span>Android app</span>
+                <strong>Kaspire Mobile</strong>
+                <small>WalletConnect, App Links and desktop QR pairing</small>
+              </a>
+              <a href="/developers/extension">
+                <span>Chrome extension</span>
+                <strong>Kaspire Extension</strong>
+                <small>Injected window.kaspire browser provider</small>
+              </a>
             </div>
           </div>
         </section>

@@ -1369,6 +1369,50 @@ footer {
   font-size: clamp(1.05rem, 2vw, 1.35rem);
 }
 
+.developer-guide-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  max-width: 900px;
+  margin-top: 2.2rem;
+}
+
+.developer-guide-switch a {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  padding: 1.25rem;
+  background: rgba(5, 14, 18, 0.78);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.developer-guide-switch a:hover,
+.developer-guide-switch a.active {
+  border-color: rgba(73, 234, 203, 0.72);
+  background: linear-gradient(135deg, rgba(73, 234, 203, 0.13), rgba(8, 21, 26, 0.92));
+  transform: translateY(-2px);
+}
+
+.developer-guide-switch span {
+  color: var(--mint);
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.developer-guide-switch strong {
+  font-size: 1.15rem;
+}
+
+.developer-guide-switch small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .developer-layout {
   display: grid;
   grid-template-columns: 210px minmax(0, 820px);
@@ -1763,6 +1807,10 @@ footer {
   }
 
   .developer-methods {
+    grid-template-columns: 1fr;
+  }
+
+  .developer-guide-switch {
     grid-template-columns: 1fr;
   }
 
