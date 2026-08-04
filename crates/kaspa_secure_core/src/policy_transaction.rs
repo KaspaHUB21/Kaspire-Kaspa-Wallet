@@ -1,4 +1,4 @@
-use crate::{derive_address, derive_key, CoreError, Result};
+use crate::{controls_address, derive_key, CoreError, Result};
 use kaspa_addresses::Address;
 use kaspa_consensus_core::{
     hashing::sighash_type::SIG_HASH_ALL,
@@ -77,7 +77,7 @@ pub fn sign_policy_transaction(
     request: &PolicyTransactionRequest,
     approved_review_hash: &str,
 ) -> Result<SignedPolicyTransaction> {
-    if derive_address(secret)?.to_string() != request.sender {
+    if !controls_address(secret, &request.sender)? {
         return Err(CoreError::InvalidRequest(
             "seed does not control policy transaction sender".into(),
         ));

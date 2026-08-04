@@ -477,8 +477,11 @@ WalletConnect  ── limited requests ─► review + fresh authorization
 
 ## Repository layout
 
+- Browser extension foundation: [`apps/browser_extension`](apps/browser_extension)
+
 ```text
 apps/mobile_flutter/             Flutter Android app
+apps/browser_extension/          Manifest V3 browser wallet
 crates/kaspa_secure_core/        Native wallet and signing core
 crates/silverscript_lang/        Vendored SilverScript compiler
 docs/security_invariants/        Release-blocking security rules

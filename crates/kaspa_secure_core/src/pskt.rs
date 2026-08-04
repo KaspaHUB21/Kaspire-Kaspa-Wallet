@@ -1,4 +1,6 @@
-use crate::{derive_address, derive_key, CoreError, Result};
+#[cfg(test)]
+use crate::derive_address;
+use crate::{controls_address, derive_key, CoreError, Result};
 use kaspa_addresses::{Address, Prefix};
 use kaspa_consensus_core::{
     hashing::sighash_type::{SigHashType, SIG_HASH_ALL},
@@ -117,7 +119,7 @@ pub fn sign_pskt(
     request: &PsktRequest,
     approved_review_hash: &str,
 ) -> Result<SignedPskt> {
-    if derive_address(secret)?.to_string() != request.sender {
+    if !controls_address(secret, &request.sender)? {
         return Err(CoreError::InvalidRequest(
             "seed does not control PSKT session address".into(),
         ));

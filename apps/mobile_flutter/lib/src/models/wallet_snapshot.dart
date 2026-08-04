@@ -70,6 +70,7 @@ class WalletAsset {
     this.validationStatus,
     this.kcc20Cells = const [],
     this.discoveryComplete = true,
+    this.standard = 'legacy-kcc20',
   });
 
   final String symbol;
@@ -86,6 +87,7 @@ class WalletAsset {
   final String? validationStatus;
   final List<Kcc20CellRecord> kcc20Cells;
   final bool discoveryComplete;
+  final String standard;
 }
 
 class Kcc20CellRecord {
@@ -98,6 +100,7 @@ class Kcc20CellRecord {
     required this.scriptPublicKey,
     required this.tokenAmount,
     this.isMinter = false,
+    this.redeemScript,
   });
 
   final String covenantId;
@@ -108,6 +111,7 @@ class Kcc20CellRecord {
   final String scriptPublicKey;
   final int tokenAmount;
   final bool isMinter;
+  final String? redeemScript;
 
   Map<String, Object?> toJson() => {
         'covenantId': covenantId,
@@ -118,6 +122,7 @@ class Kcc20CellRecord {
         'scriptPublicKey': scriptPublicKey,
         'tokenAmount': tokenAmount,
         'isMinter': isMinter,
+        if (redeemScript != null) 'redeemScript': redeemScript,
       };
 }
 

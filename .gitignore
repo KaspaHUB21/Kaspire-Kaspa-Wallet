@@ -16,12 +16,14 @@ target/
 *.jks
 *.keystore
 *.apk
+*.apk.idsig
 *.aab
 *.so
 *.dm
 *.zip
 .idea/
 .vscode/
+**/.kotlin/
 website/node_modules/
 website/.next/
 website/dist/

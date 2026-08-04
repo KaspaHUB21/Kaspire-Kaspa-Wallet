@@ -52,6 +52,13 @@ class KaspaApi {
   final String toccataBroadcastUrl;
   Future<Map<String, double>>? _floorPrices;
 
+  static String _normalizeScriptPublicKey(Object? value) {
+    final script = value?.toString().trim().toLowerCase() ?? '';
+    // KCC20 indexers serialize Kaspa ScriptPublicKey as version (u16) +
+    // script, while the node endpoints expose the raw script bytes.
+    return script.startsWith('0000') ? script.substring(4) : script;
+  }
+
   Future<WalletSnapshot> loadWallet(
     String address, {
     int transactionLimit = 20,
@@ -629,7 +636,8 @@ class KaspaApi {
             .whereType<Map>()
             .map((item) => item.cast<String, Object?>())
             .where((item) =>
-                item['validation_status']?.toString() == 'verified' &&
+                const {'verified', 'template_verified'}
+                    .contains(item['validation_status']?.toString()) &&
                 _asInt(item['unresolved_cells']) == 0 &&
                 _asInt(item['balance']) > 0),
       );
@@ -658,7 +666,8 @@ class KaspaApi {
         return const _Kcc20TokenResult();
       }
       final token = _map(await _kcc20IndexerGet('/v1/tokens/$tokenId'));
-      if (token['validation_status']?.toString() != 'verified' ||
+      final validation = token['validation_status']?.toString();
+      if (!const {'verified', 'template_verified'}.contains(validation) ||
           _asInt(token['unresolved_cells']) > 0) {
         return const _Kcc20TokenResult(discoveryLimited: true);
       }
@@ -698,7 +707,9 @@ class KaspaApi {
           return null;
         }
 
-        final owner = (item['owner'] ?? stateField('owner_identifier'))
+        final owner = (item['owner'] ??
+                state['owner_identifier'] ??
+                stateField('owner_identifier'))
             ?.toString()
             .toLowerCase();
         if (owner != null && owner != pubkey) continue;
@@ -710,9 +721,12 @@ class KaspaApi {
         final index = _nullableInt(
           item['outpoint_index'] ?? item['index'] ?? item['output_index'],
         );
-        final script =
-            (item['script_public_key'] ?? item['script_hex'] ?? '').toString();
-        final amount = _nullableInt(item['token_amount'] ?? item['amount']) ??
+        final script = _normalizeScriptPublicKey(
+          item['script_public_key'] ?? item['script_hex'],
+        );
+        final redeemScript = (item['redeem_script'] ?? '').toString();
+        final amount = _nullableInt(
+                item['token_amount'] ?? item['amount'] ?? state['amount']) ??
             _littleEndianHexInt(stateField('amount'));
         final candidateTemplate =
             (item['kcc1_template_hash'] ?? item['template_hash'] ?? '')
@@ -736,7 +750,8 @@ class KaspaApi {
           blockDaaScore: _asInt(item['created_daa']),
           scriptPublicKey: script,
           tokenAmount: amount,
-          isMinter: item['is_minter'] == true,
+          isMinter: item['is_minter'] == true || state['is_minter'] == true,
+          redeemScript: redeemScript.isEmpty ? null : redeemScript,
         ));
       }
       final unmapped = (cellData['unmapped'] as List? ?? const [])
@@ -760,6 +775,11 @@ class KaspaApi {
         validationStatus: 'verified',
         kcc20Cells: cells,
         discoveryComplete: complete,
+        standard: validation == 'template_verified' ||
+                token['standard']?.toString() == 'kron-native' ||
+                token['contract_type']?.toString() == 'kron-native'
+            ? 'kron-native'
+            : 'legacy-kcc20',
       );
       final transactions = history
           .where((item) =>
@@ -1579,10 +1599,9 @@ class KaspaApi {
           break;
         }
       }
-      final outputScript =
-          (output?['script_public_key'] ?? output?['scriptPublicKey'])
-              ?.toString()
-              .toLowerCase();
+      final outputScript = _normalizeScriptPublicKey(
+        output?['script_public_key'] ?? output?['scriptPublicKey'],
+      );
       final outputAddress =
           (output?['script_public_key_address'] ?? output?['address'])
               ?.toString();
@@ -1590,7 +1609,7 @@ class KaspaApi {
           output['covenant_id']?.toString().toLowerCase() != expectedCovenant ||
           cell.covenantId.toLowerCase() != expectedCovenant ||
           _nullableInt(output['amount']) != cell.valueSompi ||
-          outputScript != cell.scriptPublicKey.toLowerCase() ||
+          outputScript != _normalizeScriptPublicKey(cell.scriptPublicKey) ||
           outputAddress == null ||
           outputAddress.isEmpty) {
         throw KaspaApiException(
@@ -1607,18 +1626,16 @@ class KaspaApi {
             final entry = item['utxoEntry'];
             if (outpoint is! Map || entry is! Map) return false;
             final script = entry['scriptPublicKey'];
-            final liveScript = script is Map
+            final liveScript = _normalizeScriptPublicKey(script is Map
                 ? (script['scriptPublicKey'] ?? script['script_public_key'])
-                    ?.toString()
-                    .toLowerCase()
-                : script?.toString().toLowerCase();
+                : script);
             return (outpoint['transactionId'] ?? outpoint['transaction_id'])
                         ?.toString()
                         .toLowerCase() ==
                     cell.transactionId.toLowerCase() &&
                 _nullableInt(outpoint['index']) == cell.index &&
                 _nullableInt(entry['amount']) == cell.valueSompi &&
-                liveScript == cell.scriptPublicKey.toLowerCase() &&
+                liveScript == _normalizeScriptPublicKey(cell.scriptPublicKey) &&
                 entry['isCoinbase'] != true;
           })) {
         throw KaspaApiException(

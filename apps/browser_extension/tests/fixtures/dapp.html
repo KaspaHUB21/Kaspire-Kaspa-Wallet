@@ -1,0 +1,4 @@
+<!doctype html><html><body><h1>Kaspire provider test</h1><output id="result">waiting</output><script>
+function inspect(){const provider=window.kaspire;document.querySelector('#result').textContent=provider&&provider.isKaspire&&typeof provider.request==='function'&&typeof provider.signPskt==='function'?'provider-ok':'provider-missing'}
+addEventListener('kaspire#initialized',inspect,{once:true});setTimeout(inspect,1000);
+</script></body></html>

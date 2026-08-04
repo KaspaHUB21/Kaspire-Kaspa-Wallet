@@ -1,11 +1,29 @@
 use crate::{
     derive_address_range, derive_backup_key, export_private_key, generate_wallet_with_passphrase,
     import_private_key, import_wallet_with_passphrase, prepare_inscription, prepare_kcc20_transfer,
-    prepare_policy_transaction, prepare_pskt, prepare_reveal, prepare_transaction,
-    sign_kcc20_transfer, sign_personal_message, sign_policy_transaction, sign_pskt, sign_reveal,
-    sign_transaction, InscriptionRequest, Kcc20TransferRequest, PolicyTransactionRequest,
-    PsktRequest, RevealRequest, SendRequest,
+    prepare_kron_transfer, prepare_policy_transaction, prepare_pskt, prepare_reveal,
+    prepare_transaction, sign_kcc20_transfer, sign_personal_message, sign_policy_transaction,
+    sign_pskt, sign_reveal, sign_transaction, InscriptionRequest, Kcc20TransferRequest,
+    KronTransferRequest, PolicyTransactionRequest, PsktRequest, RevealRequest, SendRequest,
 };
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareKronTransfer(
+    mut env: JNIEnv,
+    _class: JClass,
+    request_json: JString,
+) -> jstring {
+    let result = read(&mut env, &request_json)
+        .and_then(|raw| {
+            serde_json::from_str::<KronTransferRequest>(&raw)
+                .map_err(|_| "invalid KRON transfer request".to_string())
+        })
+        .and_then(|request| prepare_kron_transfer(&request).map_err(|error| error.to_string()))
+        .and_then(|prepared| {
+            serde_json::to_string(&prepared).map_err(|_| "serialization failed".to_string())
+        });
+    output(&mut env, result.unwrap_or_else(error_json))
+}
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_preparePskt(

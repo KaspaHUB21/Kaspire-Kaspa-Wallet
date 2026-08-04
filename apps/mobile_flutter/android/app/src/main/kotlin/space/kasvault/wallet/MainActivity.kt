@@ -186,6 +186,10 @@ class MainActivity : FlutterFragmentActivity() {
                             result,
                         )
                     }
+                    "prepareKronTransfer" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        resultFromCore(SecureCore.prepareKronTransfer(request), result)
+                    }
                     "prepareInscription" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         resultFromCore(SecureCore.prepareInscription(request), result)

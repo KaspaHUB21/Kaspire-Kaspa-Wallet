@@ -591,6 +591,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
+            Center(
+              child: TextButton.icon(
+                onPressed: () => launchUrl(
+                  Uri.parse('https://t.me/kaspirewallet'),
+                  mode: LaunchMode.externalApplication,
+                ),
+                icon: const Icon(Icons.telegram, size: 18),
+                label: const Text('Report a bug'),
+              ),
+            ),
           ],
         ),
       );
@@ -1091,6 +1101,13 @@ class _SettingsOverview extends StatelessWidget {
                     fontSize: 12,
                   ),
                 ),
+              ),
+            ),
+            Center(
+              child: TextButton.icon(
+                onPressed: () => _open('https://t.me/kaspirewallet'),
+                icon: const Icon(Icons.telegram, size: 18),
+                label: const Text('Report a bug'),
               ),
             ),
           ],

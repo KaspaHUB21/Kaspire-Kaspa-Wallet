@@ -1,0 +1,64 @@
+.wallet-brand {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.wallet-select {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  color: #eff;
+  text-align: left;
+}
+
+.copy-main {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 16px;
+}
+
+.party small,
+.party small span {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.reserve-note,
+.return-note {
+  padding: 12px;
+  border-radius: 12px;
+  line-height: 1.45;
+}
+
+.reserve-note {
+  border: 1px solid #80601f;
+  background: #251c08;
+  color: #ffc857;
+}
+
+.return-note {
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  color: var(--accent);
+}
+
+.wrap-id {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-align: right;
+}
