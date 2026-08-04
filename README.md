@@ -1,23 +1,29 @@
-# Kaspire — Kaspa Wallet for Android
+# Kaspire — Kaspa Wallet for Android and the Browser
 
-Kaspire is a native self-custody Kaspa Mainnet wallet for Android. It combines
-a Flutter interface with Android platform security and a pinned Rust signing
-core so that remote APIs may provide blockchain data but cannot decide what the
-wallet signs.
+Kaspire is an open-source, self-custody Kaspa wallet available as a native
+Android app and a Chromium browser extension. Both products cover the Kaspa
+ecosystem from one repository and use the project's Rust security core for
+key derivation, transaction validation and signing. Remote APIs may provide
+blockchain data, but they cannot decide what the wallet signs.
 
 > **Core principle:** Network services may provide data, but they are never
 > trusted to decide what the wallet signs.
 
-Kaspire supports Android 11 through Android 16 on ARM64 and ARMv7 phones,
-tablets, and foldables.
+The Android app supports Android 11 through Android 16 on ARM64 and ARMv7
+phones, tablets and foldables. The Manifest V3 extension runs in Chrome and
+compatible Chromium browsers. The app connects to mobile and desktop dApps
+through encrypted WalletConnect v2 sessions; the extension exposes the
+permissioned `window.kaspire` provider directly to websites.
 
 ## Project links
 
 - Website: [kaspire.kaslab.space](https://kaspire.kaslab.space)
 - Security deep dive:
   [Inside Kaspire](https://kaspire.kaslab.space/security/inside-kaspire)
-- dApp integration:
-  [Kaspire Developer Guide](https://kaspire.kaslab.space/developers)
+- Android dApp integration:
+  [Kaspire App Developer Guide](https://kaspire.kaslab.space/developers)
+- Browser dApp integration:
+  [Kaspire Extension Developer Guide](https://kaspire.kaslab.space/developers/extension)
 - Privacy policy:
   [kaspire.kaslab.space/privacy](https://kaspire.kaslab.space/privacy)
 - Download:
@@ -29,13 +35,19 @@ tablets, and foldables.
 - Release verification and signing key:
   [docs/RELEASE_VERIFICATION.md](docs/RELEASE_VERIFICATION.md)
 
-## Current release
+## Current releases
 
-- Version: **0.11.13**
-- Android build: **71**
-- Networks: **Kaspa Mainnet and TN10 Testnet**
+- Android app: **0.11.15**, build **73**
 - Android package: `space.kaspire.wallet`
+- Browser extension: **0.3.14**, build **14**
+- App networks: **Kaspa Mainnet and TN10 Testnet**
+- Extension network: **Kaspa Mainnet**
 - License: [Apache-2.0](LICENSE)
+
+| Platform | Connection model | Local security boundary |
+| --- | --- | --- |
+| Android app | WalletConnect v2, verified App Links and QR pairing | Rust/JNI, Android Keystore or StrongBox, biometric/device authorization |
+| Browser extension | Injected `window.kaspire` provider with per-origin approval | Packaged Rust/WASM core and an Argon2id-encrypted extension vault |
 
 ## Features
 
@@ -63,8 +75,11 @@ tablets, and foldables.
 - Detailed transaction activity
 - UTXO counting and compounding
 - KIP-5 personal-message signatures
-- WalletConnect v2 for mobile and desktop dApps
-- built-in WalletConnect QR scanner and active-session manager
+- WalletConnect v2 for mobile and desktop dApps in the Android app
+- Built-in WalletConnect QR scanner and active-session manager in the app
+- Direct browser-dApp connection through the extension's `window.kaspire`
+  provider
+- Policy-bound PSKT signing for supported transaction flows
 
 ### Wallet experience
 
@@ -96,6 +111,15 @@ Wallet security is not one algorithm or one confirmation dialog. It is a chain
 of controls spanning entropy, key derivation, storage, authorization,
 transaction construction, untrusted RPC data, token protocols, backups, dApps,
 and release engineering. Kaspire applies controls at each boundary.
+
+The controls below describe the shared security design and the Android
+implementation in detail. The extension uses the same Rust code compiled to
+WASM where browser constraints allow it, but replaces Android Keystore and
+biometric controls with an isolated extension context and a password-protected
+vault. Its persistent wallet data is encrypted with an Argon2id-derived key and
+AES-256-GCM. Decrypted wallet material exists only while the extension session
+is unlocked; websites receive accounts and explicitly approved results through
+the bounded provider API, never direct vault access.
 
 ## 1. Secure seed generation
 
@@ -457,13 +481,14 @@ post-broadcast verification.
 # Architecture
 
 ```text
-Flutter UI
+Android app                         Browser extension
+Flutter UI                          Manifest V3 UI + provider
    │  public addresses, canonical reviews, explicit user actions
-   ▼
-Android security bridge
+   ▼                                 ▼
+Android security bridge             isolated extension context
    │  Keystore/StrongBox, secure windows, JNI
-   ▼
-Pinned Rust security core
+   ▼                                 │ Argon2id + AES-256-GCM vault
+Native Rust security core ◄──────────┤ packaged Rust/WASM core
    ├── BIP-39 / BIP-32 / BIP-44
    ├── AES-GCM and Argon2id
    ├── UTXO and transaction validation
@@ -471,13 +496,12 @@ Pinned Rust security core
    ├── Kasplex commit/reveal
    └── SilverScript/Toccata KCC20 validation
 
-HTTPS/wRPC APIs ── untrusted data ──► validation boundary
-WalletConnect  ── limited requests ─► review + fresh authorization
+HTTPS/wRPC APIs  ── untrusted data ──► validation boundary
+WalletConnect   ── app requests ─────► review + fresh authorization
+window.kaspire  ── site requests ────► origin approval + transaction review
 ```
 
 ## Repository layout
-
-- Browser extension foundation: [`apps/browser_extension`](apps/browser_extension)
 
 ```text
 apps/mobile_flutter/             Flutter Android app
@@ -498,7 +522,7 @@ website/                         Website source
 
 # Build
 
-## Requirements
+## Android requirements
 
 - Flutter 3.44.6 / Dart 3.12.2
 - Rust 1.91.0
@@ -542,6 +566,28 @@ flutter run --dart-define=REOWN_PROJECT_ID=<public-project-id>
 
 Project IDs are public configuration. Pairing URIs are secrets and must never
 be logged, sent to analytics, or disclosed to unrelated services.
+
+## Browser extension
+
+The extension is built entirely from repository sources; it does not download
+or execute remote code. Node.js 20 or newer is recommended.
+
+```bash
+cd apps/browser_extension
+npm install
+npm run check
+npm test
+npm run build
+npm run package
+```
+
+For local development, enable Developer mode at `chrome://extensions`, choose
+**Load unpacked**, and select `apps/browser_extension/dist`. The packaged ZIP
+is written to `apps/browser_extension/artifacts/`.
+
+The extension's own architecture, provider API, permissions and development
+notes are documented in
+[`apps/browser_extension/README.md`](apps/browser_extension/README.md).
 
 ## Unsigned F-Droid release
 
@@ -596,8 +642,12 @@ distribution, then install the other when switching channels.
 
 # dApp integration
 
-Websites can connect from Android or a desktop browser through WalletConnect.
-Desktop QR codes should contain:
+Kaspire provides two deliberately separate integration paths.
+
+## Android app via WalletConnect
+
+Websites connect to the Android app from a phone or desktop browser through
+WalletConnect. Desktop QR codes should contain:
 
 ```text
 https://kaspire.kaslab.space/kaspire/wc?uri=<URL-ENCODED-WALLETCONNECT-URI>
@@ -606,8 +656,20 @@ https://kaspire.kaslab.space/kaspire/wc?uri=<URL-ENCODED-WALLETCONNECT-URI>
 Android may open the same verified HTTPS App Link directly. Do not log pairing
 URIs or use arbitrary callback URLs.
 
-The full guide is at:
+The complete app guide is at
 [kaspire.kaslab.space/developers](https://kaspire.kaslab.space/developers).
+
+## Browser extension via `window.kaspire`
+
+Websites detect the injected provider, request a user-approved connection and
+then call only the methods exposed by the extension. WalletConnect is neither
+required nor used for this path. Account access is scoped by website origin,
+and every signing request remains subject to Kaspire's review and approval
+flow.
+
+The complete provider API, connection lifecycle, methods, events, transaction
+examples and error-handling guidance are at
+[kaspire.kaslab.space/developers/extension](https://kaspire.kaslab.space/developers/extension).
 
 ---
 
