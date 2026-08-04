@@ -11,10 +11,11 @@ const sections = [
     title: "Who this policy applies to",
     content: (
       <p>
-        This Privacy Policy applies to the Kaspire Android application and the
-        Kaspire website at <code>kaspire.kaslab.space</code>. Kaspire is a
-        non-custodial wallet: the project does not hold users&apos; funds,
-        recovery phrases, private keys, or wallet passwords.
+        This Privacy Policy applies to the Kaspire Android application, the
+        Kaspire browser extension, and the Kaspire website at{" "}
+        <code>kaspire.kaslab.space</code>. Kaspire is a non-custodial wallet:
+        the project does not hold users&apos; funds, recovery phrases, private
+        keys, or wallet passwords.
       </p>
     ),
   },
@@ -25,10 +26,13 @@ const sections = [
         <p>
           Kaspire stores wallet configuration, public addresses, preferences,
           address-book entries, transaction activity, pending protocol
-          operations, and encrypted wallet material locally on the Android
-          device. Private wallet material is encrypted using a key protected by
-          Android Keystore. Portable wallet backups are encrypted before they
-          leave the application.
+          operations, and encrypted wallet material locally on the user&apos;s
+          device. The Android app protects private wallet material using
+          Android Keystore. The browser extension encrypts its local vault with
+          Argon2id-derived key material and AES-256-GCM. While the extension is
+          unlocked, decrypted wallet material is held only in the extension&apos;s
+          local session context so that user-approved operations can be signed.
+          Portable wallet backups are encrypted before export.
         </p>
         <p>
           Recovery phrases, BIP39 passphrases, imported private keys, wallet
@@ -64,6 +68,79 @@ const sections = [
     ),
   },
   {
+    title: "Browser extension and connected websites",
+    content: (
+      <>
+        <p>
+          The browser extension makes the Kaspire provider available to web
+          applications on HTTP and HTTPS pages. It does not read page text,
+          images, unrelated form fields, cookies, or compile general browsing
+          history. When a website deliberately calls the provider, Kaspire
+          processes that site&apos;s origin and its wallet request. A connected
+          dApp origin is stored locally until the user disconnects it.
+        </p>
+        <p>
+          A dApp receives a public wallet address or signature only after the
+          applicable connection or approval flow. Transaction, PSKT, asset
+          transfer, and personal-signature request payloads are processed only
+          to display a review and perform the operation the user approves.
+          Private keys, recovery phrases, vault passwords, and decrypted vault
+          contents are never exposed to websites.
+        </p>
+      </>
+    ),
+  },
+  {
+    title: "Data categories and recipients",
+    content: (
+      <>
+        <p>
+          For Chrome Web Store disclosure purposes, Kaspire handles financial
+          information (public wallet addresses, balances, assets, transaction
+          history, and signed transactions), authentication information
+          (vault and backup passwords, recovery phrases, BIP39 passphrases, and
+          private keys), and website information limited to connected dApp
+          origins and wallet request payloads. Authentication information is
+          processed locally and is not sent to Kaspire or third-party servers.
+        </p>
+        <p>
+          Public identifiers and approved transaction data may be transmitted
+          to <code>kaspire.kaslab.space</code>, <code>api.kaspa.org</code>,
+          <code>kaspatoken.kaslab.space</code>, <code>api.kasplex.org</code>,
+          <code>kcc20.info</code>, <code>kascov.io</code>,
+          <code>krc721-indexer.kaspa.com</code>,
+          <code>api.knsdomains.org</code>, <code>api.kaspa.com</code>,
+          <code>gothdag.kaslab.space</code>, and
+          <code>open.er-api.com</code>, depending on the feature used. These
+          services also receive ordinary connection metadata such as the
+          user&apos;s IP address. No data is transferred for advertising or
+          resale.
+        </p>
+      </>
+    ),
+  },
+  {
+    title: "Browser extension permissions",
+    content: (
+      <>
+        <p>
+          <code>storage</code> keeps the encrypted vault, public wallet state,
+          settings, contacts, connected dApp origins, and activity data on the
+          device. <code>alarms</code> performs the configured inactivity lock
+          even when the extension popup is closed. Access on HTTP and HTTPS
+          pages is used only to inject the Kaspire provider and relay explicit
+          wallet API requests from a website to the extension.
+        </p>
+        <p>
+          Host access is limited to the Kaspa node, indexer, exchange-rate,
+          metadata, and transaction-broadcast services needed to display wallet
+          state and complete user-approved operations. The extension does not
+          request the Chrome <code>idle</code> permission.
+        </p>
+      </>
+    ),
+  },
+  {
     title: "WalletConnect and dApp connections",
     content: (
       <>
@@ -84,6 +161,19 @@ const sections = [
     ),
   },
   {
+    title: "Remote code",
+    content: (
+      <p>
+        The Kaspire browser extension does not use remote code. Its JavaScript,
+        WebAssembly security core, and executable logic are included in the
+        extension package reviewed by the Chrome Web Store. Remote services
+        return blockchain data, token metadata, exchange rates, and broadcast
+        results; those responses are treated as data and are not executed as
+        code.
+      </p>
+    ),
+  },
+  {
     title: "Camera and biometric access",
     content: (
       <>
@@ -98,6 +188,19 @@ const sections = [
           fingerprint, face, or other biometric templates.
         </p>
       </>
+    ),
+  },
+  {
+    title: "Chrome Web Store Limited Use",
+    content: (
+      <p>
+        Kaspire&apos;s use of information received from Chrome APIs complies
+        with the Chrome Web Store User Data Policy, including the Limited Use
+        requirements. User data is used only to provide and secure the
+        self-custody wallet functions described here. Kaspire does not sell
+        user data, use it for advertising or credit decisions, or permit humans
+        to read private wallet data.
+      </p>
     ),
   },
   {
@@ -202,7 +305,7 @@ export default function PrivacyPage() {
       <main id="privacy-policy" className="article-page">
         <section className="article-hero">
           <div className="shell article-hero-inner">
-            <p className="kicker">Effective July 26, 2026</p>
+            <p className="kicker">Effective August 4, 2026</p>
             <h1>Kaspire Privacy Policy</h1>
             <p>
               How Kaspire processes wallet data, network requests, device
@@ -220,9 +323,10 @@ export default function PrivacyPage() {
         <article className="shell article-body">
           <div className="article-lead">
             <p>
-              This policy describes the current Kaspire application. It should
-              be read together with the privacy terms of any dApp, relay,
-              blockchain node, or indexer a user chooses to interact with.
+              This policy describes the current Kaspire Android app, browser
+              extension, and website. It should be read together with the
+              privacy terms of any dApp, relay, blockchain node, or indexer a
+              user chooses to interact with.
             </p>
           </div>
           {sections.map((section, index) => (

@@ -2196,7 +2196,7 @@ async function prepareKronTransfer(
     };
   } catch (error) {
     throw new Error(
-      `[Kaspire Extension 0.3.13 · KRON ${stage}] ${(error as Error)?.message ?? error}`,
+      `[Kaspire Extension 0.3.14 · KRON ${stage}] ${(error as Error)?.message ?? error}`,
     );
   }
 }
@@ -2213,7 +2213,7 @@ async function broadcastKron(
     transaction = kaspa.Transaction.deserializeFromSafeJSON(signedTxJson);
   } catch (error) {
     throw new Error(
-      `[Kaspire Extension 0.3.13 · KRON signed SafeJSON] ${(error as Error)?.message ?? error}`,
+      `[Kaspire Extension 0.3.14 · KRON signed SafeJSON] ${(error as Error)?.message ?? error}`,
     );
   }
   const localId = String(
@@ -2277,7 +2277,7 @@ async function broadcastKron(
     return transactionId;
   } catch (error) {
     throw new Error(
-      `[Kaspire Extension 0.3.13 · KRON wRPC broadcast] ${(error as Error)?.message ?? error}`,
+      `[Kaspire Extension 0.3.14 · KRON wRPC broadcast] ${(error as Error)?.message ?? error}`,
     );
   } finally {
     try {
