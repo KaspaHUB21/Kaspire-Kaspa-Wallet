@@ -1,8 +1,12 @@
 mod inscription;
 mod kcc20;
+mod kron;
 mod policy_transaction;
 mod pskt;
 mod transaction;
+
+#[cfg(target_arch = "wasm32")]
+mod wasm;
 
 #[cfg(target_os = "android")]
 mod android;
@@ -26,6 +30,7 @@ pub use kcc20::{
     kcc20_template_hash, prepare_kcc20_transfer, sign_kcc20_transfer, Kcc20Cell,
     Kcc20TransferRequest, PreparedKcc20Transfer, SignedKcc20Transfer,
 };
+pub use kron::{prepare_kron_transfer, KronCell, KronTransferRequest, PreparedKronTransfer};
 pub use policy_transaction::{
     prepare_policy_transaction, sign_policy_transaction, PolicyTransactionRequest,
     PreparedPolicyTransaction, SignedPolicyTransaction,
@@ -155,8 +160,16 @@ pub fn generate_wallet() -> Result<WalletMaterial> {
 }
 
 pub fn generate_wallet_with_passphrase(passphrase: &str) -> Result<WalletMaterial> {
-    let mnemonic = Mnemonic::random(WordCount::Words24, Language::English)
-        .map_err(|_| CoreError::Derivation)?;
+    // Request the full 256-bit BIP-39 entropy directly from the platform CSPRNG.
+    // Android uses the operating-system random source; wasm32 uses Web Crypto.
+    // If that direct call fails, retain the previous Rusty-Kaspa CSPRNG path.
+    // Neither path ever falls back to timers, serial numbers or other predictable data.
+    let mut entropy = Zeroizing::new([0u8; 32]);
+    let mnemonic = match getrandom::getrandom(entropy.as_mut()) {
+        Ok(()) => Mnemonic::from_entropy(entropy.to_vec(), Language::English),
+        Err(_) => Mnemonic::random(WordCount::Words24, Language::English),
+    }
+    .map_err(|_| CoreError::Derivation)?;
     wallet_material(mnemonic, passphrase)
 }
 
@@ -205,13 +218,21 @@ pub fn export_private_key(secret: &str) -> Result<String> {
     Ok(hex::encode(derive_key(secret)?.as_ref()))
 }
 
+pub fn public_key(secret: &str) -> Result<String> {
+    let key = derive_key(secret)?;
+    let secret = SecretKey::from_bytes(&*key).map_err(|_| CoreError::Derivation)?;
+    let secp = kaspa_bip32::secp256k1::Secp256k1::new();
+    let serialized = secret.public_key(&secp).serialize();
+    Ok(hex::encode(&serialized[1..]))
+}
+
 pub fn sign_personal_message(secret: &str, address: &str, message: &str) -> Result<String> {
     if message.as_bytes().len() > 4096 {
         return Err(CoreError::InvalidRequest(
             "personal message exceeds 4096 UTF-8 bytes".into(),
         ));
     }
-    if derive_address(secret)?.to_string() != address {
+    if !controls_address(secret, address)? {
         return Err(CoreError::InvalidRequest(
             "key does not control requested message-signing address".into(),
         ));
@@ -225,6 +246,28 @@ pub fn sign_personal_message(secret: &str, address: &str, message: &str) -> Resu
     let keypair = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, key.as_ref())
         .map_err(|_| CoreError::Derivation)?;
     Ok(hex::encode(keypair.sign_schnorr(message).as_ref()))
+}
+
+pub fn address_with_prefix(address: &str, testnet: bool) -> Result<String> {
+    let mut parsed = Address::try_from(address).map_err(|_| CoreError::InvalidAddress)?;
+    if !matches!(parsed.prefix, Prefix::Mainnet | Prefix::Testnet) {
+        return Err(CoreError::InvalidAddress);
+    }
+    parsed.prefix = if testnet {
+        Prefix::Testnet
+    } else {
+        Prefix::Mainnet
+    };
+    Ok(parsed.to_string())
+}
+
+pub(crate) fn controls_address(secret: &str, address: &str) -> Result<bool> {
+    let requested = Address::try_from(address).map_err(|_| CoreError::InvalidAddress)?;
+    if !matches!(requested.prefix, Prefix::Mainnet | Prefix::Testnet) {
+        return Ok(false);
+    }
+    let derived = derive_address(secret)?;
+    Ok(derived.version == requested.version && derived.payload == requested.payload)
 }
 
 fn normalize_mnemonic(phrase: &str) -> String {
@@ -374,6 +417,17 @@ mod tests {
         let different = derive_backup_key("correct horse battery staples", &salt).unwrap();
         assert_eq!(first.as_slice(), second.as_slice());
         assert_ne!(first.as_slice(), different.as_slice());
+    }
+
+    #[test]
+    fn network_prefix_conversion_preserves_key_ownership() {
+        let secret = format!("mnemonic:{VECTOR}");
+        let mainnet = derive_address(&secret).unwrap().to_string();
+        let testnet = address_with_prefix(&mainnet, true).unwrap();
+        assert!(testnet.starts_with("kaspatest:"));
+        assert!(controls_address(&secret, &mainnet).unwrap());
+        assert!(controls_address(&secret, &testnet).unwrap());
+        assert_eq!(address_with_prefix(&testnet, false).unwrap(), mainnet);
     }
 
     #[test]

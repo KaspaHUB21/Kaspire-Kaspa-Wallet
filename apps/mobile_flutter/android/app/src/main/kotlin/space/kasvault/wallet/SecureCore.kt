@@ -12,6 +12,7 @@ object SecureCore {
     external fun prepareTransaction(requestJson: String): String
     external fun signTransaction(phrase: String, requestJson: String, reviewHash: String): String
     external fun prepareKcc20Transfer(requestJson: String): String
+    external fun prepareKronTransfer(requestJson: String): String
     external fun signKcc20Transfer(secret: String, requestJson: String, reviewHash: String): String
     external fun signPersonalMessage(secret: String, address: String, message: String): String
     external fun prepareInscription(requestJson: String): String

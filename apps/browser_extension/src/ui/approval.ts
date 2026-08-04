@@ -1,0 +1,7 @@
+const root=document.querySelector<HTMLElement>("#app")!;
+const id=new URL(location.href).searchParams.get("id")??"";
+void load();
+async function load(){try{const response=await chrome.runtime.sendMessage({kind:"approval",command:"get",id});if(response?.error)throw new Error(response.error.message);const item=response.result;root.innerHTML=`<main><p class="eyebrow">SECURE APPROVAL</p><h1>${esc(item.title)}</h1><section><h2>${esc(item.origin)}</h2><p>${esc(item.description)}</p>${item.details.map((detail:string)=>`<p>${esc(detail)}</p>`).join("")}${item.rawJson!=null?`<details class="raw-json"><summary>Raw JSON output</summary><pre>${esc(JSON.stringify(item.rawJson,(_key:string,value:unknown)=>typeof value==="bigint"?String(value):value,2))}</pre></details>`:""}</section><div class="actions"><button id="reject" class="ghost">REJECT</button><button id="approve">APPROVE</button></div><p class="note">Verify the site and every detail. Kaspire never signs silently.</p></main>`;document.querySelector<HTMLButtonElement>("#reject")!.onclick=()=>resolve(false);document.querySelector<HTMLButtonElement>("#approve")!.onclick=()=>resolve(true)}catch(error){root.innerHTML=`<main><h1>Request unavailable</h1><p class="error">${esc((error as Error).message)}</p></main>`}}
+async function resolve(approved:boolean){await chrome.runtime.sendMessage({kind:"approval",command:"resolve",id,approved});close()}
+function esc(value:string){const node=document.createElement("span");node.textContent=value;return node.innerHTML}
+export{};

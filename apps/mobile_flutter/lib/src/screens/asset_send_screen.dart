@@ -58,6 +58,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
   Map<String, Object?>? _receipt;
   Map<String, Object?>? _kcc20Request;
   Map<String, Object?>? _kcc20Review;
+  bool _kronTransfer = false;
   Map<String, Object?>? _pending;
   String? _error;
   String? _status;
@@ -267,7 +268,51 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             'cells': token.kcc20Cells.map((cell) => cell.toJson()).toList(),
             'fundingUtxosJson': fundingUtxos,
           };
-          final review = await _security.prepareKcc20Transfer(request);
+          Map<String, Object?> review;
+          Map<String, Object?> signingRequest = request;
+          if (token.standard == 'kron-native') {
+            if (token.kcc20Cells.any((cell) =>
+                cell.redeemScript == null || cell.redeemScript!.isEmpty)) {
+              throw StateError(
+                  'KRON signing data is incomplete. Refresh the wallet.');
+            }
+            final kronRequest = <String, Object?>{
+              'sender': widget.address,
+              'recipient': recipient,
+              'covenantId': token.covenantId,
+              'ticker': token.symbol,
+              'amount': int.parse(raw),
+              'decimals': token.decimals,
+              'feeRate': 100.0,
+              'templateHash': token.templateHash,
+              'cells': token.kcc20Cells
+                  .map((cell) => <String, Object?>{
+                        'transactionId': cell.transactionId,
+                        'index': cell.index,
+                        'valueSompi': cell.valueSompi,
+                        'blockDaaScore': cell.blockDaaScore,
+                        'scriptPublicKey': cell.scriptPublicKey,
+                        'tokenAmount': cell.tokenAmount,
+                        'redeemScript': cell.redeemScript,
+                      })
+                  .toList(),
+              'fundingUtxosJson': fundingUtxos,
+            };
+            final prepared = await _security.prepareKronTransfer(kronRequest);
+            signingRequest = (prepared['psktRequest'] as Map)
+                .cast<String, Object?>();
+            final psktReview = await _security.preparePskt(signingRequest);
+            review = <String, Object?>{
+              ...prepared,
+              ...psktReview,
+              'reviewHash': psktReview['reviewHash'],
+              'networkFeeSompi': prepared['feeSompi'],
+              'mass': prepared['feeMass'],
+              'kron': true,
+            };
+          } else {
+            review = await _security.prepareKcc20Transfer(request);
+          }
           operation['ticker'] = token.symbol;
           operation['amount'] = raw;
           operation['displayAmount'] = _amount.text.trim();
@@ -275,8 +320,9 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           if (mounted) {
             setState(() {
               _operation = operation;
-              _kcc20Request = request;
+              _kcc20Request = signingRequest;
               _kcc20Review = review;
+              _kronTransfer = token.standard == 'kron-native';
               _working = false;
             });
           }
@@ -332,17 +378,19 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
       _status = 'Authorizing KCC20 covenant transfer…';
     });
     try {
-      final signed = await _security.signKcc20Transfer(
-        request,
-        review['reviewHash']! as String,
-      );
+      final signed = _kronTransfer
+          ? await _security.signPskt(request, review['reviewHash']! as String)
+          : await _security.signKcc20Transfer(
+              request,
+              review['reviewHash']! as String,
+            );
       if (mounted) {
         setState(
             () => _status = 'Transaction signed. Sending to Kaspa mainnet…');
       }
       final expectedTransactionId = signed['transactionId']! as String;
       final transactionId = await _api.broadcastKcc20(
-        signed['wrpcJson']! as String,
+        (_kronTransfer ? signed['signedTxJson'] : signed['wrpcJson'])! as String,
         expectedTransactionId: expectedTransactionId,
       );
       if (transactionId.isEmpty) {
@@ -366,9 +414,11 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           'revealTransactionId': transactionId,
           'revealFeeSompi': review['feeSompi'],
           'kcc20': true,
+          'kron': _kronTransfer,
           'mass': review['mass'],
           'templateHash': review['templateHash'],
         };
+        _kronTransfer = false;
       });
     } catch (e) {
       if (mounted) {
