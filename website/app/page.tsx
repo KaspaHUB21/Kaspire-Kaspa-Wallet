@@ -1,14 +1,16 @@
 import DagField from "./dag-field";
-import { currentRelease } from "./release";
+import { currentRelease, extensionRelease } from "./release";
 
 const downloadUrl =
   `https://kaspire.kaslab.space/downloads/Kaspire-Android-mainnet-v${currentRelease.version}.apk`;
+const extensionDownloadUrl =
+  `https://kaspire.kaslab.space/downloads/Kaspire-Browser-Extension-v${extensionRelease.version}.zip`;
 
 const highlights = [
   {
     number: "01",
     title: "One wallet. Every L1 Kaspa asset.",
-    copy: "Hold and move KAS, KRC-20, KRC-721, KNS and typed KCC20 covenant assets from one focused Android wallet.",
+    copy: "Hold and move KAS, KRC20, KRC721, KNS and KCC20 covenant assets from one focused Android wallet or browser extension.",
     tags: ["KAS", "KRC-20", "KRC-721", "KNS", "KCC20"],
   },
   {
@@ -52,9 +54,10 @@ const securityChapters = [
         <p>
           New Kaspire wallets use 24-word English BIP-39 recovery phrases. A
           phrase represents 256 bits of entropy plus its BIP-39 checksum. The
-          entropy is generated inside the native Rust core using Android&apos;s
-          operating-system cryptographic random source—not timestamps, device
-          IDs or application-level pseudo-random values.
+          entropy is generated inside the shared Rust security core using the
+          platform cryptographic random source: Android&apos;s operating-system
+          CSPRNG in the app and Web Crypto in the browser extension—not
+          timestamps, device IDs or application-level pseudo-random values.
         </p>
         <p>
           Before storage, Kaspire asks the user to verify randomly selected
@@ -95,40 +98,46 @@ const securityChapters = [
   },
   {
     eyebrow: "03 / Storage",
-    title: "Android Keystore encryption",
+    title: "Platform vault encryption",
     body: (
       <>
         <p>
           Every signing wallet is encrypted at rest with AES-256-GCM and a
-          randomized initialization vector. The non-exportable wrapping key is
-          generated in Android Keystore. On supported devices Kaspire first
-          attempts StrongBox, then falls back to the device&apos;s secure
-          Keystore implementation.
+          randomized initialization vector. In the Android app, the
+          non-exportable wrapping key is generated in Android Keystore. On
+          supported devices Kaspire first attempts StrongBox, then falls back
+          to the device&apos;s secure Keystore implementation.
         </p>
         <p>
+          The browser extension stores secrets in a versioned local vault
+          protected by an Argon2id-derived key and AES-256-GCM. Decrypted vault
+          material exists only in the extension&apos;s isolated session context
+          while unlocked and is discarded on locking or browser-session end.
           AES-GCM authenticates as well as encrypts: modified ciphertext fails
-          instead of silently yielding a corrupted secret. Users can inspect
-          whether the active key is reported as hardware-backed.
+          instead of silently yielding corrupted secrets.
         </p>
       </>
     ),
   },
   {
     eyebrow: "04 / Boundary",
-    title: "Secrets stay below the Flutter layer",
+    title: "Platform-specific secret boundaries",
     body: (
       <>
         <p>
-          Recovery phrases and private keys are kept out of Dart, JavaScript,
-          WebViews, analytics and the clipboard. Creation, import, encrypted
-          storage, HD derivation and signing are handled by Android&apos;s
-          native layer and the Rust core. Only public addresses and reviewed
-          transaction data return to Flutter.
+          In the Android app, recovery phrases and private keys stay out of
+          Dart, WebViews, analytics and the clipboard. Creation, import,
+          encrypted storage, HD derivation and signing are handled by
+          Android&apos;s native layer and the Rust core. Only public addresses and
+          reviewed transaction data return to Flutter.
         </p>
         <p>
-          Rust uses zeroizing containers for sensitive buffers. JNI operations
-          are tightly scoped so native signing material exists only for the
-          authorized operation.
+          In the extension, the encrypted vault and unlocked session are
+          isolated inside extension-owned storage and background contexts;
+          websites can reach only the bounded <code>window.kaspire</code>
+          provider. Seed generation, derivation, transaction review and signing
+          use the packaged Rust WebAssembly core. Neither platform exposes
+          private keys or recovery phrases to dApps.
         </p>
       </>
     ),
@@ -139,10 +148,12 @@ const securityChapters = [
     body: (
       <>
         <p>
-          Sending assets, compounding UTXOs, signing messages, importing,
-          exporting or deleting wallets all require fresh biometric or Kaspire
-          PIN approval. Connecting a dApp never pre-authorizes a later
-          transaction.
+          In the app, sending assets, compounding UTXOs, signing messages,
+          importing, exporting or deleting wallets require fresh biometric or
+          Kaspire PIN approval. In the extension, value-moving and signing
+          requests open an extension-owned review and require the unlocked
+          encrypted vault. Connecting a dApp never pre-authorizes a later
+          transaction on either platform.
         </p>
         <p>
           The optional 4–8 digit PIN uses PBKDF2-HMAC-SHA256, a random salt and
@@ -213,20 +224,22 @@ const securityChapters = [
   },
   {
     eyebrow: "09 / dApps",
-    title: "WalletConnect with narrow authority",
+    title: "Narrow dApp authority on mobile and desktop",
     body: (
       <>
         <p>
-          Kaspire uses encrypted WalletConnect v2 sessions and advertises only
-          a small, versioned Kaspa method set. Unknown methods, WalletConnect
-          v1 requests, invalid chains and watch-only session accounts are
-          rejected.
+          Kaspire Mobile uses encrypted WalletConnect v2 sessions and advertises
+          only a small, versioned Kaspa method set. The browser extension uses
+          an origin-bound <code>window.kaspire</code> provider with an explicit,
+          bounded method registry. Unknown methods, invalid chains,
+          unauthorized origins and watch-only signing accounts are rejected.
         </p>
         <p>
-          Pairing topics are one-use and memory-only, pairing secrets are
+          Mobile pairing topics are one-use and memory-only, pairing secrets are
           redacted, and results return through the encrypted session—not an
-          arbitrary callback. Personal signatures follow KIP-5 and require
-          fresh authorization.
+          arbitrary callback. Extension permissions are stored per exact web
+          origin and can be disconnected independently. Personal signatures on
+          both platforms follow KIP-5 and require fresh review.
         </p>
       </>
     ),
@@ -237,7 +250,8 @@ const securityChapters = [
     body: (
       <>
         <p>
-          New <code>kaspire-backup-v2</code> exports derive a 256-bit key with
+          New <code>kaspire-backup-v2</code> exports in the Android app and
+          browser extension derive a 256-bit key with
           Argon2id v1.3, a random 32-byte salt, 32 MiB of memory, three passes
           and parallelism one. The backup is encrypted and authenticated with
           AES-256-GCM.
@@ -252,13 +266,14 @@ const securityChapters = [
   },
   {
     eyebrow: "11 / Delivery",
-    title: "Pinned native code and local infrastructure",
+    title: "Pinned packaged code and local infrastructure",
     body: (
       <>
         <p>
-          The ARM64 and ARMv7 signing core is compiled into the Android app,
-          pinned to Rusty Kaspa v2.0.1 and locked dependencies. It cannot be
-          swapped through an over-the-air web update.
+          The ARM64 and ARMv7 signing core is compiled into the Android app;
+          the browser extension includes the corresponding Rust WebAssembly
+          core inside its reviewed package. Both are pinned to Rusty Kaspa
+          v2.0.1 and locked dependencies. The extension executes no remote code.
         </p>
         <p>
           Kaspire defaults to its own HTTPS gateway, pruned Kaspa node and local
@@ -319,8 +334,8 @@ export default function Home() {
               GitHub
             </a>
           </nav>
-          <a className="header-download" href={downloadUrl}>
-            Get the app
+          <a className="header-download" href="#download">
+            Download
           </a>
           <details className="mobile-menu">
             <summary aria-label="Open navigation menu">
@@ -354,7 +369,7 @@ export default function Home() {
             <div className="hero-copy">
               <div className="status-pill">
                 <span />
-                Native Android wallet · Mainnet
+                Android app + browser extension · Mainnet
               </div>
               <div className="hero-brand" aria-label="Kaspire">
                 <img
@@ -370,20 +385,20 @@ export default function Home() {
               </div>
               <h1>Your Kaspa universe. One secure wallet.</h1>
               <p>
-                The mobile Kaspa wallet that makes no compromises. Designed from
-                the ground up for security and usability, Kaspire gives you
-                complete control over your assets while supporting everything
-                the Kaspa ecosystem has to offer. Kaspire is the first mobile
-                Kaspa wallet to support all L1 assets, encrypted WalletConnect
-                for mobile and desktop, BIP39 passphrases and Argon2id-encrypted
+                The Kaspa wallet that makes no compromises. Designed from the
+                ground up for security and usability, Kaspire gives you complete
+                control over your assets while supporting everything the Kaspa
+                ecosystem has to offer. Kaspire is the first Kaspa wallet to
+                support all L1 assets, encrypted WalletConnect for mobile and
+                desktop (for the app), BIP39 passphrases and Argon2id-encrypted
                 backups for industry-leading protection of your wallet data. The
                 entire project is open source because in crypto, trust should
                 always be earned through verification, not promises.
               </p>
               <div className="hero-actions">
-                <a className="button button-primary" href={downloadUrl}>
+                <a className="button button-primary" href="#download">
                   <DownloadIcon />
-                  Download for Android
+                  Download
                 </a>
                 <a className="button button-ghost" href="#security">
                   Explore the security model
@@ -391,9 +406,9 @@ export default function Home() {
                 </a>
               </div>
               <div className="hero-proof" aria-label="Release highlights">
-                <span>v{currentRelease.version}</span>
-                <span>Android 11–16</span>
-                <span>ARM64 + ARMv7</span>
+                <span>App v{currentRelease.version}</span>
+                <span>Extension v{extensionRelease.version}</span>
+                <span>Kaspa Mainnet</span>
               </div>
             </div>
 
@@ -432,8 +447,8 @@ export default function Home() {
             <p className="kicker">The complete wallet</p>
             <h2>Everything you need to move through Kaspa.</h2>
             <p>
-              A focused mobile experience for the network&apos;s native coin,
-              emerging asset standards and the dApps connecting them.
+              A focused mobile and desktop experience for the network&apos;s native
+              coin, emerging asset standards and the dApps connecting them.
             </p>
           </div>
           <div className="feature-grid">
@@ -523,11 +538,11 @@ export default function Home() {
           <DagField />
           <div className="shell download-layout">
             <div>
-              <p className="kicker">Kaspire {currentRelease.version}</p>
+              <p className="kicker">Kaspire downloads</p>
               <h2>Take control of your Kaspa wallet.</h2>
               <p>
-                Download the latest Mainnet APK for Android phones and tablets.
-                One universal build supports ARM64 and ARMv7.
+                Choose the native Android app or the browser extension. Both use
+                Kaspire&apos;s shared Rust security core and support Kaspa Mainnet.
               </p>
               <a className="button button-primary large" href={downloadUrl}>
                 <DownloadIcon />
@@ -566,6 +581,43 @@ export default function Home() {
               <p>
                 Android may ask you to allow installation from your browser or
                 file manager. Verify the checksum above before installation.
+              </p>
+            </div>
+            <div className="release-card extension-release-card">
+              <div className="release-icon">
+                <img
+                  className="release-logo-symbol"
+                  src="/kaspire-logo.png"
+                  alt=""
+                />
+                <img
+                  className="release-logo-wordmark"
+                  src="/kaspire-wordmark.png"
+                  alt="Kaspire"
+                />
+              </div>
+              <div>
+                <span>Current browser extension</span>
+                <strong>{extensionRelease.version} <small>build {extensionRelease.build}</small></strong>
+              </div>
+              <dl>
+                <div><dt>Platform</dt><dd>Chrome · Chromium</dd></div>
+                <div><dt>Network</dt><dd>Kaspa Mainnet</dd></div>
+                <div><dt>Manifest</dt><dd>Manifest V3</dd></div>
+                <div><dt>Provider</dt><dd>window.kaspire</dd></div>
+              </dl>
+              <a className="button button-primary" href={extensionDownloadUrl}>
+                <DownloadIcon />
+                Download Browser Extension
+              </a>
+              <div className="checksum">
+                <span>SHA-256</span>
+                <code>{extensionRelease.sha256}</code>
+              </div>
+              <p>
+                Until the Chrome Web Store listing is live, extract the ZIP and
+                load the extracted folder through Chrome&apos;s Developer mode.
+                Verify the checksum before installation.
               </p>
             </div>
           </div>

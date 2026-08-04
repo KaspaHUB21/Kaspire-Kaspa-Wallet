@@ -1114,6 +1114,23 @@ blockquote span {
   grid-column: 1 / -1;
 }
 
+.extension-release-card {
+  grid-column: 1 / -1;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.extension-release-card dl,
+.extension-release-card .button,
+.extension-release-card .checksum,
+.extension-release-card > p {
+  grid-column: 1 / -1;
+}
+
+.extension-release-card .button {
+  width: fit-content;
+}
+
 .release-card dl {
   margin: 0.6rem 0 0;
 }
@@ -1811,6 +1828,10 @@ footer {
   }
 
   .developer-guide-switch {
+    grid-template-columns: 1fr;
+  }
+
+  .extension-release-card {
     grid-template-columns: 1fr;
   }
 
