@@ -539,6 +539,66 @@ void main() {
     expect(snapshot.transactions.any((item) => item.id == txid), isTrue);
   });
 
+  test('marks KRON signing cells complete without a legacy template hash',
+      () async {
+    const owner =
+        '1bacea84ca721c95d67ecace19bc499a77c03726bc8739af637bcd89abaaf058';
+    const wallet =
+        'kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh';
+    const covenant =
+        '067e2835bd4533b7065444fab13828209f9ca5becf9eab10309c66b5813e9a6c';
+    const txid =
+        '3333333333333333333333333333333333333333333333333333333333333333';
+    final client = MockClient((request) async {
+      if (request.url.host == 'kcc20.info') {
+        if (request.url.path == '/v1/status') {
+          return http.Response(
+            '{"max_daa":200,"capabilities":{"balances":true,"owner_history":true,"signing_data":true}}',
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/balances')) {
+          return http.Response(
+            '{"balances":[{"token_id":"$covenant","balance":"16569","validation_status":"template_verified","unresolved_cells":0}],"next_cursor":null}',
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/cells')) {
+          return http.Response(
+            '{"cells":[{"covenant_id":"$covenant","outpoint_tx_id":"$txid","outpoint_index":2,"value":50000000,"created_daa":190,"script_public_key":"0000aa20aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","redeem_script":"20${owner}010308b9400000000000000100aa","state":{"owner":"$owner","amount":16569,"is_minter":false},"signing_ready":true}],"unmapped":[]}',
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/history')) {
+          return http.Response('{"history":[]}', 200);
+        }
+        return http.Response(
+          '{"token_id":"$covenant","ticker":"SHAY","decimals":0,"standard":"kron-native","contract_type":"kron-native","validation_status":"template_verified","unresolved_cells":0}',
+          200,
+        );
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":0}', 200);
+      }
+      if (request.url.path == '/info/price') {
+        return http.Response('{"price":0.1}', 200);
+      }
+      if (request.url.host == 'kaspatoken.kaslab.space') {
+        return http.Response('{}', 503);
+      }
+      return http.Response('[]', 200);
+    });
+
+    final token =
+        (await KaspaApi(client: client).loadWallet(wallet)).kcc20Tokens.single;
+    expect(token.standard, 'kron-native');
+    expect(token.templateHash, isEmpty);
+    expect(token.discoveryComplete, isTrue);
+    expect(token.kcc20Cells.single.tokenAmount, 16569);
+    expect(token.kcc20Cells.single.redeemScript, isNotEmpty);
+    expect(token.kcc20Cells.single.scriptPublicKey, startsWith('aa20'));
+  });
+
   test('resolves an exact KNS domain owner', () async {
     const resolved =
         'kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh';

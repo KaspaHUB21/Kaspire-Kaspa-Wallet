@@ -708,6 +708,7 @@ class KaspaApi {
         }
 
         final owner = (item['owner'] ??
+                state['owner'] ??
                 state['owner_identifier'] ??
                 stateField('owner_identifier'))
             ?.toString()
@@ -754,6 +755,9 @@ class KaspaApi {
           redeemScript: redeemScript.isEmpty ? null : redeemScript,
         ));
       }
+      final isKron = validation == 'template_verified' ||
+          token['standard']?.toString() == 'kron-native' ||
+          token['contract_type']?.toString() == 'kron-native';
       final unmapped = (cellData['unmapped'] as List? ?? const [])
           .whereType<Map>()
           .any((item) => item['token_id']?.toString() == tokenId);
@@ -761,7 +765,10 @@ class KaspaApi {
           cells.isNotEmpty &&
           cells.fold<int>(0, (sum, cell) => sum + cell.tokenAmount) ==
               rawBalance &&
-          RegExp(r'^[0-9a-f]{64}$').hasMatch(templateHash);
+          (isKron
+              ? cells.every((cell) =>
+                  cell.redeemScript != null && cell.redeemScript!.isNotEmpty)
+              : RegExp(r'^[0-9a-f]{64}$').hasMatch(templateHash));
       final asset = WalletAsset(
         symbol: ticker,
         balance: rawBalance / _pow10(decimals),
@@ -775,11 +782,7 @@ class KaspaApi {
         validationStatus: 'verified',
         kcc20Cells: cells,
         discoveryComplete: complete,
-        standard: validation == 'template_verified' ||
-                token['standard']?.toString() == 'kron-native' ||
-                token['contract_type']?.toString() == 'kron-native'
-            ? 'kron-native'
-            : 'legacy-kcc20',
+        standard: isKron ? 'kron-native' : 'legacy-kcc20',
       );
       final transactions = history
           .where((item) =>
