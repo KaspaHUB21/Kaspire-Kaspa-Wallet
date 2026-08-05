@@ -647,7 +647,7 @@ function wallets() {
   );
   const watches = status.addresses.filter((item: any) => item.watchOnly);
   shell(
-    `<section class="wallets-screen"><p class="eyebrow">KASPIRE WALLETS</p><h1>Wallets</h1><h2>SIGNING WALLETS</h2><div class="wallet-list">${signing.map(walletCard).join("") || '<div class="empty">No signing wallets.</div>'}</div><h2>WATCH WALLETS</h2><div class="wallet-list">${watches.map(walletCard).join("") || '<div class="empty">No watch wallets stored.</div>'}</div><div class="wallet-actions"><button id="subwallet">＋ SUBWALLET</button><button id="account">＋ ACCOUNT</button><button id="create-wallet">＋ CREATE WALLET</button><button id="seed" class="outline">IMPORT 12 / 24 WORDS</button><button id="key" class="outline">IMPORT PRIVATE KEY</button><button id="watch" class="outline">ADD WATCH WALLET</button></div></section>`,
+    `<section class="wallets-screen"><p class="eyebrow">KASPIRE WALLETS</p><h1>Wallets</h1><h2>SIGNING WALLETS</h2><div class="wallet-list">${signing.map(walletCard).join("") || '<div class="empty">No signing wallets.</div>'}</div><h2>WATCH WALLETS</h2><div class="wallet-list">${watches.map(walletCard).join("") || '<div class="empty">No watch wallets stored.</div>'}</div><div class="wallet-actions"><button id="subwallet">＋ SUBWALLET</button><button id="account">＋ ACCOUNT</button><button id="create-wallet" class="outline">＋ CREATE WALLET</button><button id="seed" class="outline">IMPORT 12 / 24 WORDS</button><button id="key" class="outline">IMPORT PRIVATE KEY</button><button id="watch" class="outline">ADD WATCH WALLET</button></div></section>`,
     "WALLETS",
     true,
   );
@@ -724,7 +724,7 @@ function walletForm() {
           ? "Import private key"
           : "Rename wallet";
   shell(
-    `<section class="form-page"><p class="eyebrow">${mode === "watch" ? "WATCH ONLY" : "KASPIRE WALLET"}</p><h1>${title}</h1>${mode === "watch" ? '<p class="info-box">Watch wallets display public balances and assets, but cannot sign or spend.</p>' : mode === "create-wallet" ? '<p class="info-box">Choose 12 or 24 recovery words. An optional BIP-39 passphrase creates a separate wallet and cannot be recovered from the words alone.</p>' : ""}<div class="form"><label>Wallet name<input id="wallet-name" value="${esc(current?.name ?? (mode === "watch" ? "Watch wallet" : mode === "create-wallet" ? `Wallet ${status.addresses.filter((item: any) => !item.watchOnly && item.account === 0 && item.index === 0).length + 1}` : mode === "import-key" ? "Imported key" : "Imported wallet"))}"></label>${mode === "watch" ? '<label>Kaspa address or name.kas<input id="wallet-address" placeholder="kaspa:… or name.kas"></label>' : mode === "import-key" ? '<label>Private key<input id="private-key" type="password" maxlength="64"></label><label>Vault password<input id="vault-password" type="password"></label>' : mode === "import-seed" ? `<div class="word-count"><button data-count="12" class="active">12 words</button><button data-count="24">24 words</button></div><div id="seed-grid" class="seed-grid">${seedFields(12)}</div><label>BIP-39 passphrase <small>optional</small><input id="passphrase" type="password"></label><label>Vault password<input id="vault-password" type="password"></label>` : mode === "create-wallet" ? '<div class="word-count"><button data-count="12" class="active">12 words</button><button data-count="24">24 words</button></div><label>BIP-39 passphrase <small>optional</small><input id="passphrase" type="password" autocomplete="off"></label><label>Vault password<input id="vault-password" type="password" autocomplete="current-password"></label>' : ""}<button id="save">${mode === "rename" ? "SAVE NAME" : mode === "watch" ? "ADD WATCH WALLET" : mode === "create-wallet" ? "CREATE WALLET" : "IMPORT WALLET"}</button><p id="error" class="error"></p></div></section>`,
+    `<section class="form-page"><p class="eyebrow">${mode === "watch" ? "WATCH ONLY" : "KASPIRE WALLET"}</p><h1>${title}</h1>${mode === "watch" ? '<p class="info-box">Watch wallets display public balances and assets, but cannot sign or spend.</p>' : mode === "create-wallet" ? '<p class="info-box">Choose 12 or 24 recovery words. An optional BIP-39 passphrase creates a separate wallet and cannot be recovered from the words alone.</p>' : ""}<div class="form"><label>Wallet name<input id="wallet-name" value="${esc(current?.name ?? (mode === "watch" ? "Watch wallet" : mode === "create-wallet" ? `Wallet ${status.addresses.filter((item: any) => !item.watchOnly && item.account === 0 && item.index === 0).length + 1}` : mode === "import-key" ? "Imported key" : "Imported wallet"))}"></label>${mode === "watch" ? '<label>Kaspa address or name.kas<input id="wallet-address" placeholder="kaspa:… or name.kas"></label>' : mode === "import-key" ? '<label>Private key<input id="private-key" type="password" maxlength="64"></label><label>Vault password<input id="vault-password" type="password"></label>' : mode === "import-seed" ? `<div class="word-count"><button data-count="12" class="active">12 words</button><button data-count="24">24 words</button></div><div id="seed-grid" class="seed-grid">${seedFields(12)}</div><label>BIP-39 passphrase <small>optional</small><input id="passphrase" type="password"></label><label>Vault password<input id="vault-password" type="password"></label>` : mode === "create-wallet" ? '<div class="word-count"><button data-count="12" class="active">12 words</button><button data-count="24">24 words</button></div><label>Vault password<input id="vault-password" type="password" autocomplete="current-password"></label><label class="toggle-row"><span>Use BIP39 passphrase</span><input id="use-passphrase" type="checkbox"></label><label id="passphrase-field" style="display:none">BIP39 passphrase<input id="passphrase" type="password" autocomplete="off"><small>This cannot be recovered from the seed words.</small></label>' : ""}<button id="save">${mode === "rename" ? "SAVE NAME" : mode === "watch" ? "ADD WATCH WALLET" : mode === "create-wallet" ? "CREATE WALLET" : "IMPORT WALLET"}</button><p id="error" class="error"></p></div></section>`,
     title.toUpperCase(),
     true,
   );
@@ -750,6 +750,19 @@ function walletForm() {
           if (mode === "import-seed") wireSeed();
         }),
     );
+    if (mode === "create-wallet") {
+      const passphraseToggle =
+        document.querySelector<HTMLInputElement>("#use-passphrase")!;
+      const passphraseField =
+        document.querySelector<HTMLElement>("#passphrase-field")!;
+      passphraseToggle.onchange = () => {
+        passphraseField.style.display = passphraseToggle.checked
+          ? "block"
+          : "none";
+        if (!passphraseToggle.checked)
+          document.querySelector<HTMLInputElement>("#passphrase")!.value = "";
+      };
+    }
   }
   document.querySelector<HTMLButtonElement>("#save")!.onclick = async () => {
     try {
@@ -775,7 +788,11 @@ function walletForm() {
         const result = await command("addGeneratedMnemonic", {
           name: value("wallet-name"),
           wordCount: countState.count,
-          passphrase: value("passphrase"),
+          passphrase: document.querySelector<HTMLInputElement>(
+            "#use-passphrase",
+          )?.checked
+            ? value("passphrase")
+            : "",
           password: value("vault-password"),
         });
         context = {};
