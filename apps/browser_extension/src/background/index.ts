@@ -1434,6 +1434,9 @@ async function handle(
       }))
     )
       throw rpc(4001, "Connection rejected.");
+    await hydrateSession();
+    if (!sessionVault)
+      throw rpc(4100, "Unlock Kaspire before connecting.");
     state.permissions[origin] = { accounts: true, connectedAt: Date.now() };
     await saveState(state);
     return [state.selectedAddress];
