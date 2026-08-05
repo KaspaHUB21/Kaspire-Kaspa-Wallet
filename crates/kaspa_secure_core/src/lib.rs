@@ -160,14 +160,30 @@ pub fn generate_wallet() -> Result<WalletMaterial> {
 }
 
 pub fn generate_wallet_with_passphrase(passphrase: &str) -> Result<WalletMaterial> {
+    generate_wallet_with_word_count(passphrase, 24)
+}
+
+pub fn generate_wallet_with_word_count(
+    passphrase: &str,
+    word_count: usize,
+) -> Result<WalletMaterial> {
     // Request the full 256-bit BIP-39 entropy directly from the platform CSPRNG.
     // Android uses the operating-system random source; wasm32 uses Web Crypto.
     // If that direct call fails, retain the previous Rusty-Kaspa CSPRNG path.
     // Neither path ever falls back to timers, serial numbers or other predictable data.
-    let mut entropy = Zeroizing::new([0u8; 32]);
+    let (entropy_bytes, fallback_count) = match word_count {
+        12 => (16, WordCount::Words12),
+        24 => (32, WordCount::Words24),
+        _ => {
+            return Err(CoreError::InvalidRequest(
+                "wallets require exactly 12 or 24 recovery words".into(),
+            ))
+        }
+    };
+    let mut entropy = Zeroizing::new(vec![0u8; entropy_bytes]);
     let mnemonic = match getrandom::getrandom(entropy.as_mut()) {
         Ok(()) => Mnemonic::from_entropy(entropy.to_vec(), Language::English),
-        Err(_) => Mnemonic::random(WordCount::Words24, Language::English),
+        Err(_) => Mnemonic::random(fallback_count, Language::English),
     }
     .map_err(|_| CoreError::Derivation)?;
     wallet_material(mnemonic, passphrase)
@@ -436,6 +452,16 @@ mod tests {
         assert_eq!(wallet.mnemonic.split_whitespace().count(), 24);
         assert!(wallet.address.starts_with("kaspa:"));
         assert_eq!(wallet.derivation_path, DERIVATION_PATH);
+    }
+
+    #[test]
+    fn creates_requested_12_or_24_word_wallets() {
+        for count in [12, 24] {
+            let wallet = generate_wallet_with_word_count("optional passphrase", count).unwrap();
+            assert_eq!(wallet.mnemonic.split_whitespace().count(), count);
+            assert!(wallet.address.starts_with("kaspa:"));
+        }
+        assert!(generate_wallet_with_word_count("", 18).is_err());
     }
 
     #[test]

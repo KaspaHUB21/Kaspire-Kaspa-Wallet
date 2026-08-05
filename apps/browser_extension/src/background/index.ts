@@ -44,6 +44,7 @@ const safe = new Set<ProviderMethod>([
   "getNetwork",
   "disconnect",
 ]);
+const extensionVersion = chrome.runtime.getManifest().version;
 interface VaultWallet {
   id: string;
   name: string;
@@ -600,6 +601,58 @@ async function walletCommand(
     await persistVault();
     await saveState(state);
     return entry;
+  }
+  if (message.command === "addGeneratedMnemonic") {
+    if (!sessionVault) throw new Error("Unlock Kaspire first.");
+    const password = String(message.password ?? "");
+    if (!password) throw new Error("Enter the vault password.");
+    await unlockVault(password);
+    sessionPassword = password;
+    const wordCount = Number(message.wordCount ?? 24);
+    if (wordCount !== 12 && wordCount !== 24)
+      throw new Error("Choose either 12 or 24 recovery words.");
+    const passphrase = String(message.passphrase ?? "");
+    const wasm = await core();
+    const material = JSON.parse(
+      wasm.generateWalletWithWordCount(passphrase, wordCount),
+    );
+    const address = wasm.addressWithPrefix(
+      material.address,
+      state.network === "testnet-10",
+    );
+    if (state.addresses.some((item) => item.address === address))
+      throw new Error("This recovery wallet is already in Kaspire.");
+    const id = crypto.randomUUID();
+    const passphraseHex = [...new TextEncoder().encode(passphrase)]
+      .map((value) => value.toString(16).padStart(2, "0"))
+      .join("");
+    const name =
+      String(message.name ?? "").trim() ||
+      `Wallet ${sessionVault.wallets.length + 1}`;
+    sessionVault.wallets.push({
+      id,
+      name,
+      type: "mnemonic",
+      secret: passphrase
+        ? `mnemonic-passphrase:${passphraseHex}:${material.mnemonic}`
+        : `mnemonic:${material.mnemonic}`,
+    });
+    state.addresses.push({
+      address,
+      name,
+      path: material.derivationPath,
+      watchOnly: false,
+      walletId: id,
+      coinType: 111111,
+      account: 0,
+      change: 0,
+      index: 0,
+    });
+    state.selectedAddress = address;
+    state.recoveryVerified = false;
+    await persistVault();
+    await saveState(state);
+    return { address, recoveryPhrase: material.mnemonic };
   }
   if (message.command === "select") {
     const address = String(message.address ?? "");
@@ -2196,7 +2249,7 @@ async function prepareKronTransfer(
     };
   } catch (error) {
     throw new Error(
-      `[Kaspire Extension 0.3.14 · KRON ${stage}] ${(error as Error)?.message ?? error}`,
+      `[Kaspire Extension ${extensionVersion} · KRON ${stage}] ${(error as Error)?.message ?? error}`,
     );
   }
 }
@@ -2213,7 +2266,7 @@ async function broadcastKron(
     transaction = kaspa.Transaction.deserializeFromSafeJSON(signedTxJson);
   } catch (error) {
     throw new Error(
-      `[Kaspire Extension 0.3.14 · KRON signed SafeJSON] ${(error as Error)?.message ?? error}`,
+      `[Kaspire Extension ${extensionVersion} · KRON signed SafeJSON] ${(error as Error)?.message ?? error}`,
     );
   }
   const localId = String(
@@ -2277,7 +2330,7 @@ async function broadcastKron(
     return transactionId;
   } catch (error) {
     throw new Error(
-      `[Kaspire Extension 0.3.14 · KRON wRPC broadcast] ${(error as Error)?.message ?? error}`,
+      `[Kaspire Extension ${extensionVersion} · KRON wRPC broadcast] ${(error as Error)?.message ?? error}`,
     );
   } finally {
     try {

@@ -3,6 +3,7 @@ type View =
   | "home"
   | "wallets"
   | "watch"
+  | "create-wallet"
   | "import-seed"
   | "import-key"
   | "rename"
@@ -231,6 +232,7 @@ async function render() {
   if (view === "wallets") return wallets();
   if (
     view === "watch" ||
+    view === "create-wallet" ||
     view === "import-seed" ||
     view === "import-key" ||
     view === "rename"
@@ -645,7 +647,7 @@ function wallets() {
   );
   const watches = status.addresses.filter((item: any) => item.watchOnly);
   shell(
-    `<section class="wallets-screen"><p class="eyebrow">KASPIRE WALLETS</p><h1>Wallets</h1><h2>SIGNING WALLETS</h2><div class="wallet-list">${signing.map(walletCard).join("") || '<div class="empty">No signing wallets.</div>'}</div><h2>WATCH WALLETS</h2><div class="wallet-list">${watches.map(walletCard).join("") || '<div class="empty">No watch wallets stored.</div>'}</div><div class="wallet-actions"><button id="subwallet">＋ SUBWALLET</button><button id="account">＋ ACCOUNT</button><button id="seed" class="outline">IMPORT 12 / 24 WORDS</button><button id="key" class="outline">IMPORT PRIVATE KEY</button><button id="watch" class="outline">ADD WATCH WALLET</button></div></section>`,
+    `<section class="wallets-screen"><p class="eyebrow">KASPIRE WALLETS</p><h1>Wallets</h1><h2>SIGNING WALLETS</h2><div class="wallet-list">${signing.map(walletCard).join("") || '<div class="empty">No signing wallets.</div>'}</div><h2>WATCH WALLETS</h2><div class="wallet-list">${watches.map(walletCard).join("") || '<div class="empty">No watch wallets stored.</div>'}</div><div class="wallet-actions"><button id="subwallet">＋ SUBWALLET</button><button id="account">＋ ACCOUNT</button><button id="create-wallet">＋ CREATE WALLET</button><button id="seed" class="outline">IMPORT 12 / 24 WORDS</button><button id="key" class="outline">IMPORT PRIVATE KEY</button><button id="watch" class="outline">ADD WATCH WALLET</button></div></section>`,
     "WALLETS",
     true,
   );
@@ -681,6 +683,8 @@ function wallets() {
   );
   document.querySelector<HTMLButtonElement>("#watch")!.onclick = () =>
     go("watch");
+  document.querySelector<HTMLButtonElement>("#create-wallet")!.onclick = () =>
+    go("create-wallet");
   document.querySelector<HTMLButtonElement>("#seed")!.onclick = () =>
     go("import-seed");
   document.querySelector<HTMLButtonElement>("#key")!.onclick = () =>
@@ -712,25 +716,28 @@ function walletForm() {
   const title =
     mode === "watch"
       ? "Add watch wallet"
+      : mode === "create-wallet"
+        ? "Create a secure wallet"
       : mode === "import-seed"
         ? "Import recovery words"
         : mode === "import-key"
           ? "Import private key"
           : "Rename wallet";
   shell(
-    `<section class="form-page"><p class="eyebrow">${mode === "watch" ? "WATCH ONLY" : "KASPIRE WALLET"}</p><h1>${title}</h1>${mode === "watch" ? '<p class="info-box">Watch wallets display public balances and assets, but cannot sign or spend.</p>' : ""}<div class="form"><label>Wallet name<input id="wallet-name" value="${esc(current?.name ?? (mode === "watch" ? "Watch wallet" : mode === "import-key" ? "Imported key" : "Imported wallet"))}"></label>${mode === "watch" ? '<label>Kaspa address or name.kas<input id="wallet-address" placeholder="kaspa:… or name.kas"></label>' : mode === "import-key" ? '<label>Private key<input id="private-key" type="password" maxlength="64"></label><label>Vault password<input id="vault-password" type="password"></label>' : mode === "import-seed" ? `<div class="word-count"><button data-count="12" class="active">12 words</button><button data-count="24">24 words</button></div><div id="seed-grid" class="seed-grid">${seedFields(12)}</div><label>BIP-39 passphrase <small>optional</small><input id="passphrase" type="password"></label><label>Vault password<input id="vault-password" type="password"></label>` : ""}<button id="save">${mode === "rename" ? "SAVE NAME" : mode === "watch" ? "ADD WATCH WALLET" : "IMPORT WALLET"}</button><p id="error" class="error"></p></div></section>`,
+    `<section class="form-page"><p class="eyebrow">${mode === "watch" ? "WATCH ONLY" : "KASPIRE WALLET"}</p><h1>${title}</h1>${mode === "watch" ? '<p class="info-box">Watch wallets display public balances and assets, but cannot sign or spend.</p>' : mode === "create-wallet" ? '<p class="info-box">Choose 12 or 24 recovery words. An optional BIP-39 passphrase creates a separate wallet and cannot be recovered from the words alone.</p>' : ""}<div class="form"><label>Wallet name<input id="wallet-name" value="${esc(current?.name ?? (mode === "watch" ? "Watch wallet" : mode === "create-wallet" ? `Wallet ${status.addresses.filter((item: any) => !item.watchOnly && item.account === 0 && item.index === 0).length + 1}` : mode === "import-key" ? "Imported key" : "Imported wallet"))}"></label>${mode === "watch" ? '<label>Kaspa address or name.kas<input id="wallet-address" placeholder="kaspa:… or name.kas"></label>' : mode === "import-key" ? '<label>Private key<input id="private-key" type="password" maxlength="64"></label><label>Vault password<input id="vault-password" type="password"></label>' : mode === "import-seed" ? `<div class="word-count"><button data-count="12" class="active">12 words</button><button data-count="24">24 words</button></div><div id="seed-grid" class="seed-grid">${seedFields(12)}</div><label>BIP-39 passphrase <small>optional</small><input id="passphrase" type="password"></label><label>Vault password<input id="vault-password" type="password"></label>` : mode === "create-wallet" ? '<div class="word-count"><button data-count="12" class="active">12 words</button><button data-count="24">24 words</button></div><label>BIP-39 passphrase <small>optional</small><input id="passphrase" type="password" autocomplete="off"></label><label>Vault password<input id="vault-password" type="password" autocomplete="current-password"></label>' : ""}<button id="save">${mode === "rename" ? "SAVE NAME" : mode === "watch" ? "ADD WATCH WALLET" : mode === "create-wallet" ? "CREATE WALLET" : "IMPORT WALLET"}</button><p id="error" class="error"></p></div></section>`,
     title.toUpperCase(),
     true,
   );
-  if (mode === "import-seed") {
-    wireSeed();
+  if (mode === "import-seed" || mode === "create-wallet") {
+    if (mode === "import-seed") wireSeed();
     document.querySelectorAll<HTMLButtonElement>("[data-count]").forEach(
       (button) =>
         (button.onclick = () => {
           countState.count = Number(button.dataset.count);
-          document.querySelector("#seed-grid")!.innerHTML = seedFields(
-            countState.count,
-          );
+          if (mode === "import-seed")
+            document.querySelector("#seed-grid")!.innerHTML = seedFields(
+              countState.count,
+            );
           document
             .querySelectorAll("[data-count]")
             .forEach((item) =>
@@ -740,7 +747,7 @@ function walletForm() {
                   String(countState.count),
               ),
             );
-          wireSeed();
+          if (mode === "import-seed") wireSeed();
         }),
     );
   }
@@ -764,6 +771,16 @@ function walletForm() {
           passphrase: value("passphrase"),
           password: value("vault-password"),
         });
+      else if (mode === "create-wallet") {
+        const result = await command("addGeneratedMnemonic", {
+          name: value("wallet-name"),
+          wordCount: countState.count,
+          passphrase: value("passphrase"),
+          password: value("vault-password"),
+        });
+        context = {};
+        return recovery(result.recoveryPhrase);
+      }
       else
         await command("rename", {
           address: context.address,

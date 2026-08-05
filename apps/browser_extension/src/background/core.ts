@@ -3,6 +3,7 @@ import * as wasmModule from "kaspire-wasm";
 type CoreModule = {
   default(input?: RequestInfo | URL | Response | BufferSource | WebAssembly.Module): Promise<unknown>;
   generateWallet(passphrase: string): string;
+  generateWalletWithWordCount(passphrase: string, wordCount: number): string;
   importWallet(words: string, passphrase: string): string;
   mnemonicWordStatus(phrase: string): string;
   importPrivateKey(key: string): string;

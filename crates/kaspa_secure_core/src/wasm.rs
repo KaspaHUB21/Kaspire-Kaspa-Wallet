@@ -13,6 +13,14 @@ pub fn generate_wallet_js(passphrase: &str) -> std::result::Result<String, JsErr
     json(generate_wallet_with_passphrase(passphrase))
 }
 
+#[wasm_bindgen(js_name = generateWalletWithWordCount)]
+pub fn generate_wallet_with_word_count_js(
+    passphrase: &str,
+    word_count: usize,
+) -> std::result::Result<String, JsError> {
+    json(generate_wallet_with_word_count(passphrase, word_count))
+}
+
 #[wasm_bindgen(js_name = importWallet)]
 pub fn import_wallet_js(phrase: &str, passphrase: &str) -> std::result::Result<String, JsError> {
     json(import_wallet_with_passphrase(phrase, passphrase))
