@@ -365,6 +365,36 @@ async function walletCommand(
     await saveState(state);
     return true;
   }
+  if (message.command === "cancelPendingRecovery") {
+    if (state.recoveryVerified || !sessionVault)
+      throw new Error("No wallet creation is pending.");
+    const entry = state.addresses.find(
+      (item) => item.address === state.selectedAddress,
+    );
+    const wallet = sessionVault.wallets.find(
+      (item) => item.id === entry?.walletId,
+    );
+    if (!entry || !wallet || wallet.type !== "mnemonic")
+      throw new Error("Pending recovery wallet is unavailable.");
+    sessionVault.wallets = sessionVault.wallets.filter(
+      (item) => item.id !== wallet.id,
+    );
+    state.addresses = state.addresses.filter(
+      (item) => item.walletId !== wallet.id,
+    );
+    state.selectedAddress = state.addresses[0]?.address ?? null;
+    state.recoveryVerified = true;
+    if (state.addresses.length === 0) {
+      sessionVault = null;
+      sessionPassword = null;
+      await chrome.storage.local.remove("encryptedVault");
+      await chrome.storage.session.remove(["unlockedVault", "lastActivity"]);
+    } else {
+      await persistVault();
+    }
+    await saveState(state);
+    return true;
+  }
   if (message.command === "create" || message.command === "import") {
     const password = String(message.password ?? "");
     const passphrase = String(message.passphrase ?? "");
@@ -678,26 +708,28 @@ async function walletCommand(
     const address = String(message.address ?? state.selectedAddress ?? "");
     const entry = state.addresses.find((item) => item.address === address);
     if (!entry) throw new Error("Unknown wallet.");
-    const siblings = state.addresses.filter(
-      (item) => item.walletId === entry.walletId,
-    );
-    if (
+    const removesSigningWallet =
       !entry.watchOnly &&
-      entry.path !== "private-key" &&
-      entry.account === 0 &&
-      entry.index === 0
-    )
-      throw new Error("The primary recovery address cannot be removed.");
-    state.addresses = state.addresses.filter(
-      (item) => item.address !== address,
-    );
+      (entry.path === "private-key" ||
+        (entry.account === 0 && entry.change === 0 && entry.index === 0));
+    state.addresses = removesSigningWallet
+      ? state.addresses.filter((item) => item.walletId !== entry.walletId)
+      : state.addresses.filter((item) => item.address !== address);
     state.selectedAddress = state.addresses[0]?.address ?? null;
-    if (!entry.watchOnly && siblings.length === 1 && sessionVault) {
+    if (removesSigningWallet && sessionVault) {
       sessionVault.wallets = sessionVault.wallets.filter(
         (item) => item.id !== entry.walletId,
       );
+    }
+    if (state.addresses.length === 0) {
+      sessionVault = null;
+      sessionPassword = null;
+      await chrome.storage.local.remove("encryptedVault");
+      await chrome.storage.session.remove(["unlockedVault", "lastActivity"]);
+    } else if (removesSigningWallet) {
       await persistVault();
     }
+    state.recoveryVerified = true;
     await saveState(state);
     return true;
   }

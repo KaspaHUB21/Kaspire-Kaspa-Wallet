@@ -62,3 +62,7 @@
   word-break: break-word;
   text-align: right;
 }
+
+.wallet-actions #create-wallet {
+  grid-column: 1 / -1;
+}

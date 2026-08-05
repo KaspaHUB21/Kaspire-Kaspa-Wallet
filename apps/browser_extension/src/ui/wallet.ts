@@ -320,27 +320,29 @@ function wireSeed() {
     (input) =>
       (input.oninput = async () => {
         input.value = input.value.toLowerCase().replace(/[^a-z]/g, "");
+        const typed = input.value;
         const result = await command("mnemonicWordStatus", {
-          phrase: input.value,
+          phrase: typed,
         });
+        if (input.value !== typed) return;
         input.classList.toggle(
           "invalid",
-          Boolean(
-            input.value &&
-              result.invalidWords.length &&
-              !result.suggestions.length,
-          ),
+          Boolean(typed && result.invalidWords.length),
         );
         const box =
           input.parentElement!.querySelector<HTMLElement>(".suggestions")!;
-        box.innerHTML = result.suggestions
-          .slice(0, 5)
-          .map((word: string) => `<button type="button">${word}</button>`)
-          .join("");
+        box.innerHTML =
+          typed.length >= 3
+            ? result.suggestions
+                .slice(0, 5)
+                .map((word: string) => `<button type="button">${word}</button>`)
+                .join("")
+            : "";
         box.querySelectorAll("button").forEach(
           (button) =>
             (button.onclick = () => {
               input.value = button.textContent ?? "";
+              input.classList.remove("invalid");
               box.innerHTML = "";
               document
                 .querySelector<HTMLInputElement>(
@@ -365,13 +367,26 @@ function readSeed(count: number) {
 function recovery(phrase: string) {
   const words = phrase.split(" ");
   shell(
-    `<section class="onboard recovery"><p class="eyebrow">RECOVERY PHRASE</p><h1>Write these words down.</h1><p class="warning-box">Never photograph, copy or share these words.</p><div class="seed-grid read-only">${seedFields(words.length, words)}</div><button id="verify">I SAVED IT OFFLINE</button></section>`,
+    `<section class="onboard recovery"><p class="eyebrow">RECOVERY PHRASE</p><h1>Write these words down.</h1><p class="warning-box">Never photograph, copy or share these words.</p><div class="seed-grid read-only">${seedFields(words.length, words)}</div><button id="verify">I SAVED IT OFFLINE</button><button id="cancel-recovery" class="outline">CANCEL</button><p id="recovery-error" class="error"></p></section>`,
   );
   document
     .querySelectorAll<HTMLInputElement>("[data-word]")
     .forEach((input) => (input.readOnly = true));
   document.querySelector<HTMLButtonElement>("#verify")!.onclick = () =>
     challenge(words);
+  document.querySelector<HTMLButtonElement>("#cancel-recovery")!.onclick =
+    async () => {
+      try {
+        await command("cancelPendingRecovery");
+        context = {};
+        view = "home";
+        await render();
+      } catch (error) {
+        document.querySelector("#recovery-error")!.textContent = (
+          error as Error
+        ).message;
+      }
+    };
 }
 function challenge(words: string[]) {
   const indexes = new Set<number>();
@@ -815,8 +830,13 @@ function removeWallet() {
   const item = status.addresses.find(
     (entry: any) => entry.address === context.address,
   );
+  const removesEntireWallet =
+    item &&
+    !item.watchOnly &&
+    (item.path === "private-key" ||
+      (item.account === 0 && item.change === 0 && item.index === 0));
   shell(
-    `<section class="confirm-page"><div class="confirm-icon">!</div><h1>Remove ${esc(item?.name ?? "wallet")}?</h1><p>${item?.watchOnly ? "This removes only the watch-wallet entry." : "Verify your offline backup before removing a signing address."}</p><button id="remove" class="danger">REMOVE WALLET</button><button id="cancel" class="outline">CANCEL</button><p id="error" class="error"></p></section>`,
+    `<section class="confirm-page"><div class="confirm-icon">!</div><h1>Remove ${esc(item?.name ?? "wallet")}?</h1><p>${item?.watchOnly ? "This removes only the watch-wallet entry." : removesEntireWallet ? "This removes the signing wallet and every account or subwallet derived from it. Verify your offline recovery backup first." : "This removes only this derived address. Verify your offline backup first."}</p><button id="remove" class="danger">REMOVE WALLET</button><button id="cancel" class="outline">CANCEL</button><p id="error" class="error"></p></section>`,
     "CONFIRM",
     true,
   );

@@ -54,7 +54,7 @@ if (accounts.length === 0) {
 }
 
 const network = await kaspire.request<string>({ method: "getNetwork" });
-// Kaspire Extension 0.3.16 is Mainnet-only: network === "mainnet"`;
+// Kaspire Extension 0.3.17 is Mainnet-only: network === "mainnet"`;
 
 const eventsCode = `const onAccounts = (accounts) => {
   selectedAddress = accounts[0] ?? null;
