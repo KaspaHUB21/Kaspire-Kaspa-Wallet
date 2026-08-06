@@ -36,6 +36,7 @@ import {
   type KaspaNetwork,
   type ProviderMethod,
 } from "../shared/protocol";
+import { formatRawTokenAmount } from "../shared/tokenAmount";
 import { kcc20 as kronKcc20, spend as kronSpend } from "@kronsdk/kron-sdk";
 import { loadKaspa as loadKronKaspa } from "@kronsdk/kron-sdk/wasm";
 
@@ -1377,8 +1378,12 @@ async function activityHistory(address: string, network: KaspaNetwork) {
     .filter((item: any) => item?.wallet === address)
     .map((item: any) => item.transaction);
   const merged = new Map<string, any>();
-  for (const item of [...node, ...token, ...kcc, ...local]) {
-    const key = `${item.transactionId}:${item.assetKind}:${item.tokenId ?? item.assetSymbol ?? ""}`;
+  for (const item of [...local, ...node, ...token, ...kcc]) {
+    const assetIdentity =
+      item.assetKind === "KRC-20"
+        ? item.assetSymbol
+        : item.tokenId ?? item.assetSymbol ?? "";
+    const key = `${item.transactionId}:${item.assetKind}:${assetIdentity}`;
     const previous = merged.get(key);
     merged.set(
       key,
@@ -2602,13 +2607,18 @@ async function inscriptionTransfer(
     );
     if (!holding || BigInt(amount) > BigInt(holding.raw_balance))
       throw rpc(-32602, "Insufficient verified KRC-20 balance.");
+    const displayAmount = formatRawTokenAmount(
+      amount,
+      Number(holding.decimals ?? 8),
+    );
     operation = {
       kind: "krc20",
       sender,
       recipient,
       ticker,
       amount,
-      tokenId: "",
+      displayAmount,
+      tokenId: `krc20-${ticker.toLowerCase()}`,
       assetId: "",
     };
   } else if (method === "transferKNS") {
@@ -2763,7 +2773,9 @@ async function inscriptionTransfer(
           ? "KNS"
           : "KRC-20",
     assetSymbol: operation.ticker || operation.assetId || "KNS",
-    displayAmount: operation.amount || (operation.kind === "krc721" ? "1" : ""),
+    displayAmount:
+      operation.displayAmount ||
+      (operation.kind === "krc721" ? "1" : ""),
     tokenId: operation.tokenId || operation.assetId || "",
     counterparty: recipient,
     from: [{ address: sender }],
