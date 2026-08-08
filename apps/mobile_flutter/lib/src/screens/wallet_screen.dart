@@ -56,6 +56,11 @@ class _WalletScreenState extends State<WalletScreen> {
 
   Future<String> _loadWalletName() async {
     final storedAddress = NetworkSettings.storageAddress(widget.address);
+    final addressNames = await PreferencesService().getSubwalletNames();
+    final addressName = addressNames[storedAddress.toLowerCase()];
+    if (addressName != null && addressName.trim().isNotEmpty) {
+      return addressName;
+    }
     final native = await NativeSecurity().listWallets();
     for (final wallet in native) {
       if (wallet.address == storedAddress ||

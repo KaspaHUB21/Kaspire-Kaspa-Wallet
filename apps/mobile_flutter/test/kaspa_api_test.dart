@@ -456,7 +456,7 @@ void main() {
     expect(activity.to.single.ownerId, owner);
   });
 
-  test('uses kcc20.info owner data without Kascov when signing-ready',
+  test('queries KCC20.info and Kascov concurrently when signing-ready',
       () async {
     const owner =
         '1bacea84ca721c95d67ecace19bc499a77c03726bc8739af637bcd89abaaf058';
@@ -532,7 +532,7 @@ void main() {
 
     final snapshot = await KaspaApi(client: client).loadWallet(wallet);
     expect(usedPrimary, isTrue);
-    expect(resolvedThroughKascov, isFalse);
+    expect(resolvedThroughKascov, isTrue);
     expect(snapshot.kcc20Tokens.single.symbol, 'COIN');
     expect(snapshot.kcc20Tokens.single.rawBalance, '1000');
     expect(snapshot.kcc20Tokens.single.discoveryComplete, isTrue);

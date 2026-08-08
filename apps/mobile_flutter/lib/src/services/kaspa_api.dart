@@ -534,15 +534,83 @@ class KaspaApi {
   }
 
   Future<_Kcc20Wallet> _loadKcc20Wallet(String address) async {
-    try {
-      return await _loadKcc20WalletFromIndexer(address);
-    } catch (_) {
-      return _loadKcc20WalletFromKascov(
-        address,
+    // Query both independent indexers at the same time. KCC20.info remains the
+    // preferred source, but a failed or incomplete response can immediately be
+    // repaired with Kascov data without waiting for a second request round.
+    final results = await Future.wait<_Kcc20Wallet?>([
+      _loadKcc20WalletFromIndexer(address)
+          .then<_Kcc20Wallet?>((value) => value)
+          .catchError((_) => null),
+      _loadKcc20WalletFromKascov(address)
+          .then<_Kcc20Wallet?>((value) => value)
+          .catchError((_) => null),
+    ]);
+    final primary = results[0];
+    final fallback = results[1];
+    if (primary == null && fallback == null) {
+      throw KaspaApiException(
+        'Both KCC20 indexers are temporarily unavailable.',
+      );
+    }
+    if (primary == null) {
+      return _Kcc20Wallet(
+        assets: fallback!.assets,
+        transactions: fallback.transactions,
         warning:
             'The primary KCC20 indexer is unavailable; Kaspire is using Kascov fallback data.',
       );
     }
+    if (fallback == null) return primary;
+    return _mergeKcc20Wallets(primary, fallback);
+  }
+
+  _Kcc20Wallet _mergeKcc20Wallets(
+    _Kcc20Wallet primary,
+    _Kcc20Wallet fallback,
+  ) {
+    final assets = <String, WalletAsset>{};
+    String assetKey(WalletAsset asset) =>
+        (asset.covenantId ?? asset.id ?? asset.symbol).toLowerCase();
+
+    for (final asset in primary.assets) {
+      assets[assetKey(asset)] = asset;
+    }
+    for (final asset in fallback.assets) {
+      final key = assetKey(asset);
+      final current = assets[key];
+      // Prefer the primary result when both are complete. Use Kascov whenever
+      // it can supply signing-complete cells for an incomplete primary entry.
+      if (current == null ||
+          (!current.discoveryComplete && asset.discoveryComplete)) {
+        assets[key] = asset;
+      }
+    }
+
+    final transactions = <String, WalletTransaction>{};
+    for (final transaction in [
+      ...primary.transactions,
+      ...fallback.transactions,
+    ]) {
+      transactions.putIfAbsent(transaction.id, () => transaction);
+    }
+    final mergedTransactions = transactions.values.toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final repaired = primary.assets.any((asset) {
+      if (asset.discoveryComplete) return false;
+      return assets[assetKey(asset)]?.discoveryComplete == true;
+    });
+    final incomplete = assets.values.any((asset) => !asset.discoveryComplete);
+
+    return _Kcc20Wallet(
+      assets: assets.values.toList(),
+      transactions: mergedTransactions,
+      warning: [
+        if (incomplete)
+          'Some KCC20 balances could not be mapped to complete signing cells.',
+        if (repaired)
+          'Kascov supplied complete signing data for an incomplete primary indexer response.',
+      ].join(' '),
+    );
   }
 
   Future<_Kcc20Wallet> _loadKcc20WalletFromIndexer(String address) async {
