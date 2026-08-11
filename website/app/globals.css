@@ -1019,9 +1019,15 @@ blockquote span {
 
 .download-layout {
   display: grid;
-  grid-template-columns: 1.05fr 0.7fr;
-  align-items: center;
-  gap: clamp(3rem, 8vw, 8rem);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 1.5rem;
+}
+
+.download-intro {
+  grid-column: 1 / -1;
+  max-width: 800px;
+  margin-bottom: 1.5rem;
 }
 
 .button.large {
@@ -1053,6 +1059,7 @@ blockquote span {
 .release-card {
   display: grid;
   grid-template-columns: auto 1fr;
+  align-content: start;
   gap: 1rem;
   border: 1px solid var(--line-strong);
   border-radius: 25px;
@@ -1110,24 +1117,13 @@ blockquote span {
 }
 
 .release-card dl,
-.release-card > p {
+.release-card > p,
+.release-card > .button,
+.release-card > .checksum {
   grid-column: 1 / -1;
 }
 
-.extension-release-card {
-  grid-column: 1 / -1;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-}
-
-.extension-release-card dl,
-.extension-release-card .button,
-.extension-release-card .checksum,
-.extension-release-card > p {
-  grid-column: 1 / -1;
-}
-
-.extension-release-card .button {
+.release-card .button {
   width: fit-content;
 }
 

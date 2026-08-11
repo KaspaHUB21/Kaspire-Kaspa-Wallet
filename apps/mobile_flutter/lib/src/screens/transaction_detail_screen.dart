@@ -41,7 +41,12 @@ class TransactionDetailScreen extends StatelessWidget {
           return Scaffold(
             appBar: AppBar(title: const Text('Transaction details')),
             body: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+              padding: EdgeInsets.fromLTRB(
+                20,
+                8,
+                20,
+                32 + MediaQuery.viewPaddingOf(context).bottom,
+              ),
               children: [
                 _Header(transaction: transaction, hideAmounts: hideAmounts),
                 const SizedBox(height: 16),

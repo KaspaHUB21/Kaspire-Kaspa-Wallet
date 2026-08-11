@@ -301,6 +301,11 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                             ),
                           ),
                         ),
+                      SliverToBoxAdapter(
+                        child: SizedBox(
+                          height: 20 + MediaQuery.viewPaddingOf(context).bottom,
+                        ),
+                      ),
                     ],
                   ),
                 ),

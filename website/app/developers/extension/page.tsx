@@ -248,6 +248,14 @@ export default function ExtensionDevelopersPage() {
               <span>Manifest V3</span><span>window.kaspire</span>
               <span>Origin-bound approval</span><span>Native Rust via WASM</span>
             </div>
+            <a
+              className="button button-primary"
+              href="https://chromewebstore.google.com/detail/kaspire-wallet/ldjonnkfjmcingabncepnibledcanmoe"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Add extension
+            </a>
             <div className="developer-guide-switch" aria-label="Choose a Kaspire integration">
               <a href="/developers">
                 <span>Android app</span>

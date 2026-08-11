@@ -3,8 +3,8 @@ import { currentRelease, extensionRelease } from "./release";
 
 const downloadUrl =
   `https://kaspire.kaslab.space/downloads/Kaspire-Android-mainnet-v${currentRelease.version}.apk`;
-const extensionDownloadUrl =
-  `https://kaspire.kaslab.space/downloads/Kaspire-Browser-Extension-v${extensionRelease.version}.zip`;
+const extensionStoreUrl =
+  "https://chromewebstore.google.com/detail/kaspire-wallet/ldjonnkfjmcingabncepnibledcanmoe";
 
 const highlights = [
   {
@@ -388,12 +388,13 @@ export default function Home() {
                 The Kaspa wallet that makes no compromises. Designed from the
                 ground up for security and usability, Kaspire gives you complete
                 control over your assets while supporting everything the Kaspa
-                ecosystem has to offer. Kaspire is the first Kaspa wallet to
-                support all L1 assets, encrypted WalletConnect for mobile and
-                desktop (for the app), BIP39 passphrases and Argon2id-encrypted
-                backups for industry-leading protection of your wallet data. The
-                entire project is open source because in crypto, trust should
-                always be earned through verification, not promises.
+                ecosystem has to offer. Kaspire is the first covenant-ready
+                Kaspa wallet to support all L1 assets, encrypted WalletConnect
+                for mobile and desktop (for the app), BIP39 passphrases and
+                Argon2id-encrypted backups for industry-leading protection of
+                your wallet data. The entire project is open source because in
+                crypto, trust should always be earned through verification, not
+                promises.
               </p>
               <div className="hero-actions">
                 <a className="button button-primary" href="#download">
@@ -537,23 +538,13 @@ export default function Home() {
         <section className="download-section" id="download">
           <DagField />
           <div className="shell download-layout">
-            <div>
+            <div className="download-intro">
               <p className="kicker">Kaspire downloads</p>
               <h2>Take control of your Kaspa wallet.</h2>
               <p>
                 Choose the native Android app or the browser extension. Both use
                 Kaspire&apos;s shared Rust security core and support Kaspa Mainnet.
               </p>
-              <a className="button button-primary large" href={downloadUrl}>
-                <DownloadIcon />
-                Download Android APK
-              </a>
-              <div className="checksum">
-                <span>SHA-256</span>
-                <code>
-                  {currentRelease.sha256}
-                </code>
-              </div>
             </div>
             <div className="release-card">
               <div className="release-icon">
@@ -578,9 +569,17 @@ export default function Home() {
                 <div><dt>Architectures</dt><dd>ARM64 · ARMv7</dd></div>
                 <div><dt>Package</dt><dd>space.kaspire.wallet</dd></div>
               </dl>
+              <a className="button button-primary" href={downloadUrl}>
+                <DownloadIcon />
+                Download Android APK
+              </a>
+              <div className="checksum">
+                <span>SHA-256</span>
+                <code>{currentRelease.sha256}</code>
+              </div>
               <p>
                 Android may ask you to allow installation from your browser or
-                file manager. Verify the checksum above before installation.
+                file manager. Verify the checksum before installation.
               </p>
             </div>
             <div className="release-card extension-release-card">
@@ -606,18 +605,22 @@ export default function Home() {
                 <div><dt>Manifest</dt><dd>Manifest V3</dd></div>
                 <div><dt>Provider</dt><dd>window.kaspire</dd></div>
               </dl>
-              <a className="button button-primary" href={extensionDownloadUrl}>
+              <a
+                className="button button-primary"
+                href={extensionStoreUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
                 <DownloadIcon />
-                Download Browser Extension
+                Add extension
               </a>
               <div className="checksum">
-                <span>SHA-256</span>
-                <code>{extensionRelease.sha256}</code>
+                <span>Chrome Web Store ID</span>
+                <code>ldjonnkfjmcingabncepnibledcanmoe</code>
               </div>
               <p>
-                Until the Chrome Web Store listing is live, extract the ZIP and
-                load the extracted folder through Chrome&apos;s Developer mode.
-                Verify the checksum before installation.
+                Kaspire Wallet is live in the Chrome Web Store. Chrome installs
+                verified updates automatically through the official listing.
               </p>
             </div>
           </div>
