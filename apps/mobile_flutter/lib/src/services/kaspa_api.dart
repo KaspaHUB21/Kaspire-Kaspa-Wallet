@@ -62,6 +62,7 @@ class KaspaApi {
   Future<WalletSnapshot> loadWallet(
     String address, {
     int transactionLimit = 20,
+    bool includeNativeTransactions = true,
   }) async {
     final testnet = NetworkSettings.isTestnet;
     final results = await Future.wait([
@@ -71,9 +72,11 @@ class KaspaApi {
       testnet
           ? Future<Object?>.value(null)
           : _getReadOnlyWithFallback('/info/price'),
-      _getReadOnlyWithFallback(
-        '/addresses/${Uri.encodeComponent(address)}/full-transactions?limit=$transactionLimit&offset=0&resolve_previous_outpoints=light',
-      ),
+      includeNativeTransactions
+          ? _getReadOnlyWithFallback(
+              '/addresses/${Uri.encodeComponent(address)}/full-transactions?limit=$transactionLimit&offset=0&resolve_previous_outpoints=light',
+            )
+          : Future<Object?>.value(const <Object?>[]),
       testnet
           ? Future<Object?>.value(null)
           : _loadTokenWallet(address).catchError((_) => null),
@@ -159,9 +162,74 @@ class KaspaApi {
       krc721Collections: assets.krc721,
       knsDomains: assets.domains,
       assetWarning: assetWarnings.isEmpty ? null : assetWarnings.join(' '),
-      hasMoreTransactions: nativeTransactions.length >= transactionLimit,
+      hasMoreTransactions: includeNativeTransactions &&
+          nativeTransactions.length >= transactionLimit,
       utxoCount: utxoCount,
     );
+  }
+
+  /// Loads only the information required by the balance card. This deliberately
+  /// does not wait for asset indexers, UTXOs or transaction history.
+  Future<WalletSnapshot> loadWalletBalance(
+    String address, {
+    Future<int>? balanceSompi,
+  }) async {
+    final testnet = NetworkSettings.isTestnet;
+    final results = await Future.wait([
+      balanceSompi ?? loadBalanceSompi(address),
+      testnet
+          ? Future<Object?>.value(null)
+          : _getReadOnlyWithFallback('/info/price'),
+      _loadUsdExchangeRate(AppSettings.fiatCurrency.value).catchError(
+        (_) => double.nan,
+      ),
+    ]);
+    final loadedBalanceSompi = results[0] as int;
+    final kasUsd = _asDouble(_map(results[1])['price']);
+    if (kasUsd != null && (!kasUsd.isFinite || kasUsd < 0)) {
+      throw KaspaApiException(
+        'The Kaspa endpoint returned an invalid market price.',
+      );
+    }
+    final currency = AppSettings.fiatCurrency.value;
+    return WalletSnapshot(
+      balanceSompi: loadedBalanceSompi,
+      kasUsd: kasUsd,
+      usdToFiat: results[2] as double,
+      fiatCode: currency.code,
+      fiatSymbol: currency.symbol,
+      transactions: const [],
+      krc20Tokens: const [],
+      kcc20Tokens: const [],
+      krc721Collections: const [],
+      knsDomains: const [],
+    );
+  }
+
+  /// Fast path for the native KAS amount. Market data and every indexer are
+  /// intentionally excluded so the primary balance cannot be held back by an
+  /// unrelated service.
+  Future<int> loadBalanceSompi(String address) async {
+    final json = await _getReadOnlyWithFallback(
+      '/addresses/${Uri.encodeComponent(address)}/balance',
+    );
+    final balance = _asInt(_map(json)['balance']);
+    if (balance < 0) {
+      throw KaspaApiException(
+        'The Kaspa endpoint returned an impossible negative balance.',
+      );
+    }
+    return balance;
+  }
+
+  Future<List<WalletTransaction>> loadNativeTransactions(
+    String address, {
+    int limit = 20,
+  }) async {
+    final json = await _getReadOnlyWithFallback(
+      '/addresses/${Uri.encodeComponent(address)}/full-transactions?limit=$limit&offset=0&resolve_previous_outpoints=light',
+    );
+    return parseTransactions(json, address);
   }
 
   Future<double> _loadUsdExchangeRate(FiatCurrency currency) async {

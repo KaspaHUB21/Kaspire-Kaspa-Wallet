@@ -42,15 +42,25 @@ class WalletScreen extends StatefulWidget {
 }
 
 class _WalletScreenState extends State<WalletScreen> {
+  final KaspaApi _api = KaspaApi();
   late Future<WalletSnapshot> _snapshot;
+  late Future<WalletSnapshot> _balance;
+  late Future<int> _kasBalance;
   late Future<String> _walletName;
+  Future<List<WalletTransaction>>? _activity;
+  bool _activityExpanded = false;
   int _historyLimit = 20;
   bool _compounding = false;
 
   @override
   void initState() {
     super.initState();
+    _kasBalance = _api.loadBalanceSompi(widget.address);
+    _balance =
+        _api.loadWalletBalance(widget.address, balanceSompi: _kasBalance);
     _snapshot = _loadSnapshot();
+    _activity = Future<void>.delayed(const Duration(milliseconds: 500))
+        .then<List<WalletTransaction>>((_) => _loadActivity());
     _walletName = _loadWalletName();
   }
 
@@ -76,9 +86,10 @@ class _WalletScreenState extends State<WalletScreen> {
 
   Future<WalletSnapshot> _loadSnapshot() async {
     final results = await Future.wait([
-      KaspaApi().loadWallet(
+      _api.loadWallet(
         widget.address,
         transactionLimit: _historyLimit,
+        includeNativeTransactions: false,
       ),
       ActivityStore().load(widget.address),
     ]);
@@ -88,7 +99,36 @@ class _WalletScreenState extends State<WalletScreen> {
     return snapshot.withTransactions(transactions);
   }
 
-  void _refresh() => setState(() => _snapshot = _loadSnapshot());
+  void _refresh() => setState(() {
+        _kasBalance = _api.loadBalanceSompi(widget.address);
+        _balance =
+            _api.loadWalletBalance(widget.address, balanceSompi: _kasBalance);
+        _snapshot = _loadSnapshot();
+        if (_activityExpanded) _activity = _loadActivity();
+      });
+
+  Future<List<WalletTransaction>> _loadActivity() async {
+    final results = await Future.wait([
+      _snapshot,
+      _api.loadNativeTransactions(widget.address, limit: _historyLimit),
+      ActivityStore().load(widget.address),
+    ]);
+    final snapshot = results[0] as WalletSnapshot;
+    final native = results[1] as List<WalletTransaction>;
+    final local = results[2] as List<WalletTransaction>;
+    return mergeWalletActivity(
+      local,
+      <WalletTransaction>[...snapshot.transactions, ...native]
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
+    );
+  }
+
+  void _toggleActivity() {
+    setState(() {
+      _activityExpanded = !_activityExpanded;
+      if (_activityExpanded) _activity ??= _loadActivity();
+    });
+  }
 
   Future<void> _chooseNetwork() async {
     final selected = await showDialog<KaspaNetwork>(
@@ -259,14 +299,22 @@ class _WalletScreenState extends State<WalletScreen> {
                   ],
                 ),
                 const SizedBox(height: 28),
-                FutureBuilder<String>(
-                  future: _walletName,
-                  builder: (context, name) => _BalanceCard(
-                    snapshot: snapshot,
-                    hideAmounts: hideAmounts,
-                    walletName: name.data ?? 'Wallet',
-                    onTogglePrivacy: () =>
-                        PrivacySettings.setHideAmounts(!hideAmounts),
+                FutureBuilder<int>(
+                  future: _kasBalance,
+                  builder: (context, kasBalance) =>
+                      FutureBuilder<WalletSnapshot>(
+                    future: _balance,
+                    builder: (context, balance) => FutureBuilder<String>(
+                      future: _walletName,
+                      builder: (context, name) => _BalanceCard(
+                        snapshot: balance,
+                        fastBalanceSompi: kasBalance.data,
+                        hideAmounts: hideAmounts,
+                        walletName: name.data ?? 'Wallet',
+                        onTogglePrivacy: () =>
+                            PrivacySettings.setHideAmounts(!hideAmounts),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -330,59 +378,69 @@ class _WalletScreenState extends State<WalletScreen> {
                   ),
                   const SizedBox(height: 32),
                 ],
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        displayLabel('ACTIVITY'),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 1.2,
+                InkWell(
+                  onTap: _toggleActivity,
+                  borderRadius: BorderRadius.circular(14),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            displayLabel('ACTIVITY'),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
                         ),
-                      ),
+                        Icon(
+                          _activityExpanded
+                              ? Icons.expand_less_rounded
+                              : Icons.expand_more_rounded,
+                        ),
+                      ],
                     ),
-                    Text(
-                      'LIVE',
-                      style: TextStyle(
-                        color: KasVaultTheme.mint,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-                if (snapshot.connectionState == ConnectionState.waiting)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(36),
-                      child: CircularProgressIndicator(),
+                if (_activityExpanded) ...[
+                  const SizedBox(height: 12),
+                  FutureBuilder<List<WalletTransaction>>(
+                    future: _activity,
+                    builder: (context, activity) => Column(
+                      children: [
+                        if (activity.connectionState == ConnectionState.waiting)
+                          const Padding(
+                            padding: EdgeInsets.all(36),
+                            child: CircularProgressIndicator(),
+                          ),
+                        if (activity.hasError)
+                          _ErrorCard(error: activity.error, onRetry: _refresh),
+                        if (activity.hasData && activity.data!.isEmpty)
+                          const _EmptyActivity(),
+                        if (activity.hasData)
+                          ...activity.data!.map(
+                            (tx) => _TransactionTile(
+                              transaction: tx,
+                              walletAddress: widget.address,
+                              hideAmounts: hideAmounts,
+                            ),
+                          ),
+                        if (activity.hasData &&
+                            activity.data!.length >= _historyLimit)
+                          OutlinedButton.icon(
+                            onPressed: () => setState(() {
+                              _historyLimit += 20;
+                              _activity = _loadActivity();
+                            }),
+                            icon: const Icon(Icons.expand_more_rounded),
+                            label: Text(buttonLabel('LOAD MORE ACTIVITY')),
+                          ),
+                      ],
                     ),
                   ),
-                if (snapshot.hasError)
-                  _ErrorCard(error: snapshot.error, onRetry: _refresh),
-                if (snapshot.hasData && snapshot.data!.transactions.isEmpty)
-                  const _EmptyActivity(),
-                if (snapshot.hasData)
-                  ...snapshot.data!.transactions.map(
-                    (tx) => _TransactionTile(
-                      transaction: tx,
-                      walletAddress: widget.address,
-                      hideAmounts: hideAmounts,
-                    ),
-                  ),
-                if (snapshot.hasData && snapshot.data!.hasMoreTransactions)
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _historyLimit += 20;
-                        _snapshot = _loadSnapshot();
-                      });
-                    },
-                    icon: const Icon(Icons.expand_more_rounded),
-                    label: Text(buttonLabel('LOAD MORE ACTIVITY')),
-                  ),
+                ],
               ],
             ),
           ),
@@ -667,22 +725,26 @@ class _AssetIcon extends StatelessWidget {
 class _BalanceCard extends StatelessWidget {
   const _BalanceCard({
     required this.snapshot,
+    required this.fastBalanceSompi,
     required this.hideAmounts,
     required this.walletName,
     required this.onTogglePrivacy,
   });
   final AsyncSnapshot<WalletSnapshot> snapshot;
+  final int? fastBalanceSompi;
   final bool hideAmounts;
   final String walletName;
   final VoidCallback onTogglePrivacy;
   @override
   Widget build(BuildContext context) {
     final data = snapshot.data;
+    final balanceKas = data?.balanceKas ??
+        (fastBalanceSompi == null ? null : fastBalanceSompi! / 100000000);
     final kas = hideAmounts
         ? '••••••'
-        : data == null
+        : balanceKas == null
             ? '—'
-            : formatEnglishNumber(data.balanceKas, decimals: 4);
+            : formatEnglishNumber(balanceKas, decimals: 4);
     final fiat = hideAmounts
         ? 'Amounts hidden'
         : data?.fiatValue == null

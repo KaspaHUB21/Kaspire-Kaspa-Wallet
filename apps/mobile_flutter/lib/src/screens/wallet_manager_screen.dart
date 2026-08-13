@@ -728,20 +728,21 @@ class _AddressLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: MainAxisSize.max,
         children: [
-          Text(
-            _compactAddress(address),
-            style: TextStyle(color: Theme.of(context).colorScheme.primary),
-          ),
-          const SizedBox(width: 2),
-          InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: () => _copyAddress(context, address),
-            child: const Padding(
-              padding: EdgeInsets.all(5),
-              child: Icon(Icons.copy_rounded, size: 16),
+          Flexible(
+            child: Text(
+              _compactAddress(address),
+              style: TextStyle(color: Theme.of(context).colorScheme.primary),
             ),
+          ),
+          IconButton(
+            constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Copy full address',
+            onPressed: () => _copyAddress(context, address),
+            icon: const Icon(Icons.copy_rounded, size: 18),
           ),
         ],
       );
