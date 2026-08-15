@@ -9,8 +9,8 @@ const extensionStoreUrl =
 const highlights = [
   {
     number: "01",
-    title: "One wallet. Every L1 Kaspa asset.",
-    copy: "Hold and move KAS, KRC20, KRC721, KNS and KCC20 covenant assets from one focused Android wallet or browser extension.",
+    title: "One wallet. Every Kaspa asset.",
+    copy: "Hold and move KAS, KRC20, KRC721, KNS, KCC20, and Kasplex/Igra L2 assets from one focused Android wallet or browser extension.",
     tags: ["KAS", "KRC-20", "KRC-721", "KNS", "KCC20"],
   },
   {
@@ -395,12 +395,12 @@ export default function Home() {
                 ground up for security and usability, Kaspire gives you complete
                 control over your assets while supporting everything the Kaspa
                 ecosystem has to offer. Kaspire is the first covenant-ready
-                Kaspa wallet to support all L1 assets, encrypted WalletConnect
-                for mobile and desktop (for the app), BIP39 passphrases and
-                Argon2id-encrypted backups for industry-leading protection of
-                your wallet data. The entire project is open source because in
-                crypto, trust should always be earned through verification, not
-                promises.
+                Kaspa wallet to support all Kaspa assets, encrypted
+                WalletConnect v2 for mobile and desktop (for the app), BIP39
+                passphrases and Argon2id-encrypted backups for industry-leading
+                protection of your wallet data. The entire project is open
+                source because in crypto, trust should always be earned through
+                verification, not promises.
               </p>
               <div className="hero-actions">
                 <a className="button button-primary" href="#download">
