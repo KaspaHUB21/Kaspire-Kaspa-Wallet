@@ -37,11 +37,11 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.15**, build **73**
+- Android app: **0.11.21**, build **79**
 - Android package: `space.kaspire.wallet`
-- Browser extension: **0.3.17**, build **17**
-- App networks: **Kaspa Mainnet and TN10 Testnet**
-- Extension network: **Kaspa Mainnet**
+- Browser extension: **0.4.0**, build **40**
+- App networks: **Kaspa Mainnet, TN10, Kasplex L2 and Igra L2**
+- Extension networks: **Kaspa Mainnet, TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
 
 | Platform | Connection model | Local security boundary |
@@ -384,7 +384,7 @@ Supported methods:
 
 Controls include:
 
-- Kaspa Mainnet-only chain validation
+- strict Kaspa Mainnet, TN10, Kasplex and Igra chain validation
 - encrypted sessions and one-use pairing topics
 - pairing URIs kept out of analytics and persistent app storage
 - pairing secrets redacted from errors
@@ -493,6 +493,7 @@ Native Rust security core ◄──────────┤ packaged Rust/WAS
    ├── AES-GCM and Argon2id
    ├── UTXO and transaction validation
    ├── review-hash binding and Schnorr signing
+   ├── EVM address derivation and reviewed L2 transaction signing
    ├── Kasplex commit/reveal
    └── SilverScript/Toccata KCC20 validation
 

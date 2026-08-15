@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../kaspa_address.dart';
 
-enum KaspaNetwork { mainnet, tn10 }
+enum KaspaNetwork { mainnet, tn10, kasplex, igra }
 
 class NetworkSettings {
   static const publicKaspaRestUrl = 'https://kaspire.kaslab.space/api';
@@ -16,19 +16,33 @@ class NetworkSettings {
       ValueNotifier(KaspaNetwork.mainnet);
 
   static bool get isTestnet => network.value == KaspaNetwork.tn10;
+  static bool get isEvm =>
+      network.value == KaspaNetwork.kasplex ||
+      network.value == KaspaNetwork.igra;
+  static bool get isKaspa => !isEvm;
   static String get kaspaRestUrl => isTestnet ? tn10RestUrl : _mainnetRestUrl;
   static String get publicKaspaFallbackRestUrl =>
       isTestnet ? tn10RestUrl : mainnetFallbackRestUrl;
-  static String get label => isTestnet ? 'TN10' : 'MAINNET';
-  static String get displayName =>
-      isTestnet ? 'Kaspa Testnet 10' : 'Kaspa Mainnet';
+  static String get label => switch (network.value) {
+        KaspaNetwork.mainnet => 'MAINNET',
+        KaspaNetwork.tn10 => 'TN10',
+        KaspaNetwork.kasplex => 'KASPLEX',
+        KaspaNetwork.igra => 'IGRA',
+      };
+  static String get displayName => switch (network.value) {
+        KaspaNetwork.mainnet => 'Kaspa Mainnet',
+        KaspaNetwork.tn10 => 'Kaspa Testnet 10',
+        KaspaNetwork.kasplex => 'Kasplex zkEVM Mainnet',
+        KaspaNetwork.igra => 'Igra Network',
+      };
   static String get addressPrefix => isTestnet ? 'kaspatest' : 'kaspa';
 
   static Future<void> initialize() async {
     final preferences = await SharedPreferences.getInstance();
-    network.value = preferences.getString(_networkKey) == 'tn10'
-        ? KaspaNetwork.tn10
-        : KaspaNetwork.mainnet;
+    network.value = KaspaNetwork.values.firstWhere(
+      (value) => value.name == preferences.getString(_networkKey),
+      orElse: () => KaspaNetwork.mainnet,
+    );
     final stored = preferences.getString(_key);
     if (stored == mainnetFallbackRestUrl) {
       await preferences.remove(_key);

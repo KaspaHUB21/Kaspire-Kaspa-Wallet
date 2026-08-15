@@ -299,8 +299,8 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
               'fundingUtxosJson': fundingUtxos,
             };
             final prepared = await _security.prepareKronTransfer(kronRequest);
-            signingRequest = (prepared['psktRequest'] as Map)
-                .cast<String, Object?>();
+            signingRequest =
+                (prepared['psktRequest'] as Map).cast<String, Object?>();
             final psktReview = await _security.preparePskt(signingRequest);
             review = <String, Object?>{
               ...prepared,
@@ -390,7 +390,8 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
       }
       final expectedTransactionId = signed['transactionId']! as String;
       final transactionId = await _api.broadcastKcc20(
-        (_kronTransfer ? signed['signedTxJson'] : signed['wrpcJson'])! as String,
+        (_kronTransfer ? signed['signedTxJson'] : signed['wrpcJson'])!
+            as String,
         expectedTransactionId: expectedTransactionId,
       );
       if (transactionId.isEmpty) {

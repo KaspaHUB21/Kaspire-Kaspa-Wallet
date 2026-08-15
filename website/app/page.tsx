@@ -43,6 +43,12 @@ const highlights = [
     copy: "See your wallet's UTXO count and consolidate fragmented outputs through a reviewed, authenticated self-transfer.",
     tags: ["UTXO count", "Compound", "Fee preview"],
   },
+  {
+    number: "07",
+    title: "Kaspa L2 networks, one familiar wallet.",
+    copy: "Switch between Kaspa Mainnet, TN10, Kasplex and Igra while keeping the same wallet identity, receive flow, asset layout and native review model.",
+    tags: ["Kasplex L2", "Igra L2", "EVM", "Native review"],
+  },
 ];
 
 const securityChapters = [
@@ -369,7 +375,7 @@ export default function Home() {
             <div className="hero-copy">
               <div className="status-pill">
                 <span />
-                Android app + browser extension · Mainnet
+                Android app + browser extension · L1 + L2
               </div>
               <div className="hero-brand" aria-label="Kaspire">
                 <img
@@ -409,7 +415,7 @@ export default function Home() {
               <div className="hero-proof" aria-label="Release highlights">
                 <span>App v{currentRelease.version}</span>
                 <span>Extension v{extensionRelease.version}</span>
-                <span>Kaspa Mainnet</span>
+                <span>Kaspa Mainnet · Kasplex · Igra</span>
               </div>
             </div>
 
@@ -543,7 +549,8 @@ export default function Home() {
               <h2>Take control of your Kaspa wallet.</h2>
               <p>
                 Choose the native Android app or the browser extension. Both use
-                Kaspire&apos;s shared Rust security core and support Kaspa Mainnet.
+                Kaspire&apos;s shared Rust security core across Kaspa Mainnet,
+                TN10, Kasplex L2 and Igra L2.
               </p>
             </div>
             <div className="release-card">
@@ -565,7 +572,7 @@ export default function Home() {
               </div>
               <dl>
                 <div><dt>Platform</dt><dd>Android 11–16</dd></div>
-                <div><dt>Network</dt><dd>Kaspa Mainnet</dd></div>
+                <div><dt>Networks</dt><dd>Mainnet · TN10 · Kasplex · Igra</dd></div>
                 <div><dt>Architectures</dt><dd>ARM64 · ARMv7</dd></div>
                 <div><dt>Package</dt><dd>space.kaspire.wallet</dd></div>
               </dl>
@@ -601,7 +608,7 @@ export default function Home() {
               </div>
               <dl>
                 <div><dt>Platform</dt><dd>Chrome · Chromium</dd></div>
-                <div><dt>Network</dt><dd>Kaspa Mainnet</dd></div>
+                <div><dt>Networks</dt><dd>Mainnet · TN10 · Kasplex · Igra</dd></div>
                 <div><dt>Manifest</dt><dd>Manifest V3</dd></div>
                 <div><dt>Provider</dt><dd>window.kaspire</dd></div>
               </dl>

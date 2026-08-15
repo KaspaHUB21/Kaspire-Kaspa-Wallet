@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Kaspire Wallet",
   "short_name": "Kaspire",
-  "version": "0.3.20",
+  "version": "0.4.0",
   "description": "Self-custody for the Kaspa ecosystem in your browser.",
   "minimum_chrome_version": "120",
   "icons": {
@@ -32,7 +32,12 @@
     "https://api.knsdomains.org/*",
     "https://gothdag.kaslab.space/*",
     "https://open.er-api.com/*",
-    "https://api.kaspa.com/*"
+    "https://api.kaspa.com/*",
+    "https://evmrpc.kasplex.org/*",
+    "https://api-explorer2.kasplex.org/*",
+    "https://rpc.igralabs.com/*",
+    "https://explorer.igralabs.com/*",
+    "https://api.katbridge.com/*"
   ],
   "content_scripts": [
     {

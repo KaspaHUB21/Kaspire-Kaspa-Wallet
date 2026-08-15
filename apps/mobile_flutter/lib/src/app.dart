@@ -18,6 +18,7 @@ import 'services/app_settings.dart';
 import 'services/signer_service.dart';
 import 'services/update_service.dart';
 import 'services/network_settings.dart';
+import 'services/evm_api.dart';
 import 'theme.dart';
 
 class KasVaultApp extends StatefulWidget {
@@ -194,7 +195,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   }
 
   Future<void> _handleProposal(SessionProposalEvent event) async {
-    if (NetworkSettings.isTestnet) {
+    if (NetworkSettings.network.value == KaspaNetwork.tn10) {
       await _dapps.reject(
         event,
         message: 'WalletConnect is available on Kaspa Mainnet only.',
@@ -202,11 +203,15 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       return;
     }
     final problem = _dapps.proposalProblem(event);
+    final evmChain = _dapps.requestedEvmChain(event);
     final address = await _preferences.getAddress();
     final methods = _dapps.requestedMethods(event).toList()..sort();
-    final needsKey = methods.any(
-      (method) => method != 'kaspa_getAccounts',
-    );
+    final needsKey = methods.any((method) =>
+        method != 'kaspa_getAccounts' &&
+        method != 'eth_accounts' &&
+        method != 'eth_requestAccounts' &&
+        method != 'eth_chainId' &&
+        method != 'wallet_switchEthereumChain');
     final hasKey =
         address != null && await _security.hasNativeWalletFor(address);
     final context = await _contextWhenReady();
@@ -254,6 +259,9 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                   style: TextStyle(fontWeight: FontWeight.w800)),
               const SizedBox(height: 6),
               ...methods.map((method) => Text('• ${_methodLabel(method)}')),
+              if (evmChain != null)
+                Text(
+                    '• Network: ${evmChain == DappSessionService.kasplexChainId ? 'Kasplex' : 'Igra'}'),
               const SizedBox(height: 14),
               SelectableText('Wallet: $address'),
             ],
@@ -272,7 +280,15 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       ),
     );
     if (approved == true) {
-      await _dapps.approve(event, address);
+      final evmAddress =
+          evmChain == null ? null : await _security.getEvmAddress();
+      if (evmChain != null) {
+        await NetworkSettings.setNetwork(
+            evmChain == DappSessionService.kasplexChainId
+                ? KaspaNetwork.kasplex
+                : KaspaNetwork.igra);
+      }
+      await _dapps.approve(event, address, evmAddress: evmAddress);
     } else {
       await _dapps.reject(event);
     }
@@ -288,11 +304,16 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
           'Request reviewed partial transaction signatures (PSKT)',
         'kaspa_signVaultTransaction' =>
           'Request policy-verified vault heartbeat signatures',
+        'eth_accounts' => 'View the approved L2 address',
+        'eth_requestAccounts' => 'View the approved L2 address',
+        'eth_chainId' => 'Read the approved L2 network',
+        'wallet_switchEthereumChain' => 'Switch between Kasplex and Igra',
+        'eth_sendTransaction' => 'Request a reviewed L2 transaction',
         _ => method,
       };
 
   Future<void> _handleRequest(SessionRequestEvent request) async {
-    if (NetworkSettings.isTestnet) {
+    if (NetworkSettings.network.value == KaspaNetwork.tn10) {
       await _dapps.respondError(
         request,
         'Switch Kaspire to Mainnet before approving dApp requests.',
@@ -309,6 +330,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       _handledRequestIds.remove(_handledRequestIds.first);
     }
     try {
+      if (request.chainId == DappSessionService.kasplexChainId ||
+          request.chainId == DappSessionService.igraChainId) {
+        await _handleEvmRequest(request);
+        return;
+      }
       if (request.chainId != DappSessionService.chainId ||
           !DappSessionService.supportedMethods.contains(request.method)) {
         await _dapps.respondError(request, 'Unsupported Kaspa request.',
@@ -349,6 +375,119 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         );
       }
     }
+  }
+
+  Future<void> _handleEvmRequest(SessionRequestEvent request) async {
+    if (!DappSessionService.evmMethods.contains(request.method)) {
+      await _dapps.respondError(request, 'Unsupported L2 request.',
+          code: -32601);
+      return;
+    }
+    final network = request.chainId == DappSessionService.kasplexChainId
+        ? KaspaNetwork.kasplex
+        : KaspaNetwork.igra;
+    await NetworkSettings.setNetwork(network);
+    final address = _dapps.evmAddressForTopic(request.topic);
+    if (address == null) {
+      throw const FormatException('Session L2 account is invalid.');
+    }
+    if (request.method == 'eth_accounts' ||
+        request.method == 'eth_requestAccounts') {
+      await _dapps.respondResult(request, [address]);
+      return;
+    }
+    if (request.method == 'eth_chainId') {
+      await _dapps.respondResult(
+          request, '0x${EvmNetworkConfig.current.chainId.toRadixString(16)}');
+      return;
+    }
+    if (request.method == 'wallet_switchEthereumChain') {
+      final params = request.params;
+      final first = params is List && params.isNotEmpty ? params.first : null;
+      final requested =
+          first is Map ? '${first['chainId'] ?? ''}'.toLowerCase() : '';
+      final expected =
+          '0x${EvmNetworkConfig.current.chainId.toRadixString(16)}';
+      if (requested != expected) {
+        throw const FormatException(
+            'The requested L2 network is not approved for this session.');
+      }
+      await _dapps.respondResult(request, null);
+      return;
+    }
+    final params = request.params;
+    final txRaw = params is List && params.isNotEmpty ? params.first : null;
+    if (txRaw is! Map) {
+      throw const FormatException('Invalid L2 transaction request.');
+    }
+    final tx = txRaw.map((key, value) => MapEntry(key.toString(), value));
+    final from = '${tx['from'] ?? ''}';
+    final to = '${tx['to'] ?? ''}';
+    if (from.toLowerCase() != address.toLowerCase() ||
+        !RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(to)) {
+      throw const FormatException('Invalid L2 sender or recipient.');
+    }
+    final api = EvmApi();
+    BigInt hexValue(Object? value) {
+      final raw = '${value ?? '0x0'}';
+      return BigInt.parse(
+          raw.replaceFirst('0x', '').isEmpty ? '0' : raw.replaceFirst('0x', ''),
+          radix: 16);
+    }
+
+    final value = hexValue(tx['value']);
+    final data = '${tx['data'] ?? tx['input'] ?? ''}';
+    final nonce =
+        tx['nonce'] == null ? await api.nonce(address) : hexValue(tx['nonce']);
+    final gasPrice = tx['gasPrice'] == null
+        ? await api.gasPrice()
+        : hexValue(tx['gasPrice']);
+    final gas = tx['gas'] == null
+        ? await api.estimateGas(address, to, value.toString(), data)
+        : hexValue(tx['gas']);
+    final requestMap = <String, Object?>{
+      'walletAddress': await _preferences.getAddress() ?? '',
+      'from': address,
+      'to': to,
+      'recipient': to,
+      'valueWei': value.toString(),
+      'nonce': nonce.toInt(),
+      'gasLimit': gas.toInt(),
+      'gasPriceWei': gasPrice.toString(),
+      'chainId': EvmNetworkConfig.current.chainId,
+      'data': data,
+      'tokenSymbol': EvmNetworkConfig.current.nativeSymbol,
+      'displayAmount': formatUnits(value, 18, visible: 18),
+    };
+    final prepared = await _security.prepareEvmTransaction(requestMap);
+    final context = await _contextWhenReady();
+    if (context == null || !context.mounted) {
+      throw const FormatException('Wallet UI is unavailable.');
+    }
+    final approved = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+                title: Text(
+                    '${_dapps.dappName(request.topic)} requests an L2 transaction'),
+                content: SelectableText(
+                    'Network\n${EvmNetworkConfig.current.name}\n\nFrom\n$address\n\nTo / contract\n$to\n\nValue\n${formatUnits(value, 18, visible: 18)} ${EvmNetworkConfig.current.nativeSymbol}\n\nMaximum network fee\n${formatUnits(gas * gasPrice, 18, visible: 18)} ${EvmNetworkConfig.current.nativeSymbol}\n\nGas\n$gas\n\nData\n${data.isEmpty ? 'None' : data}'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Reject')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Sign'))
+                ]));
+    if (approved != true) {
+      await _dapps.respondError(request, 'User rejected.', code: 4001);
+      return;
+    }
+    final signed = await _security.signEvmTransaction(
+        requestMap, '${prepared['reviewHash']}');
+    final hash = await api.broadcast('${signed['rawTransaction']}');
+    await _dapps.respondResult(request, hash);
   }
 
   Map<String, Object?> _paramsMap(dynamic params) {

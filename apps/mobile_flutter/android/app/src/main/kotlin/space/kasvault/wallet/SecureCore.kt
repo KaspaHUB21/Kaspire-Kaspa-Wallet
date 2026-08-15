@@ -8,6 +8,10 @@ object SecureCore {
     external fun importPrivateKey(privateKey: String): String
     external fun exportPrivateKey(secret: String): String
     external fun deriveAddresses(secret: String, coinType: Int, account: Int, change: Int, start: Int, count: Int): String
+    external fun deriveEvmAddress(secret: String): String
+    external fun exportEvmPrivateKey(secret: String): String
+    external fun prepareEvmTransaction(requestJson: String): String
+    external fun signEvmTransaction(secret: String, requestJson: String, reviewHash: String): String
     external fun deriveBackupKey(password: String, saltHex: String): String
     external fun prepareTransaction(requestJson: String): String
     external fun signTransaction(phrase: String, requestJson: String, reviewHash: String): String

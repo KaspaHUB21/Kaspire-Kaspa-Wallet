@@ -1,3 +1,4 @@
+mod evm;
 mod inscription;
 mod kcc20;
 mod kron;
@@ -22,6 +23,10 @@ use std::str::FromStr;
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
+pub use evm::{
+    derive_evm_address, export_evm_private_key, prepare_evm_transaction, sign_evm_transaction, EvmTransactionRequest,
+    PreparedEvmTransaction, SignedEvmTransaction,
+};
 pub use inscription::{
     prepare_inscription, prepare_reveal, sign_reveal, InscriptionPlan, InscriptionRequest,
     PreparedReveal, RevealRequest, SignedReveal,
@@ -318,7 +323,7 @@ pub(crate) fn derive_key(phrase: &str) -> Result<Zeroizing<[u8; 32]>> {
     derive_key_at_path(secret, selected_path.unwrap_or(DERIVATION_PATH))
 }
 
-fn derive_key_at_path(secret: &str, path: &str) -> Result<Zeroizing<[u8; 32]>> {
+pub(crate) fn derive_key_at_path(secret: &str, path: &str) -> Result<Zeroizing<[u8; 32]>> {
     let (phrase, passphrase) = mnemonic_secret(secret)?;
     let mnemonic = Mnemonic::new(
         phrase.split_whitespace().collect::<Vec<_>>().join(" "),
@@ -359,7 +364,7 @@ fn normalize_private_key(value: &str) -> Result<String> {
     Ok(normalized.to_lowercase())
 }
 
-fn private_key_bytes(value: &str) -> Result<[u8; 32]> {
+pub(crate) fn private_key_bytes(value: &str) -> Result<[u8; 32]> {
     let decoded = hex::decode(value).map_err(|_| CoreError::InvalidPrivateKey)?;
     let bytes: [u8; 32] = decoded
         .try_into()

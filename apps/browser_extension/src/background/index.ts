@@ -39,6 +39,17 @@ import {
 import { formatRawTokenAmount } from "../shared/tokenAmount";
 import { kcc20 as kronKcc20, spend as kronSpend } from "@kronsdk/kron-sdk";
 import { loadKaspa as loadKronKaspa } from "@kronsdk/kron-sdk/wasm";
+import {
+  erc20Data,
+  evmConfig,
+  evmHistory,
+  evmRpc,
+  evmSnapshot,
+  evmTransactionFields,
+  formatUnits,
+  parseUnits,
+  waitReceipt,
+} from "./evm";
 
 const safe = new Set<ProviderMethod>([
   "getAccounts",
@@ -60,6 +71,7 @@ interface VaultPayload {
 let sessionVault: VaultPayload | null = null;
 let sessionPassword: string | null = null;
 let lastActivity = 0;
+const preparedEvmTransfers = new Map<string, { request: any; review: any; secret: string; createdAt: number }>();
 interface ApprovalView {
   id: string;
   origin: string;
@@ -90,6 +102,7 @@ chrome.alarms.onAlarm.addListener(async ({ name }) => {
   await hydrateSession();
   const state = await loadState();
   const autoLockMs = state.settings.autoLockMinutes * 60_000;
+  if (state.settings.autoLockMinutes < 0) return;
   if (
     !sessionVault ||
     (autoLockMs > 0 && Date.now() - lastActivity < autoLockMs)
@@ -194,6 +207,7 @@ async function walletCommand(
     );
   if (message.command === "snapshot") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
+    if (state.network === "kasplex" || state.network === "igra") return evmWalletSnapshot(state);
     return walletSnapshot(state.selectedAddress, state.network);
   }
   if (message.command === "coreSnapshot") {
@@ -202,10 +216,12 @@ async function walletCommand(
   }
   if (message.command === "balanceSnapshot") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
+    if (state.network === "kasplex" || state.network === "igra") return evmWalletSnapshot(state);
     return walletBalance(state.selectedAddress, state.network);
   }
   if (message.command === "assetsSnapshot") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
+    if (state.network === "kasplex" || state.network === "igra") return evmWalletSnapshot(state);
     const assets = await walletAssets(state.selectedAddress, state.network);
     await chrome.storage.session.set({
       assetReviewSnapshot: {
@@ -219,16 +235,82 @@ async function walletCommand(
   }
   if (message.command === "networkDiagnostics") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
+    if (state.network === "kasplex" || state.network === "igra") {
+      const config = evmConfig(state.network), started = Date.now();
+      try { await evmRpc(state.network, "eth_chainId"); return [{ name: config.name, url: config.rpc, ok: true, detail: `Chain ${config.chainId}`, elapsedMs: Date.now() - started }]; }
+      catch (error) { return [{ name: config.name, url: config.rpc, ok: false, detail: (error as Error).message, elapsedMs: Date.now() - started }]; }
+    }
     return networkDiagnostics(state.selectedAddress, state.network);
   }
   if (message.command === "history") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
+    if (state.network === "kasplex" || state.network === "igra") {
+      const { address } = await evmContext(state);
+      return evmHistory(state.network, address);
+    }
     return activityHistory(state.selectedAddress, state.network);
   }
   if (message.command === "market") {
     return state.network === "mainnet"
       ? marketPrice(state.settings.currency)
       : null;
+  }
+  if (message.command === "evmAddress") return (await evmContext(state)).address;
+  if (message.command === "prepareEvmTransfer") {
+    if (state.network !== "kasplex" && state.network !== "igra") throw new Error("Select Kasplex or Igra first.");
+    const { address, secret } = await evmContext(state);
+    const recipient = String(message.recipient ?? "").trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(recipient)) throw new Error("Enter a valid EVM address.");
+    const token = message.token as any;
+    const decimals = token ? Number(token.decimals ?? 18) : 18;
+    const requestedAmountText = String(message.amount ?? "").trim();
+    let amountText = requestedAmountText;
+    let amount = parseUnits(amountText, decimals);
+    if (amount <= 0n) throw new Error("Enter an amount greater than zero.");
+    const config = evmConfig(state.network);
+    const to = token ? String(token.contract) : recipient;
+    if (token && !/^0x[0-9a-fA-F]{40}$/.test(to)) throw new Error("Invalid token contract.");
+    let data = token ? erc20Data(recipient, amount) : "";
+    let value = token ? 0n : amount;
+    let fields = await evmTransactionFields(state.network, address, to, value, data);
+    const balance = BigInt(String(await evmRpc(state.network, "eth_getBalance", [address, "latest"])).replace(/^0x/, "0x"));
+    let fee = fields.gas * fields.gasPrice;
+    if (!token && message.sendAll === true) {
+      if (balance <= fee) throw new Error(`Insufficient ${config.nativeSymbol} for the network fee.`);
+      amount = balance - fee;
+      amountText = formatUnits(amount, 18, 18);
+      value = amount;
+      fields = await evmTransactionFields(state.network, address, to, value, data);
+      fee = fields.gas * fields.gasPrice;
+      if (balance <= fee) throw new Error(`Insufficient ${config.nativeSymbol} for the network fee.`);
+      amount = balance - fee;
+      amountText = formatUnits(amount, 18, 18);
+      value = amount;
+    }
+    if (balance < value + fee) throw new Error(`Insufficient ${config.nativeSymbol} for amount and network fee.`);
+    if (token) {
+      const balanceCall = `0x70a08231${address.slice(2).padStart(64, "0")}`;
+      const tokenBalance = BigInt(String(await evmRpc(state.network, "eth_call", [{ to, data: balanceCall }, "latest"])).replace(/^0x/, "0x"));
+      if (tokenBalance < amount) throw new Error(`Insufficient ${String(token.symbol).toUpperCase()} balance.`);
+    }
+    const request = { walletAddress: state.selectedAddress, from: address, to, recipient, valueWei: value.toString(), nonce: Number(fields.nonce), gasLimit: Number(fields.gas), gasPriceWei: fields.gasPrice.toString(), chainId: config.chainId, data, tokenSymbol: token ? String(token.symbol).toUpperCase() : config.nativeSymbol, displayAmount: amountText };
+    const wasm = await core();
+    const review = JSON.parse(wasm.prepareEvmTransaction(JSON.stringify(request)));
+    const id = crypto.randomUUID();
+    preparedEvmTransfers.set(id, { request, review, secret, createdAt: Date.now() });
+    return { id, review, fee: formatUnits(fee, 18, 18), nativeSymbol: config.nativeSymbol, rawJson: request };
+  }
+  if (message.command === "submitEvmTransfer") {
+    const id = String(message.id ?? ""), prepared = preparedEvmTransfers.get(id);
+    if (!prepared || Date.now() - prepared.createdAt > 10 * 60_000) throw new Error("Secure EVM review expired. Review the transfer again.");
+    preparedEvmTransfers.delete(id);
+    const config = evmConfig(state.network);
+    if (!(await approve({ origin: "Kaspire Wallet", title: `Send ${prepared.review.tokenSymbol}`, description: "Review this L2 transaction before signing.", details: [`Network: ${prepared.review.network}`, `Recipient: ${prepared.review.recipient}`, `Amount: ${prepared.review.displayAmount} ${prepared.review.tokenSymbol}`, `Network fee: ${formatUnits(BigInt(prepared.request.gasPriceWei) * BigInt(prepared.request.gasLimit), 18, 18)} ${config.nativeSymbol}`], rawJson: prepared.request }))) throw rpc(4001, "User rejected the transaction.");
+    const signed = JSON.parse((await core()).signEvmTransaction(prepared.secret, JSON.stringify(prepared.request), prepared.review.reviewHash));
+    const result = String(await evmRpc(state.network, "eth_sendRawTransaction", [signed.rawTransaction]));
+    if (result.toLowerCase() !== String(signed.transactionHash).toLowerCase()) throw new Error("L2 broadcaster returned a mismatching transaction ID.");
+    const receipt = await waitReceipt(state.network, result);
+    return { transactionId: result, receipt, review: prepared.review, rawJson: prepared.request };
   }
   if (message.command === "tokenMarket")
     return tokenMarket(
@@ -289,7 +371,7 @@ async function walletCommand(
   if (message.command === "createWatch") {
     const password = String(message.password ?? "");
     if (password.length < 12)
-      throw new Error("Use at least 12 characters for the vault password.");
+      throw new Error("Use at least 12 characters for the wallet password.");
     const address = await resolveWalletInput(
       String(message.address ?? ""),
       state.network,
@@ -636,7 +718,7 @@ async function walletCommand(
   if (message.command === "addGeneratedMnemonic") {
     if (!sessionVault) throw new Error("Unlock Kaspire first.");
     const password = String(message.password ?? "");
-    if (!password) throw new Error("Enter the vault password.");
+    if (!password) throw new Error("Enter the wallet password.");
     await unlockVault(password);
     sessionPassword = password;
     const wordCount = Number(message.wordCount ?? 24);
@@ -736,15 +818,15 @@ async function walletCommand(
   }
   if (message.command === "setNetwork") {
     const network = String(message.network ?? "");
-    if (network !== "mainnet" && network !== "testnet-10")
+    if (!["mainnet", "testnet-10", "kasplex", "igra"].includes(network))
       throw new Error("Unsupported network.");
-    return convertNetwork(state, network);
+    return convertNetwork(state, network as KaspaNetwork);
   }
   if (message.command === "setSettings") {
     const next = message.settings as any;
     if (next?.autoLockMinutes !== undefined) {
       const value = Number(next.autoLockMinutes);
-      if (![1, 5, 15, 30, 60].includes(value))
+      if (![-1, 0, 1, 5, 15, 30, 60].includes(value))
         throw new Error("Unsupported auto-lock duration.");
       state.settings.autoLockMinutes = value;
     }
@@ -882,8 +964,9 @@ async function walletCommand(
       !state.addresses.some((item) => item.address === recipient)
     )
       throw new Error("Recipient is not in your address book.");
-    const amount = Number(message.amountSompi);
-    if (!Number.isSafeInteger(amount) || amount <= 0)
+    const sendAll = message.sendAll === true;
+    const amount = sendAll ? 0 : Number(message.amountSompi);
+    if ((!sendAll && (!Number.isSafeInteger(amount) || amount <= 0)))
       throw new Error("Invalid recipient or amount.");
     const entry = state.addresses.find(
       (item) => item.address === state.selectedAddress,
@@ -900,7 +983,7 @@ async function walletCommand(
       amountSompi: amount,
       feeRate: spend.feeRate,
       utxosJson: spend.utxosJson,
-      sendAll: false,
+      sendAll,
     };
     const wasm = await core();
     const review = JSON.parse(wasm.prepareTransaction(JSON.stringify(request)));
@@ -930,7 +1013,7 @@ async function walletCommand(
     const id = await broadcast(signed.submitJson, state.network);
     if (id && id !== signed.transactionId)
       throw new Error("Node returned a mismatching transaction ID.");
-    return signed.transactionId;
+    return { transactionId: signed.transactionId, amountSompi: review.amountSompi, feeSompi: review.feeSompi };
   }
   if (message.command === "compound") {
     if (!sessionVault || !state.selectedAddress)
@@ -1255,6 +1338,22 @@ async function walletCommand(
   throw rpc(-32601, "Unknown wallet command.");
 }
 
+async function evmContext(state: Awaited<ReturnType<typeof loadState>>) {
+  if (!sessionVault) throw new Error("Unlock Kaspire first.");
+  const entry = state.addresses.find((item) => item.address === state.selectedAddress);
+  if (!entry || entry.watchOnly) throw new Error("Select a signing wallet for Layer 2.");
+  const wallet = sessionVault.wallets.find((item) => item.id === entry.walletId);
+  if (!wallet) throw new Error("Wallet key is unavailable.");
+  const secret = signingSecret(wallet, entry);
+  return { address: (await core()).deriveEvmAddress(secret), secret };
+}
+
+async function evmWalletSnapshot(state: Awaited<ReturnType<typeof loadState>>) {
+  if (state.network !== "kasplex" && state.network !== "igra") throw new Error("Select an L2 network.");
+  const { address } = await evmContext(state);
+  return evmSnapshot(state.network, address);
+}
+
 async function persistVault() {
   if (!sessionVault) throw new Error("Unlock Kaspire first.");
   if (!sessionPassword) {
@@ -1435,7 +1534,7 @@ async function handle(
         origin,
         title: "Connect dApp?",
         description: "Allow this site to view your selected wallet address.",
-        details: [state.selectedAddress],
+        details: [state.network === "kasplex" || state.network === "igra" ? (sessionVault ? (await evmContext(state)).address : "Unlock to reveal the selected Layer 2 account") : state.selectedAddress],
       }))
     )
       throw rpc(4001, "Connection rejected.");
@@ -1444,19 +1543,21 @@ async function handle(
       throw rpc(4100, "Unlock Kaspire before connecting.");
     state.permissions[origin] = { accounts: true, connectedAt: Date.now() };
     await saveState(state);
-    return [state.selectedAddress];
+    return [state.network === "kasplex" || state.network === "igra" ? (await evmContext(state)).address : state.selectedAddress];
   }
   if (!safe.has(method) && !permitted)
     throw rpc(4100, "Connect this site to Kaspire first.");
   if (method === "getAccounts")
-    return permitted && state.selectedAddress ? [state.selectedAddress] : [];
+    return permitted && state.selectedAddress ? [state.network === "kasplex" || state.network === "igra" ? (await evmContext(state)).address : state.selectedAddress] : [];
   if (method === "getNetwork") return state.network;
   if (method === "getBalance") {
     if (!state.selectedAddress) throw rpc(4100, "No wallet selected.");
+    if (state.network === "kasplex" || state.network === "igra") return evmWalletSnapshot(state);
     return walletSnapshot(state.selectedAddress, state.network);
   }
   if (method === "getUtxoEntries") {
     if (!state.selectedAddress) throw rpc(4100, "No wallet selected.");
+    if (state.network === "kasplex" || state.network === "igra") throw rpc(-32601, "UTXOs are not used on this Layer 2 network.");
     return (await walletSnapshot(state.selectedAddress, state.network)).utxos;
   }
   if (method === "disconnect") {
@@ -1466,20 +1567,20 @@ async function handle(
   }
   if (method === "switchNetwork") {
     const network = (params as { network?: KaspaNetwork })?.network;
-    if (network !== "mainnet" && network !== "testnet-10")
+    if (!["mainnet", "testnet-10", "kasplex", "igra"].includes(String(network)))
       throw rpc(-32602, "Unsupported Kaspa network.");
     if (network === state.network) return network;
     if (
       !(await approve({
         origin,
-        title: `Switch to ${network === "mainnet" ? "Mainnet" : "TN10"}?`,
+        title: `Switch to ${network === "mainnet" ? "Mainnet" : network === "testnet-10" ? "TN10" : network === "kasplex" ? "Kasplex" : "Igra"}?`,
         description:
           "All Kaspire wallet addresses and subsequent requests will use this network.",
         details: ["Existing keys and derivation paths do not change."],
       }))
     )
       throw rpc(4001, "Network switch rejected.");
-    await convertNetwork(state, network);
+    await convertNetwork(state, network as KaspaNetwork);
     return network;
   }
   if (method === "pushTx") {

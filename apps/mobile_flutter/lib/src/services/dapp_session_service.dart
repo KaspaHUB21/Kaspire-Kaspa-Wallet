@@ -7,6 +7,15 @@ class DappSessionService {
   static final instance = DappSessionService._();
 
   static const chainId = 'kaspa:mainnet';
+  static const kasplexChainId = 'eip155:202555';
+  static const igraChainId = 'eip155:38833';
+  static const evmMethods = <String>{
+    'eth_accounts',
+    'eth_requestAccounts',
+    'eth_chainId',
+    'wallet_switchEthereumChain',
+    'eth_sendTransaction',
+  };
   static const supportedMethods = <String>{
     'kaspa_getAccounts',
     'kaspa_signPersonal',
@@ -226,6 +235,17 @@ class DappSessionService {
       return 'Reown Verify marked this domain as a scam.';
     }
     for (final entry in event.params.requiredNamespaces.entries) {
+      if (entry.key == 'eip155') {
+        final chains = entry.value.chains ?? const <String>[];
+        if (chains.length != 1 ||
+            (chains.single != kasplexChainId && chains.single != igraChainId)) {
+          return 'Only Kasplex and Igra EVM networks are supported.';
+        }
+        if (entry.value.methods.any((method) => !evmMethods.contains(method))) {
+          return 'The L2 dApp requires an unsupported method.';
+        }
+        continue;
+      }
       if (entry.key != 'kaspa') return 'Required namespace is unsupported.';
       final chains = entry.value.chains ?? const <String>[];
       if (chains.isEmpty || chains.any((chain) => chain != chainId)) {
@@ -253,10 +273,29 @@ class DappSessionService {
     if (optional != null) {
       methods.addAll(optional.methods.where(supportedMethods.contains));
     }
+    final evmRequired = event.params.requiredNamespaces['eip155'];
+    final evmOptional = event.params.optionalNamespaces['eip155'];
+    if (evmRequired != null) methods.addAll(evmRequired.methods);
+    if (evmOptional != null) {
+      methods.addAll(evmOptional.methods.where(evmMethods.contains));
+    }
     return methods;
   }
 
-  Future<void> approve(SessionProposalEvent event, String address) async {
+  String? requestedEvmChain(SessionProposalEvent event) {
+    for (final namespace in [
+      event.params.requiredNamespaces['eip155'],
+      event.params.optionalNamespaces['eip155']
+    ]) {
+      for (final chain in namespace?.chains ?? const <String>[]) {
+        if (chain == kasplexChainId || chain == igraChainId) return chain;
+      }
+    }
+    return null;
+  }
+
+  Future<void> approve(SessionProposalEvent event, String address,
+      {String? evmAddress}) async {
     final problem = proposalProblem(event);
     if (problem != null) throw StateError(problem);
     final methods = requestedMethods(event).toList()..sort();
@@ -269,16 +308,26 @@ class DappSessionService {
         events.addAll(namespace.events.where(supportedEvents.contains));
       }
     }
-    await _walletKit!.approveSession(
-      id: event.id,
-      namespaces: {
-        'kaspa': Namespace(
+    final namespaces = <String, Namespace>{};
+    if (event.params.requiredNamespaces.containsKey('kaspa') ||
+        event.params.optionalNamespaces.containsKey('kaspa')) {
+      namespaces['kaspa'] = Namespace(
           chains: const [chainId],
           accounts: ['$chainId:${address.replaceFirst('kaspa:', '')}'],
-          methods: methods,
-          events: events.toList(),
-        ),
-      },
+          methods: methods.where(supportedMethods.contains).toList(),
+          events: events.toList());
+    }
+    final evmChain = requestedEvmChain(event);
+    if (evmChain != null && evmAddress != null) {
+      namespaces['eip155'] = Namespace(
+          chains: [evmChain],
+          accounts: ['$evmChain:$evmAddress'],
+          methods: methods.where(evmMethods.contains).toList(),
+          events: const ['accountsChanged', 'chainChanged']);
+    }
+    await _walletKit!.approveSession(
+      id: event.id,
+      namespaces: namespaces,
       sessionProperties: const {'kaspire.protocol': '2'},
     );
     _changes.add(null);
@@ -306,6 +355,14 @@ class DappSessionService {
       return null;
     }
     return 'kaspa:${parts[2]}';
+  }
+
+  String? evmAddressForTopic(String topic) {
+    final account =
+        activeSessions()[topic]?.namespaces['eip155']?.accounts.firstOrNull;
+    if (account == null) return null;
+    final parts = account.split(':');
+    return parts.length == 3 && parts[0] == 'eip155' ? parts[2] : null;
   }
 
   String dappName(String topic) =>

@@ -9,6 +9,9 @@ type CoreModule = {
   importPrivateKey(key: string): string;
   deriveAddressRange(secret: string, coin: number, account: number, change: number, start: number, count: number): string;
   addressWithPrefix(address: string, testnet: boolean): string;
+  deriveEvmAddress(secret: string): string;
+  prepareEvmTransaction(request: string): string;
+  signEvmTransaction(secret: string, request: string, reviewHash: string): string;
   exportPrivateKey(secret: string): string;
   publicKey(secret: string): string;
   deriveBackupKey(password: string, saltHex: string): string;

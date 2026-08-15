@@ -118,6 +118,10 @@ class MainActivity : FlutterFragmentActivity() {
                         )
                         resultFromCoreArray(raw, result)
                     }
+                    "deriveEvmAddress" -> resultFromCore(
+                        SecureCore.deriveEvmAddress(decryptSecret()),
+                        result,
+                    )
                     "registerHdAddresses" -> {
                         registerHdAddresses(call.argument<String>("addresses") ?: error("Missing addresses"))
                         result.success(null)
@@ -155,6 +159,16 @@ class MainActivity : FlutterFragmentActivity() {
                         requireAuthorization(call, "exportPrivateKey", address)
                         exportPrivateKey(address, result)
                     }
+                    "exportPrivateKeys" -> {
+                        val address = call.argument<String>("address") ?: error("Missing export address")
+                        val id = activeWalletId() ?: error("No active signing wallet")
+                        check(controlsAddress(id, address)) { "The active wallet does not control the requested export address" }
+                        requireAuthorization(call, "exportPrivateKey", address)
+                        val secret = decryptSecret(address)
+                        val kaspa = parseCore(SecureCore.exportPrivateKey(secret)).getString("privateKey")
+                        val evm = parseCore(SecureCore.exportEvmPrivateKey(secret)).getString("privateKey")
+                        result.success(JSONObject().put("kaspaPrivateKey", kaspa).put("evmPrivateKey", evm).toString())
+                    }
                     "exportRecoveryPhrase" -> {
                         requireAuthorization(call, "exportRecoveryPhrase", activeWalletAddress() ?: "")
                         exportRecoveryPhrase(result)
@@ -175,6 +189,23 @@ class MainActivity : FlutterFragmentActivity() {
                         resultPreparedFromCore(
                             SecureCore.prepareTransaction(request),
                             "signTransaction",
+                            result,
+                        )
+                    }
+                    "prepareEvmTransaction" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        resultPreparedFromCore(
+                            SecureCore.prepareEvmTransaction(request),
+                            "signEvmTransaction",
+                            result,
+                        )
+                    }
+                    "signEvmTransaction" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
+                        requireAuthorization(call, "signEvmTransaction", reviewHash)
+                        resultFromCore(
+                            SecureCore.signEvmTransaction(decryptSecret(), request, reviewHash),
                             result,
                         )
                     }
@@ -1021,6 +1052,11 @@ class MainActivity : FlutterFragmentActivity() {
                 "Recipient ${json.getString("recipient")}\n" +
                     "Amount ${json.getLong("amountSompi")} sompi · " +
                     "Fee ${json.getLong("feeSompi")} sompi"
+            "signEvmTransaction" ->
+                "${json.getString("network")} · Chain ${json.getLong("chainId")}\n" +
+                    "Recipient ${json.getString("recipient")}\n" +
+                    "${json.getString("displayAmount")} ${json.getString("tokenSymbol")} · " +
+                    "Gas limit ${json.getLong("gasLimit")}"
             "signKcc20Transfer" ->
                 "Recipient ${json.getString("recipient")}\n" +
                     "${json.getLong("amount")} raw ${json.getString("ticker")} · " +
@@ -1592,7 +1628,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun authorizationPrompt(operation: String, binding: String): String? = when (operation) {
-        "signTransaction", "signKcc20Transfer", "signReveal", "signPolicyTransaction", "signPskt" ->
+        "signTransaction", "signEvmTransaction", "signKcc20Transfer", "signReveal", "signPolicyTransaction", "signPskt" ->
             synchronized(authorizationLock) {
                 nativeReviewSummaries[binding]
                     ?.takeIf {

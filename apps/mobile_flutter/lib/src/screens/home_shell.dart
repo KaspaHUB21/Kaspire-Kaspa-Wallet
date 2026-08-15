@@ -8,11 +8,16 @@ import 'send_screen.dart';
 import 'settings_screen.dart';
 import 'dapp_sessions_screen.dart';
 import 'wallet_screen.dart';
+import 'evm_wallet_screen.dart';
+import 'evm_send_screen.dart';
+import 'evm_receive_screen.dart';
 import 'wallet_manager_screen.dart';
 import 'address_book_screen.dart';
 import '../services/update_service.dart';
 import '../services/app_settings.dart';
 import '../services/network_settings.dart';
+import '../services/dapp_session_service.dart';
+import '../services/evm_api.dart';
 import '../theme.dart';
 
 class HomeShell extends StatefulWidget {
@@ -35,6 +40,7 @@ class _HomeShellState extends State<HomeShell> {
   int _sendRevision = 0;
   int _walletRevision = 0;
   AssetSendIntent? _sendIntent;
+  EvmToken? _evmSendToken;
   DateTime? _exitRequestedAt;
 
   void _openKasSend() => setState(() {
@@ -88,6 +94,46 @@ class _HomeShellState extends State<HomeShell> {
         _index = value;
       });
 
+  Future<void> _chooseNetwork() async {
+    final selected = await showDialog<KaspaNetwork>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Select network'),
+        children: KaspaNetwork.values
+            .map((network) => ListTile(
+                  leading: Icon(network == NetworkSettings.network.value
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked),
+                  title: Text(switch (network) {
+                    KaspaNetwork.mainnet => 'Kaspa Mainnet',
+                    KaspaNetwork.tn10 => 'TN10 Testnet',
+                    KaspaNetwork.kasplex => 'Kasplex zkEVM',
+                    KaspaNetwork.igra => 'Igra Network',
+                  }),
+                  subtitle: Text(switch (network) {
+                    KaspaNetwork.mainnet => 'Kaspa L1 assets and dApps',
+                    KaspaNetwork.tn10 => 'Test KAS only',
+                    KaspaNetwork.kasplex => 'Chain ID 202555 · EVM account',
+                    KaspaNetwork.igra => 'Chain ID 38833 · EVM account',
+                  }),
+                  onTap: () => Navigator.pop(context, network),
+                ))
+            .toList(),
+      ),
+    );
+    if (selected == null || selected == NetworkSettings.network.value) return;
+    if (selected != KaspaNetwork.mainnet) {
+      await DappSessionService.instance.disconnectAll();
+    }
+    await NetworkSettings.setNetwork(selected);
+    if (mounted) {
+      setState(() {
+        _index = 0;
+        _walletRevision++;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<KaspaNetwork>(
         valueListenable: NetworkSettings.network,
@@ -96,6 +142,72 @@ class _HomeShellState extends State<HomeShell> {
 
   Widget _buildNetwork(BuildContext context) {
     final activeAddress = NetworkSettings.addressForNetwork(widget.address);
+    if (NetworkSettings.isEvm) {
+      void openEvmSend(EvmToken? token) => setState(() {
+            _evmSendToken = token;
+            _sendRevision++;
+            _index = 1;
+          });
+      final evmPages = [
+        EvmWalletScreen(
+          key: ValueKey(
+              'evm-$_walletRevision-${NetworkSettings.network.value.name}'),
+          kaspaWalletAddress: NetworkSettings.storageAddress(widget.address),
+          onChooseNetwork: _chooseNetwork,
+          onSwitchWallet: _openWalletManager,
+          onPairDapps: _openDappSessions,
+          onSend: openEvmSend,
+          onReceive: () => setState(() => _index = 2),
+        ),
+        EvmSendScreen(
+          key: ValueKey(
+              'evm-send-$_sendRevision-${NetworkSettings.network.value.name}'),
+          initialToken: _evmSendToken,
+          onDone: () => setState(() {
+            _walletRevision++;
+            _index = 0;
+          }),
+        ),
+        const EvmReceiveScreen(),
+        SettingsScreen(
+          address: NetworkSettings.storageAddress(widget.address),
+          onManageWallets: _openWalletManager,
+          onManageDapps: _openDappSessions,
+          onManageAddressBook: _openAddressBook,
+        ),
+      ];
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop && _index != 0) setState(() => _index = 0);
+        },
+        child: Scaffold(
+          body: IndexedStack(index: _index, children: evmPages),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _index,
+            onDestinationSelected: (value) => setState(() {
+              if (value == 1 && _index != 1) {
+                _evmSendToken = null;
+                _sendRevision++;
+              }
+              _index = value;
+            }),
+            destinations: const [
+              NavigationDestination(
+                  icon: Icon(Icons.account_balance_wallet_outlined),
+                  selectedIcon: Icon(Icons.account_balance_wallet),
+                  label: 'Wallet'),
+              NavigationDestination(
+                  icon: Icon(Icons.arrow_upward_rounded), label: 'Send'),
+              NavigationDestination(
+                  icon: Icon(Icons.qr_code_2_rounded), label: 'Receive'),
+              NavigationDestination(
+                  icon: Icon(Icons.tune_rounded), label: 'Settings'),
+            ],
+          ),
+        ),
+      );
+    }
     final pages = [
       WalletScreen(
         key: ValueKey('$_walletRevision-${NetworkSettings.network.value.name}'),

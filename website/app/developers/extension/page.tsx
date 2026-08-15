@@ -42,7 +42,7 @@ const connectCode = `const accounts = await kaspire.request<string[]>({
 });
 
 // The user reviews the requesting origin in an extension-owned window.
-const address = accounts[0]; // full kaspa:q... address
+const address = accounts[0]; // kaspa:... on L1, 0x... on Kasplex/Igra
 if (!address) throw new Error("No Kaspire account was approved.");`;
 
 const restoreCode = `const accounts = await kaspire.request<string[]>({
@@ -54,7 +54,7 @@ if (accounts.length === 0) {
 }
 
 const network = await kaspire.request<string>({ method: "getNetwork" });
-// Kaspire Extension 0.3.20 is Mainnet-only: network === "mainnet"`;
+// "mainnet" | "testnet-10" | "kasplex" | "igra"`;
 
 const eventsCode = `const onAccounts = (accounts) => {
   selectedAddress = accounts[0] ?? null;
@@ -237,7 +237,7 @@ export default function ExtensionDevelopersPage() {
       <main id="extension-guide" className="developer-page">
         <section className="developer-hero">
           <div className="shell developer-hero-inner">
-            <p className="kicker">Kaspire Extension provider v1 · Kaspa Mainnet</p>
+            <p className="kicker">Kaspire Extension provider v1 · Kaspa L1 + L2</p>
             <h1>Connect to Kaspire Extension.</h1>
             <p>
               Use the injected <code>window.kaspire</code> provider for direct,
@@ -510,9 +510,11 @@ export default function ExtensionDevelopersPage() {
                 <li>Broadcast rejection and mismatching transaction IDs</li>
               </ul>
               <p>
-                Start with a low-value Mainnet wallet. The current public
-                extension is Mainnet-only even though reserved testnet plumbing
-                remains in the source for future releases.
+                Start with a low-value wallet. Kaspire 0.4.0 supports Kaspa
+                Mainnet, TN10, Kasplex L2 and Igra L2. Always branch on
+                <code> getNetwork</code>: Kaspa networks expose UTXO data,
+                while the EVM-based L2 networks expose an EVM address, native
+                balance and indexed token balances.
               </p>
               <div className="developer-links">
                 <a href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/tree/main/apps/browser_extension">Extension source</a>

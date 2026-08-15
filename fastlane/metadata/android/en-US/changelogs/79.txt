@@ -1,0 +1,3 @@
+Kasplex and Igra Layer 2 support with familiar wallet, send, receive and activity flows.
+Adds reviewed native EVM signing, L2 asset discovery, automatic network switching and dual Kaspa/EVM key export.
+Improves wallet locking, receive guidance and transaction details.

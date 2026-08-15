@@ -101,6 +101,23 @@ pub fn address_with_prefix_js(
     address_with_prefix(address, testnet).map_err(|error| JsError::new(&error.to_string()))
 }
 
+#[wasm_bindgen(js_name = deriveEvmAddress)]
+pub fn derive_evm_address_js(secret: &str) -> std::result::Result<String, JsError> {
+    derive_evm_address(secret).map_err(|error| JsError::new(&error.to_string()))
+}
+
+#[wasm_bindgen(js_name = prepareEvmTransaction)]
+pub fn prepare_evm_transaction_js(request: &str) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid EVM request"))?;
+    json(prepare_evm_transaction(&request))
+}
+
+#[wasm_bindgen(js_name = signEvmTransaction)]
+pub fn sign_evm_transaction_js(secret: &str, request: &str, review_hash: &str) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid EVM request"))?;
+    json(sign_evm_transaction(secret, &request, review_hash))
+}
+
 #[wasm_bindgen(js_name = exportPrivateKey)]
 pub fn export_private_key_js(secret: &str) -> std::result::Result<String, JsError> {
     export_private_key(secret).map_err(|error| JsError::new(&error.to_string()))

@@ -72,7 +72,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _export({required bool privateKey}) async {
     try {
       if (privateKey) {
-        await _security.exportPrivateKey(widget.address);
+        final keys = await _security.exportPrivateKeys(widget.address);
+        if (!mounted) return;
+        await showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+                  title: const Text('Wallet private keys'),
+                  content: SingleChildScrollView(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                        const Text('Kaspa private key',
+                            style: TextStyle(fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 6),
+                        SelectableText(keys['kaspaPrivateKey'] ?? ''),
+                        const SizedBox(height: 20),
+                        const Text('EVM private key · Kasplex & Igra',
+                            style: TextStyle(fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 6),
+                        SelectableText(keys['evmPrivateKey'] ?? ''),
+                        const SizedBox(height: 18),
+                        const Text(
+                            'Keep both keys offline. Anyone with either key can spend assets controlled by that account.',
+                            style: TextStyle(color: KasVaultTheme.muted)),
+                      ])),
+                  actions: [
+                    FilledButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(buttonLabel('DONE')))
+                  ],
+                ));
       } else {
         await _security.exportRecoveryPhrase();
       }

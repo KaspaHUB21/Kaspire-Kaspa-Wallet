@@ -116,6 +116,41 @@ class NativeSecurity {
   Future<String?> getNativeAddress() =>
       _channel.invokeMethod<String>('getNativeAddress');
 
+  Future<String> getEvmAddress() async {
+    final raw = await _channel.invokeMethod<String>('deriveEvmAddress');
+    final decoded = jsonDecode(raw ?? '{}') as Map;
+    final address = decoded['address']?.toString() ?? '';
+    if (!RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(address)) {
+      throw StateError('Native EVM address derivation failed.');
+    }
+    return address;
+  }
+
+  Future<Map<String, Object?>> prepareEvmTransaction(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+      'prepareEvmTransaction',
+      {'request': jsonEncode(request)},
+    );
+    return (jsonDecode(raw ?? '{}') as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> signEvmTransaction(
+    Map<String, Object?> request,
+    String reviewHash,
+  ) async {
+    final token = await _authorizeOperation(
+      operation: 'signEvmTransaction',
+      binding: reviewHash,
+    );
+    final raw = await _channel.invokeMethod<String>('signEvmTransaction', {
+      'request': jsonEncode(request),
+      'reviewHash': reviewHash,
+      'authorizationToken': token,
+    });
+    return (jsonDecode(raw ?? '{}') as Map).cast<String, Object?>();
+  }
+
   Future<String> createWallet() async {
     final address = await _channel.invokeMethod<String>('createWallet');
     if (address == null) throw StateError('Native wallet creation failed');
@@ -160,6 +195,18 @@ class NativeSecurity {
         'authorizationToken': token,
       },
     );
+  }
+
+  Future<Map<String, String>> exportPrivateKeys(String address) async {
+    address = NetworkSettings.storageAddress(address);
+    final token = await _authorizeOperation(
+        operation: 'exportPrivateKey', binding: address);
+    final raw = await _channel.invokeMethod<String>('exportPrivateKeys', {
+      'address': address,
+      'authorizationToken': token,
+    });
+    return (jsonDecode(raw ?? '{}') as Map)
+        .map((key, value) => MapEntry(key.toString(), value.toString()));
   }
 
   Future<void> exportRecoveryPhrase() async {

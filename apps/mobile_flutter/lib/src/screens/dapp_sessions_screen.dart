@@ -266,7 +266,10 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
             ),
           ...sessions.map((entry) {
             final session = entry.value;
-            final methods = session.namespaces['kaspa']?.methods ?? const [];
+            final methods = <String>{
+              ...?session.namespaces['kaspa']?.methods,
+              ...?session.namespaces['eip155']?.methods,
+            }.toList();
             return Card(
               color: KasVaultTheme.panel,
               child: ListTile(

@@ -152,11 +152,23 @@ class _WalletScreenState extends State<WalletScreen> {
             subtitle: const Text('Test KAS only · no monetary value'),
             onTap: () => Navigator.pop(context, KaspaNetwork.tn10),
           ),
+          ListTile(
+            leading: const Icon(Icons.layers_outlined),
+            title: const Text('Kasplex zkEVM'),
+            subtitle: const Text('Chain ID 202555 · KAS and ERC-20 assets'),
+            onTap: () => Navigator.pop(context, KaspaNetwork.kasplex),
+          ),
+          ListTile(
+            leading: const Icon(Icons.layers_outlined),
+            title: const Text('Igra Network'),
+            subtitle: const Text('Chain ID 38833 · iKAS and ERC-20 assets'),
+            onTap: () => Navigator.pop(context, KaspaNetwork.igra),
+          ),
         ],
       ),
     );
     if (selected == null || selected == NetworkSettings.network.value) return;
-    if (selected == KaspaNetwork.tn10) {
+    if (selected != KaspaNetwork.mainnet) {
       await DappSessionService.instance.disconnectAll();
     }
     await NetworkSettings.setNetwork(selected);

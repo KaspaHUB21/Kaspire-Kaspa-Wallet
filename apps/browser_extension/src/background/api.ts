@@ -1,3 +1,4 @@
+import type { KaspaNetwork } from "../shared/protocol";
 const MAINNET = "https://kaspire.kaslab.space/api";
 const TN10 = "https://api-tn10.kaspa.org";
 async function request(
@@ -34,12 +35,12 @@ async function post(url: string, body: unknown) {
     body: JSON.stringify(body),
   });
 }
-function base(network: "mainnet" | "testnet-10") {
+function base(network: KaspaNetwork) {
   return network === "mainnet" ? MAINNET : TN10;
 }
 export async function spendingData(
   address: string,
-  network: "mainnet" | "testnet-10",
+  network: KaspaNetwork,
 ) {
   const endpoint = base(network);
   const [utxos, estimate] = await Promise.all([
@@ -70,7 +71,7 @@ export async function spendingData(
 }
 export async function walletHistory(
   address: string,
-  network: "mainnet" | "testnet-10",
+  network: KaspaNetwork,
 ) {
   const value = await get(
     `${base(network)}/addresses/${encodeURIComponent(address)}/full-transactions?limit=50&offset=0&resolve_previous_outpoints=light`,
@@ -267,7 +268,7 @@ export async function nftRarity(ticker: string, tokenId: string) {
 }
 export async function resolveWalletInput(
   input: string,
-  network: "mainnet" | "testnet-10",
+  network: KaspaNetwork,
 ) {
   const normalized = input.trim().toLowerCase();
   const prefix = network === "mainnet" ? "kaspa" : "kaspatest";
@@ -287,7 +288,7 @@ export async function resolveWalletInput(
 }
 export async function broadcast(
   submitJson: string,
-  network: "mainnet" | "testnet-10",
+  network: KaspaNetwork,
 ) {
   const response = await fetch(`${base(network)}/transactions`, {
     method: "POST",
@@ -304,7 +305,7 @@ export async function broadcast(
 export async function waitForUtxo(
   address: string,
   transactionId: string,
-  network: "mainnet" | "testnet-10",
+  network: KaspaNetwork,
 ) {
   for (let attempt = 0; attempt < 40; attempt++) {
     try {
@@ -1135,7 +1136,7 @@ async function loadKrc721Collections(address: string) {
 }
 export async function walletCoreSnapshot(
   address: string,
-  network: "mainnet" | "testnet-10",
+  network: KaspaNetwork,
 ) {
   const endpoint = network === "mainnet" ? MAINNET : TN10;
   const [balance, utxos] = await Promise.all([
@@ -1155,7 +1156,7 @@ export async function walletCoreSnapshot(
 }
 export async function walletBalance(
   address: string,
-  network: "mainnet" | "testnet-10",
+  network: KaspaNetwork,
 ) {
   const value = await get(
     `${network === "mainnet" ? MAINNET : TN10}/addresses/${encodeURIComponent(address)}/balance`,
@@ -1204,7 +1205,7 @@ export async function inscriptionAssets(address: string) {
 }
 export async function walletAssets(
   address: string,
-  network: "mainnet" | "testnet-10",
+  network: KaspaNetwork,
 ) {
   if (network !== "mainnet")
     return { tokens: [], domains: [], krc721: [], kcc20: [], transactions: [] };
@@ -1267,7 +1268,7 @@ export async function walletAssets(
 }
 export async function walletSnapshot(
   address: string,
-  network: "mainnet" | "testnet-10",
+  network: KaspaNetwork,
 ) {
   const [core, assets] = await Promise.all([
     walletCoreSnapshot(address, network),
@@ -1277,7 +1278,7 @@ export async function walletSnapshot(
 }
 export async function networkDiagnostics(
   address: string,
-  network: "mainnet" | "testnet-10",
+  network: KaspaNetwork,
 ) {
   const endpoint = network === "mainnet" ? MAINNET : TN10;
   const checks = [
