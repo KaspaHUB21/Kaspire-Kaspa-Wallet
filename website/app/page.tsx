@@ -2,7 +2,7 @@ import DagField from "./dag-field";
 import { currentRelease, extensionRelease } from "./release";
 
 const downloadUrl =
-  `https://kaspire.kaslab.space/downloads/Kaspire-Android-mainnet-v${currentRelease.version}.apk`;
+  `https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/v${currentRelease.version}/Kaspire-Android-mainnet-v${currentRelease.version}.apk`;
 const extensionStoreUrl =
   "https://chromewebstore.google.com/detail/kaspire-wallet/ldjonnkfjmcingabncepnibledcanmoe";
 

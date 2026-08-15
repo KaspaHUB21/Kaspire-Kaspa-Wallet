@@ -28,7 +28,7 @@ private_key_file=$(mktemp)
 trap 'rm -f "$payload_file" "$signature_file" "$private_key_file"' EXIT
 chmod 600 "$private_key_file"
 
-apk_url="https://kaspire.kaslab.space/downloads/Kaspire-Android-mainnet-v$version.apk"
+apk_url="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/v$version/Kaspire-Android-mainnet-v$version.apk"
 notes_url="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/v$version"
 
 printf '{"version":"%s","build":%s,"minimumBuild":%s,"critical":false,"publishedAt":"%s","apkUrl":"%s","sha256":"%s","releaseNotesUrl":"%s"}' \
