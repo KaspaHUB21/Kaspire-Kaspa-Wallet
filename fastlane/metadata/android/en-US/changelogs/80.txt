@@ -1,0 +1,3 @@
+WalletConnect v2 sessions can now authorize Kaspa Mainnet together with Kasplex and Igra Layer 2 networks. Each request is routed and reviewed using its own chain ID without disconnecting the other approved networks.
+
+The matching browser extension update fixes imported wallets incorrectly entering recovery-word verification and adds simultaneous L1/L2 dApp connections.

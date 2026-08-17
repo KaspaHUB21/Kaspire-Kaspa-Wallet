@@ -63,7 +63,7 @@ class DappSessionService {
         projectId: _projectId,
         metadata: const PairingMetadata(
           name: 'Kaspire',
-          description: 'Kaspa Mainnet mobile wallet',
+          description: 'Kaspa Mainnet, Kasplex and Igra wallet',
           url: 'https://kaspire.kaslab.space',
           icons: ['https://kaspire.kaslab.space/kaspire-logo.png'],
           redirect:
@@ -237,8 +237,7 @@ class DappSessionService {
     for (final entry in event.params.requiredNamespaces.entries) {
       if (entry.key == 'eip155') {
         final chains = entry.value.chains ?? const <String>[];
-        if (chains.length != 1 ||
-            (chains.single != kasplexChainId && chains.single != igraChainId)) {
+        if (!supportsEvmChains(chains)) {
           return 'Only Kasplex and Igra EVM networks are supported.';
         }
         if (entry.value.methods.any((method) => !evmMethods.contains(method))) {
@@ -265,6 +264,15 @@ class DappSessionService {
     return null;
   }
 
+  static bool supportsEvmChains(Iterable<String> chains) {
+    final unique = chains.toSet();
+    return unique.isNotEmpty &&
+        unique.length == chains.length &&
+        unique.every(
+          (chain) => chain == kasplexChainId || chain == igraChainId,
+        );
+  }
+
   Set<String> requestedMethods(SessionProposalEvent event) {
     final methods = <String>{};
     final required = event.params.requiredNamespaces['kaspa'];
@@ -282,17 +290,24 @@ class DappSessionService {
     return methods;
   }
 
-  String? requestedEvmChain(SessionProposalEvent event) {
+  List<String> requestedEvmChains(SessionProposalEvent event) {
+    final result = <String>[];
     for (final namespace in [
       event.params.requiredNamespaces['eip155'],
       event.params.optionalNamespaces['eip155']
     ]) {
       for (final chain in namespace?.chains ?? const <String>[]) {
-        if (chain == kasplexChainId || chain == igraChainId) return chain;
+        if ((chain == kasplexChainId || chain == igraChainId) &&
+            !result.contains(chain)) {
+          result.add(chain);
+        }
       }
     }
-    return null;
+    return result;
   }
+
+  String? requestedEvmChain(SessionProposalEvent event) =>
+      requestedEvmChains(event).firstOrNull;
 
   Future<void> approve(SessionProposalEvent event, String address,
       {String? evmAddress}) async {
@@ -317,18 +332,21 @@ class DappSessionService {
           methods: methods.where(supportedMethods.contains).toList(),
           events: events.toList());
     }
-    final evmChain = requestedEvmChain(event);
-    if (evmChain != null && evmAddress != null) {
+    final evmChains = requestedEvmChains(event);
+    if (evmChains.isNotEmpty && evmAddress != null) {
       namespaces['eip155'] = Namespace(
-          chains: [evmChain],
-          accounts: ['$evmChain:$evmAddress'],
+          chains: evmChains,
+          accounts: evmChains.map((chain) => '$chain:$evmAddress').toList(),
           methods: methods.where(evmMethods.contains).toList(),
           events: const ['accountsChanged', 'chainChanged']);
     }
     await _walletKit!.approveSession(
       id: event.id,
       namespaces: namespaces,
-      sessionProperties: const {'kaspire.protocol': '2'},
+      sessionProperties: const {
+        'kaspire.protocol': '3',
+        'kaspire.multichain': 'kaspa+eip155'
+      },
     );
     _changes.add(null);
   }
@@ -357,9 +375,12 @@ class DappSessionService {
     return 'kaspa:${parts[2]}';
   }
 
-  String? evmAddressForTopic(String topic) {
-    final account =
-        activeSessions()[topic]?.namespaces['eip155']?.accounts.firstOrNull;
+  String? evmAddressForTopic(String topic, {String? chainId}) {
+    final accounts =
+        activeSessions()[topic]?.namespaces['eip155']?.accounts ?? const [];
+    final account = chainId == null
+        ? accounts.firstOrNull
+        : accounts.where((entry) => entry.startsWith('$chainId:')).firstOrNull;
     if (account == null) return null;
     final parts = account.split(':');
     return parts.length == 3 && parts[0] == 'eip155' ? parts[2] : null;

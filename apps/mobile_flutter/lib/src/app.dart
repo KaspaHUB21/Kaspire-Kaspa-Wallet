@@ -203,7 +203,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       return;
     }
     final problem = _dapps.proposalProblem(event);
-    final evmChain = _dapps.requestedEvmChain(event);
+    final evmChains = _dapps.requestedEvmChains(event);
     final address = await _preferences.getAddress();
     final methods = _dapps.requestedMethods(event).toList()..sort();
     final needsKey = methods.any((method) =>
@@ -259,9 +259,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                   style: TextStyle(fontWeight: FontWeight.w800)),
               const SizedBox(height: 6),
               ...methods.map((method) => Text('• ${_methodLabel(method)}')),
-              if (evmChain != null)
-                Text(
-                    '• Network: ${evmChain == DappSessionService.kasplexChainId ? 'Kasplex' : 'Igra'}'),
+              if (event.params.requiredNamespaces.containsKey('kaspa') ||
+                  event.params.optionalNamespaces.containsKey('kaspa'))
+                const Text('• Network: Kaspa Mainnet'),
+              ...evmChains.map((chain) => Text(
+                  '• Network: ${chain == DappSessionService.kasplexChainId ? 'Kasplex L2' : 'Igra L2'}')),
               const SizedBox(height: 14),
               SelectableText('Wallet: $address'),
             ],
@@ -281,13 +283,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     );
     if (approved == true) {
       final evmAddress =
-          evmChain == null ? null : await _security.getEvmAddress();
-      if (evmChain != null) {
-        await NetworkSettings.setNetwork(
-            evmChain == DappSessionService.kasplexChainId
-                ? KaspaNetwork.kasplex
-                : KaspaNetwork.igra);
-      }
+          evmChains.isEmpty ? null : await _security.getEvmAddress();
       await _dapps.approve(event, address, evmAddress: evmAddress);
     } else {
       await _dapps.reject(event);
@@ -387,7 +383,8 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         ? KaspaNetwork.kasplex
         : KaspaNetwork.igra;
     await NetworkSettings.setNetwork(network);
-    final address = _dapps.evmAddressForTopic(request.topic);
+    final address =
+        _dapps.evmAddressForTopic(request.topic, chainId: request.chainId);
     if (address == null) {
       throw const FormatException('Session L2 account is invalid.');
     }

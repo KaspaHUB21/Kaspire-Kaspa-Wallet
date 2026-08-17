@@ -37,9 +37,9 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.21**, build **79**
+- Android app: **0.11.22**, build **80**
 - Android package: `space.kaspire.wallet`
-- Browser extension: **0.4.0**, build **40**
+- Browser extension: **0.4.1**, build **41**
 - App networks: **Kaspa Mainnet, TN10, Kasplex L2 and Igra L2**
 - Extension networks: **Kaspa Mainnet, TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)

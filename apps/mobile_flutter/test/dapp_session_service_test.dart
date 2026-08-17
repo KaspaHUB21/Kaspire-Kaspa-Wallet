@@ -12,6 +12,27 @@ void main() {
     );
   });
 
+  test('supports simultaneous Kasplex and Igra session chains', () {
+    expect(
+      DappSessionService.supportsEvmChains(const [
+        DappSessionService.kasplexChainId,
+        DappSessionService.igraChainId,
+      ]),
+      isTrue,
+    );
+    expect(
+      DappSessionService.supportsEvmChains(
+        const [DappSessionService.kasplexChainId],
+      ),
+      isTrue,
+    );
+    expect(DappSessionService.supportsEvmChains(const []), isFalse);
+    expect(
+      DappSessionService.supportsEvmChains(const ['eip155:1']),
+      isFalse,
+    );
+  });
+
   test('accepts raw and verified-link WalletConnect QR payloads', () {
     final pairing = 'wc:$topic@2?relay-protocol=irn&symKey=$symKey';
     expect(

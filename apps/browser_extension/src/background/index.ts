@@ -53,8 +53,23 @@ import {
 
 const safe = new Set<ProviderMethod>([
   "getAccounts",
+  "getNetworkAccounts",
   "getNetwork",
+  "eth_accounts",
+  "eth_chainId",
   "disconnect",
+]);
+const l1ProviderMethods = new Set<ProviderMethod>([
+  "getPublicKey",
+  "signMessage",
+  "sendKaspa",
+  "sendKRC20",
+  "sendKCC20",
+  "signPskt",
+  "pushTx",
+  "signPolicyTransaction",
+  "transferKRC721",
+  "transferKNS",
 ]);
 const extensionVersion = chrome.runtime.getManifest().version;
 interface VaultWallet {
@@ -521,7 +536,9 @@ async function walletCommand(
     await saveState(state);
     return {
       state: { ...state, locked: false },
-      recoveryPhrase: material.mnemonic,
+      ...(message.command === "create"
+        ? { recoveryPhrase: material.mnemonic }
+        : {}),
     };
   }
   if (message.command === "unlock") {
@@ -1395,6 +1412,7 @@ async function convertNetwork(
   state: Awaited<ReturnType<typeof loadState>>,
   network: KaspaNetwork,
 ) {
+  const previousNetwork = state.network;
   const wasm = await core();
   const selectedIndex = state.addresses.findIndex(
     (item) => item.address === state.selectedAddress,
@@ -1408,7 +1426,8 @@ async function convertNetwork(
       ? state.addresses[selectedIndex]?.address
       : state.addresses[0]?.address) ?? null;
   state.network = network;
-  state.permissions = {};
+  if (previousNetwork === "testnet-10" || network === "testnet-10")
+    state.permissions = {};
   await saveState(state);
   return { network, selectedAddress: state.selectedAddress };
 }
@@ -1514,6 +1533,97 @@ async function recordWalletActivity(wallet: string, transaction: any) {
   await chrome.storage.local.set({ walletActivity: rows.slice(0, 500) });
 }
 
+const connectableNetworks = ["mainnet", "kasplex", "igra"] as const;
+type ConnectableNetwork = (typeof connectableNetworks)[number];
+
+function requestedConnectionNetworks(params: unknown): ConnectableNetwork[] {
+  const raw = (params as { networks?: unknown } | null)?.networks;
+  if (!Array.isArray(raw) || raw.length === 0)
+    throw rpc(-32602, "Choose at least one supported network.");
+  const networks = [...new Set(raw.map(String))];
+  if (
+    networks.length > connectableNetworks.length ||
+    networks.some(
+      (network) =>
+        !connectableNetworks.includes(network as ConnectableNetwork),
+    )
+  )
+    throw rpc(-32602, "Only Mainnet, Kasplex and Igra can be connected.");
+  return networks as ConnectableNetwork[];
+}
+
+function evmNetworkForChainId(value: unknown): "kasplex" | "igra" {
+  const raw =
+    typeof value === "object" && value !== null
+      ? (value as { chainId?: unknown }).chainId
+      : value;
+  const normalized = String(raw ?? "").toLowerCase();
+  if (normalized === "0x3173b" || normalized === "202555") return "kasplex";
+  if (normalized === "0x97b1" || normalized === "38833") return "igra";
+  throw rpc(4902, "Only Kasplex and Igra are supported Layer 2 networks.");
+}
+
+function permissionNetworks(
+  permission: { networks?: KaspaNetwork[] } | undefined,
+  fallback: KaspaNetwork,
+): KaspaNetwork[] {
+  return permission?.networks?.length ? permission.networks : [fallback];
+}
+
+async function accountsForNetworks(
+  state: Awaited<ReturnType<typeof loadState>>,
+  networks: readonly ConnectableNetwork[],
+) {
+  if (!state.selectedAddress) throw rpc(4100, "Create or import a wallet first.");
+  const result: Partial<Record<ConnectableNetwork, string>> = {};
+  if (networks.includes("mainnet"))
+    result.mainnet = (await core()).addressWithPrefix(
+      state.selectedAddress,
+      false,
+    );
+  if (networks.includes("kasplex") || networks.includes("igra")) {
+    if (!sessionVault) throw rpc(4100, "Unlock Kaspire before connecting Layer 2.");
+    const { address } = await evmContext(state);
+    if (networks.includes("kasplex")) result.kasplex = address;
+    if (networks.includes("igra")) result.igra = address;
+  }
+  return result;
+}
+
+async function mainnetProviderState(
+  state: Awaited<ReturnType<typeof loadState>>,
+) {
+  const wasm = await core();
+  const addresses = state.addresses.map((entry) => ({
+    ...entry,
+    address: wasm.addressWithPrefix(entry.address, false),
+  }));
+  const selectedIndex = state.addresses.findIndex(
+    (entry) => entry.address === state.selectedAddress,
+  );
+  return {
+    ...state,
+    network: "mainnet" as const,
+    addresses,
+    selectedAddress:
+      (selectedIndex >= 0 ? addresses[selectedIndex]?.address : undefined) ??
+      addresses[0]?.address ??
+      null,
+  };
+}
+
+function connectionDetails(
+  accounts: Partial<Record<ConnectableNetwork, string>>,
+) {
+  return connectableNetworks.flatMap((network) =>
+    accounts[network]
+      ? [
+          `${network === "mainnet" ? "Kaspa Mainnet" : network === "kasplex" ? "Kasplex L2" : "Igra L2"}: ${accounts[network]}`,
+        ]
+      : [],
+  );
+}
+
 async function handle(
   origin: string,
   method: ProviderMethod,
@@ -1525,7 +1635,36 @@ async function handle(
   if (!/^https?:\/\//.test(origin) || senderOrigin !== origin)
     throw rpc(4100, "Untrusted request origin.");
   const state = await loadState();
-  const permitted = state.permissions[origin]?.accounts === true;
+  let permission = state.permissions[origin];
+  let permitted = permission?.accounts === true;
+  if (method === "requestNetworkAccounts") {
+    await hydrateSession();
+    const networks = requestedConnectionNetworks(params);
+    const accounts = await accountsForNetworks(state, networks);
+    if (
+      !(await approve({
+        origin,
+        title: "Connect dApp to multiple networks?",
+        description:
+          "Allow this site to view the selected Kaspa account on each listed network. Signing still requires a separate review.",
+        details: connectionDetails(accounts),
+      }))
+    )
+      throw rpc(4001, "Connection rejected.");
+    permission = {
+      accounts: true,
+      connectedAt: Date.now(),
+      networks,
+      evmChainId: networks.includes("kasplex")
+        ? evmConfig("kasplex").chainId
+        : networks.includes("igra")
+          ? evmConfig("igra").chainId
+          : undefined,
+    };
+    state.permissions[origin] = permission;
+    await saveState(state);
+    return accounts;
+  }
   if (method === "requestAccounts") {
     if (!state.selectedAddress)
       throw rpc(4100, "Create or import a wallet first.");
@@ -1541,24 +1680,141 @@ async function handle(
     await hydrateSession();
     if (!sessionVault)
       throw rpc(4100, "Unlock Kaspire before connecting.");
-    state.permissions[origin] = { accounts: true, connectedAt: Date.now() };
+    state.permissions[origin] = {
+      accounts: true,
+      connectedAt: Date.now(),
+      networks: [state.network],
+      evmChainId:
+        state.network === "kasplex" || state.network === "igra"
+          ? evmConfig(state.network).chainId
+          : undefined,
+    };
     await saveState(state);
     return [state.network === "kasplex" || state.network === "igra" ? (await evmContext(state)).address : state.selectedAddress];
   }
+  if (method === "eth_requestAccounts") {
+    await hydrateSession();
+    const first = Array.isArray(params) ? params[0] : params;
+    const network = evmNetworkForChainId(
+      (first as { chainId?: unknown } | null)?.chainId ??
+        permission?.evmChainId ??
+        (state.network === "igra" ? evmConfig("igra").chainId : evmConfig("kasplex").chainId),
+    );
+    const existing = permissionNetworks(permission, state.network);
+    const networks = [...new Set([...existing.filter((item) => item !== "testnet-10"), network])] as KaspaNetwork[];
+    const accounts = await accountsForNetworks(state, [network]);
+    if (!permitted || !existing.includes(network)) {
+      if (
+        !(await approve({
+          origin,
+          title: `Connect ${network === "kasplex" ? "Kasplex" : "Igra"} dApp?`,
+          description:
+            "Allow this site to view the selected Layer 2 account. Signing still requires a separate review.",
+          details: connectionDetails(accounts),
+        }))
+      )
+        throw rpc(4001, "Connection rejected.");
+    }
+    permission = {
+      accounts: true,
+      connectedAt: permission?.connectedAt ?? Date.now(),
+      networks,
+      evmChainId: evmConfig(network).chainId,
+    };
+    state.permissions[origin] = permission;
+    await saveState(state);
+    return [accounts[network]];
+  }
   if (!safe.has(method) && !permitted)
     throw rpc(4100, "Connect this site to Kaspire first.");
-  if (method === "getAccounts")
-    return permitted && state.selectedAddress ? [state.network === "kasplex" || state.network === "igra" ? (await evmContext(state)).address : state.selectedAddress] : [];
+  if (method === "getAccounts") {
+    if (!permitted || !state.selectedAddress) return [];
+    const networks = permissionNetworks(permission, state.network);
+    const requested = String((params as any)?.network ?? "");
+    const network = networks.includes(requested as KaspaNetwork)
+      ? (requested as KaspaNetwork)
+      : networks.includes(state.network)
+        ? state.network
+        : networks[0];
+    if (network === "kasplex" || network === "igra")
+      return sessionVault ? [(await evmContext(state)).address] : [];
+    const mainnetState = await mainnetProviderState(state);
+    return mainnetState.selectedAddress ? [mainnetState.selectedAddress] : [];
+  }
+  if (method === "getNetworkAccounts") {
+    if (!permitted) return {};
+    const networks = permissionNetworks(permission, state.network).filter(
+      (network): network is ConnectableNetwork =>
+        network !== "testnet-10",
+    );
+    return accountsForNetworks(state, networks);
+  }
   if (method === "getNetwork") return state.network;
+  if (method === "eth_chainId") {
+    const configured = permission?.evmChainId;
+    const network = configured
+      ? evmNetworkForChainId(configured)
+      : state.network === "igra"
+        ? "igra"
+        : "kasplex";
+    return `0x${evmConfig(network).chainId.toString(16)}`;
+  }
+  if (method === "eth_accounts") {
+    if (!permitted || !sessionVault) return [];
+    const network = evmNetworkForChainId(
+      permission?.evmChainId ??
+        (state.network === "igra"
+          ? evmConfig("igra").chainId
+          : evmConfig("kasplex").chainId),
+    );
+    if (!permissionNetworks(permission, state.network).includes(network))
+      return [];
+    return [(await evmContext(state)).address];
+  }
+  if (method === "wallet_switchEthereumChain") {
+    const first = Array.isArray(params) ? params[0] : params;
+    const network = evmNetworkForChainId(first);
+    const networks = permissionNetworks(permission, state.network);
+    if (!networks.includes(network)) {
+      const accounts = await accountsForNetworks(state, [network]);
+      if (
+        !(await approve({
+          origin,
+          title: `Add ${network === "kasplex" ? "Kasplex" : "Igra"} to this connection?`,
+          description:
+            "The existing Kaspa connection remains active. This adds the selected Layer 2 network.",
+          details: connectionDetails(accounts),
+        }))
+      )
+        throw rpc(4001, "Network connection rejected.");
+      permission!.networks = [...new Set([...networks, network])];
+    }
+    permission!.evmChainId = evmConfig(network).chainId;
+    state.permissions[origin] = permission!;
+    await saveState(state);
+    return null;
+  }
   if (method === "getBalance") {
     if (!state.selectedAddress) throw rpc(4100, "No wallet selected.");
-    if (state.network === "kasplex" || state.network === "igra") return evmWalletSnapshot(state);
-    return walletSnapshot(state.selectedAddress, state.network);
+    const requested = String((params as any)?.network ?? state.network);
+    if (requested === "kasplex" || requested === "igra") {
+      if (!permissionNetworks(permission, state.network).includes(requested))
+        throw rpc(4100, "This Layer 2 network is not connected.");
+      return evmWalletSnapshot({ ...state, network: requested });
+    }
+    const mainnetState = await mainnetProviderState(state);
+    if (!permissionNetworks(permission, state.network).includes("mainnet"))
+      throw rpc(4100, "Kaspa Mainnet is not connected.");
+    return walletSnapshot(mainnetState.selectedAddress!, "mainnet");
   }
   if (method === "getUtxoEntries") {
     if (!state.selectedAddress) throw rpc(4100, "No wallet selected.");
-    if (state.network === "kasplex" || state.network === "igra") throw rpc(-32601, "UTXOs are not used on this Layer 2 network.");
-    return (await walletSnapshot(state.selectedAddress, state.network)).utxos;
+    if ((params as any)?.network === "kasplex" || (params as any)?.network === "igra")
+      throw rpc(-32601, "UTXOs are not used on Layer 2 networks.");
+    if (!permissionNetworks(permission, state.network).includes("mainnet"))
+      throw rpc(4100, "Kaspa Mainnet is not connected.");
+    const mainnetState = await mainnetProviderState(state);
+    return (await walletSnapshot(mainnetState.selectedAddress!, "mainnet")).utxos;
   }
   if (method === "disconnect") {
     delete state.permissions[origin];
@@ -1583,6 +1839,14 @@ async function handle(
     await convertNetwork(state, network as KaspaNetwork);
     return network;
   }
+  if (
+    l1ProviderMethods.has(method) &&
+    !permissionNetworks(permission, state.network).includes("mainnet")
+  )
+    throw rpc(4100, "Kaspa Mainnet is not connected for this site.");
+  const providerState = l1ProviderMethods.has(method)
+    ? await mainnetProviderState(state)
+    : state;
   if (method === "pushTx") {
     const transaction =
       typeof params === "string"
@@ -1595,13 +1859,121 @@ async function handle(
     } catch {
       throw rpc(-32602, "Signed transaction is not valid JSON.");
     }
-    return broadcast(transaction, state.network);
+    return broadcast(transaction, "mainnet");
   }
   if (!sessionVault) throw rpc(4100, "Unlock Kaspire before signing.");
+  if (method === "eth_sendTransaction") {
+    const rows = Array.isArray(params) ? params : [];
+    const raw = rows.length === 1 ? rows[0] : null;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+      throw rpc(-32602, "Provide exactly one Layer 2 transaction.");
+    const tx = raw as Record<string, unknown>;
+    const allowed = new Set([
+      "from",
+      "to",
+      "value",
+      "data",
+      "input",
+      "nonce",
+      "gas",
+      "gasPrice",
+    ]);
+    if (Object.keys(tx).some((key) => !allowed.has(key)))
+      throw rpc(-32602, "The Layer 2 transaction contains unsupported fields.");
+    const network = evmNetworkForChainId(
+      permission?.evmChainId ??
+        (state.network === "igra"
+          ? evmConfig("igra").chainId
+          : evmConfig("kasplex").chainId),
+    );
+    if (!permissionNetworks(permission, state.network).includes(network))
+      throw rpc(4100, "This Layer 2 network is not connected.");
+    const { address, secret } = await evmContext(state);
+    const from = String(tx.from ?? "");
+    const to = String(tx.to ?? "");
+    if (
+      from.toLowerCase() !== address.toLowerCase() ||
+      !/^0x[0-9a-fA-F]{40}$/.test(to)
+    )
+      throw rpc(-32602, "Invalid Layer 2 sender or recipient.");
+    const parseHex = (value: unknown, field: string) => {
+      const text = String(value ?? "0x0");
+      if (!/^0x[0-9a-fA-F]*$/.test(text))
+        throw rpc(-32602, `${field} must be a hexadecimal quantity.`);
+      return BigInt(`0x${text.slice(2) || "0"}`);
+    };
+    const value = parseHex(tx.value, "value");
+    const data = String(tx.data ?? tx.input ?? "");
+    if (data && (!/^0x(?:[0-9a-fA-F]{2})*$/.test(data) || data.length > 524_290))
+      throw rpc(-32602, "Invalid or oversized Layer 2 transaction data.");
+    const fields = await evmTransactionFields(network, address, to, value, data);
+    const nonce = tx.nonce == null ? fields.nonce : parseHex(tx.nonce, "nonce");
+    const gasPrice =
+      tx.gasPrice == null ? fields.gasPrice : parseHex(tx.gasPrice, "gasPrice");
+    const gas = tx.gas == null ? fields.gas : parseHex(tx.gas, "gas");
+    if (
+      nonce > BigInt(Number.MAX_SAFE_INTEGER) ||
+      gas > BigInt(Number.MAX_SAFE_INTEGER) ||
+      gasPrice <= 0n ||
+      gas <= 0n
+    )
+      throw rpc(-32602, "Invalid Layer 2 nonce, gas or gas price.");
+    const config = evmConfig(network);
+    const request = {
+      walletAddress: state.selectedAddress,
+      from: address,
+      to,
+      recipient: to,
+      valueWei: value.toString(),
+      nonce: Number(nonce),
+      gasLimit: Number(gas),
+      gasPriceWei: gasPrice.toString(),
+      chainId: config.chainId,
+      data,
+      tokenSymbol: config.nativeSymbol,
+      displayAmount: formatUnits(value, 18, 18),
+    };
+    const wasm = await core();
+    const review = JSON.parse(
+      wasm.prepareEvmTransaction(JSON.stringify(request)),
+    );
+    if (
+      !(await approve({
+        origin,
+        title: `${config.name} transaction`,
+        description:
+          "Review the complete Layer 2 transaction before Kaspire signs it.",
+        details: [
+          `From: ${address}`,
+          `To / contract: ${to}`,
+          `Value: ${formatUnits(value, 18, 18)} ${config.nativeSymbol}`,
+          `Maximum network fee: ${formatUnits(gas * gasPrice, 18, 18)} ${config.nativeSymbol}`,
+          `Gas: ${gas.toString()}`,
+          `Data: ${data || "None"}`,
+        ],
+        rawJson: { request, review },
+      }))
+    )
+      throw rpc(4001, "Layer 2 transaction rejected.");
+    const signed = JSON.parse(
+      wasm.signEvmTransaction(
+        secret,
+        JSON.stringify(request),
+        review.reviewHash,
+      ),
+    );
+    const result = String(
+      await evmRpc(network, "eth_sendRawTransaction", [signed.rawTransaction]),
+    );
+    if (result.toLowerCase() !== String(signed.transactionHash).toLowerCase())
+      throw rpc(-32000, "Layer 2 broadcaster returned a mismatching transaction ID.");
+    lastActivity = Date.now();
+    return result;
+  }
   if (method === "getPublicKey") {
-    if (!state.selectedAddress) throw rpc(4100, "No wallet selected.");
-    const entry = state.addresses.find(
-      (item) => item.address === state.selectedAddress,
+    if (!providerState.selectedAddress) throw rpc(4100, "No wallet selected.");
+    const entry = providerState.addresses.find(
+      (item) => item.address === providerState.selectedAddress,
     );
     const wallet = sessionVault.wallets.find(
       (item) => item.id === entry?.walletId,
@@ -1613,15 +1985,15 @@ async function handle(
   if (method === "signMessage") {
     const message = String((params as any)?.message ?? "");
     const address = String(
-      (params as any)?.address ?? state.selectedAddress ?? "",
+      (params as any)?.address ?? providerState.selectedAddress ?? "",
     );
     if (
       !message ||
       message.length > 10_000 ||
-      address !== state.selectedAddress
+      address !== providerState.selectedAddress
     )
       throw rpc(-32602, "Invalid personal-message request.");
-    const entry = state.addresses.find((item) => item.address === address);
+    const entry = providerState.addresses.find((item) => item.address === address);
     const wallet = sessionVault.wallets.find(
       (item) => item.id === entry?.walletId,
     );
@@ -1657,20 +2029,20 @@ async function handle(
     )
       throw rpc(-32602, "Invalid KAS payment request.");
     const recipient = String(input.to ?? "");
-    const senderAddress = String(input.from ?? state.selectedAddress ?? "");
+    const senderAddress = String(input.from ?? providerState.selectedAddress ?? "");
     const amount =
       typeof input.amountSompi === "number"
         ? input.amountSompi
         : Number(String(input.amountSompi ?? ""));
     if (
-      senderAddress !== state.selectedAddress ||
+      senderAddress !== providerState.selectedAddress ||
       !/^kaspa(test)?:[a-z0-9]{61,63}$/.test(recipient) ||
       !Number.isSafeInteger(amount) ||
       amount <= 0 ||
       amount > 2_100_000_000_000_000
     )
       throw rpc(-32602, "Invalid KAS payment request.");
-    const entry = state.addresses.find(
+    const entry = providerState.addresses.find(
       (item) => item.address === senderAddress,
     );
     const wallet = sessionVault.wallets.find(
@@ -1678,7 +2050,7 @@ async function handle(
     );
     if (!entry || entry.watchOnly || !wallet)
       throw rpc(4100, "Selected wallet cannot sign.");
-    const spend = await spendingData(senderAddress, state.network);
+    const spend = await spendingData(senderAddress, "mainnet");
     const request = {
       sender: senderAddress,
       recipient,
@@ -1713,7 +2085,7 @@ async function handle(
         review.reviewHash,
       ),
     );
-    const broadcastId = await broadcast(signed.submitJson, state.network);
+    const broadcastId = await broadcast(signed.submitJson, "mainnet");
     if (broadcastId && broadcastId !== signed.transactionId)
       throw rpc(-32000, "Node returned a mismatching transaction ID.");
     lastActivity = Date.now();
@@ -1721,16 +2093,16 @@ async function handle(
   }
   if (method === "signPskt") {
     const input = params as any;
-    const senderAddress = String(input?.sender ?? state.selectedAddress ?? "");
+    const senderAddress = String(input?.sender ?? providerState.selectedAddress ?? "");
     const signInputs = input?.options?.signInputs ?? input?.signInputs;
     if (
       !input ||
-      senderAddress !== state.selectedAddress ||
+      senderAddress !== providerState.selectedAddress ||
       typeof input.txJsonString !== "string" ||
       !Array.isArray(signInputs)
     )
       throw rpc(-32602, "Invalid PSKT request.");
-    const entry = state.addresses.find(
+    const entry = providerState.addresses.find(
       (item) => item.address === senderAddress,
     );
     const wallet = sessionVault.wallets.find(
@@ -1776,16 +2148,16 @@ async function handle(
   }
   if (method === "signPolicyTransaction") {
     const input = params as any;
-    const senderAddress = String(input?.sender ?? state.selectedAddress ?? "");
+    const senderAddress = String(input?.sender ?? providerState.selectedAddress ?? "");
     if (
       !input ||
-      senderAddress !== state.selectedAddress ||
+      senderAddress !== providerState.selectedAddress ||
       typeof input.txJsonString !== "string" ||
       !Array.isArray(input.signInputIndexes) ||
       typeof (input.redeemScript ?? "") !== "string"
     )
       throw rpc(-32602, "Invalid policy transaction request.");
-    const entry = state.addresses.find(
+    const entry = providerState.addresses.find(
       (item) => item.address === senderAddress,
     );
     const wallet = sessionVault.wallets.find(
@@ -1834,13 +2206,13 @@ async function handle(
     };
   }
   if (method === "sendKCC20")
-    return kcc20Transfer(origin, params, state, sessionVault);
+    return kcc20Transfer(origin, params, providerState, sessionVault);
   if (
     method === "sendKRC20" ||
     method === "transferKRC721" ||
     method === "transferKNS"
   )
-    return inscriptionTransfer(origin, method, params, state, sessionVault);
+    return inscriptionTransfer(origin, method, params, providerState, sessionVault);
   throw rpc(4200, `${method} awaits the transaction approval window.`);
 }
 

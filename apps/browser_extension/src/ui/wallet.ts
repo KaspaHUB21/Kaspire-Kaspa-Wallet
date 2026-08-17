@@ -354,7 +354,8 @@ function legacyOnboarding(initialMode: "create" | "seed" | "key" = "create") {
                 words: mode === "seed" ? readSeed(count) : "",
               },
             );
-            if (result.recoveryPhrase) return recovery(result.recoveryPhrase);
+            if (mode === "create" && result.recoveryPhrase)
+              return recovery(result.recoveryPhrase);
           }
           view = "home";
           await render();

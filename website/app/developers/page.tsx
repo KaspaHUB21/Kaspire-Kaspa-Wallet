@@ -34,6 +34,18 @@ const connectCode = `const { uri, approval } = await signClient.connect({
         "kaspa_signVaultTransaction"
       ],
       events: ["accountsChanged"]
+    },
+    eip155: {
+      // List one or both L2 chains required by your dApp.
+      chains: ["eip155:202555", "eip155:38833"],
+      methods: [
+        "eth_accounts",
+        "eth_requestAccounts",
+        "eth_chainId",
+        "wallet_switchEthereumChain",
+        "eth_sendTransaction"
+      ],
+      events: ["accountsChanged", "chainChanged"]
     }
   }
 });
@@ -306,6 +318,13 @@ export default function DevelopersPage() {
                 and <code>kaspa_signPersonal</code>.
               </p>
               <CodeBlock>{connectCode}</CodeBlock>
+              <p>
+                A single WalletConnect v2 session may contain Kaspa Mainnet and
+                Kasplex, Igra, or both L2 networks. Kaspire keeps every approved
+                namespace active simultaneously and routes each request by its
+                CAIP-2 <code>chainId</code>; an L2 request does not disconnect
+                the L1 account.
+              </p>
             </section>
 
             <section id="desktop-qr">

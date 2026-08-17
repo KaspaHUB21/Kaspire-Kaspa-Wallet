@@ -32,7 +32,7 @@ interface KaspireProvider {
     method: string;
     params?: unknown;
   }): Promise<T>;
-  on(event: "accountsChanged" | "networkChanged" | "disconnect",
+  on(event: "accountsChanged" | "networkChanged" | "chainChanged" | "disconnect",
      listener: (data: unknown) => void): this;
   removeListener(event: string, listener: (data: unknown) => void): this;
 }`;
@@ -44,6 +44,28 @@ const connectCode = `const accounts = await kaspire.request<string[]>({
 // The user reviews the requesting origin in an extension-owned window.
 const address = accounts[0]; // kaspa:... on L1, 0x... on Kasplex/Igra
 if (!address) throw new Error("No Kaspire account was approved.");`;
+
+const multichainCode = `const accounts = await kaspire.request<{
+  mainnet?: string;
+  kasplex?: string;
+  igra?: string;
+}>({
+  method: "requestNetworkAccounts",
+  params: { networks: ["mainnet", "kasplex"] }
+});
+
+// Both accounts remain authorized at the same time.
+const kaspaAddress = accounts.mainnet;
+const evmAddress = accounts.kasplex;
+
+// Standard EIP-1193 methods use the origin's selected L2 chain.
+await kaspire.request({
+  method: "wallet_switchEthereumChain",
+  params: [{ chainId: "0x3173b" }] // Kasplex: 202555
+});
+const l2Accounts = await kaspire.request<string[]>({
+  method: "eth_accounts"
+});`;
 
 const restoreCode = `const accounts = await kaspire.request<string[]>({
   method: "getAccounts"
@@ -358,7 +380,9 @@ export default function ExtensionDevelopersPage() {
               <h2>Supported methods</h2>
               <div className="developer-methods">
                 <div><code>requestAccounts</code><p>Prompts the user and grants this origin access to the selected address.</p></div>
+                <div><code>requestNetworkAccounts</code><p>Approves Mainnet and Kasplex and/or Igra together and returns an address keyed by network.</p></div>
                 <div><code>getAccounts</code><p>Returns the connected address or an empty array without prompting.</p></div>
+                <div><code>getNetworkAccounts</code><p>Returns every network account already approved for this origin.</p></div>
                 <div><code>getNetwork</code><p>Returns <code>mainnet</code> in the current store build.</p></div>
                 <div><code>getPublicKey</code><p>Returns the selected signing wallet&apos;s x-only public key.</p></div>
                 <div><code>getBalance</code><p>Returns verified KAS, UTXO, asset and activity snapshot data.</p></div>
@@ -372,8 +396,20 @@ export default function ExtensionDevelopersPage() {
                 <div><code>signPskt</code><p>Reviews SafeJSON and signs only the explicitly selected inputs.</p></div>
                 <div><code>signPolicyTransaction</code><p>Uses the stricter native KasCoven create/heartbeat policy.</p></div>
                 <div><code>pushTx</code><p>Broadcasts a complete signed SafeJSON transaction deliberately supplied by the dApp.</p></div>
+                <div><code>eth_accounts / eth_requestAccounts</code><p>Returns or requests the origin-bound Kasplex or Igra EVM account.</p></div>
+                <div><code>eth_chainId / wallet_switchEthereumChain</code><p>Reads or changes the L2 context without disconnecting Kaspa Mainnet.</p></div>
+                <div><code>eth_sendTransaction</code><p>Reviews, signs and broadcasts a transaction on the approved L2 chain.</p></div>
                 <div><code>disconnect</code><p>Revokes the current origin&apos;s connection.</p></div>
               </div>
+
+              <h3>Connect L1 and L2 simultaneously</h3>
+              <p>
+                Use one origin-bound permission for Kaspa Mainnet and either or
+                both L2 networks. Switching the EVM chain does not revoke the
+                Mainnet account. Every signing request still opens a separate
+                Kaspire review.
+              </p>
+              <CodeBlock>{multichainCode}</CodeBlock>
 
               <h3>Read wallet state</h3>
               <CodeBlock>{readsCode}</CodeBlock>
@@ -510,7 +546,7 @@ export default function ExtensionDevelopersPage() {
                 <li>Broadcast rejection and mismatching transaction IDs</li>
               </ul>
               <p>
-                Start with a low-value wallet. Kaspire 0.4.0 supports Kaspa
+                Start with a low-value wallet. Kaspire 0.4.1 supports Kaspa
                 Mainnet, TN10, Kasplex L2 and Igra L2. Always branch on
                 <code> getNetwork</code>: Kaspa networks expose UTXO data,
                 while the EVM-based L2 networks expose an EVM address, native
