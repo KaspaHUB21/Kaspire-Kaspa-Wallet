@@ -546,7 +546,7 @@ export default function ExtensionDevelopersPage() {
                 <li>Broadcast rejection and mismatching transaction IDs</li>
               </ul>
               <p>
-                Start with a low-value wallet. Kaspire 0.4.1 supports Kaspa
+                Start with a low-value wallet. Kaspire 0.4.2 supports Kaspa
                 Mainnet, TN10, Kasplex L2 and Igra L2. Always branch on
                 <code> getNetwork</code>: Kaspa networks expose UTXO data,
                 while the EVM-based L2 networks expose an EVM address, native

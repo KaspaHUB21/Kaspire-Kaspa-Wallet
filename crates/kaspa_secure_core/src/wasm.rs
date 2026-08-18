@@ -106,6 +106,11 @@ pub fn derive_evm_address_js(secret: &str) -> std::result::Result<String, JsErro
     derive_evm_address(secret).map_err(|error| JsError::new(&error.to_string()))
 }
 
+#[wasm_bindgen(js_name = exportEvmPrivateKey)]
+pub fn export_evm_private_key_js(secret: &str) -> std::result::Result<String, JsError> {
+    export_evm_private_key(secret).map_err(|error| JsError::new(&error.to_string()))
+}
+
 #[wasm_bindgen(js_name = prepareEvmTransaction)]
 pub fn prepare_evm_transaction_js(request: &str) -> std::result::Result<String, JsError> {
     let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid EVM request"))?;

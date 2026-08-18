@@ -267,6 +267,18 @@ function enhanceForms(container: HTMLElement) {
     wrapper.append(reveal);
   });
   container.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
+    if (["recipient", "wallet-address", "address", "first-watch-address"].includes(input.id)) {
+      input.addEventListener("paste", (event) => {
+        const pasted = event.clipboardData?.getData("text/plain");
+        if (pasted == null) return;
+        event.preventDefault();
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? start;
+        input.setRangeText(pasted.trim(), start, end, "end");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    }
     input.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || event.isComposing) return;
       const scope = input.closest<HTMLElement>(".form, .verify-grid, section") ?? container;
@@ -1087,9 +1099,12 @@ function secretAction(action: string) {
             password,
             type: action,
           });
+          if (action === "private") {
+            return privateKeyResult(secret);
+          }
           const output = document.querySelector<HTMLElement>("#secret")!;
           output.hidden = false;
-          output.textContent = secret;
+          output.textContent = String(secret);
         }
       } catch (error) {
         document.querySelector("#error")!.textContent = (
@@ -1097,6 +1112,29 @@ function secretAction(action: string) {
         ).message;
       }
     };
+}
+
+function privateKeyResult(result: {
+  walletName: string;
+  path: string;
+  kaspaPrivateKey: string;
+  evmPrivateKey: string;
+}) {
+  shell(
+    `<section class="private-key-result"><p class="eyebrow">SECURE RESULT</p><h1>Your private keys</h1><p class="info-box">These are the private keys for the selected wallet. Keep both keys offline. Anyone with either key can spend assets controlled by that account.</p><article class="private-key-card"><b>${esc(result.walletName)}</b><small>${esc(result.path)}</small><label>Kaspa private key<div class="private-key-value"><code>${esc(result.kaspaPrivateKey)}</code><button id="copy-kaspa-key" class="icon" aria-label="Copy Kaspa private key" title="Copy Kaspa private key">⧉</button></div></label><label>EVM private key · Kasplex &amp; Igra<div class="private-key-value"><code>${esc(result.evmPrivateKey)}</code><button id="copy-evm-key" class="icon" aria-label="Copy EVM private key" title="Copy EVM private key">⧉</button></div></label></article><button id="private-key-done">DONE</button></section>`,
+    "REVEAL PRIVATE KEY",
+    true,
+  );
+  document.querySelector<HTMLButtonElement>("#copy-kaspa-key")!.onclick = () =>
+    copy(result.kaspaPrivateKey, "Kaspa private key copied");
+  document.querySelector<HTMLButtonElement>("#copy-evm-key")!.onclick = () =>
+    copy(result.evmPrivateKey, "EVM private key copied");
+  document.querySelector<HTMLButtonElement>("#private-key-done")!.onclick = async () => {
+    result.kaspaPrivateKey = "";
+    result.evmPrivateKey = "";
+    view = "backups";
+    await render();
+  };
 }
 
 function network() {

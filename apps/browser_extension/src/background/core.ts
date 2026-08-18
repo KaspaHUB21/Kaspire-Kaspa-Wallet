@@ -10,6 +10,7 @@ type CoreModule = {
   deriveAddressRange(secret: string, coin: number, account: number, change: number, start: number, count: number): string;
   addressWithPrefix(address: string, testnet: boolean): string;
   deriveEvmAddress(secret: string): string;
+  exportEvmPrivateKey(secret: string): string;
   prepareEvmTransaction(request: string): string;
   signEvmTransaction(secret: string, request: string, reviewHash: string): string;
   exportPrivateKey(secret: string): string;

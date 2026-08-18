@@ -966,7 +966,14 @@ async function walletCommand(
         ? wallet.secret.split(":").slice(2).join(":")
         : wallet.secret.slice("mnemonic:".length);
     }
-    return (await core()).exportPrivateKey(signingSecret(wallet, entry));
+    const wasm = await core();
+    const secret = signingSecret(wallet, entry);
+    return {
+      walletName: entry.name,
+      path: entry.path,
+      kaspaPrivateKey: wasm.exportPrivateKey(secret),
+      evmPrivateKey: wasm.exportEvmPrivateKey(secret),
+    };
   }
   if (message.command === "sendKas") {
     if (!sessionVault || !state.selectedAddress)
@@ -1044,14 +1051,28 @@ async function walletCommand(
     if (!entry || entry.watchOnly || !wallet)
       throw new Error("Selected wallet cannot sign.");
     const spend = await spendingData(entry.address, state.network);
-    const count = JSON.parse(spend.utxosJson).length;
+    const allUtxos = JSON.parse(spend.utxosJson) as Array<{
+      utxoEntry?: { amount?: string | number };
+    }>;
+    const count = allUtxos.length;
     if (count < 2) throw new Error("This wallet has fewer than two UTXOs.");
+    // The native transaction policy intentionally permits at most 80 inputs.
+    // Select the largest spendable cells so wallets above that limit can still
+    // reduce their UTXO count over one or more compound transactions.
+    const selectedUtxos = allUtxos
+      .slice()
+      .sort((left, right) => {
+        const leftAmount = BigInt(left.utxoEntry?.amount ?? 0);
+        const rightAmount = BigInt(right.utxoEntry?.amount ?? 0);
+        return leftAmount === rightAmount ? 0 : leftAmount > rightAmount ? -1 : 1;
+      })
+      .slice(0, 80);
     const request = {
       sender: entry.address,
       recipient: entry.address,
       amountSompi: 0,
       feeRate: spend.feeRate,
-      utxosJson: spend.utxosJson,
+      utxosJson: JSON.stringify(selectedUtxos),
       sendAll: true,
     };
     const wasm = await core();
@@ -1063,7 +1084,7 @@ async function walletCommand(
         description:
           "All spendable KAS will return to the same wallet as one output minus the network fee.",
         details: [
-          `${review.inputCount} inputs → ${review.outputCount} output`,
+          `${review.inputCount} of ${count} UTXOs → ${review.outputCount} output`,
           `Returned: ${review.amountSompi / 100_000_000} KAS`,
           `Network fee: ${formatSompi(review.feeSompi)} KAS`,
         ],
