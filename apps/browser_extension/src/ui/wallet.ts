@@ -261,11 +261,17 @@ function attachAddressVerification(
   const panel = document.createElement("span");
   panel.className = "address-verification";
   panel.setAttribute("role", "tooltip");
+  panel.setAttribute("aria-hidden", "true");
+  panel.hidden = true;
+  let request = 0;
   const show = async () => {
+    const current = ++request;
     panel.innerHTML = `<b>What you see is what you copy</b><code>Loading full address…</code>`;
+    panel.hidden = false;
+    panel.setAttribute("aria-hidden", "false");
     button.classList.add("show-verification");
     const full = await addressRequest.catch(() => "Address unavailable");
-    if (!button.isConnected) return;
+    if (current !== request || panel.hidden || !button.isConnected) return;
     panel.innerHTML = "";
     const heading = document.createElement("b");
     heading.textContent = "What you see is what you copy";
@@ -273,12 +279,21 @@ function attachAddressVerification(
     code.textContent = full;
     panel.append(heading, code);
   };
-  const hide = () => button.classList.remove("show-verification");
+  const hide = () => {
+    request++;
+    button.classList.remove("show-verification");
+    panel.hidden = true;
+    panel.setAttribute("aria-hidden", "true");
+  };
   button.append(panel);
   button.addEventListener("mouseenter", show);
   button.addEventListener("focus", show);
   button.addEventListener("mouseleave", hide);
   button.addEventListener("blur", hide);
+  button.addEventListener("click", hide);
+  button.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hide();
+  });
 }
 function shell(content: string, title = "KASPIRE", back = false) {
   root.innerHTML = `<main class="app natural-case"><header class="top">${back ? '<button id="back" class="icon" aria-label="Back">‹</button>' : '<button id="brand-store" class="brand-store" aria-label="Kaspire version and Chrome Web Store"><img src="kaspire-icon.png" alt="Kaspire"><span class="brand-verification" role="tooltip"></span></button>'}<b>${esc(title)}</b>${status && !status.locked ? `<button id="top-lock" class="icon top-lock" aria-label="Lock Kaspire" title="Lock Kaspire">${lockIcon()}</button>` : '<span></span>'}</header>${content}</main>`;

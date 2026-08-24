@@ -6,7 +6,7 @@ from evidence that only KaspaCom can produce in its current target apps.
 
 ## Scope
 
-- Wallets: Kaspire Browser Extension 0.4.5 and Kaspire Android 0.11.25
+- Wallets: Kaspire Browser Extension 0.4.6 and Kaspire Android 0.11.26
 - App surfaces: KaspaCom KCC20 and Kaspiano
 - Networks: Testnet 10 private pilot, followed by a small-value Mainnet smoke
   test before public listing

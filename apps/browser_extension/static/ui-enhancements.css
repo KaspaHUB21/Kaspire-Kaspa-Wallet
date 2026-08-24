@@ -79,6 +79,9 @@
 .show-verification > .address-verification {
   display: block;
 }
+.address-verification[hidden] {
+  display: none !important;
+}
 .copy-main,
 .copy-wallet,
 .own-copy {
