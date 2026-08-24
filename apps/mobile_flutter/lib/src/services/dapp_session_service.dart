@@ -30,6 +30,7 @@ class DappSessionService {
     'kaspa_signAuth',
     'kaspa_sendTransaction',
     'kaspa_sendKrc20',
+    'kaspa_sendKrc721',
     'kaspa_sendKcc20',
     'kaspa_signPskt',
     'kaspa_signVaultTransaction',

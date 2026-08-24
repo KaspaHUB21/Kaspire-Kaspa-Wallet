@@ -30,6 +30,13 @@ void main() {
     );
   });
 
+  test('advertises direct reviewed KRC-721 commit/reveal transfers', () {
+    expect(
+      DappSessionService.supportedMethods,
+      contains('kaspa_sendKrc721'),
+    );
+  });
+
   test('advertises Mainnet and Testnet 10 Kaspa session chains', () {
     expect(
       DappSessionService.supportedKaspaChains,

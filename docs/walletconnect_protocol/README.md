@@ -15,6 +15,7 @@ methods: kaspa_getAccounts
          kaspa_signAuth
          kaspa_sendTransaction
          kaspa_sendKrc20
+         kaspa_sendKrc721
          kaspa_sendKcc20
          kaspa_signPskt
          kaspa_signVaultTransaction
@@ -29,8 +30,8 @@ results return a full `kaspa:q...` or `kaspatest:q...` address.
 `kaspa_signPersonal` follows the active
 [KIP-5 message-signing specification](https://github.com/kaspanet/kips/blob/master/kip-0005.md).
 Generic KAS, authentication and PSKT methods work on both chains. KRC-20,
-KCC20 and the typed KasCoven policy remain Mainnet-only and fail clearly when
-requested on TN10.
+KRC-721, KCC20 and the typed KasCoven policy remain Mainnet-only and fail
+clearly when requested on TN10.
 
 ## Pairing
 
@@ -74,6 +75,53 @@ KRC-20 transfers use the exact raw token amount:
 
 Kaspire verifies the selected wallet's indexed token balance, builds the canonical Kasplex transfer in the native Rust core, and requires separate commit and reveal authorization. The result contains both transaction IDs and their network fees. If the reveal cannot finish, the commit is saved for recovery inside Kaspire.
 
+KRC-721 escrow or direct transfers use the exact owned collection ticker and
+token ID:
+
+```json
+{
+  "chainId": "kaspa:mainnet",
+  "request": {
+    "method": "kaspa_sendKrc721",
+    "params": {
+      "from": "kaspa:q...",
+      "to": "kaspa:q...",
+      "ticker": "KASPUNKS",
+      "tokenId": "42"
+    }
+  }
+}
+```
+
+`from` is optional, but when supplied it must exactly equal the account
+approved for the WalletConnect session. `to` is the final owner address, which
+may be a marketplace escrow address. `ticker` is normalized to uppercase;
+`tokenId` is an exact case-sensitive string.
+
+Before any KAS is committed, Kaspire verifies that the approved wallet's
+current indexed holdings contain that exact ticker/token-ID pair. The native
+Rust core then constructs the canonical `kspr` KRC-721 transfer payload and
+binds the sender, escrow/recipient, ticker and token ID into the commit/reveal
+review. Kaspire fetches its own UTXOs, requires fresh authorization, broadcasts
+both locally constructed transactions and checks each node-returned ID.
+
+The successful response is:
+
+```json
+{
+  "ticker": "KASPUNKS",
+  "tokenId": "42",
+  "commitTransactionId": "...",
+  "revealTransactionId": "...",
+  "commitFeeSompi": 1234,
+  "revealFeeSompi": 5678
+}
+```
+
+If the commit output is not spendable before the request window ends, Kaspire
+saves the address-bound pending transfer so the reveal can be resumed safely
+inside the app.
+
 KCC20 requests identify the token by its 64-hex covenant ID and use an exact raw amount:
 
 ```json
@@ -92,7 +140,7 @@ KCC20 requests identify the token by its 64-hex covenant ID and use an exact raw
 
 Kaspire uses `kcc20.info` as its primary owner-balance, history and signing-data indexer. Kascov is used only when the primary service fails or explicitly reports an incomplete historical cell mapping. Kaspire accepts only indexer-verified tokens with a complete live-cell mapping. The native core recompiles each current and future KCC20 state from the vendored SilverScript source, compares the current state hashes, enforces token and transaction-value conservation, applies Toccata compute budgets and exactly 100 sompi/g, signs a typed version-1 transaction, and executes every input locally using its exact Mainnet script-unit allowance. Kascov's optional preflight is retained as advisory diagnostics; its fee field is never used. The signed transaction is broadcast through a compute-budget-preserving Toccata wRPC node, whose verdict is authoritative, and the returned transaction ID must match the locally signed ID.
 
-The wallet fetches untrusted UTXOs itself, then the native Rust core reconstructs the transaction and derives the confirmation screen from the canonical result. Human-readable dApp metadata is never accepted as proof of transaction contents. Every payment, KRC-20 transfer and personal signature receives fresh explicit confirmation and biometric or PIN approval.
+The wallet fetches untrusted UTXOs itself, then the native Rust core reconstructs the transaction and derives the confirmation screen from the canonical result. Human-readable dApp metadata is never accepted as proof of transaction contents. Every payment, KRC-20/KRC-721 transfer and personal signature receives fresh explicit confirmation and biometric or PIN approval.
 
 ## Generic PSKT signing
 

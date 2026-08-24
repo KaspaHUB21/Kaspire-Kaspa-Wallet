@@ -381,6 +381,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
           'Request an authentication signature and public key',
         'kaspa_sendTransaction' => 'Request KAS payments',
         'kaspa_sendKrc20' => 'Request reviewed KRC-20 transfers',
+        'kaspa_sendKrc721' => 'Request reviewed KRC-721 NFT transfers',
         'kaspa_sendKcc20' => 'Request verified KCC20 covenant transfers',
         'kaspa_signPskt' =>
           'Request reviewed partial transaction signatures (PSKT)',
@@ -466,6 +467,12 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                 'KRC-20 transfers are not supported on Testnet 10.');
           }
           await _handleDappKrc20(request, address);
+        case 'kaspa_sendKrc721':
+          if (requestedNetwork == KaspaNetwork.tn10) {
+            throw const FormatException(
+                'KRC-721 transfers are not supported on Testnet 10.');
+          }
+          await _handleDappKrc721(request, address);
         case 'kaspa_sendKcc20':
           if (requestedNetwork == KaspaNetwork.tn10) {
             throw const FormatException(
@@ -893,7 +900,9 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     String address,
   ) async {
     await _requireActiveSessionAddress(address);
-    const pendingKey = 'kaspire_pending_inscription_v1';
+    final pendingKey =
+        'kaspire_pending_inscription_v2_${address.toLowerCase()}';
+    const legacyPendingKey = 'kaspire_pending_inscription_v1';
     final params = _paramsMap(request.params);
     if (params.keys.any(
       (key) =>
@@ -921,7 +930,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       throw const FormatException('The session wallet is watch-only.');
     }
     final prefs = await SharedPreferences.getInstance();
-    if (prefs.containsKey(pendingKey)) {
+    if (prefs.containsKey(pendingKey) || prefs.containsKey(legacyPendingKey)) {
       throw const FormatException(
         'Finish the saved pending asset transfer in Kaspire first.',
       );
@@ -1094,6 +1103,251 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       await _dapps.respondResult(request, <String, Object?>{
         'ticker': ticker,
         'amount': amount.toString(),
+        'commitTransactionId': signedCommit.transactionId,
+        'revealTransactionId': signedReveal['transactionId'],
+        'commitFeeSompi': commit.feeSompi,
+        'revealFeeSompi': reveal['feeSompi'],
+      });
+    } finally {
+      messenger.hideCurrentSnackBar();
+    }
+  }
+
+  Future<void> _handleDappKrc721(
+    SessionRequestEvent request,
+    String address,
+  ) async {
+    await _requireActiveSessionAddress(address);
+    final pendingKey =
+        'kaspire_pending_inscription_v2_${address.toLowerCase()}';
+    const legacyPendingKey = 'kaspire_pending_inscription_v1';
+    final params = _paramsMap(request.params);
+    if (params.keys.any(
+      (key) =>
+          key != 'to' && key != 'ticker' && key != 'tokenId' && key != 'from',
+    )) {
+      throw const FormatException('Unknown KRC-721 transfer field.');
+    }
+    final recipient = params['to'];
+    final ticker = params['ticker']?.toString().trim().toUpperCase();
+    final tokenId = params['tokenId']?.toString().trim();
+    final from = params['from'] ?? address;
+    if (recipient is! String ||
+        !RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(recipient) ||
+        ticker == null ||
+        ticker.isEmpty ||
+        ticker.length > 32 ||
+        !RegExp(r'^[A-Z0-9_-]+$').hasMatch(ticker) ||
+        tokenId == null ||
+        tokenId.isEmpty ||
+        tokenId.length > 128 ||
+        tokenId.runes.any((value) => value < 0x20 || value == 0x7f) ||
+        from != address) {
+      throw const FormatException('Invalid KRC-721 transfer request.');
+    }
+    if (!await _security.hasNativeWalletFor(address)) {
+      throw const FormatException('The session wallet is watch-only.');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.containsKey(pendingKey) || prefs.containsKey(legacyPendingKey)) {
+      throw const FormatException(
+        'Finish the saved pending asset transfer in Kaspire first.',
+      );
+    }
+
+    final api = KaspaApi();
+    var ownsNft = false;
+    var offset = 0;
+    for (var pageNumber = 0; pageNumber < 100; pageNumber++) {
+      final page = await api.loadNftCollection(
+        address,
+        ticker,
+        offset: offset,
+      );
+      if (page.nfts.any(
+        (nft) => nft.ticker.toUpperCase() == ticker && nft.tokenId == tokenId,
+      )) {
+        ownsNft = true;
+        break;
+      }
+      final next = page.nextOffset;
+      if (next == null || next <= offset) break;
+      offset = next;
+    }
+    if (!ownsNft) {
+      throw const FormatException(
+        'The approved wallet does not hold this KRC-721 token.',
+      );
+    }
+
+    final operation = <String, Object?>{
+      'kind': 'krc721',
+      'sender': address,
+      'recipient': recipient,
+      'ticker': ticker,
+      'amount': '',
+      'displayAmount': '1',
+      'tokenId': tokenId,
+      'assetId': '',
+    };
+    final plan = await _security.prepareInscription(operation);
+    final results = await Future.wait([
+      api.loadUtxos(address),
+      api.loadFeeRate(),
+    ]);
+    final signer = SignerService();
+    final commit = await signer.prepare(
+      sender: address,
+      recipient: plan['commitAddress']! as String,
+      amountSompi: (plan['commitAmountSompi'] as num).toInt(),
+      feeRate: results[1] as double,
+      utxosJson: results[0] as String,
+    );
+    final selectedAddressBeforeApproval = await _preferences.getAddress();
+    final networkBeforeApproval = NetworkSettings.network.value;
+    final context = await _contextWhenReady();
+    if (context == null || !context.mounted) {
+      throw const FormatException('Wallet UI is unavailable.');
+    }
+    final approved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text('${_dapps.dappName(request.topic)} requests KRC-721'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '$ticker #$tokenId',
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Escrow / recipient',
+                style: TextStyle(color: KasVaultTheme.muted),
+              ),
+              SelectableText(recipient),
+              const SizedBox(height: 12),
+              const Text('Commit amount: 0.30000000 KAS'),
+              Text(
+                'Commit network fee: ${formatEnglishNumber(commit.feeKas)} KAS',
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'KRC-721 uses commit/reveal. Kaspire verifies ownership of the exact NFT, constructs both transactions locally, and requires fresh authorization for signing.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(buttonLabel('REJECT')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(buttonLabel('CONTINUE')),
+          ),
+        ],
+      ),
+    );
+    if (approved != true || !context.mounted) {
+      await _dapps.respondError(request, 'User rejected.', code: 4001);
+      return;
+    }
+    if (NetworkSettings.network.value != networkBeforeApproval ||
+        await _preferences.getAddress() != selectedAddressBeforeApproval) {
+      throw const FormatException(
+        'Wallet account or network changed during approval. Build a fresh request.',
+      );
+    }
+
+    final signedCommit = await signer.sign(commit);
+    final commitBroadcastId = await api.broadcast(signedCommit.submitJson);
+    if (commitBroadcastId.isNotEmpty &&
+        commitBroadcastId != signedCommit.transactionId) {
+      throw const FormatException('Node returned a mismatching commit ID.');
+    }
+    final pending = <String, Object?>{
+      'operation': operation,
+      'plan': plan,
+      'commitTransactionId': signedCommit.transactionId,
+      'commitFeeSompi': commit.feeSompi,
+      'createdAt': DateTime.now().toIso8601String(),
+    };
+    await prefs.setString(pendingKey, jsonEncode(pending));
+    if (!context.mounted) {
+      throw const FormatException(
+        'Commit saved. Resume the reveal from Kaspire.',
+      );
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(
+        duration: Duration(minutes: 2),
+        content: Text(
+          'NFT commit accepted. Keep Kaspire open while the reveal becomes available.',
+        ),
+      ),
+    );
+    try {
+      String? commitUtxos;
+      for (var attempt = 0; attempt < 40; attempt++) {
+        try {
+          final candidate =
+              await api.loadUtxos(plan['commitAddress']! as String);
+          final rows = jsonDecode(candidate) as List;
+          if (rows.any((entry) =>
+              (entry as Map)['outpoint']?['transactionId'] ==
+              signedCommit.transactionId)) {
+            commitUtxos = candidate;
+            break;
+          }
+        } catch (_) {}
+        await Future<void>.delayed(const Duration(seconds: 3));
+      }
+      if (commitUtxos == null) {
+        throw const FormatException(
+          'Commit saved but not spendable yet. Resume the reveal in Kaspire.',
+        );
+      }
+      final revealRequest = <String, Object?>{
+        'operation': operation,
+        'commitTransactionId': signedCommit.transactionId,
+        'commitUtxosJson': commitUtxos,
+        'feeRate': await api.loadFeeRate(),
+      };
+      final reveal = await _security.prepareReveal(revealRequest);
+      if (!context.mounted) {
+        throw const FormatException(
+          'Reveal approval cancelled. Resume it from Kaspire.',
+        );
+      }
+      final signedReveal = await _security.signReveal(
+        revealRequest,
+        reveal['reviewHash']! as String,
+      );
+      final revealBroadcastId =
+          await api.broadcast(signedReveal['submitJson']! as String);
+      if (revealBroadcastId.isNotEmpty &&
+          revealBroadcastId != signedReveal['transactionId']) {
+        throw const FormatException('Node returned a mismatching reveal ID.');
+      }
+      await prefs.remove(pendingKey);
+      await ActivityStore().recordAssetTransfer(
+        wallet: address,
+        operation: operation,
+        transactionId: signedReveal['transactionId']! as String,
+        timestamp: DateTime.now(),
+      );
+      await _dapps.respondResult(request, <String, Object?>{
+        'ticker': ticker,
+        'tokenId': tokenId,
         'commitTransactionId': signedCommit.transactionId,
         'revealTransactionId': signedReveal['transactionId'],
         'commitFeeSompi': commit.feeSompi,

@@ -73,7 +73,21 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
   Future<void> _load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final pendingRaw = prefs.getString(_pendingKey);
+      var pendingRaw = prefs.getString(_pendingKey);
+      const legacyPendingKey = 'kaspire_pending_inscription_v1';
+      final legacyPendingRaw = prefs.getString(legacyPendingKey);
+      if (pendingRaw == null && legacyPendingRaw != null) {
+        final legacy =
+            (jsonDecode(legacyPendingRaw) as Map).cast<String, Object?>();
+        final operation =
+            (legacy['operation'] as Map?)?.cast<String, Object?>();
+        if (operation?['sender']?.toString().toLowerCase() ==
+            widget.address.toLowerCase()) {
+          pendingRaw = legacyPendingRaw;
+          await prefs.setString(_pendingKey, legacyPendingRaw);
+          await prefs.remove(legacyPendingKey);
+        }
+      }
       final wallet = await _api.loadWallet(widget.address);
       if (!mounted) return;
       setState(() {

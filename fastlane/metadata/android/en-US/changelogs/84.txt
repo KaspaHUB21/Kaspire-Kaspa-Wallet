@@ -1,0 +1,1 @@
+Adds direct reviewed WalletConnect KRC-721 commit/reveal transfers for NFT marketplace escrow listings, with exact ownership checks, native payload construction, recoverable pending reveals, and both transaction IDs and fees returned to the dApp.

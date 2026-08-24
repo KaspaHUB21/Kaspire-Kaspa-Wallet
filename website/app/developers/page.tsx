@@ -34,6 +34,7 @@ const connectCode = `const { uri, approval } = await signClient.connect({
         "kaspa_signAuth",
         "kaspa_sendTransaction",
         "kaspa_sendKrc20",
+        "kaspa_sendKrc721",
         "kaspa_sendKcc20",
         "kaspa_signPskt",
         "kaspa_signVaultTransaction"
@@ -144,6 +145,27 @@ const krc20Code = `const result = await signClient.request({
 // result:
 // {
 //   ticker, amount,
+//   commitTransactionId, revealTransactionId,
+//   commitFeeSompi, revealFeeSompi
+// }`;
+
+const krc721Code = `const result = await signClient.request({
+  topic: session.topic,
+  chainId: "kaspa:mainnet",
+  request: {
+    method: "kaspa_sendKrc721",
+    params: {
+      from: address,
+      to: "kaspa:q...", // recipient or marketplace escrow
+      ticker: "KASPUNKS",
+      tokenId: "42"
+    }
+  }
+});
+
+// result:
+// {
+//   ticker, tokenId,
 //   commitTransactionId, revealTransactionId,
 //   commitFeeSompi, revealFeeSompi
 // }`;
@@ -434,6 +456,7 @@ export default function DevelopersPage() {
                 <div><code>kaspa_signAuth</code><p>Signs a reviewed, domain-bound authentication challenge.</p></div>
                 <div><code>kaspa_sendTransaction</code><p>Builds, reviews, signs, and broadcasts a native KAS payment.</p></div>
                 <div><code>kaspa_sendKrc20</code><p>Executes the complete KRC-20 commit/reveal transfer flow.</p></div>
+                <div><code>kaspa_sendKrc721</code><p>Verifies ownership and executes a reviewed KRC-721 commit/reveal transfer to a recipient or marketplace escrow.</p></div>
                 <div><code>kaspa_sendKcc20</code><p>Validates and executes a typed KCC20 covenant transfer.</p></div>
                 <div><code>kaspa_signPskt</code><p>Signs selected inputs of a fully reviewed Kaspa SafeJSON transaction.</p></div>
                 <div><code>kaspa_signVaultTransaction</code><p>Signs only a native Rust policy-approved vault create or DMS heartbeat transaction.</p></div>
@@ -454,6 +477,16 @@ export default function DevelopersPage() {
                 Commit and reveal require two authorization steps. Keep the
                 request pending while Kaspire waits for the commit output. A
                 delayed reveal can be resumed safely inside Kaspire.
+              </p>
+              <h3>KRC-721 NFT and escrow transfers</h3>
+              <CodeBlock>{krc721Code}</CodeBlock>
+              <p>
+                Kaspire checks that the approved account currently holds the
+                exact ticker and token ID before creating the commit. The
+                recipient may be a normal wallet or a marketplace escrow
+                address. The native Rust core constructs the canonical KRC-721
+                payload and the response returns both transaction IDs and both
+                network fees.
               </p>
               <h3>KCC20</h3>
               <CodeBlock>{kcc20Code}</CodeBlock>
@@ -511,6 +544,7 @@ export default function DevelopersPage() {
               <ul>
                 <li>Send integer strings, never floating-point values. One KAS is <code>100000000</code> sompi.</li>
                 <li>KRC-20 and KCC20 amounts are exact raw token units before applying token decimals.</li>
+                <li>KRC-721 <code>tokenId</code> values are exact case-sensitive strings; do not parse them as numbers.</li>
                 <li>Recipient and optional <code>from</code> values must be full <code>kaspa:q...</code> Mainnet addresses.</li>
                 <li>If supplied, <code>from</code> must exactly match the account approved for the session.</li>
                 <li>Do not treat human-readable ticker or metadata as asset identity. Use the covenant ID for KCC20.</li>
@@ -560,7 +594,7 @@ export default function DevelopersPage() {
                 Begin with a low-value Mainnet wallet. Test approval, rejection,
                 app switching, expired pairings, disconnected sessions,
                 insufficient funds, malformed addresses, unsupported methods,
-                duplicate requests, interrupted KRC-20 reveal, and background
+                duplicate requests, interrupted KRC-20/KRC-721 reveals, and background
                 return to the browser.
               </p>
               <p>

@@ -40,7 +40,7 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.25**, build **83**
+- Android app: **0.11.26**, build **84**
 - Android package: `space.kaspire.wallet`
 - Browser extension: **0.4.5**, build **45**
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
@@ -79,6 +79,8 @@ permissioned `window.kaspire` provider directly to websites.
 - UTXO counting and compounding
 - KIP-5 personal-message signatures
 - WalletConnect v2 for mobile and desktop dApps in the Android app
+- Direct reviewed WalletConnect KRC-721 commit/reveal transfers for NFT escrow
+  and marketplace listings
 - Built-in WalletConnect QR scanner and active-session manager in the app
 - Direct browser-dApp connection through the extension's `window.kaspire`
   provider
