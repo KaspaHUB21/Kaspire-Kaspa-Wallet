@@ -1001,9 +1001,9 @@ class _SettingsOverview extends StatelessWidget {
                       Icons.update_rounded,
                       color: KasVaultTheme.mint,
                     ),
-                    title: const Text('Automatic daily checks'),
+                    title: const Text('Automatic checks at startup'),
                     subtitle: const Text(
-                      'Checks only the signed Kaspire release manifest.',
+                      'Fetches and verifies the signed Kaspire release manifest.',
                     ),
                   ),
                 ),

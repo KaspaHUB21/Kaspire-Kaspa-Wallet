@@ -94,11 +94,10 @@ class UpdateService {
   Future<void> checkIfDue() async {
     await initialize();
     if (!automaticChecks.value) return;
-    final last = state.value.lastCheckedAt;
-    if (last != null &&
-        DateTime.now().toUtc().difference(last) < const Duration(days: 1)) {
-      return;
-    }
+    // This method runs once for each cold app start. Always fetch the small,
+    // signed manifest here: a 24-hour throttle could otherwise hide a release
+    // for almost a full day when Kaspire happened to check shortly before it
+    // was published.
     await checkNow();
   }
 
@@ -110,9 +109,20 @@ class UpdateService {
       lastCheckedAt: state.value.lastCheckedAt,
     );
     try {
-      final response = await _client.get(manifestUri).timeout(
-            const Duration(seconds: 12),
-          );
+      final requestUri = manifestUri.replace(
+        queryParameters: {
+          'check': DateTime.now().toUtc().millisecondsSinceEpoch.toString(),
+        },
+      );
+      final response = await _client.get(
+        requestUri,
+        headers: const {
+          'Cache-Control': 'no-cache, no-store, max-age=0',
+          'Pragma': 'no-cache',
+        },
+      ).timeout(
+        const Duration(seconds: 12),
+      );
       if (response.statusCode != 200 || response.bodyBytes.length > 32768) {
         throw StateError('The update server returned an invalid response.');
       }

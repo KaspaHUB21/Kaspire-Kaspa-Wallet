@@ -72,6 +72,48 @@ void main() {
     await service.remindLater(update!);
     expect(await service.checkNow(), isNull);
   });
+
+  test('automatic check fetches on every cold start despite a recent check',
+      () async {
+    var requests = 0;
+    SharedPreferences.setMockInitialValues({
+      'updates_last_checked_v1': DateTime.now().toUtc().millisecondsSinceEpoch,
+    });
+    final service = UpdateService(
+      client: MockClient((request) async {
+        requests++;
+        expect(request.url.queryParameters['check'], isNotEmpty);
+        expect(request.headers['Cache-Control'], contains('no-store'));
+        return http.Response(_envelope(build: 70), 200);
+      }),
+      verifier: (_, __) async => true,
+      packageInfo: () async => _packageInfo(build: 69),
+    );
+
+    await service.checkIfDue();
+
+    expect(requests, 1);
+    expect(service.state.value.update?.build, 70);
+  });
+
+  test('automatic check remains disabled when the user turned it off',
+      () async {
+    var requests = 0;
+    SharedPreferences.setMockInitialValues({'updates_automatic_v1': false});
+    final service = UpdateService(
+      client: MockClient((_) async {
+        requests++;
+        return http.Response(_envelope(build: 70), 200);
+      }),
+      verifier: (_, __) async => true,
+      packageInfo: () async => _packageInfo(build: 69),
+    );
+
+    await service.checkIfDue();
+
+    expect(requests, 0);
+    expect(service.state.value.update, isNull);
+  });
 }
 
 PackageInfo _packageInfo({required int build}) => PackageInfo(
