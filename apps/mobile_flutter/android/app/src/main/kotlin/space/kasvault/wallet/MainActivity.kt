@@ -159,6 +159,14 @@ class MainActivity : FlutterFragmentActivity() {
                         requireAuthorization(call, "exportPrivateKey", address)
                         exportPrivateKey(address, result)
                     }
+                    "publicKey" -> {
+                        val address = call.argument<String>("address") ?: error("Missing address")
+                        val id = activeWalletId() ?: error("No active signing wallet")
+                        check(controlsAddress(id, address)) {
+                            "The active wallet does not control the requested public key"
+                        }
+                        resultFromCore(SecureCore.publicKey(decryptSecret(address)), result)
+                    }
                     "exportPrivateKeys" -> {
                         val address = call.argument<String>("address") ?: error("Missing export address")
                         val id = activeWalletId() ?: error("No active signing wallet")
@@ -1184,16 +1192,29 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun controlsAddress(id: String, address: String): Boolean {
-        if (preferences().getString(walletKey(id, "address"), null) == address) return true
+        if (!isKaspaAccountAddress(address)) return false
+        if (sameKaspaAccount(preferences().getString(walletKey(id, "address"), null), address)) return true
         val addresses = hdAddresses(id)
-        return (0 until addresses.length()).any { addresses.getJSONObject(it).optString("address") == address }
+        return (0 until addresses.length()).any {
+            sameKaspaAccount(addresses.getJSONObject(it).optString("address"), address)
+        }
+    }
+
+    private fun isKaspaAccountAddress(address: String): Boolean =
+        Regex("^kaspa(test)?:[a-z0-9]{61,63}$").matches(address)
+
+    private fun sameKaspaAccount(stored: String?, requested: String): Boolean {
+        if (stored == null || !isKaspaAccountAddress(stored) || !isKaspaAccountAddress(requested)) {
+            return false
+        }
+        return stored.substringAfter(':') == requested.substringAfter(':')
     }
 
     private fun hdPath(id: String, address: String): String? {
         val addresses = hdAddresses(id)
         return (0 until addresses.length())
             .map { addresses.getJSONObject(it) }
-            .firstOrNull { it.optString("address") == address }
+            .firstOrNull { sameKaspaAccount(it.optString("address"), address) }
             ?.optString("derivationPath")
             ?.takeIf { it.startsWith("m/") }
     }

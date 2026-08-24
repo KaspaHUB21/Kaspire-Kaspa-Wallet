@@ -10,6 +10,34 @@ void main() {
       DappSessionService.supportedMethods,
       contains('kaspa_signPskt'),
     );
+    expect(
+      DappSessionService.supportedMethods,
+      containsAll(const [
+        'kaspa_getPublicKey',
+        'kaspa_signAuth',
+        'kaspa_getNetwork',
+        'kaspa_getBalance',
+        'kaspa_switchNetwork',
+      ]),
+    );
+    expect(
+      DappSessionService.supportedEvents,
+      containsAll(const [
+        'accountsChanged',
+        'networkChanged',
+        'balanceChanged',
+      ]),
+    );
+  });
+
+  test('advertises Mainnet and Testnet 10 Kaspa session chains', () {
+    expect(
+      DappSessionService.supportedKaspaChains,
+      equals(const {
+        DappSessionService.chainId,
+        DappSessionService.testnet10ChainId,
+      }),
+    );
   });
 
   test('supports simultaneous Kasplex and Igra session chains', () {

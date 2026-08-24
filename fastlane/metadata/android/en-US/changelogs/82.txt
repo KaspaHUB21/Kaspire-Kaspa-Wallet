@@ -1,0 +1,1 @@
+Adds KaspaCom-compatible PSKT signing for marketplace and DEX integrations, including explicit input selection, all Kaspa sighash modes, covenant script templates, SafeJSON preservation, and stale-request protection. WalletConnect now supports Kaspa Mainnet and Testnet 10 with reviewed network switching.

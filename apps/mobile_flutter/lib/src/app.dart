@@ -7,6 +7,7 @@ import 'package:reown_walletkit/reown_walletkit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'number_format.dart';
+import 'kaspa_address.dart';
 import 'screens/home_shell.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/dapp_session_service.dart';
@@ -45,6 +46,10 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   DateTime? _lastPersistedActivity;
   DateTime? _backgroundedAt;
   Timer? _inactivityTimer;
+  Timer? _dappStateTimer;
+  String? _lastDappAddress;
+  KaspaNetwork? _lastDappNetwork;
+  final Map<String, int> _lastDappBalances = {};
   bool _locked = false;
   bool _unlocking = false;
 
@@ -67,16 +72,98 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       const Duration(seconds: 30),
       (_) => _checkInactivity(),
     );
+    _dappStateTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => unawaited(_publishDappState()),
+    );
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _inactivityTimer?.cancel();
+    _dappStateTimer?.cancel();
     _linkSubscription?.cancel();
     _proposalSubscription?.cancel();
     _requestSubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _publishDappState() async {
+    if (_dapps.activeSessions().isEmpty) {
+      _lastDappAddress = null;
+      _lastDappNetwork = null;
+      _lastDappBalances.clear();
+      return;
+    }
+    final storedAddress = await _preferences.getAddress();
+    final network = NetworkSettings.network.value;
+    if (_lastDappAddress != null && storedAddress != _lastDappAddress) {
+      for (final chain in DappSessionService.supportedKaspaChains) {
+        final address = storedAddress == null
+            ? null
+            : kaspaAddressWithPrefix(
+                storedAddress,
+                chain == DappSessionService.testnet10ChainId
+                    ? 'kaspatest'
+                    : 'kaspa',
+              );
+        await _dapps.emitKaspaEvent(
+          'accountsChanged',
+          address == null ? const <String>[] : <String>[address],
+          forChainId: chain,
+        );
+      }
+    }
+    if (_lastDappNetwork != null &&
+        network != _lastDappNetwork &&
+        (network == KaspaNetwork.mainnet || network == KaspaNetwork.tn10)) {
+      final chain = network == KaspaNetwork.tn10
+          ? DappSessionService.testnet10ChainId
+          : DappSessionService.chainId;
+      await _dapps.emitKaspaEvent(
+        'networkChanged',
+        network == KaspaNetwork.tn10 ? 'testnet-10' : network.name,
+        forChainId: chain,
+      );
+    }
+    _lastDappAddress = storedAddress;
+    _lastDappNetwork = network;
+    if (network != KaspaNetwork.mainnet && network != KaspaNetwork.tn10) {
+      _lastDappBalances.clear();
+      return;
+    }
+    final activeChain = network == KaspaNetwork.tn10
+        ? DappSessionService.testnet10ChainId
+        : DappSessionService.chainId;
+    final sessionAddresses = _dapps
+        .activeSessions()
+        .keys
+        .map((topic) => _dapps.addressForTopic(topic, chainId: activeChain))
+        .whereType<String>()
+        .toSet();
+    for (final address in sessionAddresses) {
+      try {
+        final sompi = await KaspaApi().loadBalanceSompi(address);
+        final previous = _lastDappBalances[address];
+        if (previous != null && previous != sompi) {
+          await _dapps.emitKaspaEvent(
+              'balanceChanged',
+              <String, Object?>{
+                'current': sompi / 100000000,
+                'pending': 0,
+                'outgoing': 0,
+              },
+              forChainId: activeChain);
+        }
+        _lastDappBalances[address] = sompi;
+      } catch (_) {
+        // A temporary node failure must not terminate the WalletConnect session.
+      }
+    }
+    _lastDappBalances.removeWhere(
+      (address, _) => !sessionAddresses.contains(address),
+    );
   }
 
   @override
@@ -195,15 +282,9 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   }
 
   Future<void> _handleProposal(SessionProposalEvent event) async {
-    if (NetworkSettings.network.value == KaspaNetwork.tn10) {
-      await _dapps.reject(
-        event,
-        message: 'WalletConnect is available on Kaspa Mainnet only.',
-      );
-      return;
-    }
     final problem = _dapps.proposalProblem(event);
     final evmChains = _dapps.requestedEvmChains(event);
+    final kaspaChains = _dapps.requestedKaspaChains(event);
     final address = await _preferences.getAddress();
     final methods = _dapps.requestedMethods(event).toList()..sort();
     final needsKey = methods.any((method) =>
@@ -259,9 +340,8 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                   style: TextStyle(fontWeight: FontWeight.w800)),
               const SizedBox(height: 6),
               ...methods.map((method) => Text('• ${_methodLabel(method)}')),
-              if (event.params.requiredNamespaces.containsKey('kaspa') ||
-                  event.params.optionalNamespaces.containsKey('kaspa'))
-                const Text('• Network: Kaspa Mainnet'),
+              ...kaspaChains.map((chain) => Text(
+                  '• Network: ${chain == DappSessionService.testnet10ChainId ? 'Kaspa Testnet 10' : 'Kaspa Mainnet'}')),
               ...evmChains.map((chain) => Text(
                   '• Network: ${chain == DappSessionService.kasplexChainId ? 'Kasplex L2' : 'Igra L2'}')),
               const SizedBox(height: 14),
@@ -292,7 +372,13 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
 
   String _methodLabel(String method) => switch (method) {
         'kaspa_getAccounts' => 'View the approved Kaspa address',
+        'kaspa_getNetwork' => 'Read the approved Kaspa network',
+        'kaspa_getBalance' => 'Read the current KAS balance',
+        'kaspa_getPublicKey' => 'Read the approved Kaspa public key',
+        'kaspa_switchNetwork' => 'Switch between Kaspa Mainnet and Testnet 10',
         'kaspa_signPersonal' => 'Request KIP-5 personal-message signatures',
+        'kaspa_signAuth' =>
+          'Request an authentication signature and public key',
         'kaspa_sendTransaction' => 'Request KAS payments',
         'kaspa_sendKrc20' => 'Request reviewed KRC-20 transfers',
         'kaspa_sendKcc20' => 'Request verified KCC20 covenant transfers',
@@ -309,13 +395,6 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       };
 
   Future<void> _handleRequest(SessionRequestEvent request) async {
-    if (NetworkSettings.network.value == KaspaNetwork.tn10) {
-      await _dapps.respondError(
-        request,
-        'Switch Kaspire to Mainnet before approving dApp requests.',
-      );
-      return;
-    }
     final requestKey = '${request.topic}:${request.id}';
     if (!_handledRequestIds.add(requestKey)) {
       await _dapps.respondError(request, 'Duplicate request rejected.',
@@ -331,13 +410,27 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         await _handleEvmRequest(request);
         return;
       }
-      if (request.chainId != DappSessionService.chainId ||
+      if (!DappSessionService.supportedKaspaChains.contains(request.chainId) ||
           !DappSessionService.supportedMethods.contains(request.method)) {
         await _dapps.respondError(request, 'Unsupported Kaspa request.',
             code: -32601);
         return;
       }
-      final address = _dapps.addressForTopic(request.topic);
+      final requestedNetwork =
+          request.chainId == DappSessionService.testnet10ChainId
+              ? KaspaNetwork.tn10
+              : KaspaNetwork.mainnet;
+      if (NetworkSettings.network.value != requestedNetwork) {
+        await NetworkSettings.setNetwork(requestedNetwork);
+        _lastDappNetwork = requestedNetwork;
+        await _dapps.emitKaspaEvent(
+          'networkChanged',
+          requestedNetwork == KaspaNetwork.tn10 ? 'testnet-10' : 'mainnet',
+          forChainId: request.chainId,
+        );
+      }
+      final address =
+          _dapps.addressForTopic(request.topic, chainId: request.chainId);
       if (address == null) {
         await _dapps.respondError(request, 'Session account is invalid.',
             code: -32602);
@@ -346,17 +439,46 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       switch (request.method) {
         case 'kaspa_getAccounts':
           await _dapps.respondResult(request, [address]);
+        case 'kaspa_getNetwork':
+          await _dapps.respondResult(request,
+              requestedNetwork == KaspaNetwork.tn10 ? 'testnet-10' : 'mainnet');
+        case 'kaspa_getBalance':
+          final sompi = await KaspaApi().loadBalanceSompi(address);
+          await _dapps.respondResult(request, <String, Object?>{
+            'current': sompi / 100000000,
+            'pending': 0,
+            'outgoing': 0,
+          });
+        case 'kaspa_getPublicKey':
+          await _dapps.respondResult(
+              request, await _security.publicKey(address));
+        case 'kaspa_switchNetwork':
+          await _handleKaspaNetworkSwitch(request);
         case 'kaspa_signPersonal':
           await _handlePersonalSign(request, address);
+        case 'kaspa_signAuth':
+          await _handlePersonalSign(request, address, includePublicKey: true);
         case 'kaspa_sendTransaction':
           await _handleDappPayment(request, address);
         case 'kaspa_sendKrc20':
+          if (requestedNetwork == KaspaNetwork.tn10) {
+            throw const FormatException(
+                'KRC-20 transfers are not supported on Testnet 10.');
+          }
           await _handleDappKrc20(request, address);
         case 'kaspa_sendKcc20':
+          if (requestedNetwork == KaspaNetwork.tn10) {
+            throw const FormatException(
+                'KCC20 transfers are not supported on Testnet 10.');
+          }
           await _handleDappKcc20(request, address);
         case 'kaspa_signPskt':
           await _handlePskt(request, address);
         case 'kaspa_signVaultTransaction':
+          if (requestedNetwork == KaspaNetwork.tn10) {
+            throw const FormatException(
+                'The typed vault policy is available on Mainnet only.');
+          }
           await _handleVaultTransaction(request, address);
       }
     } catch (error) {
@@ -371,6 +493,37 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         );
       }
     }
+  }
+
+  Future<void> _handleKaspaNetworkSwitch(SessionRequestEvent request) async {
+    final params = _paramsMap(request.params);
+    if (params.keys.any((key) => key != 'network')) {
+      throw const FormatException('Unknown network-switch field.');
+    }
+    final network = params['network'];
+    if (network != 'mainnet' && network != 'testnet-10') {
+      throw const FormatException(
+          'Only mainnet and testnet-10 can be selected.');
+    }
+    final chain = network == 'testnet-10'
+        ? DappSessionService.testnet10ChainId
+        : DappSessionService.chainId;
+    if (!_dapps.sessionSupportsKaspaChain(request.topic, chain)) {
+      throw const FormatException(
+          'The requested network was not approved for this session.');
+    }
+    final target =
+        network == 'testnet-10' ? KaspaNetwork.tn10 : KaspaNetwork.mainnet;
+    if (NetworkSettings.network.value != target) {
+      await NetworkSettings.setNetwork(target);
+      _lastDappNetwork = target;
+      await _dapps.emitKaspaEvent(
+        'networkChanged',
+        network,
+        forChainId: chain,
+      );
+    }
+    await _dapps.respondResult(request, network);
   }
 
   Future<void> _handleEvmRequest(SessionRequestEvent request) async {
@@ -494,10 +647,18 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     return params.map((key, value) => MapEntry(key.toString(), value));
   }
 
-  Future<void> _handlePersonalSign(
-    SessionRequestEvent request,
-    String address,
-  ) async {
+  Future<void> _requireActiveSessionAddress(String address) async {
+    if (await _preferences.getAddress() !=
+        NetworkSettings.storageAddress(address)) {
+      throw const FormatException(
+        'The WalletConnect account is no longer the active wallet. Reconnect the dApp.',
+      );
+    }
+  }
+
+  Future<void> _handlePersonalSign(SessionRequestEvent request, String address,
+      {bool includePublicKey = false}) async {
+    await _requireActiveSessionAddress(address);
     final params = _paramsMap(request.params);
     if (params.keys.any((key) => key != 'message' && key != 'address')) {
       throw const FormatException('Unknown message-signing field.');
@@ -512,6 +673,8 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     if (!await _security.hasNativeWalletFor(address)) {
       throw const FormatException('The session wallet is watch-only.');
     }
+    final selectedAddressBeforeApproval = await _preferences.getAddress();
+    final networkBeforeApproval = NetworkSettings.network.value;
     final context = await _contextWhenReady();
     if (context == null || !context.mounted) {
       throw const FormatException('Wallet UI is unavailable.');
@@ -563,34 +726,65 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       await _dapps.respondError(request, 'User rejected.', code: 4001);
       return;
     }
+    if (NetworkSettings.network.value != networkBeforeApproval ||
+        await _preferences.getAddress() != selectedAddressBeforeApproval) {
+      throw const FormatException(
+        'Wallet account or network changed during approval. Build a fresh request.',
+      );
+    }
     final signature = await _security.signPersonalMessage(address, message);
-    await _dapps.respondResult(request, signature);
+    await _dapps.respondResult(
+      request,
+      includePublicKey
+          ? <String, Object?>{
+              'publicKey': await _security.publicKey(address),
+              'signedMessage': signature,
+              'signature': signature,
+            }
+          : signature,
+    );
   }
 
   Future<void> _handleDappPayment(
     SessionRequestEvent request,
     String address,
   ) async {
+    await _requireActiveSessionAddress(address);
     final params = _paramsMap(request.params);
     if (params.keys.any(
-      (key) => key != 'to' && key != 'amountSompi' && key != 'from',
+      (key) =>
+          key != 'to' &&
+          key != 'amountSompi' &&
+          key != 'from' &&
+          key != 'priorityFeeSompi',
     )) {
       throw const FormatException('Unknown payment field.');
     }
     final recipient = params['to'];
     final rawAmount = params['amountSompi'];
     final from = params['from'] ?? address;
+    final rawPriorityFee = params['priorityFeeSompi'] ?? 0;
     const maxKasSupplySompi = 21000000 * 100000000;
     final amount = rawAmount is int
         ? rawAmount
         : rawAmount is String
             ? int.tryParse(rawAmount)
             : null;
+    final priorityFeeSompi = rawPriorityFee is int
+        ? rawPriorityFee
+        : rawPriorityFee is String
+            ? int.tryParse(rawPriorityFee)
+            : null;
+    final expectedPrefix = NetworkSettings.isTestnet ? 'kaspatest:' : 'kaspa:';
     if (recipient is! String ||
-        !RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(recipient) ||
+        !recipient.startsWith(expectedPrefix) ||
+        !RegExp(r'^kaspa(test)?:[a-z0-9]{61,63}$').hasMatch(recipient) ||
         amount == null ||
         amount <= 0 ||
         amount > maxKasSupplySompi ||
+        priorityFeeSompi == null ||
+        priorityFeeSompi < 0 ||
+        priorityFeeSompi > 100000000 ||
         from != address) {
       throw const FormatException('Invalid KAS payment request.');
     }
@@ -602,13 +796,27 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       api.loadUtxos(address),
       api.loadFeeRate(),
     ]);
-    final payment = await SignerService().prepare(
+    var feeRate = results[1] as double;
+    var payment = await SignerService().prepare(
       sender: address,
       recipient: recipient,
       amountSompi: amount,
-      feeRate: results[1] as double,
+      feeRate: feeRate,
       utxosJson: results[0] as String,
     );
+    if (priorityFeeSompi > 0) {
+      feeRate =
+          (feeRate + priorityFeeSompi / payment.mass).clamp(1, 1000).toDouble();
+      payment = await SignerService().prepare(
+        sender: address,
+        recipient: recipient,
+        amountSompi: amount,
+        feeRate: feeRate,
+        utxosJson: results[0] as String,
+      );
+    }
+    final selectedAddressBeforeApproval = await _preferences.getAddress();
+    final networkBeforeApproval = NetworkSettings.network.value;
     final context = await _contextWhenReady();
     if (context == null || !context.mounted) {
       throw const FormatException('Wallet UI is unavailable.');
@@ -656,13 +864,24 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       await _dapps.respondError(request, 'User rejected.', code: 4001);
       return;
     }
+    if (NetworkSettings.network.value != networkBeforeApproval ||
+        await _preferences.getAddress() != selectedAddressBeforeApproval) {
+      throw const FormatException(
+        'Wallet account or network changed during approval. Build a fresh request.',
+      );
+    }
     final signed = await SignerService().sign(payment);
     final broadcastId = await api.broadcast(signed.submitJson);
     if (broadcastId.isNotEmpty && broadcastId != signed.transactionId) {
       throw const FormatException(
           'Node returned a mismatching transaction ID.');
     }
-    await _dapps.respondResult(request, signed.transactionId);
+    await _dapps.respondResult(
+      request,
+      params.containsKey('priorityFeeSompi')
+          ? <String, Object?>{'transactionId': signed.transactionId}
+          : signed.transactionId,
+    );
   }
 
   String _displayKrc20Amount(BigInt amount, int decimals) {
@@ -673,6 +892,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     SessionRequestEvent request,
     String address,
   ) async {
+    await _requireActiveSessionAddress(address);
     const pendingKey = 'kaspire_pending_inscription_v1';
     final params = _paramsMap(request.params);
     if (params.keys.any(
@@ -888,26 +1108,50 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     SessionRequestEvent request,
     String address,
   ) async {
+    await _requireActiveSessionAddress(address);
     final params = _paramsMap(request.params);
-    if (params.keys.any((key) => key != 'txJsonString' && key != 'options')) {
+    const allowedFields = {
+      'txJsonString',
+      'psktTransactionJson',
+      'options',
+      'signInputs',
+      'scripts',
+      'submitTransaction',
+    };
+    if (params.keys.any((key) => !allowedFields.contains(key))) {
       throw const FormatException('Unknown PSKT signing field.');
     }
-    final txJson = params['txJsonString'];
+    final normalizedRequest = params.containsKey('psktTransactionJson');
+    final txJson = params['psktTransactionJson'] ?? params['txJsonString'];
     final options = params['options'];
+    final optionsMap = options == null
+        ? <String, Object?>{}
+        : options is Map
+            ? options.map((key, value) => MapEntry(key.toString(), value))
+            : throw const FormatException('Invalid PSKT signing options.');
+    if (optionsMap.keys.any((key) => key != 'signInputs' && key != 'scripts')) {
+      throw const FormatException('Invalid PSKT signing options.');
+    }
+    final rawInputs =
+        params['signInputs'] ?? optionsMap['signInputs'] ?? const [];
+    final rawScripts = params['scripts'] ?? optionsMap['scripts'] ?? const [];
+    final submitTransaction = params['submitTransaction'] ?? false;
     if (txJson is! String ||
         txJson.isEmpty ||
         txJson.length > 512 * 1024 ||
-        options is! Map) {
+        rawInputs is! List ||
+        rawScripts is! List ||
+        submitTransaction is! bool) {
       throw const FormatException('Invalid PSKT signing request.');
     }
-    final optionsMap =
-        options.map((key, value) => MapEntry(key.toString(), value));
-    if (optionsMap.keys.any((key) => key != 'signInputs') ||
-        optionsMap['signInputs'] is! List) {
-      throw const FormatException('Invalid PSKT signing options.');
+    if (submitTransaction) {
+      throw const FormatException(
+        'Wallet-side PSKT broadcast is not enabled. Request sign-only and broadcast the returned PSKT through the dApp backend.',
+      );
     }
-    final rawInputs = optionsMap['signInputs']! as List;
-    if (rawInputs.isEmpty || rawInputs.length > 256) {
+    if (rawInputs.length > 256 ||
+        rawScripts.length > 256 ||
+        (rawInputs.isEmpty && rawScripts.isEmpty)) {
       throw const FormatException('Invalid PSKT input selection.');
     }
     final signInputs = <Map<String, Object?>>[];
@@ -930,13 +1174,23 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       }
       signInputs.add({'index': index, 'sighashType': sighash});
     }
+    final scripts = <Map<String, Object?>>[];
+    for (final raw in rawScripts) {
+      if (raw is! Map) {
+        throw const FormatException('Invalid PSKT script selection.');
+      }
+      scripts.add(raw.map((key, value) => MapEntry(key.toString(), value)));
+    }
     if (!await _security.hasNativeWalletFor(address)) {
       throw const FormatException('The session wallet is watch-only.');
     }
+    final selectedAddressBeforeApproval = await _preferences.getAddress();
+    final networkBeforeApproval = NetworkSettings.network.value;
     final psktRequest = <String, Object?>{
       'sender': address,
       'txJsonString': txJson,
       'signInputs': signInputs,
+      'scripts': scripts,
     };
     final review = await _security.preparePskt(psktRequest);
     final context = await _contextWhenReady();
@@ -1000,7 +1254,8 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                     padding: const EdgeInsets.only(top: 9),
                     child: SelectableText(
                       '#${item['index']} · ${formatSompi((item['amountSompi'] as num).toInt())} KAS'
-                      '${item['selected'] == true ? ' · SIGN ${item['sighashLabel']}' : ''}\n'
+                      '${item['selected'] == true ? ' · SIGN ${item['sighashLabel']}' : ''}'
+                      '${item['scriptAware'] == true ? ' · ${item['signatureScriptMode']}' : ''}\n'
                       '${item['address'] ?? 'Non-standard/covenant script'}\n'
                       '${item['outpoint']}',
                     ),
@@ -1048,18 +1303,33 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       await _dapps.respondError(request, 'User rejected.', code: 4001);
       return;
     }
+    if (NetworkSettings.network.value != networkBeforeApproval ||
+        await _preferences.getAddress() != selectedAddressBeforeApproval) {
+      throw const FormatException(
+        'Wallet account or network changed during approval. Build a fresh request.',
+      );
+    }
     final signed = await _security.signPskt(
       psktRequest,
       review['reviewHash']! as String,
     );
-    // Kasware-compatible response: the signed SafeJSON transaction string.
-    await _dapps.respondResult(request, signed['signedTxJson']);
+    // Keep the legacy string response while also supporting KaspaCom's
+    // normalized sign-only adapter contract.
+    await _dapps.respondResult(
+      request,
+      normalizedRequest || params.containsKey('submitTransaction')
+          ? <String, Object?>{
+              'psktTransactionJson': signed['signedTxJson'],
+            }
+          : signed['signedTxJson'],
+    );
   }
 
   Future<void> _handleVaultTransaction(
     SessionRequestEvent request,
     String address,
   ) async {
+    await _requireActiveSessionAddress(address);
     final params = _paramsMap(request.params);
     if (params.keys.any((key) =>
         key != 'txJsonString' &&
@@ -1161,6 +1431,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     SessionRequestEvent request,
     String address,
   ) async {
+    await _requireActiveSessionAddress(address);
     final params = _paramsMap(request.params);
     if (params.keys.any((key) =>
         key != 'to' &&

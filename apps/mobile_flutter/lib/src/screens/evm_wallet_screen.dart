@@ -105,30 +105,39 @@ class _EvmWalletScreenState extends State<EvmWalletScreen> {
                                   tooltip: 'Switch wallet',
                                   icon: const Icon(
                                       Icons.account_balance_wallet_outlined)),
-                              InkWell(
-                                onTap: widget.onChooseNetwork,
-                                borderRadius: BorderRadius.circular(20),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 7),
-                                  decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primary
-                                          .withValues(alpha: .14),
-                                      borderRadius: BorderRadius.circular(20)),
-                                  child: Row(children: [
-                                    Icon(Icons.circle,
-                                        size: 8,
+                              Tooltip(
+                                message: 'Switch network',
+                                child: InkWell(
+                                  onTap: widget.onChooseNetwork,
+                                  borderRadius: BorderRadius.circular(20),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 7),
+                                    decoration: BoxDecoration(
                                         color: Theme.of(context)
                                             .colorScheme
-                                            .primary),
-                                    const SizedBox(width: 7),
-                                    Text(NetworkSettings.label,
-                                        style: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800)),
-                                  ]),
+                                            .primary
+                                            .withValues(alpha: .14),
+                                        borderRadius:
+                                            BorderRadius.circular(20)),
+                                    child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.circle,
+                                              size: 8,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primary),
+                                          const SizedBox(width: 7),
+                                          Text(NetworkSettings.label,
+                                              style: const TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w800)),
+                                          const SizedBox(width: 3),
+                                          const Icon(Icons.expand_more_rounded,
+                                              size: 16),
+                                        ]),
+                                  ),
                                 ),
                               ),
                             ]),

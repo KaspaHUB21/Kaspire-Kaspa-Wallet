@@ -23,7 +23,31 @@ KAS signing validates unique live UTXOs and node fee data. KRC-20, KRC-721 and K
 7. KIP-5, KAS, typed assets, reviewed PSKT and recognized KasCoven signing.
 8. Theme, fiat preference, auto-lock and high-risk export controls.
 
-The packaged build is validated by unit tests, Rust security-core tests and a real headless-Chromium flow covering onboarding, Manifest V3 worker restart, direct dApp connection and KIP-5 approval/signing. This is still not a substitute for an independent extension security audit or browser-store review.
+## Marketplace and DEX provider profile
+
+`window.kaspire` implements the KaspaCom primitive profile without embedding
+marketplace-specific business methods. Normalized PSKT requests support
+explicit input indexes, all six Kaspa sighashes, P2SH redeem scripts and the
+`wrap-signature`, `signature-first-args`, and `ordered-args` argument templates.
+The Rust core preserves app metadata and covenant outputs and rejects stale
+account or network state after the approval window opens.
+
+Authentication returns the selected x-only public key together with the KIP-5
+signature. Balance results include `{ current, pending, outgoing }` in KAS.
+Account, network, connection and monitored balance changes are exposed as
+provider events. Mainnet and TN10 generic Kaspa operations are available;
+unsupported networks and Mainnet-only asset helpers fail with explicit errors.
+
+See [the complete KaspaCom-compatible provider contract](../../docs/KASPACOM_PROVIDER.md)
+for request schemas, response compatibility and backend-broadcast guidance.
+
+The packaged build is validated by unit tests, Rust security-core tests and a
+real headless-Chromium flow covering onboarding, Manifest V3 worker restart,
+direct dApp connection, KIP-5 auth/public-key consistency, normalized
+script-aware PSKT signing, SafeJSON preservation, TN10 switching/events and
+stale-request rejection. This is still not a substitute for an independent
+extension security audit, browser-store review or KaspaCom's target-app
+acceptance run.
 
 Provider compatibility names follow public KasWare conventions where useful, but no KasWare key storage or signing code is copied.
 

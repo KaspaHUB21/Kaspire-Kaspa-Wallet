@@ -1,0 +1,1 @@
+Renames the Kaspa Mainnet selector to Layer 1 and makes network switching easier to discover. Includes the complete reviewed KaspaCom PSKT provider profile for marketplace and DEX integrations on Android WalletConnect.

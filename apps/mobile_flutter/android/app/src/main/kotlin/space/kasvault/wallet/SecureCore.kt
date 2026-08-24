@@ -7,6 +7,7 @@ object SecureCore {
     external fun importWallet(phrase: String, passphrase: String): String
     external fun importPrivateKey(privateKey: String): String
     external fun exportPrivateKey(secret: String): String
+    external fun publicKey(secret: String): String
     external fun deriveAddresses(secret: String, coinType: Int, account: Int, change: Int, start: Int, count: Int): String
     external fun deriveEvmAddress(secret: String): String
     external fun exportEvmPrivateKey(secret: String): String

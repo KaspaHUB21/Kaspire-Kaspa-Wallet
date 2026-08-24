@@ -137,15 +137,15 @@ class _WalletScreenState extends State<WalletScreen> {
         title: const Text('Select Kaspa network'),
         children: [
           ListTile(
-            leading: Icon(NetworkSettings.isTestnet
-                ? Icons.radio_button_unchecked
-                : Icons.radio_button_checked),
-            title: const Text('Mainnet'),
-            subtitle: const Text('Real KAS and Mainnet assets'),
+            leading: Icon(NetworkSettings.network.value == KaspaNetwork.mainnet
+                ? Icons.radio_button_checked
+                : Icons.radio_button_unchecked),
+            title: const Text('Layer 1'),
+            subtitle: const Text('Kaspa Mainnet · KAS and L1 assets'),
             onTap: () => Navigator.pop(context, KaspaNetwork.mainnet),
           ),
           ListTile(
-            leading: Icon(NetworkSettings.isTestnet
+            leading: Icon(NetworkSettings.network.value == KaspaNetwork.tn10
                 ? Icons.radio_button_checked
                 : Icons.radio_button_unchecked),
             title: const Text('TN10 Testnet'),
@@ -153,13 +153,17 @@ class _WalletScreenState extends State<WalletScreen> {
             onTap: () => Navigator.pop(context, KaspaNetwork.tn10),
           ),
           ListTile(
-            leading: const Icon(Icons.layers_outlined),
+            leading: Icon(NetworkSettings.network.value == KaspaNetwork.kasplex
+                ? Icons.radio_button_checked
+                : Icons.layers_outlined),
             title: const Text('Kasplex zkEVM'),
             subtitle: const Text('Chain ID 202555 · KAS and ERC-20 assets'),
             onTap: () => Navigator.pop(context, KaspaNetwork.kasplex),
           ),
           ListTile(
-            leading: const Icon(Icons.layers_outlined),
+            leading: Icon(NetworkSettings.network.value == KaspaNetwork.igra
+                ? Icons.radio_button_checked
+                : Icons.layers_outlined),
             title: const Text('Igra Network'),
             subtitle: const Text('Chain ID 38833 · iKAS and ERC-20 assets'),
             onTap: () => Navigator.pop(context, KaspaNetwork.igra),
@@ -276,35 +280,41 @@ class _WalletScreenState extends State<WalletScreen> {
                       tooltip: 'Switch wallet',
                       icon: const Icon(Icons.account_balance_wallet_outlined),
                     ),
-                    InkWell(
-                      onTap: _chooseNetwork,
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .primary
-                              .withValues(alpha: .14),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.circle,
-                                size: 8,
-                                color: Theme.of(context).colorScheme.primary),
-                            const SizedBox(width: 7),
-                            Text(
-                              NetworkSettings.label,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
+                    Tooltip(
+                      message: 'Switch network',
+                      child: InkWell(
+                        onTap: _chooseNetwork,
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withValues(alpha: .14),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.circle,
+                                  size: 8,
+                                  color: Theme.of(context).colorScheme.primary),
+                              const SizedBox(width: 7),
+                              Text(
+                                NetworkSettings.label,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 3),
+                              const Icon(Icons.expand_more_rounded, size: 16),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -356,7 +366,7 @@ class _WalletScreenState extends State<WalletScreen> {
                             ? () => ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text(
-                                      'dApp sessions are available on Mainnet.',
+                                      'dApp sessions are available on Layer 1 and supported Layer 2 networks.',
                                     ),
                                   ),
                                 )

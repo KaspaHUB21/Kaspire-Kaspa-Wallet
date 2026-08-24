@@ -24,13 +24,13 @@ class NetworkSettings {
   static String get publicKaspaFallbackRestUrl =>
       isTestnet ? tn10RestUrl : mainnetFallbackRestUrl;
   static String get label => switch (network.value) {
-        KaspaNetwork.mainnet => 'MAINNET',
+        KaspaNetwork.mainnet => 'LAYER 1',
         KaspaNetwork.tn10 => 'TN10',
         KaspaNetwork.kasplex => 'KASPLEX',
         KaspaNetwork.igra => 'IGRA',
       };
   static String get displayName => switch (network.value) {
-        KaspaNetwork.mainnet => 'Kaspa Mainnet',
+        KaspaNetwork.mainnet => 'Kaspa Layer 1',
         KaspaNetwork.tn10 => 'Kaspa Testnet 10',
         KaspaNetwork.kasplex => 'Kasplex zkEVM Mainnet',
         KaspaNetwork.igra => 'Igra Network',

@@ -26,7 +26,12 @@ const connectCode = `const { uri, approval } = await signClient.connect({
       chains: ["kaspa:mainnet"],
       methods: [
         "kaspa_getAccounts",
+        "kaspa_getNetwork",
+        "kaspa_getBalance",
+        "kaspa_getPublicKey",
+        "kaspa_switchNetwork",
         "kaspa_signPersonal",
+        "kaspa_signAuth",
         "kaspa_sendTransaction",
         "kaspa_sendKrc20",
         "kaspa_sendKcc20",
@@ -244,7 +249,7 @@ export default function DevelopersPage() {
       <main id="developer-guide" className="developer-page">
         <section className="developer-hero">
           <div className="shell developer-hero-inner">
-            <p className="kicker">Kaspire Mobile · WalletConnect v2 · Kaspa Mainnet</p>
+            <p className="kicker">Kaspire Mobile · WalletConnect v2 · Kaspa L1 + L2</p>
             <h1>Connect to Kaspire Mobile.</h1>
             <p>
               Connect websites to a selected Kaspire account through an encrypted
@@ -292,7 +297,8 @@ export default function DevelopersPage() {
               <p>
                 Create a Reown project ID, allowlist every production origin,
                 and initialize a WalletConnect-compatible SignClient. Kaspire
-                currently supports Android and Kaspa Mainnet only.
+                supports Android 11–16 and can keep Kaspa Layer 1 plus approved
+                Kasplex and Igra L2 namespaces active in the same session.
               </p>
               <ul>
                 <li>A Reown project ID with your website origins allowlisted</li>
@@ -420,7 +426,12 @@ export default function DevelopersPage() {
               <h2>Supported JSON-RPC requests</h2>
               <div className="developer-methods">
                 <div><code>kaspa_getAccounts</code><p>Returns the approved full Kaspa address.</p></div>
+                <div><code>kaspa_getNetwork</code><p>Returns the active Kaspa network identifier.</p></div>
+                <div><code>kaspa_switchNetwork</code><p>Switches to an approved Kaspa or L2 network, or rejects clearly when it was not approved.</p></div>
+                <div><code>kaspa_getBalance</code><p>Returns the selected account balance normalized to KAS units.</p></div>
+                <div><code>kaspa_getPublicKey</code><p>Returns the signing public key for authentication and provider verification.</p></div>
                 <div><code>kaspa_signPersonal</code><p>Creates a user-approved KIP-5 personal-message signature.</p></div>
+                <div><code>kaspa_signAuth</code><p>Signs a reviewed, domain-bound authentication challenge.</p></div>
                 <div><code>kaspa_sendTransaction</code><p>Builds, reviews, signs, and broadcasts a native KAS payment.</p></div>
                 <div><code>kaspa_sendKrc20</code><p>Executes the complete KRC-20 commit/reveal transfer flow.</p></div>
                 <div><code>kaspa_sendKcc20</code><p>Validates and executes a typed KCC20 covenant transfer.</p></div>

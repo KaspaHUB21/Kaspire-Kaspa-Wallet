@@ -44,7 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _nativeWallet = _security.hasNativeWalletFor(widget.address);
     _pinEnabled = _security.hasPin();
     _version = PackageInfo.fromPlatform().then(
-      (info) => 'Kaspire ${info.version} (${info.buildNumber}) · Mainnet',
+      (info) => 'Kaspire ${info.version} (${info.buildNumber}) · Layer 1 + L2',
     );
     _nodeEndpoint = Future.value(NetworkSettings.kaspaRestUrl);
   }
@@ -614,7 +614,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: FutureBuilder<String>(
                 future: _version,
                 builder: (context, snapshot) => Text(
-                  snapshot.data ?? 'Kaspire · Mainnet',
+                  snapshot.data ?? 'Kaspire · Layer 1 + L2',
                   style: const TextStyle(
                     color: KasVaultTheme.muted,
                     fontSize: 12,
@@ -905,7 +905,7 @@ class _SettingsOverview extends StatelessWidget {
             _SettingsSection(
               icon: Icons.language_rounded,
               title: 'Network',
-              subtitle: 'Mainnet, dApps and diagnostics',
+              subtitle: 'Layer 1, dApps and diagnostics',
               children: [
                 InkWell(
                   onTap: onConfigureNode,
@@ -1126,7 +1126,7 @@ class _SettingsOverview extends StatelessWidget {
               child: FutureBuilder<String>(
                 future: version,
                 builder: (context, snapshot) => Text(
-                  snapshot.data ?? 'Kaspire · Mainnet',
+                  snapshot.data ?? 'Kaspire · Layer 1 + L2',
                   style: const TextStyle(
                     color: KasVaultTheme.muted,
                     fontSize: 12,

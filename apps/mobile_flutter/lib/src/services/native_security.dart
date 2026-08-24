@@ -326,6 +326,14 @@ class NativeSecurity {
     return result['signature']! as String;
   }
 
+  Future<String> publicKey(String address) async {
+    final raw = await _channel.invokeMethod<String>('publicKey', {
+      'address': address,
+    });
+    final result = (jsonDecode(raw!) as Map).cast<String, Object?>();
+    return result['publicKey']! as String;
+  }
+
   Future<Map<String, Object?>> prepareTransaction(
     Map<String, Object?> request,
   ) async {

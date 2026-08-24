@@ -3,19 +3,34 @@
 Kaspa currently has no official WalletConnect namespace or KIP defining a dApp provider API. Kaspire therefore uses a proprietary, versioned namespace and rejects every method not listed here.
 
 ```text
-chain:   kaspa:mainnet
-account: kaspa:mainnet:<address-payload>
+chains:  kaspa:mainnet
+         kaspa:testnet-10
+account: kaspa:<network>:<address-payload>
 methods: kaspa_getAccounts
+         kaspa_getNetwork
+         kaspa_getBalance
+         kaspa_getPublicKey
+         kaspa_switchNetwork
          kaspa_signPersonal
+         kaspa_signAuth
          kaspa_sendTransaction
          kaspa_sendKrc20
          kaspa_sendKcc20
          kaspa_signPskt
          kaspa_signVaultTransaction
 events:  accountsChanged
+         networkChanged
+         balanceChanged
 ```
 
-The CAIP-10 account stores the address payload without the redundant `kaspa:` prefix, for example `kaspa:mainnet:q...`. JSON-RPC results return the normal full `kaspa:q...` address. `kaspa_signPersonal` follows the active [KIP-5 message-signing specification](https://github.com/kaspanet/kips/blob/master/kip-0005.md).
+The CAIP-10 account stores the address payload without the redundant address
+prefix, for example `kaspa:mainnet:q...` or `kaspa:testnet-10:q...`. JSON-RPC
+results return a full `kaspa:q...` or `kaspatest:q...` address.
+`kaspa_signPersonal` follows the active
+[KIP-5 message-signing specification](https://github.com/kaspanet/kips/blob/master/kip-0005.md).
+Generic KAS, authentication and PSKT methods work on both chains. KRC-20,
+KCC20 and the typed KasCoven policy remain Mainnet-only and fail clearly when
+requested on TN10.
 
 ## Pairing
 
@@ -101,15 +116,26 @@ covenant interactions. It uses the Kasware-compatible SafeJSON request shape:
 (SINGLE|ANYONECANPAY). The default is `1`. The result is the signed transaction
 SafeJSON string. Kaspire never broadcasts a PSKT automatically.
 
+KaspaCom-compatible callers may instead use the normalized request shape with
+`psktTransactionJson`, direct `signInputs`, and optional `scripts`. Script-aware
+requests support `wrap-signature`, `signature-first-args`, and `ordered-args`
+templates with signed `i64`, hex `data`, one-byte `byte`, and `signature`
+arguments. Kaspire verifies that every supplied redeem script hashes to the
+selected P2SH UTXO before signing. The normalized response is
+`{"psktTransactionJson":"<signed SafeJSON>"}`. Generic
+`submitTransaction: true` is rejected; the dApp backend broadcasts the returned
+PSKT. See [the complete provider profile](../KASPACOM_PROVIDER.md).
+
 This is not a blind signer. The native Rust core reconstructs the transaction
-and embedded UTXOs, rejects duplicate outpoints, unknown envelope fields,
-invalid values, already-signed selected inputs, invalid covenant bindings and
-unsupported sighash values. It calculates the fee and wallet net effect and
-binds the complete input, output, payload and signing selection to a review
-hash. Kaspire displays every input, output, address or raw script, amount,
-covenant ID, payload, fee, selected input and sighash. Partial signatures,
-non-standard scripts and mutable sighashes receive prominent warnings. A fresh
-native biometric/PIN authorization is bound to the review hash.
+and embedded UTXOs, rejects duplicate outpoints, invalid values, already-signed
+selected inputs, invalid covenant bindings and unsupported sighash values. It
+preserves unknown safe marketplace metadata and binds the complete original
+SafeJSON plus every script template to the review hash. It calculates the fee
+and wallet net effect and displays every input, output, address or raw script,
+amount, covenant ID, payload, fee, selected input and sighash. Partial
+signatures, non-standard scripts and mutable sighashes receive prominent
+warnings. A fresh native biometric/PIN authorization is bound to the review
+hash.
 
 Kaspire guarantees that it signs exactly the transaction displayed by its
 native verifier. It does not certify a dApp's business rules, marketplace

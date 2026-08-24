@@ -23,6 +23,9 @@ let view: View = "home";
 let status: any;
 let snapshot: any;
 let context: any = {};
+const chromeWebStoreUrl =
+  "https://chromewebstore.google.com/detail/kaspire-wallet/ldjonnkfjmcingabncepnibledcanmoe";
+let storeUpdateRequest: Promise<any> | null = null;
 
 async function rawCommand(name: string, values: Record<string, unknown> = {}) {
   let timer: number | undefined;
@@ -212,8 +215,73 @@ function eyeIcon(hidden = false) {
 function lockIcon() {
   return '<svg class="ui-symbol" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1"/></svg>';
 }
+function copyIcon() {
+  return '<svg class="ui-symbol" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg>';
+}
+function storeUpdateStatus() {
+  storeUpdateRequest ??= rawCommand("storeUpdateStatus").catch(() => ({
+    installedVersion: chrome.runtime.getManifest().version,
+    status: "unavailable",
+  }));
+  return storeUpdateRequest;
+}
+function attachStoreBrand(button: HTMLButtonElement) {
+  let request = 0;
+  const show = async () => {
+    const current = ++request;
+    button.classList.add("show-verification");
+    const panel = button.querySelector<HTMLElement>(".brand-verification")!;
+    panel.innerHTML = `<b>Kaspire ${esc(chrome.runtime.getManifest().version)}</b><small>Checking the live Chrome Web Store release…</small>`;
+    const result = await storeUpdateStatus();
+    if (current !== request || !button.isConnected) return;
+    const detail = result.status === "update_available"
+      ? `Chrome Web Store ${esc(result.availableVersion ?? "update")} is available.`
+      : result.status === "no_update"
+        ? "Installed version is current in the Chrome Web Store."
+        : result.status === "throttled"
+          ? "Chrome recently checked for a published update."
+          : "Live Web Store update status is currently unavailable.";
+    panel.innerHTML = `<b>Kaspire ${esc(result.installedVersion)}</b><small>${detail}</small><em>Open Chrome Web Store</em>`;
+  };
+  const hide = () => {
+    request++;
+    button.classList.remove("show-verification");
+  };
+  button.addEventListener("mouseenter", show);
+  button.addEventListener("focus", show);
+  button.addEventListener("mouseleave", hide);
+  button.addEventListener("blur", hide);
+  button.addEventListener("click", () => chrome.tabs.create({ url: chromeWebStoreUrl }));
+}
+function attachAddressVerification(
+  button: HTMLButtonElement,
+  address: string | Promise<string>,
+) {
+  const addressRequest = Promise.resolve(address);
+  const panel = document.createElement("span");
+  panel.className = "address-verification";
+  panel.setAttribute("role", "tooltip");
+  const show = async () => {
+    panel.innerHTML = `<b>What you see is what you copy</b><code>Loading full address…</code>`;
+    button.classList.add("show-verification");
+    const full = await addressRequest.catch(() => "Address unavailable");
+    if (!button.isConnected) return;
+    panel.innerHTML = "";
+    const heading = document.createElement("b");
+    heading.textContent = "What you see is what you copy";
+    const code = document.createElement("code");
+    code.textContent = full;
+    panel.append(heading, code);
+  };
+  const hide = () => button.classList.remove("show-verification");
+  button.append(panel);
+  button.addEventListener("mouseenter", show);
+  button.addEventListener("focus", show);
+  button.addEventListener("mouseleave", hide);
+  button.addEventListener("blur", hide);
+}
 function shell(content: string, title = "KASPIRE", back = false) {
-  root.innerHTML = `<main class="app natural-case"><header class="top">${back ? '<button id="back" class="icon" aria-label="Back">‹</button>' : '<img src="kaspire-icon.png" alt="Kaspire">'}<b>${esc(title)}</b>${status && !status.locked ? `<button id="top-lock" class="icon top-lock" aria-label="Lock Kaspire" title="Lock Kaspire">${lockIcon()}</button>` : '<span></span>'}</header>${content}</main>`;
+  root.innerHTML = `<main class="app natural-case"><header class="top">${back ? '<button id="back" class="icon" aria-label="Back">‹</button>' : '<button id="brand-store" class="brand-store" aria-label="Kaspire version and Chrome Web Store"><img src="kaspire-icon.png" alt="Kaspire"><span class="brand-verification" role="tooltip"></span></button>'}<b>${esc(title)}</b>${status && !status.locked ? `<button id="top-lock" class="icon top-lock" aria-label="Lock Kaspire" title="Lock Kaspire">${lockIcon()}</button>` : '<span></span>'}</header>${content}</main>`;
   classicCase(root);
   enhanceForms(root);
   document.querySelector<HTMLButtonElement>("#top-lock")?.addEventListener("click", async () => {
@@ -221,6 +289,8 @@ function shell(content: string, title = "KASPIRE", back = false) {
     view = "home";
     await render();
   });
+  const brand = document.querySelector<HTMLButtonElement>("#brand-store");
+  if (brand) attachStoreBrand(brand);
   document
     .querySelector<HTMLButtonElement>("#back")
     ?.addEventListener("click", () => {
@@ -491,7 +561,7 @@ function challenge(words: string[]) {
 }
 function unlock() {
   shell(
-    `<section class="unlock"><img class="hero-logo" src="kaspire-icon.png" alt=""><p class="eyebrow">WELCOME BACK</p><h1>Unlock Kaspire</h1><div class="form"><label>Vault password<input id="password" type="password"></label><button id="submit">UNLOCK WALLET</button><p id="error" class="error"></p></div></section>`,
+    `<section class="unlock"><img class="hero-logo" src="kaspire-icon.png" alt=""><p class="eyebrow">WELCOME BACK</p><h1>Unlock Kaspire</h1><div class="form"><label>Wallet password<input id="password" type="password" autocomplete="current-password" autofocus></label><button id="submit">UNLOCK WALLET</button><p id="error" class="error"></p></div></section>`,
   );
   document.querySelector<HTMLButtonElement>("#submit")!.onclick = async () => {
     try {
@@ -502,6 +572,10 @@ function unlock() {
       document.querySelector("#error")!.textContent = (error as Error).message;
     }
   };
+  const password = document.querySelector<HTMLInputElement>("#password")!;
+  password.focus({ preventScroll: true });
+  requestAnimationFrame(() => password.focus({ preventScroll: true }));
+  setTimeout(() => password.focus({ preventScroll: true }), 50);
 }
 
 function home() {
@@ -509,12 +583,17 @@ function home() {
     (item: any) => item.address === status.selectedAddress,
   );
   shell(
-    `<section class="dashboard"><div class="wallet-head"><div class="wallet-brand"><button id="wallets" class="wallet-select"><img src="kaspire-icon.png" alt=""><span><b>${esc(selected?.name ?? "Wallet")}</b><small id="active-address">${short(status.selectedAddress)}</small></span></button><button id="copy-main-address" class="copy-main" title="Copy wallet address" aria-label="Copy wallet address">⧉</button></div><div class="head-buttons"><button id="network" class="pill">● ${networkLabel()}</button><button id="settings" class="icon">⚙</button></div></div><section class="balance-card"><p>TOTAL BALANCE</p><strong id="balance">— ${status.network === "igra" ? "iKAS" : "KAS"}</strong><small id="fiat"></small><button id="privacy" class="eye" aria-label="${status.settings.hideBalances ? "Show balances" : "Hide balances"}">${eyeIcon(status.settings.hideBalances)}</button></section><div class="quick-actions"><button id="send"><b>↑</b><span>SEND</span></button><button id="receive"><b>↓</b><span>RECEIVE</span></button><button id="activity"><b>≡</b><span>ACTIVITY</span></button></div><section class="assets"><div class="section-title"><h2>ASSETS & NAMES</h2><span id="asset-count"></span></div><div id="asset-list"><div class="loading">Loading assets…</div></div></section><button id="app-promo" class="app-promo">Kaspire is even better in the app!<span>›</span></button></section>`,
+    `<section class="dashboard"><div class="wallet-head"><div class="wallet-brand"><button id="wallets" class="wallet-select"><img src="kaspire-icon.png" alt=""><span><b>${esc(selected?.name ?? "Wallet")}</b><small id="active-address">${short(status.selectedAddress)}</small></span></button><button id="copy-main-address" class="copy-main" title="Verify and copy wallet address" aria-label="Verify and copy wallet address">${copyIcon()}</button></div><div class="head-buttons"><button id="network" class="pill" title="Switch network" aria-label="Switch network">● ${networkLabel()} <span aria-hidden="true">⌄</span></button><button id="settings" class="icon">⚙</button></div></div><section class="balance-card"><p>TOTAL BALANCE</p><strong id="balance">— ${status.network === "igra" ? "iKAS" : "KAS"}</strong><small id="fiat"></small><button id="privacy" class="eye" aria-label="${status.settings.hideBalances ? "Show balances" : "Hide balances"}">${eyeIcon(status.settings.hideBalances)}</button></section><div class="quick-actions"><button id="send"><b>↑</b><span>SEND</span></button><button id="receive"><b>↓</b><span>RECEIVE</span></button><button id="activity"><b>≡</b><span>ACTIVITY</span></button></div><section class="assets"><div class="section-title"><h2>ASSETS & NAMES</h2><span id="asset-count"></span></div><div id="asset-list"><div class="loading">Loading assets…</div></div></section><button id="app-promo" class="app-promo">Kaspire is even better in the app!<span>›</span></button></section>`,
   );
   document.querySelector<HTMLButtonElement>("#wallets")!.onclick = () =>
     go("wallets");
-  document.querySelector<HTMLButtonElement>("#copy-main-address")!.onclick = async () =>
-    copy(isL2() ? await command("evmAddress") : status.selectedAddress, "Wallet address copied");
+  const mainCopy = document.querySelector<HTMLButtonElement>("#copy-main-address")!;
+  const mainAddress = isL2()
+    ? command("evmAddress")
+    : Promise.resolve(status.selectedAddress);
+  attachAddressVerification(mainCopy, mainAddress);
+  mainCopy.onclick = async () =>
+    copy(await mainAddress, "Wallet address copied");
   document.querySelector<HTMLButtonElement>("#network")!.onclick = chooseNetwork;
   document.querySelector<HTMLButtonElement>("#settings")!.onclick = () =>
     go("settings");
@@ -535,10 +614,10 @@ function home() {
   void loadHome();
 }
 function isL2() { return status.network === "kasplex" || status.network === "igra"; }
-function networkLabel() { return status.network === "mainnet" ? "MAINNET" : status.network === "testnet-10" ? "TN10" : status.network === "kasplex" ? "KASPLEX" : "IGRA"; }
+function networkLabel() { return status.network === "mainnet" ? "LAYER 1" : status.network === "testnet-10" ? "TN10" : status.network === "kasplex" ? "KASPLEX" : "IGRA"; }
 function chooseNetwork() {
   const overlay = document.createElement("div"); overlay.className = "kaspire-modal";
-  overlay.innerHTML = `<section class="recipient-sheet"><div class="sheet-title"><h2>Select network</h2><button id="close-network" class="icon">×</button></div>${[["mainnet","Kaspa Mainnet"],["testnet-10","Kaspa TN10"],["kasplex","Kasplex L2"],["igra","Igra L2"]].map(([id,name]) => `<button class="recipient-row" data-network="${id}"><span>●</span><span><b>${name}</b><small>${id === status.network ? "Selected" : "Switch network"}</small></span></button>`).join("")}</section>`;
+  overlay.innerHTML = `<section class="recipient-sheet"><div class="sheet-title"><h2>Select network</h2><button id="close-network" class="icon">×</button></div>${[["mainnet","Layer 1"],["testnet-10","TN10 Testnet"],["kasplex","Kasplex L2"],["igra","Igra L2"]].map(([id,name]) => `<button class="recipient-row" data-network="${id}"><span>●</span><span><b>${name}</b><small>${id === status.network ? `Selected${id === "mainnet" ? " · Kaspa Mainnet" : ""}` : id === "mainnet" ? "Kaspa Mainnet · L1 assets" : "Switch network"}</small></span></button>`).join("")}</section>`;
   document.body.append(overlay); overlay.querySelector<HTMLButtonElement>("#close-network")!.onclick=()=>overlay.remove();
   overlay.querySelectorAll<HTMLButtonElement>("[data-network]").forEach(button => button.onclick=async()=>{await command("setNetwork",{network:button.dataset.network});overlay.remove();await render();});
 }
@@ -656,7 +735,7 @@ function legacySend(asset: any) {
             ? (snapshot?.assets?.kcc20 ?? [])
             : [];
   shell(
-    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send ${esc(asset.symbol ?? asset.kind.toUpperCase())}`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select">${owned.map((item: any, index: number) => `<option value="${index}" ${item === asset.raw ? "selected" : ""}>${esc(item.symbol ?? item.name)}</option>`).join("")}</select></label>` : ""}<label>Address / KNS name<input id="recipient" list="recipients"></label>${asset.kind === "krc721" ? '<label>Token ID<input id="token-id"></label>' : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Mainnet" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div>${recipients()}</section>`,
+    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send ${esc(asset.symbol ?? asset.kind.toUpperCase())}`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select">${owned.map((item: any, index: number) => `<option value="${index}" ${item === asset.raw ? "selected" : ""}>${esc(item.symbol ?? item.name)}</option>`).join("")}</select></label>` : ""}<label>Address / KNS name<input id="recipient" list="recipients"></label>${asset.kind === "krc721" ? '<label>Token ID<input id="token-id"></label>' : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div>${recipients()}</section>`,
     "SEND",
     true,
   );
@@ -756,11 +835,11 @@ function wallets() {
   );
   document
     .querySelectorAll<HTMLButtonElement>("[data-copy]")
-    .forEach(
-      (button) =>
-        (button.onclick = () =>
-          copy(button.dataset.copy ?? "", "Address copied")),
-    );
+    .forEach((button) => {
+      const address = button.dataset.copy ?? "";
+      attachAddressVerification(button, address);
+      button.onclick = () => copy(address, "Address copied");
+    });
   document.querySelectorAll<HTMLButtonElement>(".rename-wallet").forEach(
     (button) =>
       (button.onclick = () => {
@@ -1140,7 +1219,7 @@ function privateKeyResult(result: {
 function network() {
   const l2 = isL2();
   shell(
-    `<section class="network-screen"><p class="eyebrow">NETWORK</p><h1>${l2 ? `${networkLabel()} Layer 2` : status.network === "testnet-10" ? "Kaspa TN10" : "Kaspa Mainnet"}</h1><div class="endpoint-card"><b>${l2 ? "EVM RPC endpoint" : "Kaspa endpoint"}</b><code>${status.network === "kasplex" ? "https://evmrpc.kasplex.org" : status.network === "igra" ? "https://rpc.igralabs.com:8545" : status.network === "testnet-10" ? "https://api-tn10.kaspa.org" : "https://kaspire.kaslab.space/api"}</code><small>${l2 ? "Live Layer 2 RPC" : "Kaspire node gateway"}</small></div><div class="network-list">${l2 ? `<div><span>Assets & activity</span><b>Verified L2 explorer API</b></div><div><span>Transaction signer</span><b>Native Rust EVM core</b></div>` : `<div><span>KRC-20 / KNS / KRC-721</span><b>KaspaToken + fallbacks</b></div><div><span>KCC20</span><b>kcc20.info + KasCOV</b></div>`}<div><span>Connection</span><b>Encrypted browser provider</b></div><div><span>Connected dApps</span><b>${Object.keys(status.permissions).length}</b></div></div><button id="diagnostics">RUN NETWORK DIAGNOSTICS</button><div id="results"></div></section>`,
+    `<section class="network-screen"><p class="eyebrow">NETWORK</p><h1>${l2 ? `${networkLabel()} Layer 2` : status.network === "testnet-10" ? "Kaspa TN10" : "Kaspa Layer 1"}</h1><div class="endpoint-card"><b>${l2 ? "EVM RPC endpoint" : "Kaspa endpoint"}</b><code>${status.network === "kasplex" ? "https://evmrpc.kasplex.org" : status.network === "igra" ? "https://rpc.igralabs.com:8545" : status.network === "testnet-10" ? "https://api-tn10.kaspa.org" : "https://kaspire.kaslab.space/api"}</code><small>${l2 ? "Live Layer 2 RPC" : "Kaspire node gateway"}</small></div><div class="network-list">${l2 ? `<div><span>Assets & activity</span><b>Verified L2 explorer API</b></div><div><span>Transaction signer</span><b>Native Rust EVM core</b></div>` : `<div><span>KRC-20 / KNS / KRC-721</span><b>KaspaToken + fallbacks</b></div><div><span>KCC20</span><b>kcc20.info + KasCOV</b></div>`}<div><span>Connection</span><b>Encrypted browser provider</b></div><div><span>Connected dApps</span><b>${Object.keys(status.permissions).length}</b></div></div><button id="diagnostics">RUN NETWORK DIAGNOSTICS</button><div id="results"></div></section>`,
     "NETWORK",
     true,
   );
@@ -1222,11 +1301,11 @@ function myWallets() {
   );
   document
     .querySelectorAll<HTMLButtonElement>(".own-copy")
-    .forEach(
-      (button) =>
-        (button.onclick = () =>
-          copy(button.dataset.address ?? "", "Wallet address copied")),
-    );
+    .forEach((button) => {
+      const address = button.dataset.address ?? "";
+      attachAddressVerification(button, address);
+      button.onclick = () => copy(address, "Wallet address copied");
+    });
 }
 async function receive() {
   const current = status.addresses.find(
@@ -1546,7 +1625,7 @@ function send(asset: any) {
             ? (snapshot?.assets?.kcc20 ?? [])
             : [];
   shell(
-    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send <span data-preserve-case>${esc(ticker(asset.symbol ?? asset.kind))}</span>`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select" data-preserve-case>${owned.map((item: any, index: number) => `<option value="${index}" ${item === asset.raw || item.symbol === asset.raw?.symbol ? "selected" : ""}>${esc(asset.kind === "kns" ? item.name : ticker(item.symbol))}${asset.tokenId ? ` #${esc(asset.tokenId)}` : ""}</option>`).join("")}</select></label>` : ""}<label>Address / KNS name<div class="recipient-input"><input id="recipient" autocomplete="off"><button id="choose-recipient" type="button" title="Address book">♙</button></div></label>${asset.kind === "krc721" ? `<label>Token ID<input id="token-id" value="${esc(asset.tokenId ?? asset.raw?.tokenId ?? "")}" readonly></label>` : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max" type="button">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Mainnet" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div></section>`,
+    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send <span data-preserve-case>${esc(ticker(asset.symbol ?? asset.kind))}</span>`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select" data-preserve-case>${owned.map((item: any, index: number) => `<option value="${index}" ${item === asset.raw || item.symbol === asset.raw?.symbol ? "selected" : ""}>${esc(asset.kind === "kns" ? item.name : ticker(item.symbol))}${asset.tokenId ? ` #${esc(asset.tokenId)}` : ""}</option>`).join("")}</select></label>` : ""}<label>Address / KNS name<div class="recipient-input"><input id="recipient" autocomplete="off"><button id="choose-recipient" type="button" title="Address book">♙</button></div></label>${asset.kind === "krc721" ? `<label>Token ID<input id="token-id" value="${esc(asset.tokenId ?? asset.raw?.tokenId ?? "")}" readonly></label>` : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max" type="button">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div></section>`,
     "Send",
     true,
   );

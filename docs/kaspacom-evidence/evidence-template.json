@@ -1,0 +1,19 @@
+{
+  "wallet": "Kaspire",
+  "walletVersion": "",
+  "transport": "browser-extension-or-android-walletconnect",
+  "browserOrDevice": "",
+  "app": "KCC20-or-Kaspiano",
+  "appUrl": "",
+  "appVersion": "",
+  "network": "testnet-10",
+  "walletAddress": "",
+  "primitive": "",
+  "requestMode": "sign-only-or-backend-broadcast-or-kas-send-or-event",
+  "transactionId": null,
+  "signedPsktSample": null,
+  "eventSample": null,
+  "providerFeatureFlag": null,
+  "result": "blocked",
+  "notes": "Do not include secrets, tokens, passwords or pairing URIs."
+}

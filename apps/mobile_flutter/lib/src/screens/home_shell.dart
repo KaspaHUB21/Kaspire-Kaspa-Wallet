@@ -105,13 +105,14 @@ class _HomeShellState extends State<HomeShell> {
                       ? Icons.radio_button_checked
                       : Icons.radio_button_unchecked),
                   title: Text(switch (network) {
-                    KaspaNetwork.mainnet => 'Kaspa Mainnet',
+                    KaspaNetwork.mainnet => 'Layer 1',
                     KaspaNetwork.tn10 => 'TN10 Testnet',
                     KaspaNetwork.kasplex => 'Kasplex zkEVM',
                     KaspaNetwork.igra => 'Igra Network',
                   }),
                   subtitle: Text(switch (network) {
-                    KaspaNetwork.mainnet => 'Kaspa L1 assets and dApps',
+                    KaspaNetwork.mainnet =>
+                      'Kaspa Mainnet · L1 assets and dApps',
                     KaspaNetwork.tn10 => 'Test KAS only',
                     KaspaNetwork.kasplex => 'Chain ID 202555 · EVM account',
                     KaspaNetwork.igra => 'Chain ID 38833 · EVM account',

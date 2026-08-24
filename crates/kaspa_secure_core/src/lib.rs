@@ -42,7 +42,8 @@ pub use policy_transaction::{
 };
 pub use pskt::{
     prepare_pskt, sign_pskt, PreparedPskt, PsktInputReview, PsktOutputReview, PsktRequest,
-    PsktSignInput, SignedPskt,
+    PsktScriptArgument, PsktScriptInput, PsktSignInput, PsktSignatureScriptMode,
+    PsktSignatureScriptTemplate, SignedPskt,
 };
 pub use transaction::{
     prepare_transaction, sign_transaction, PreparedTransaction, SendRequest, SignedTransaction,

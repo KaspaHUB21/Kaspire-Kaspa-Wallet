@@ -2,7 +2,7 @@ use crate::{
     derive_address_range, derive_backup_key, derive_evm_address, export_evm_private_key, export_private_key,
     generate_wallet_with_passphrase, import_private_key, import_wallet_with_passphrase,
     prepare_evm_transaction, prepare_inscription, prepare_kcc20_transfer, prepare_kron_transfer,
-    prepare_policy_transaction, prepare_pskt, prepare_reveal, prepare_transaction,
+    prepare_policy_transaction, prepare_pskt, prepare_reveal, prepare_transaction, public_key,
     sign_evm_transaction, sign_kcc20_transfer, sign_personal_message, sign_policy_transaction,
     sign_pskt, sign_reveal, sign_transaction, EvmTransactionRequest, InscriptionRequest,
     Kcc20TransferRequest, KronTransferRequest, PolicyTransactionRequest, PsktRequest,
@@ -313,6 +313,20 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_exportPrivateKey(
     let result = read(&mut env, &secret).and_then(|secret| {
         export_private_key(&secret)
             .map(|private_key| json!({"privateKey": private_key}).to_string())
+            .map_err(|error| error.to_string())
+    });
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_publicKey(
+    mut env: JNIEnv,
+    _class: JClass,
+    secret: JString,
+) -> jstring {
+    let result = read(&mut env, &secret).and_then(|secret| {
+        public_key(&secret)
+            .map(|public_key| json!({"publicKey": public_key}).to_string())
             .map_err(|error| error.to_string())
     });
     output(&mut env, result.unwrap_or_else(error_json))

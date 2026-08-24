@@ -251,6 +251,7 @@ pub fn prepare_kron_transfer(request: &KronTransferRequest) -> Result<PreparedKr
             index: request.cells.len(),
             sighash_type: 1,
         }],
+        scripts: vec![],
     };
     let reviewed = crate::prepare_pskt(&pskt_request)?;
     Ok(PreparedKronTransfer {

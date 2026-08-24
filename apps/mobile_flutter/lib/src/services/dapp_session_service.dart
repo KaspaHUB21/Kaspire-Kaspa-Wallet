@@ -2,11 +2,15 @@ import 'dart:async';
 
 import 'package:reown_walletkit/reown_walletkit.dart';
 
+import '../kaspa_address.dart';
+
 class DappSessionService {
   DappSessionService._();
   static final instance = DappSessionService._();
 
   static const chainId = 'kaspa:mainnet';
+  static const testnet10ChainId = 'kaspa:testnet-10';
+  static const supportedKaspaChains = <String>{chainId, testnet10ChainId};
   static const kasplexChainId = 'eip155:202555';
   static const igraChainId = 'eip155:38833';
   static const evmMethods = <String>{
@@ -18,14 +22,23 @@ class DappSessionService {
   };
   static const supportedMethods = <String>{
     'kaspa_getAccounts',
+    'kaspa_getNetwork',
+    'kaspa_getBalance',
+    'kaspa_getPublicKey',
+    'kaspa_switchNetwork',
     'kaspa_signPersonal',
+    'kaspa_signAuth',
     'kaspa_sendTransaction',
     'kaspa_sendKrc20',
     'kaspa_sendKcc20',
     'kaspa_signPskt',
     'kaspa_signVaultTransaction',
   };
-  static const supportedEvents = <String>{'accountsChanged'};
+  static const supportedEvents = <String>{
+    'accountsChanged',
+    'networkChanged',
+    'balanceChanged',
+  };
   // Reown project IDs are public application identifiers, not credentials.
   // Keeping Kaspire's ID in source lets F-Droid reproduce a fully functional
   // WalletConnect build without asking F-Droid to register for an API key.
@@ -247,8 +260,10 @@ class DappSessionService {
       }
       if (entry.key != 'kaspa') return 'Required namespace is unsupported.';
       final chains = entry.value.chains ?? const <String>[];
-      if (chains.isEmpty || chains.any((chain) => chain != chainId)) {
-        return 'Only Kaspa Mainnet is supported.';
+      if (chains.isEmpty ||
+          chains.toSet().length != chains.length ||
+          chains.any((chain) => !supportedKaspaChains.contains(chain))) {
+        return 'Only Kaspa Mainnet and Testnet 10 are supported.';
       }
       if (entry.value.methods.any(
         (method) => !supportedMethods.contains(method),
@@ -309,6 +324,21 @@ class DappSessionService {
   String? requestedEvmChain(SessionProposalEvent event) =>
       requestedEvmChains(event).firstOrNull;
 
+  List<String> requestedKaspaChains(SessionProposalEvent event) {
+    final result = <String>[];
+    for (final namespace in [
+      event.params.requiredNamespaces['kaspa'],
+      event.params.optionalNamespaces['kaspa']
+    ]) {
+      for (final chain in namespace?.chains ?? const <String>[]) {
+        if (supportedKaspaChains.contains(chain) && !result.contains(chain)) {
+          result.add(chain);
+        }
+      }
+    }
+    return result;
+  }
+
   Future<void> approve(SessionProposalEvent event, String address,
       {String? evmAddress}) async {
     final problem = proposalProblem(event);
@@ -326,9 +356,16 @@ class DappSessionService {
     final namespaces = <String, Namespace>{};
     if (event.params.requiredNamespaces.containsKey('kaspa') ||
         event.params.optionalNamespaces.containsKey('kaspa')) {
+      final kaspaChains = requestedKaspaChains(event);
       namespaces['kaspa'] = Namespace(
-          chains: const [chainId],
-          accounts: ['$chainId:${address.replaceFirst('kaspa:', '')}'],
+          chains: kaspaChains,
+          accounts: kaspaChains.map((chain) {
+            final networkAddress = kaspaAddressWithPrefix(
+              address,
+              chain == testnet10ChainId ? 'kaspatest' : 'kaspa',
+            );
+            return '$chain:${networkAddress.split(':').last}';
+          }).toList(),
           methods: methods.where(supportedMethods.contains).toList(),
           events: events.toList());
     }
@@ -364,16 +401,25 @@ class DappSessionService {
   Map<String, SessionData> activeSessions() =>
       _walletKit?.getActiveSessions() ?? const {};
 
-  String? addressForTopic(String topic) {
+  String? addressForTopic(String topic, {String? chainId}) {
     final session = activeSessions()[topic];
-    final account = session?.namespaces['kaspa']?.accounts.firstOrNull;
+    final accounts = session?.namespaces['kaspa']?.accounts ?? const [];
+    final account = chainId == null
+        ? accounts.firstOrNull
+        : accounts.where((entry) => entry.startsWith('$chainId:')).firstOrNull;
     if (account == null) return null;
     final parts = account.split(':');
-    if (parts.length != 3 || parts[0] != 'kaspa' || parts[1] != 'mainnet') {
+    if (parts.length != 3 ||
+        parts[0] != 'kaspa' ||
+        !supportedKaspaChains.contains('${parts[0]}:${parts[1]}')) {
       return null;
     }
-    return 'kaspa:${parts[2]}';
+    return '${parts[1] == 'testnet-10' ? 'kaspatest' : 'kaspa'}:${parts[2]}';
   }
+
+  bool sessionSupportsKaspaChain(String topic, String chain) =>
+      activeSessions()[topic]?.namespaces['kaspa']?.chains?.contains(chain) ==
+      true;
 
   String? evmAddressForTopic(String topic, {String? chainId}) {
     final accounts =
@@ -407,6 +453,32 @@ class DappSessionService {
           error: JsonRpcError(code: code, message: message),
         ),
       );
+
+  Future<void> emitKaspaEvent(String name, Object? data,
+      {String? forChainId}) async {
+    await initialize();
+    final walletKit = _walletKit;
+    if (walletKit == null || !supportedEvents.contains(name)) return;
+    for (final session in activeSessions().values) {
+      final namespace = session.namespaces['kaspa'];
+      if (namespace == null || !namespace.events.contains(name)) continue;
+      final approvedChains = namespace.chains ?? const <String>[];
+      final chains = forChainId == null
+          ? approvedChains.where(supportedKaspaChains.contains)
+          : approvedChains.where((chain) => chain == forChainId);
+      for (final chain in chains) {
+        try {
+          await walletKit.emitSessionEvent(
+            topic: session.topic,
+            chainId: chain,
+            event: SessionEventParams(name: name, data: data),
+          );
+        } catch (_) {
+          // A disconnected or expired session will be removed by WalletKit.
+        }
+      }
+    }
+  }
 
   Future<void> disconnect(String topic) async {
     await _walletKit!.disconnectSession(

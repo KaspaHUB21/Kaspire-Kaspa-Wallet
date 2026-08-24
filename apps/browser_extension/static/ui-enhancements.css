@@ -14,7 +14,105 @@
   width: 20px;
   height: 20px;
 }
-
+.brand-store {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  color: var(--accent);
+  display: flex;
+  height: 42px;
+  justify-content: center;
+  padding: 3px;
+  position: relative;
+  width: 42px;
+}
+.brand-store:hover,
+.brand-store:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.brand-verification,
+.address-verification {
+  background: #071113;
+  border: 1px solid color-mix(in srgb, var(--accent) 65%, var(--line));
+  border-radius: 13px;
+  box-shadow: 0 15px 38px #000c;
+  color: #eff;
+  display: none;
+  padding: 12px;
+  position: absolute;
+  text-align: left;
+  z-index: 120;
+}
+.brand-verification {
+  left: 0;
+  top: 46px;
+  width: 285px;
+}
+.brand-verification b,
+.brand-verification small,
+.brand-verification em,
+.address-verification b,
+.address-verification code {
+  display: block;
+}
+.brand-verification b,
+.address-verification b {
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: normal;
+  margin-bottom: 7px;
+  text-align: left;
+}
+.brand-verification small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+.brand-verification em {
+  color: var(--accent);
+  font-size: 11px;
+  font-style: normal;
+  margin-top: 8px;
+}
+.show-verification > .brand-verification,
+.show-verification > .address-verification {
+  display: block;
+}
+.copy-main,
+.copy-wallet,
+.own-copy {
+  position: relative;
+}
+.address-verification {
+  left: 50%;
+  pointer-events: none;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  width: 330px;
+}
+.address-verification code {
+  color: #eff;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-all;
+}
+.wallet-list .address-verification {
+  left: 0;
+  transform: none;
+  width: 315px;
+}
+.own-copy .address-verification {
+  left: auto;
+  right: 0;
+}
+.pill span {
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 8px;
+  margin-left: 3px;
+}
 .private-key-result {
   padding: 28px 22px;
 }

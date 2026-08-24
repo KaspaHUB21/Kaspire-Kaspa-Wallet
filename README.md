@@ -30,6 +30,9 @@ permissioned `window.kaspire` provider directly to websites.
   [kaspire.kaslab.space/#download](https://kaspire.kaslab.space/#download)
 - WalletConnect protocol:
   [docs/walletconnect_protocol/README.md](docs/walletconnect_protocol/README.md)
+- KaspaCom provider profile and evidence procedure:
+  [docs/KASPACOM_PROVIDER.md](docs/KASPACOM_PROVIDER.md) ·
+  [docs/kaspacom-evidence/README.md](docs/kaspacom-evidence/README.md)
 - Security invariants:
   [docs/security_invariants/README.md](docs/security_invariants/README.md)
 - Release verification and signing key:
@@ -37,11 +40,11 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.22**, build **80**
+- Android app: **0.11.25**, build **83**
 - Android package: `space.kaspire.wallet`
-- Browser extension: **0.4.2**, build **42**
-- App networks: **Kaspa Mainnet, TN10, Kasplex L2 and Igra L2**
-- Extension networks: **Kaspa Mainnet, TN10, Kasplex L2 and Igra L2**
+- Browser extension: **0.4.5**, build **45**
+- App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
+- Extension networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
 
 | Platform | Connection model | Local security boundary |
@@ -375,7 +378,11 @@ Kaspa has no official WalletConnect namespace.
 Supported methods:
 
 - `kaspa_getAccounts`
+- `kaspa_getNetwork`
+- `kaspa_getBalance`
+- `kaspa_getPublicKey`
 - `kaspa_signPersonal`
+- `kaspa_signAuth`
 - `kaspa_sendTransaction`
 - `kaspa_sendKrc20`
 - `kaspa_sendKcc20`
@@ -393,8 +400,9 @@ Controls include:
 - exact session-account and signing-wallet matching
 - rejection of watch-only signing
 - rejection of WalletConnect v1, unknown methods, events, and fields
-- no generic `signPskt` blind signer; external SafeJSON is accepted only when a
-  native Rust policy reconstructs and verifies the complete transaction
+- no opaque `signPskt` blind signer: the native Rust core reconstructs the
+  transaction, preserves marketplace metadata, verifies requested P2SH scripts,
+  and binds inputs, outputs, sighashes and script templates to the approval
 
 Verified Android App Links associate
 `https://kaspire.kaslab.space/kaspire/wc` with Kaspire. Desktop dApps can show
