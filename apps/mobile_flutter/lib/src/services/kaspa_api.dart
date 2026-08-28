@@ -23,6 +23,7 @@ class KaspaApi {
     String? baseUrl,
     this.tokenExplorerBaseUrl = 'https://kaspatoken.kaslab.space/api',
     this.kasplexBaseUrl = 'https://api.kasplex.org/v1',
+    this.kccKrc20BaseUrl = 'https://kcc.kaslab.space/api/krc20',
     this.knsIndexerBaseUrl = 'https://api.knsdomains.org/mainnet',
     this.krc721IndexerBaseUrl =
         'https://krc721-indexer.kaspa.com/api/v1/krc721/mainnet',
@@ -32,6 +33,7 @@ class KaspaApi {
     this.nftMetadataBaseUrl = 'https://api.kaspa.com',
     this.kcc20IndexerBaseUrl = 'https://kcc20.info',
     this.kascovBaseUrl = 'https://kascov.io/data/mainnet',
+    this.kronIndexerBaseUrl = 'https://idx.kron.technology/v1/kcc20',
     this.toccataBroadcastUrl =
         'https://gothdag.kaslab.space/api/covenant-broadcast',
   })  : _baseUrlOverride = baseUrl,
@@ -42,6 +44,7 @@ class KaspaApi {
   String get baseUrl => _baseUrlOverride ?? NetworkSettings.kaspaRestUrl;
   final String tokenExplorerBaseUrl;
   final String kasplexBaseUrl;
+  final String kccKrc20BaseUrl;
   final String knsIndexerBaseUrl;
   final String krc721IndexerBaseUrl;
   final String krc721CacheBaseUrl;
@@ -49,6 +52,7 @@ class KaspaApi {
   final String nftMetadataBaseUrl;
   final String kcc20IndexerBaseUrl;
   final String kascovBaseUrl;
+  final String kronIndexerBaseUrl;
   final String toccataBroadcastUrl;
   Future<Map<String, double>>? _floorPrices;
 
@@ -85,6 +89,11 @@ class KaspaApi {
           : _loadKcc20Wallet(address)
               .then<Object?>((value) => value)
               .catchError((_) => null),
+      testnet
+          ? Future<Object?>.value(const <WalletTransaction>[])
+          : _loadKronTrades(address)
+              .timeout(const Duration(seconds: 8))
+              .catchError((_) => const <WalletTransaction>[]),
       loadUtxos(address).catchError((_) => '[]'),
       _loadUsdExchangeRate(AppSettings.fiatCurrency.value).catchError(
         (_) => double.nan,
@@ -95,9 +104,10 @@ class KaspaApi {
     final transactionJson = results[2];
     final tokenWallet = results[3];
     final kcc20Wallet = results[4] as _Kcc20Wallet?;
-    final utxoCount = (jsonDecode(results[5] as String) as List).length;
+    final kronTransactions = results[5] as List<WalletTransaction>;
+    final utxoCount = (jsonDecode(results[6] as String) as List).length;
     final currency = AppSettings.fiatCurrency.value;
-    final usdToFiat = results[6] as double;
+    final usdToFiat = results[7] as double;
     final balanceSompi = _asInt(_map(balanceJson)['balance']);
     final kasUsd = _asDouble(_map(priceJson)['price']);
     if (balanceSompi < 0) {
@@ -156,6 +166,7 @@ class KaspaApi {
         ...nativeTransactions,
         ...tokenTransactions,
         ...?kcc20Wallet?.transactions,
+        ...kronTransactions,
       ]..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
       krc20Tokens: krc20,
       kcc20Tokens: kcc20Wallet?.assets ?? const [],
@@ -272,23 +283,42 @@ class KaspaApi {
   }
 
   Future<Object?> _loadTokenWallet(String addressOrDomain) async {
-    try {
-      final response = await _client
-          .get(
-            Uri.parse(
-              '$tokenExplorerBaseUrl/wallet/krc20/${Uri.encodeComponent(addressOrDomain)}',
-            ),
-          )
-          .timeout(const Duration(seconds: 20));
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw KaspaApiException(
-          'KaspaToken returned ${response.statusCode}',
-        );
-      }
-      return jsonDecode(response.body);
-    } catch (_) {
-      return _loadTokenWalletFromUpstreams(addressOrDomain);
+    // Query the protocol indexers directly. KaspaToken remains an independent
+    // compatibility source for metadata and activity that an upstream does
+    // not expose, but wallet discovery no longer depends on that aggregator.
+    final results = await Future.wait<Object?>([
+      _loadTokenWalletFromUpstreams(addressOrDomain)
+          .then<Object?>((value) => value)
+          .catchError((_) => null),
+      _loadTokenWalletFromKaspaToken(addressOrDomain)
+          .then<Object?>((value) => value)
+          .timeout(const Duration(seconds: 8))
+          .catchError((_) => null),
+    ]);
+    final direct = results[0];
+    final explorer = results[1];
+    if (direct == null && explorer == null) {
+      throw KaspaApiException(
+        'KRC-20, KRC-721 and KNS indexers are temporarily unavailable.',
+      );
     }
+    return _mergeTokenWalletSources(direct, explorer, addressOrDomain);
+  }
+
+  Future<Object?> _loadTokenWalletFromKaspaToken(
+    String addressOrDomain,
+  ) async {
+    final response = await _client
+        .get(
+          Uri.parse(
+            '$tokenExplorerBaseUrl/wallet/krc20/${Uri.encodeComponent(addressOrDomain)}',
+          ),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw KaspaApiException('KaspaToken returned ${response.statusCode}');
+    }
+    return jsonDecode(response.body);
   }
 
   Future<Object?> _loadTokenWalletFromUpstreams(
@@ -325,45 +355,139 @@ class KaspaApi {
       throw KaspaApiException('Invalid Kaspa wallet address.');
     }
 
-    final results = await Future.wait([
-      _loadKasplexWalletTokens(address).catchError(
-        (_) => <Map<String, Object?>>[],
-      ),
-      _loadKnsWalletDomains(address).catchError(
-        (_) => <Map<String, Object?>>[],
-      ),
-      _loadKrc721WalletHoldings(address).catchError(
-        (_) => <Map<String, Object?>>[],
-      ),
-      _loadKasplexWalletTransactions(address).catchError(
-        (_) => <Map<String, Object?>>[],
-      ),
+    final results = await Future.wait<List<Map<String, Object?>>>([
+      _loadKrc20WalletTokens(kccKrc20BaseUrl, address)
+          .timeout(const Duration(seconds: 8))
+          .catchError((_) => <Map<String, Object?>>[]),
+      _loadKrc20WalletTokens(kasplexBaseUrl, address)
+          .timeout(const Duration(seconds: 8))
+          .catchError((_) => <Map<String, Object?>>[]),
+      _loadKnsWalletDomains(address)
+          .timeout(const Duration(seconds: 12))
+          .catchError((_) => <Map<String, Object?>>[]),
+      _loadKrc721WalletHoldings(address)
+          .timeout(const Duration(seconds: 12))
+          .catchError((_) => <Map<String, Object?>>[]),
+      _loadKrc20WalletTransactions(kccKrc20BaseUrl, address)
+          .timeout(const Duration(seconds: 8))
+          .catchError((_) => <Map<String, Object?>>[]),
+      _loadKrc20WalletTransactions(kasplexBaseUrl, address)
+          .timeout(const Duration(seconds: 8))
+          .catchError((_) => <Map<String, Object?>>[]),
     ]);
+    final tokens = _mergeRows(
+      [results[1], results[0]],
+      (item) => (item['token_id'] ?? item['symbol'] ?? '').toString(),
+    );
+    final transactions = _mergeRows(
+      [results[5], results[4]],
+      (item) => item['id']?.toString() ?? '',
+    );
     return {
       'data': {
         'address': address,
-        'tokens': results[0],
-        'domains': results[1],
-        'krc721_tokens': results[2],
-        'transactions': results[3],
+        'tokens': tokens,
+        'domains': results[2],
+        'krc721_tokens': results[3],
+        'transactions': transactions,
       },
-      'source_mode': 'DIRECT_FALLBACK',
-      'warnings': const [
-        'KaspaToken is unavailable. Kaspire is using the direct Kasplex, '
-            'KNS and KRC-721 indexers.',
+      'source_mode': 'DIRECT_REDUNDANT',
+    };
+  }
+
+  Object _mergeTokenWalletSources(
+    Object? direct,
+    Object? explorer,
+    String requestedAddress,
+  ) {
+    final directEnvelope = _map(direct);
+    final explorerEnvelope = _map(explorer);
+    final directData = _map(directEnvelope['data']);
+    final explorerData = _map(explorerEnvelope['data']);
+
+    List<Map<String, Object?>> rows(
+      Map<String, Object?> data,
+      String key,
+    ) =>
+        (data[key] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) => item.cast<String, Object?>())
+            .toList();
+
+    final tokens = _mergeRows(
+      [rows(explorerData, 'tokens'), rows(directData, 'tokens')],
+      (item) => (item['token_id'] ?? item['symbol'] ?? item['ticker'] ?? '')
+          .toString()
+          .toLowerCase(),
+    );
+    final domains = _mergeRows(
+      [rows(explorerData, 'domains'), rows(directData, 'domains')],
+      (item) => (item['asset_id'] ?? item['name'] ?? item['asset'] ?? '')
+          .toString()
+          .toLowerCase(),
+    );
+    final krc721 = _mergeRows(
+      [
+        rows(explorerData, 'krc721_tokens'),
+        rows(directData, 'krc721_tokens'),
+      ],
+      (item) => (item['token_id'] ?? item['symbol'] ?? item['ticker'] ?? '')
+          .toString()
+          .toLowerCase(),
+    );
+    final transactions = _mergeRows(
+      [
+        rows(explorerData, 'transactions'),
+        rows(directData, 'transactions'),
+      ],
+      (item) => item['id']?.toString() ?? '',
+    );
+    final resolvedAddress =
+        (directData['address'] ?? explorerData['address'] ?? requestedAddress)
+            .toString()
+            .toLowerCase();
+    return {
+      'data': {
+        'address': resolvedAddress,
+        'tokens': tokens,
+        'domains': domains,
+        'krc721_tokens': krc721,
+        'transactions': transactions,
+      },
+      'source_mode': direct == null ? 'EXPLORER_FALLBACK' : 'DIRECT_REDUNDANT',
+      'warnings': <Object?>[
+        ...(directEnvelope['warnings'] as List? ?? const []),
+        ...(explorerEnvelope['warnings'] as List? ?? const []),
       ],
     };
   }
 
-  Future<List<Map<String, Object?>>> _loadKasplexWalletTokens(
+  List<Map<String, Object?>> _mergeRows(
+    List<List<Map<String, Object?>>> sources,
+    String Function(Map<String, Object?> item) keyOf,
+  ) {
+    final merged = <String, Map<String, Object?>>{};
+    for (final source in sources) {
+      for (final item in source) {
+        final key = keyOf(item);
+        if (key.isNotEmpty) merged[key] = item;
+      }
+    }
+    return merged.values.toList();
+  }
+
+  Future<List<Map<String, Object?>>> _loadKrc20WalletTokens(
+    String sourceBaseUrl,
     String address,
   ) async {
     final tokens = <String, Map<String, Object?>>{};
     String? cursor;
     for (var page = 0; page < 20; page++) {
       final raw = _map(await _externalGet(
-        kasplexBaseUrl,
-        '/krc20/address/${Uri.encodeComponent(address)}/tokenlist',
+        sourceBaseUrl,
+        sourceBaseUrl == kasplexBaseUrl
+            ? '/krc20/address/${Uri.encodeComponent(address)}/tokenlist'
+            : '/address/${Uri.encodeComponent(address)}/tokenlist',
         query: {if (cursor != null) 'next': cursor},
       ));
       final items = _externalItems(raw);
@@ -490,15 +614,16 @@ class KaspaApi {
         .toList();
   }
 
-  Future<List<Map<String, Object?>>> _loadKasplexWalletTransactions(
+  Future<List<Map<String, Object?>>> _loadKrc20WalletTransactions(
+    String sourceBaseUrl,
     String address,
   ) async {
     final transactions = <Map<String, Object?>>[];
     String? cursor;
     for (var page = 0; page < 3; page++) {
       final raw = _map(await _externalGet(
-        kasplexBaseUrl,
-        '/krc20/oplist',
+        sourceBaseUrl,
+        sourceBaseUrl == kasplexBaseUrl ? '/krc20/oplist' : '/oplist',
         query: {
           'address': address,
           if (cursor != null) 'next': cursor,
@@ -524,10 +649,10 @@ class KaspaApi {
             .toString()
             .toUpperCase();
         transactions.add({
-          'id': (item['opScore'] ??
-                  item['operationId'] ??
-                  item['txid'] ??
+          'id': (item['txid'] ??
                   item['hashRev'] ??
+                  item['operationId'] ??
+                  item['opScore'] ??
                   '${timestamp.microsecondsSinceEpoch}')
               .toString(),
           'type': 'transfer',
@@ -543,6 +668,61 @@ class KaspaApi {
       if (cursor == null || items.isEmpty) break;
     }
     return transactions;
+  }
+
+  Future<List<WalletTransaction>> _loadKronTrades(String address) async {
+    final raw = _map(await _externalGet(
+      kronIndexerBaseUrl,
+      '/address/${Uri.encodeComponent(address)}/trades',
+      query: const {'offset': '0', 'limit': '200'},
+    ));
+    final now = DateTime.now();
+    final trades = <WalletTransaction>[];
+    for (final item in _externalItems(raw)) {
+      final ticker =
+          (item['tick'] ?? item['ticker'] ?? '').toString().toUpperCase();
+      final txid = (item['txid'] ?? item['transactionId'] ?? '')
+          .toString()
+          .toLowerCase();
+      final side = item['side']?.toString().toLowerCase();
+      final market = item['kind']?.toString().toLowerCase();
+      final volume = _asDouble(item['volume']);
+      final price = _asDouble(item['price']);
+      final timestamp = _externalTimestamp({
+        'timestamp': item['ts'] ?? item['timestamp'],
+      });
+      if (!RegExp(r'^[A-Z0-9_-]{1,32}$').hasMatch(ticker) ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(txid) ||
+          !const {'buy', 'sell'}.contains(side) ||
+          !const {'curve', 'pool'}.contains(market) ||
+          volume == null ||
+          !volume.isFinite ||
+          volume <= 0 ||
+          price == null ||
+          !price.isFinite ||
+          price <= 0 ||
+          timestamp == null ||
+          timestamp.isBefore(DateTime.utc(2020)) ||
+          timestamp.isAfter(now.add(const Duration(minutes: 5)))) {
+        continue;
+      }
+      trades.add(
+        WalletTransaction(
+          id: txid,
+          timestamp: timestamp,
+          amountSompi: 0,
+          incoming: side == 'buy',
+          assetKind: 'KRON SWAP',
+          assetSymbol: ticker,
+          tokenId: ticker,
+          operationLabel: side == 'buy' ? 'KRON Buy' : 'KRON Sell',
+          amountLabelOverride:
+              '${formatEnglishDecimal(item['volume'].toString())} KAS volume',
+          status: TransactionStatus.confirmed,
+        ),
+      );
+    }
+    return trades;
   }
 
   Future<Object?> _externalGet(
@@ -593,12 +773,13 @@ class KaspaApi {
         item['mtsAdd'] ??
         item['opScore'];
     if (raw == null) return null;
-    final parsed = DateTime.tryParse(raw.toString());
-    if (parsed != null) return parsed;
-    final number = int.tryParse(raw.toString());
-    if (number == null) return null;
-    final milliseconds = number > 1000000000000 ? number : number * 1000;
-    return DateTime.fromMillisecondsSinceEpoch(milliseconds);
+    final text = raw.toString();
+    final number = int.tryParse(text);
+    if (number != null) {
+      final milliseconds = number > 1000000000000 ? number : number * 1000;
+      return DateTime.fromMillisecondsSinceEpoch(milliseconds);
+    }
+    return DateTime.tryParse(text);
   }
 
   Future<_Kcc20Wallet> _loadKcc20Wallet(String address) async {
@@ -1301,24 +1482,22 @@ class KaspaApi {
     double? priceKas;
     double? priceUsd;
     try {
+      priceKas = (await (_floorPrices ??= _loadFloorPrices()))[asset.symbol];
+      if (priceKas != null && kasUsd != null) {
+        priceUsd = priceKas * kasUsd;
+      }
+    } catch (_) {}
+    try {
       final response = await _client
           .get(Uri.parse('$tokenExplorerBaseUrl/token/${asset.id}'))
           .timeout(const Duration(seconds: 8));
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final data = _map(_map(jsonDecode(response.body))['data']);
         imageUrl ??= _absoluteImageUrl(data['image_url']?.toString());
-        priceKas = _validPrice(data['price_kas']);
-        priceUsd = _validPrice(data['price_usd']);
+        priceKas ??= _validPrice(data['price_kas']);
+        priceUsd ??= _validPrice(data['price_usd']);
       }
     } catch (_) {}
-    if (priceKas == null) {
-      try {
-        priceKas = (await (_floorPrices ??= _loadFloorPrices()))[asset.symbol];
-        if (priceKas != null && kasUsd != null) {
-          priceUsd = priceKas * kasUsd;
-        }
-      } catch (_) {}
-    }
     return WalletAsset(
       symbol: asset.symbol,
       balance: asset.balance,
@@ -1366,22 +1545,37 @@ class KaspaApi {
     String ticker, {
     int offset = 0,
   }) async {
-    http.Response response;
     try {
-      response = await _client
-          .get(
-            Uri.parse(
-              '$tokenExplorerBaseUrl/wallet/krc20/${Uri.encodeComponent(address)}/krc721/${Uri.encodeComponent(ticker)}?limit=48&offset=$offset',
-            ),
-          )
-          .timeout(const Duration(seconds: 20));
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw KaspaApiException(
-          'KaspaToken NFT route returned ${response.statusCode}',
-        );
-      }
+      return await _loadNftCollectionFromIndexer(
+        address,
+        ticker,
+        offset: offset,
+      );
     } catch (_) {
-      return _loadNftCollectionFromIndexer(address, ticker, offset: offset);
+      return _loadNftCollectionFromKaspaToken(
+        address,
+        ticker,
+        offset: offset,
+      );
+    }
+  }
+
+  Future<NftCollectionPage> _loadNftCollectionFromKaspaToken(
+    String address,
+    String ticker, {
+    int offset = 0,
+  }) async {
+    final response = await _client
+        .get(
+          Uri.parse(
+            '$tokenExplorerBaseUrl/wallet/krc20/${Uri.encodeComponent(address)}/krc721/${Uri.encodeComponent(ticker)}?limit=48&offset=$offset',
+          ),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw KaspaApiException(
+        'KaspaToken NFT route returned ${response.statusCode}',
+      );
     }
     final data = _map(_map(jsonDecode(response.body))['data']);
     final nfts = (data['nfts'] as List? ?? const [])

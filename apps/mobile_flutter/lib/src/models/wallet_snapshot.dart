@@ -172,6 +172,8 @@ class WalletTransaction {
     this.assetKind = 'KAS',
     this.assetSymbol = 'KAS',
     this.displayAmount,
+    this.operationLabel,
+    this.amountLabelOverride,
     this.tokenId,
     this.counterparty,
     this.from = const [],
@@ -196,6 +198,8 @@ class WalletTransaction {
         assetKind: json['assetKind']?.toString() ?? 'ASSET',
         assetSymbol: json['assetSymbol']?.toString(),
         displayAmount: json['displayAmount']?.toString(),
+        operationLabel: json['operationLabel']?.toString(),
+        amountLabelOverride: json['amountLabelOverride']?.toString(),
         tokenId: json['tokenId']?.toString(),
         counterparty: json['counterparty']?.toString(),
         from: _storedParties(json['from']),
@@ -221,6 +225,8 @@ class WalletTransaction {
   final String assetKind;
   final String? assetSymbol;
   final String? displayAmount;
+  final String? operationLabel;
+  final String? amountLabelOverride;
   final String? tokenId;
   final String? counterparty;
   final List<TransactionParty> from;
@@ -237,13 +243,19 @@ class WalletTransaction {
   double get amountKas => amountSompi / 100000000;
 
   String get amountLabel {
+    if (amountLabelOverride != null && amountLabelOverride!.isNotEmpty) {
+      return amountLabelOverride!;
+    }
     if (assetKind == 'KAS') {
       return '${formatEnglishNumber(amountKas, decimals: 4)} KAS';
     }
     final amount = displayAmount == null || displayAmount!.isEmpty
         ? ''
         : '${formatEnglishDecimal(displayAmount!)} ';
-    final token = tokenId == null || tokenId!.isEmpty ? '' : ' #$tokenId';
+    final token =
+        assetKind == 'KRC-721' && tokenId != null && tokenId!.isNotEmpty
+            ? ' #$tokenId'
+            : '';
     return '$amount${assetSymbol ?? assetKind}$token'.trim();
   }
 

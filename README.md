@@ -40,7 +40,7 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.27**, build **85**
+- Android app: **0.11.28**, build **94**
 - Android package: `space.kaspire.wallet`
 - Browser extension: **0.4.6**, build **46**
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
@@ -75,6 +75,7 @@ permissioned `window.kaspire` provider directly to websites.
 - KRC-721
 - KNS names
 - KCC20 covenant tokens
+- KRON KCC20 buy/sell activity from the address-scoped KRON indexer
 - Detailed transaction activity
 - UTXO counting and compounding
 - KIP-5 personal-message signatures
@@ -85,6 +86,8 @@ permissioned `window.kaspire` provider directly to websites.
 - Direct browser-dApp connection through the extension's `window.kaspire`
   provider
 - Policy-bound PSKT signing for supported transaction flows
+- Tangem Rescue for reviewed KRC-721 commit/reveal recovery from compatible
+  Tangem Kaspa cards without exporting the card's private key
 
 ### Wallet experience
 
@@ -105,6 +108,10 @@ permissioned `window.kaspire` provider directly to websites.
 - Optional hiding of address-index subwallets in the Wallets overview
 - In-app diagnostics for the configured Kaspa gateway, UTXO integrity,
   KRC/KNS and KCC20 indexers, and WalletConnect
+- Direct redundant asset discovery: KRC-20 through the KasLab KCC and Kasplex
+  indexers, KNS and KRC-721 through their protocol indexers, and KCC20 through
+  KCC20.info plus Kascov; KaspaToken remains an independent compatibility and
+  diagnostics source
 - Cryptographically signed in-app update checks with daily/manual modes,
   release notes, download links and a 24-hour reminder option
 

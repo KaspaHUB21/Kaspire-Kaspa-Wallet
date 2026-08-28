@@ -1,5 +1,5 @@
 use crate::{derive_address, derive_key, CoreError, Result};
-use kaspa_addresses::{Address, Prefix};
+use kaspa_addresses::{Address, Prefix, Version};
 use kaspa_consensus_core::{
     config::params::MAINNET_PARAMS,
     hashing::sighash_type::SIG_HASH_ALL,
@@ -13,7 +13,7 @@ use kaspa_consensus_core::{
 };
 use kaspa_txscript::{
     extract_script_pub_key_address,
-    opcodes::codes::{OpCheckSig, OpEndIf, OpFalse, OpIf},
+    opcodes::codes::{OpCheckSig, OpCheckSigECDSA, OpEndIf, OpFalse, OpIf},
     pay_to_address_script, pay_to_script_hash_script, pay_to_script_hash_signature_script,
     script_builder::ScriptBuilder,
 };
@@ -85,21 +85,56 @@ pub struct SignedReveal {
     pub review_hash: String,
 }
 
-struct BuiltReveal {
-    tx: Transaction,
-    entry: UtxoEntry,
-    redeem_script: Vec<u8>,
-    review: PreparedReveal,
+pub(crate) struct BuiltReveal {
+    pub(crate) tx: Transaction,
+    pub(crate) entry: UtxoEntry,
+    pub(crate) redeem_script: Vec<u8>,
+    pub(crate) review: PreparedReveal,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InscriptionSignatureScheme {
+    Schnorr,
+    Ecdsa,
 }
 
 pub fn prepare_inscription(request: &InscriptionRequest) -> Result<InscriptionPlan> {
+    prepare_inscription_with_scheme(request, InscriptionSignatureScheme::Schnorr)
+}
+
+pub(crate) fn prepare_inscription_ecdsa(request: &InscriptionRequest) -> Result<InscriptionPlan> {
+    prepare_inscription_with_scheme(request, InscriptionSignatureScheme::Ecdsa)
+}
+
+fn prepare_inscription_with_scheme(
+    request: &InscriptionRequest,
+    scheme: InscriptionSignatureScheme,
+) -> Result<InscriptionPlan> {
     let sender = checked_address(&request.sender)?;
+    match scheme {
+        InscriptionSignatureScheme::Schnorr if sender.version != Version::PubKey => {
+            return Err(CoreError::InvalidRequest(
+                "Schnorr inscription sender must be a PubKey address".into(),
+            ));
+        }
+        InscriptionSignatureScheme::Ecdsa if sender.version != Version::PubKeyECDSA => {
+            return Err(CoreError::InvalidRequest(
+                "Tangem sender must be a PubKeyECDSA address".into(),
+            ));
+        }
+        _ => {}
+    }
     checked_address(&request.recipient)?;
     let (namespace, payload_json) = canonical_payload(request)?;
     let mut builder = ScriptBuilder::new();
     builder
         .add_data(sender.payload.as_slice())
-        .and_then(|b| b.add_op(OpCheckSig))
+        .and_then(|b| {
+            b.add_op(match scheme {
+                InscriptionSignatureScheme::Schnorr => OpCheckSig,
+                InscriptionSignatureScheme::Ecdsa => OpCheckSigECDSA,
+            })
+        })
         .and_then(|b| b.add_op(OpFalse))
         .and_then(|b| b.add_op(OpIf))
         .and_then(|b| b.add_data(namespace.as_bytes()))
@@ -122,7 +157,7 @@ pub fn prepare_inscription(request: &InscriptionRequest) -> Result<InscriptionPl
 }
 
 pub fn prepare_reveal(request: &RevealRequest) -> Result<PreparedReveal> {
-    Ok(build_reveal(request)?.review)
+    Ok(build_reveal(request, InscriptionSignatureScheme::Schnorr)?.review)
 }
 
 pub fn sign_reveal(
@@ -135,7 +170,7 @@ pub fn sign_reveal(
             "seed does not control sender".into(),
         ));
     }
-    let mut built = build_reveal(request)?;
+    let mut built = build_reveal(request, InscriptionSignatureScheme::Schnorr)?;
     if built.review.review_hash != approved_review_hash {
         return Err(CoreError::ReviewMismatch);
     }
@@ -156,11 +191,18 @@ pub fn sign_reveal(
     })
 }
 
-fn build_reveal(request: &RevealRequest) -> Result<BuiltReveal> {
+pub(crate) fn build_reveal_ecdsa(request: &RevealRequest) -> Result<BuiltReveal> {
+    build_reveal(request, InscriptionSignatureScheme::Ecdsa)
+}
+
+fn build_reveal(
+    request: &RevealRequest,
+    scheme: InscriptionSignatureScheme,
+) -> Result<BuiltReveal> {
     if !request.fee_rate.is_finite() || !(1.0..=1000.0).contains(&request.fee_rate) {
         return Err(CoreError::InvalidRequest("fee rate out of range".into()));
     }
-    let plan = prepare_inscription(&request.operation)?;
+    let plan = prepare_inscription_with_scheme(&request.operation, scheme)?;
     let sender = checked_address(&request.operation.sender)?;
     let txid = kaspa_consensus_core::tx::TransactionId::from_str(&request.commit_transaction_id)
         .map_err(|_| CoreError::UntrustedUtxo("invalid commit transaction id".into()))?;
@@ -265,6 +307,8 @@ fn build_reveal(request: &RevealRequest) -> Result<BuiltReveal> {
         "recipient":request.operation.recipient, "commitTransactionId":request.commit_transaction_id,
         "returnSompi":return_sompi, "feeSompi":fee, "mass":mass,
         "namespace":plan.namespace, "payloadJson":plan.payload_json,
+        "signatureScheme": match scheme { InscriptionSignatureScheme::Schnorr => "schnorr", InscriptionSignatureScheme::Ecdsa => "ecdsa" },
+        "redeemScript":plan.redeem_script_hex,
         "outputScript":hex::encode(tx.outputs[0].script_public_key.script())
     });
     let review_hash = hex::encode(Sha256::digest(

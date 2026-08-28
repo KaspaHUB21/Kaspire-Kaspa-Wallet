@@ -27,4 +27,9 @@ object SecureCore {
     external fun signPolicyTransaction(secret: String, requestJson: String, reviewHash: String): String
     external fun preparePskt(requestJson: String): String
     external fun signPskt(secret: String, requestJson: String, reviewHash: String): String
+    external fun tangemAddress(publicKeyHex: String): String
+    external fun prepareTangemCommit(requestJson: String): String
+    external fun finalizeTangemCommit(requestJson: String, reviewHash: String, signaturesJson: String): String
+    external fun prepareTangemReveal(requestJson: String): String
+    external fun finalizeTangemReveal(requestJson: String, reviewHash: String, signaturesJson: String): String
 }

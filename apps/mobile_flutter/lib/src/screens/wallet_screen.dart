@@ -1081,7 +1081,8 @@ class _TransactionTile extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          transaction.incoming ? 'Received' : 'Sent',
+                          transaction.operationLabel ??
+                              (transaction.incoming ? 'Received' : 'Sent'),
                           style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(width: 7),

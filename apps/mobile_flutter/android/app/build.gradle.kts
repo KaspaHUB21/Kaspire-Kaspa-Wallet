@@ -85,6 +85,22 @@ kotlin {
 
 flutter { source = "../.." }
 
+configurations.configureEach {
+    resolutionStrategy {
+        // Tangem SDK 3.9.2 calls BroadcastChannel.asFlow(), which remained
+        // binary-compatible through Coroutines 1.8.1 and was removed in 1.9.0.
+        // Modern Kaspire dependencies require at least 1.7.x, making 1.8.1 the
+        // common compatible release without downgrading to Tangem's old 1.3.9.
+        force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+        force("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.1")
+        force("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+        force("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.8.1")
+    }
+}
+
 dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
+    // Fixed official Tangem SDK release. The rescue flow sends only locally
+    // verified Kaspa ECDSA sighashes to the card; no private key is exported.
+    implementation("com.github.Tangem:tangem-sdk-android:3.9.2")
 }

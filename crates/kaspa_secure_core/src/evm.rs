@@ -64,9 +64,15 @@ fn key(secret: &str) -> Result<Zeroizing<[u8; 32]>> {
             .split_once(':')
             .ok_or_else(|| CoreError::InvalidRequest("invalid selected HD path".into()))?;
         let components: Vec<&str> = kaspa_path.split('/').collect();
-        if components.len() == 6 && components[0] == "m" &&
-            components[1] == "44'" && components[2] == "111111'" {
-            let evm_path = format!("m/44'/60'/{}/{}/{}", components[3], components[4], components[5]);
+        if components.len() == 6
+            && components[0] == "m"
+            && components[1] == "44'"
+            && components[2] == "111111'"
+        {
+            let evm_path = format!(
+                "m/44'/60'/{}/{}/{}",
+                components[3], components[4], components[5]
+            );
             return derive_key_at_path(root, &evm_path);
         }
         return derive_key_at_path(root, EVM_PATH);

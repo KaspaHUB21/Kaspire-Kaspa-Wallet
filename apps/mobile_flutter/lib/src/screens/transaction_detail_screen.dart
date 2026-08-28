@@ -53,8 +53,11 @@ class TransactionDetailScreen extends StatelessWidget {
                 _Section(
                   title: 'TRANSFER',
                   children: [
-                    _ValueRow('Direction',
-                        transaction.incoming ? 'Received' : 'Sent'),
+                    _ValueRow(
+                      'Direction',
+                      transaction.operationLabel ??
+                          (transaction.incoming ? 'Received' : 'Sent'),
+                    ),
                     _ValueRow('Asset', _assetLabel(transaction)),
                     _ValueRow('Amount',
                         hideAmounts ? '••••••' : transaction.amountLabel),
@@ -163,7 +166,8 @@ class _Header extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    transaction.incoming ? 'Received' : 'Sent',
+                    transaction.operationLabel ??
+                        (transaction.incoming ? 'Received' : 'Sent'),
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w900,

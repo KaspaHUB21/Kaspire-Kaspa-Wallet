@@ -7,7 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.nfc.NfcAdapter
+import android.nfc.Tag
 import android.os.Build
+import android.os.Bundle
+import android.os.Process
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
@@ -30,9 +34,33 @@ import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
+import android.widget.Toast
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import com.tangem.Message
+import com.tangem.SessionViewDelegate
+import com.tangem.TangemSdk
+import com.tangem.ViewDelegateMessage
+import com.tangem.WrongValueType
+import com.tangem.common.CompletionResult
+import com.tangem.common.UserCodeType
+import com.tangem.common.card.EllipticCurve
+import com.tangem.common.core.CompletionCallback
+import com.tangem.common.core.Config
+import com.tangem.common.core.ProductType
+import com.tangem.common.core.TangemError
+import com.tangem.common.core.TangemSdkError
+import com.tangem.common.extensions.VoidCallback
+import com.tangem.common.nfc.ReadingActiveListener
+import com.tangem.common.services.secure.SecureStorage
+import com.tangem.crypto.bip39.BIP39Wordlist
+import com.tangem.crypto.hdWallet.DerivationPath
+import com.tangem.operations.resetcode.ResetCodesViewDelegate
+import com.tangem.sdk.AndroidResetCodesViewDelegate
+import com.tangem.sdk.nfc.AndroidNfcAvailabilityProvider
+import com.tangem.sdk.nfc.NfcReader
+import com.tangem.sdk.storage.create
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -54,6 +82,20 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 class MainActivity : FlutterFragmentActivity() {
+    companion object {
+        private const val TANGEM_DIAGNOSTIC_PREFERENCES = "kaspire_tangem_diagnostic_v1"
+
+        @Volatile
+        private var crashHandlerInstalled = false
+    }
+
+    private data class TangemKaspaSession(
+        val cardId: String,
+        val rootPublicKey: ByteArray,
+        val kaspaPublicKey: ByteArray,
+        val address: String,
+        val derivationPath: DerivationPath?,
+    )
     private data class OperationAuthorization(
         val operation: String,
         val binding: String,
@@ -66,6 +108,41 @@ class MainActivity : FlutterFragmentActivity() {
     )
 
     private val authorizationLock = Any()
+    private val tangemKaspaPath: DerivationPath by lazy {
+        DerivationPath("m/44'/111111'/0'/0/0")
+    }
+    private val tangemViewDelegate: SessionViewDelegate by lazy {
+        KaspireTangemSessionViewDelegate(this)
+    }
+    private var tangemNfcControllerInstance: KaspireTangemNfcController? = null
+    private val tangemNfcController: KaspireTangemNfcController by lazy {
+        tangemDiagnostic("creating-kaspire-nfc-controller")
+        KaspireTangemNfcController(this) { stage ->
+            tangemDiagnostic(stage)
+        }.also { controller ->
+            tangemNfcControllerInstance = controller
+            tangemDiagnostic("kaspire-nfc-controller-ready")
+        }
+    }
+    private val tangemSdk: TangemSdk by lazy {
+        tangemDiagnostic("creating-tangem-sdk")
+        TangemSdk(
+            reader = tangemNfcController.reader,
+            viewDelegate = tangemViewDelegate,
+            nfcAvailabilityProvider = AndroidNfcAvailabilityProvider(this),
+            secureStorage = SecureStorage.create(this),
+            wordlist = BIP39Wordlist(assets.open("bip39_english.txt")),
+            config = Config(
+                howToIsEnabled = false,
+                defaultDerivationPaths = mutableMapOf(
+                    EllipticCurve.Secp256k1 to listOf(tangemKaspaPath),
+                ),
+            ),
+        ).also { tangemDiagnostic("tangem-sdk-ready") }
+    }
+    private var tangemKaspaSession: TangemKaspaSession? = null
+    private var tangemAttestationWarning: String? = null
+    private var tangemPolicyFailure: String? = null
     private val operationAuthorizations = mutableMapOf<String, OperationAuthorization>()
     private val nativeReviewSummaries = mutableMapOf<String, NativeReviewSummary>()
     private val authorizationLifetimeMs = 20_000L
@@ -92,12 +169,30 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private val bip39WordSet: Set<String> by lazy { bip39Words.toHashSet() }
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        installTangemCrashRecorder()
+        super.onCreate(savedInstanceState)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
             try {
                 when (call.method) {
                     "initializeVault" -> { ensureVaultKey(); migrateLegacyWallet(); result.success(null) }
+                    "getTangemDiagnostic" -> result.success(tangemDiagnosticJson().toString())
+                    "clearTangemDiagnostic" -> {
+                        getSharedPreferences(TANGEM_DIAGNOSTIC_PREFERENCES, Context.MODE_PRIVATE)
+                            .edit()
+                            .clear()
+                            .apply()
+                        result.success(null)
+                    }
+                    "cancelTangemSession" -> {
+                        tangemKaspaSession = null
+                        tangemNfcControllerInstance?.stop()
+                        result.success(null)
+                    }
                     "isHardwareBacked" -> result.success(isHardwareBacked())
                     "verifyUpdateManifest" -> result.success(verifyUpdateManifest(
                         call.argument<String>("payload") ?: error("Missing update payload"),
@@ -233,6 +328,32 @@ class MainActivity : FlutterFragmentActivity() {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         resultFromCore(SecureCore.prepareInscription(request), result)
                     }
+                    "scanTangemKaspa" -> scanTangemKaspa(result)
+                    "signTangemHashes" -> signTangemHashes(
+                        call.argument<List<String>>("hashes") ?: error("Missing Tangem hashes"),
+                        call.argument<String>("address") ?: error("Missing Tangem address"),
+                        result,
+                    )
+                    "prepareTangemCommit" -> {
+                        val request = call.argument<String>("request") ?: error("Missing Tangem commit request")
+                        resultFromCore(SecureCore.prepareTangemCommit(request), result)
+                    }
+                    "finalizeTangemCommit" -> {
+                        val request = call.argument<String>("request") ?: error("Missing Tangem commit request")
+                        val reviewHash = call.argument<String>("reviewHash") ?: error("Missing Tangem review hash")
+                        val signatures = call.argument<String>("signatures") ?: error("Missing Tangem signatures")
+                        resultFromCore(SecureCore.finalizeTangemCommit(request, reviewHash, signatures), result)
+                    }
+                    "prepareTangemReveal" -> {
+                        val request = call.argument<String>("request") ?: error("Missing Tangem reveal request")
+                        resultFromCore(SecureCore.prepareTangemReveal(request), result)
+                    }
+                    "finalizeTangemReveal" -> {
+                        val request = call.argument<String>("request") ?: error("Missing Tangem reveal request")
+                        val reviewHash = call.argument<String>("reviewHash") ?: error("Missing Tangem review hash")
+                        val signatures = call.argument<String>("signatures") ?: error("Missing Tangem signatures")
+                        resultFromCore(SecureCore.finalizeTangemReveal(request, reviewHash, signatures), result)
+                    }
                     "prepareReveal" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         resultPreparedFromCore(
@@ -321,6 +442,505 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             } catch (error: Exception) {
                 result.error("SECURITY_ERROR", "${error.javaClass.simpleName}: ${error.message ?: "Native vault operation failed"}", null)
+            }
+        }
+    }
+
+    private fun scanTangemKaspa(result: MethodChannel.Result) {
+        tangemKaspaSession = null
+        tangemAttestationWarning = null
+        tangemPolicyFailure = null
+        tangemDiagnostic("scan-requested", clearCrash = true)
+        beginTangemNfcSession()
+        tangemDiagnostic("calling-tangem-scan")
+        tangemSdk.scanCard { scan ->
+            when (scan) {
+                is CompletionResult.Success -> {
+                    tangemDiagnostic("card-scan-success")
+                    val card = scan.data
+                    val wallet = card.wallets.firstOrNull { it.curve == EllipticCurve.Secp256k1 }
+                    if (wallet == null) {
+                        endTangemNfcSession()
+                        result.error(
+                            "TANGEM_UNSUPPORTED",
+                            "This Tangem card has no secp256k1 wallet.",
+                            null,
+                        )
+                        return@scanCard
+                    }
+                    try {
+                        val rootPublicKey = wallet.publicKey
+                        val derivedPublicKey = wallet.derivedKeys[tangemKaspaPath]?.publicKey
+                        val publicKey = derivedPublicKey ?: rootPublicKey
+                        val path = tangemKaspaPath.takeIf { derivedPublicKey != null }
+                        val address = parseCore(
+                            SecureCore.tangemAddress(publicKey.toHex()),
+                        ).getString("address")
+                        tangemKaspaSession = TangemKaspaSession(
+                            cardId = card.cardId,
+                            rootPublicKey = rootPublicKey.copyOf(),
+                            kaspaPublicKey = publicKey.copyOf(),
+                            address = address,
+                            derivationPath = path,
+                        )
+                        endTangemNfcSession()
+                        tangemDiagnostic("scan-complete")
+                        result.success(
+                            JSONObject()
+                                .put("address", address)
+                                .put("publicKeyHex", publicKey.toHex())
+                                .put("derivationPath", path?.rawPath ?: "Tangem root key")
+                                .put("cardIdSuffix", card.cardId.takeLast(4))
+                                .put("attestationWarning", tangemAttestationWarning ?: "")
+                                .toString(),
+                        )
+                    } catch (error: Exception) {
+                        tangemDiagnostic("address-derivation-failed: ${error.javaClass.simpleName}")
+                        tangemKaspaSession = null
+                        endTangemNfcSession()
+                        result.error(
+                            "TANGEM_ADDRESS",
+                            error.message ?: "Could not derive the Tangem Kaspa address.",
+                            null,
+                        )
+                    }
+                }
+                is CompletionResult.Failure -> {
+                    tangemDiagnostic("scan-failed: ${scan.error.javaClass.simpleName}")
+                    endTangemNfcSession()
+                    result.error(
+                        "TANGEM_SCAN",
+                        tangemPolicyFailure ?: tangemError(scan.error),
+                        null,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun signTangemHashes(
+        hashes: List<String>,
+        expectedAddress: String,
+        result: MethodChannel.Result,
+    ) {
+        val session = tangemKaspaSession
+        if (session == null || session.address != expectedAddress) {
+            result.error(
+                "TANGEM_SESSION",
+                "Scan the Tangem card that controls this address before signing.",
+                null,
+            )
+            return
+        }
+        val decoded = try {
+            require(hashes.isNotEmpty() && hashes.size <= 80) { "Invalid Tangem hash count" }
+            hashes.map { hash ->
+                require(hash.length == 64 && hash.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
+                    "Tangem accepts only 32-byte Kaspa signing hashes"
+                }
+                hash.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            }.toTypedArray()
+        } catch (error: Exception) {
+            result.error("TANGEM_HASH", error.message ?: "Invalid Tangem signing hashes.", null)
+            return
+        }
+        beginTangemNfcSession()
+        // A Tangem SignCommand accepts at most ten hashes. Keep the transaction
+        // input order intact while signing fragmented wallets in bounded NFC
+        // sessions; the Rust core verifies every returned signature afterward.
+        val chunks = decoded.toList().chunked(10).map { it.toTypedArray() }
+        val signatures = mutableListOf<String>()
+        fun signChunk(index: Int) {
+            if (index == chunks.size) {
+                endTangemNfcSession()
+                result.success(JSONArray(signatures).toString())
+                return
+            }
+            tangemSdk.sign(
+                chunks[index],
+                session.rootPublicKey,
+                session.cardId,
+                session.derivationPath,
+            ) { signed ->
+                when (signed) {
+                    is CompletionResult.Success -> {
+                        if (signed.data.signatures.size != chunks[index].size) {
+                            endTangemNfcSession()
+                            result.error(
+                                "TANGEM_SIGN",
+                                "Tangem returned the wrong number of signatures.",
+                                null,
+                            )
+                            return@sign
+                        }
+                        signatures.addAll(signed.data.signatures.map { it.toHex() })
+                        signChunk(index + 1)
+                    }
+                    is CompletionResult.Failure -> {
+                        endTangemNfcSession()
+                        result.error(
+                            "TANGEM_SIGN",
+                            tangemError(signed.error),
+                            null,
+                        )
+                    }
+                }
+            }
+        }
+        signChunk(0)
+    }
+
+    private fun beginTangemNfcSession() {
+        runOnUiThread {
+            tangemNfcController.claimReaderMode()
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            tangemDiagnostic("nfc-session-bound")
+        }
+    }
+
+    private fun endTangemNfcSession() {
+        runOnUiThread {
+            tangemNfcControllerInstance?.releaseReaderMode()
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    override fun onStop() {
+        // Some phones launch the installed Tangem application when its card is
+        // presented, even while Kaspire has requested Reader Mode. Do not turn
+        // that transient focus loss into UserCancelled: preserve the Tangem
+        // coroutine and restore Reader Mode when Kaspire resumes.
+        tangemNfcControllerInstance?.suspendForBackground()
+        super.onStop()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        tangemNfcControllerInstance?.resumeInForeground()
+    }
+
+    private fun tangemDiagnostic(stage: String, clearCrash: Boolean = false) {
+        val editor = getSharedPreferences(TANGEM_DIAGNOSTIC_PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString("stage", stage)
+            .putLong("updatedAt", System.currentTimeMillis())
+        if (clearCrash) editor.remove("crash")
+        editor.commit()
+    }
+
+    private fun tangemDiagnosticJson(): JSONObject {
+        val preferences =
+            getSharedPreferences(TANGEM_DIAGNOSTIC_PREFERENCES, Context.MODE_PRIVATE)
+        return JSONObject()
+            .put("stage", preferences.getString("stage", "not-started"))
+            .put("updatedAt", preferences.getLong("updatedAt", 0L))
+            .put("crash", preferences.getString("crash", ""))
+    }
+
+    private fun installTangemCrashRecorder() {
+        if (crashHandlerInstalled) return
+        synchronized(MainActivity::class.java) {
+            if (crashHandlerInstalled) return
+            val context = applicationContext
+            val previous = Thread.getDefaultUncaughtExceptionHandler()
+            Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+                val trace = android.util.Log.getStackTraceString(error).take(12_000)
+                context.getSharedPreferences(TANGEM_DIAGNOSTIC_PREFERENCES, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("crash", "${thread.name}: $trace")
+                    .putLong("updatedAt", System.currentTimeMillis())
+                    .commit()
+                if (previous != null) {
+                    previous.uncaughtException(thread, error)
+                } else {
+                    Process.killProcess(Process.myPid())
+                }
+            }
+            crashHandlerInstalled = true
+        }
+    }
+
+    private fun ByteArray.toHex(): String = joinToString(separator = "") { "%02x".format(it) }
+
+    private fun tangemError(error: Throwable): String {
+        if (error is TangemError) {
+            val details = listOfNotNull(
+                error.customMessage.takeIf { it.isNotBlank() && it != "empty" },
+                error.cause?.message?.takeIf { it.isNotBlank() },
+                error.message?.takeIf {
+                    it.isNotBlank() && it != error.code.toString()
+                },
+            ).distinct()
+            return buildString {
+                append(error.javaClass.simpleName)
+                append(" (Tangem code ")
+                append(error.code)
+                append(')')
+                if (details.isNotEmpty()) append(": ${details.joinToString(" · ")}")
+            }
+        }
+        return error.message?.takeIf { it.isNotBlank() }
+            ?: "Tangem NFC operation failed (${error.javaClass.simpleName})."
+    }
+
+    /**
+     * Minimal foreground-only Android transport for Tangem's low-level
+     * NfcReader. Kaspire owns Reader Mode directly, so Android cannot dispatch
+     * the card to another installed application and no Tangem Activity,
+     * lifecycle observer or broadcast receiver is involved.
+     */
+    private class KaspireTangemNfcController(
+        private val activity: MainActivity,
+        private val diagnostic: (String) -> Unit,
+    ) : NfcAdapter.ReaderCallback, ReadingActiveListener {
+        val reader = NfcReader()
+        private val adapter: NfcAdapter? = NfcAdapter.getDefaultAdapter(activity)
+
+        @Volatile
+        private var sessionClaimed = false
+
+        @Volatile
+        override var readingIsActive: Boolean = false
+            set(value) {
+                field = value
+                diagnostic(if (value) "reader-mode-requested" else "reader-mode-stopped")
+                activity.runOnUiThread {
+                    if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                    try {
+                        if (value) {
+                            sessionClaimed = true
+                            enableReaderMode()
+                        } else {
+                            // Tangem pauses CardReader while requesting an
+                            // access code. Reader Mode must stay claimed during
+                            // that pause; otherwise Android immediately routes
+                            // the still-present card to the Tangem application.
+                            diagnostic("reader-protocol-paused-mode-retained")
+                        }
+                    } catch (error: Throwable) {
+                        diagnostic("reader-mode-error: ${error.javaClass.simpleName}: ${error.message}")
+                        throw error
+                    }
+                }
+            }
+
+        init {
+            bind()
+        }
+
+        fun bind() {
+            reader.listener = this
+            diagnostic("reader-bound")
+        }
+
+        fun claimReaderMode() {
+            sessionClaimed = true
+            bind()
+            activity.runOnUiThread {
+                if (!activity.isFinishing && !activity.isDestroyed) {
+                    enableReaderMode()
+                }
+            }
+        }
+
+        fun releaseReaderMode() {
+            sessionClaimed = false
+            activity.runOnUiThread {
+                runCatching { adapter?.disableReaderMode(activity) }
+                diagnostic("reader-mode-released")
+            }
+        }
+
+        private fun enableReaderMode() {
+            adapter?.disableReaderMode(activity)
+            adapter?.enableReaderMode(
+                activity,
+                this,
+                NfcAdapter.FLAG_READER_NFC_A or
+                    NfcAdapter.FLAG_READER_NFC_B or
+                    NfcAdapter.FLAG_READER_NFC_F or
+                    NfcAdapter.FLAG_READER_NFC_V or
+                    NfcAdapter.FLAG_READER_NFC_BARCODE or
+                    NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
+                    NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS,
+                Bundle(),
+            )
+            diagnostic("reader-mode-enabled")
+        }
+
+        override fun onTagDiscovered(tag: Tag) {
+            diagnostic("tag-discovered")
+            if (readingIsActive) {
+                reader.onTagDiscovered(tag)
+            }
+        }
+
+        fun stop() {
+            diagnostic("activity-stopping")
+            runCatching { reader.stopSession(true) }
+            sessionClaimed = false
+            runCatching { adapter?.disableReaderMode(activity) }
+            reader.listener = null
+            readingIsActive = false
+        }
+
+        fun suspendForBackground() {
+            if (!sessionClaimed) return
+            diagnostic("reader-session-preserved-in-background")
+            runCatching { adapter?.disableReaderMode(activity) }
+        }
+
+        fun resumeInForeground() {
+            bind()
+            if (!sessionClaimed || activity.isFinishing || activity.isDestroyed) return
+            activity.runOnUiThread {
+                runCatching { enableReaderMode() }
+                    .onFailure { error ->
+                        diagnostic(
+                            "reader-resume-error: ${error.javaClass.simpleName}: ${error.message}",
+                        )
+                    }
+            }
+        }
+    }
+
+    /**
+     * Keeps Tangem NFC inside Kaspire's existing activity. Some Android builds
+     * background Flutter when Tangem's optional bottom-sheet delegate creates a
+     * second window, which also lets an installed Tangem app claim the NFC tag.
+     */
+    private class KaspireTangemSessionViewDelegate(
+        private val activity: MainActivity,
+    ) : SessionViewDelegate {
+        override val resetCodesViewDelegate: ResetCodesViewDelegate =
+            AndroidResetCodesViewDelegate(activity)
+
+        override fun onSessionStarted(
+            cardId: String?,
+            message: ViewDelegateMessage?,
+            enableHowTo: Boolean,
+            iconScanRes: Int?,
+            productType: ProductType,
+        ) = Unit
+
+        override fun onSecurityDelay(ms: Int, totalDurationSeconds: Int, productType: ProductType) = Unit
+
+        override fun onDelay(total: Int, current: Int, step: Int, productType: ProductType) = Unit
+
+        override fun onTagLost(productType: ProductType) {
+            toast("Tangem card was removed too early. Hold it against the phone.")
+        }
+
+        override fun onTagConnected() {
+            toast("Tangem card detected. Keep it in place.")
+        }
+
+        override fun onWrongCard(wrongValueType: WrongValueType) {
+            toast("This is not the Tangem card requested by Kaspire.")
+        }
+
+        override fun onSessionStopped(message: Message?) = Unit
+
+        override fun onError(error: TangemError) {
+            activity.tangemDiagnostic(
+                "delegate-error: ${error.javaClass.simpleName}: ${error.code}",
+            )
+        }
+
+        override fun requestUserCode(
+            type: UserCodeType,
+            isFirstAttempt: Boolean,
+            showForgotButton: Boolean,
+            cardId: String?,
+            callback: CompletionCallback<String>,
+        ) {
+            activity.runOnUiThread {
+                val input = EditText(activity).apply {
+                    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    hint = if (type == UserCodeType.AccessCode) "Tangem access code" else "Tangem passcode"
+                    setSingleLine(true)
+                }
+                val container = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(48, 12, 48, 0)
+                    addView(input)
+                }
+                val dialog = AlertDialog.Builder(activity)
+                    .setTitle(if (isFirstAttempt) "Authorize Tangem card" else "Incorrect code · try again")
+                    .setMessage("Enter the code for the Tangem card. Kaspire does not store it.")
+                    .setView(container)
+                    .setNegativeButton("Cancel") { _, _ ->
+                        callback(CompletionResult.Failure(TangemSdkError.UserCancelled()))
+                    }
+                    .setPositiveButton("Continue", null)
+                    .setOnCancelListener {
+                        callback(CompletionResult.Failure(TangemSdkError.UserCancelled()))
+                    }
+                    .create()
+                dialog.setOnShowListener {
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val code = input.text.toString()
+                        if (code.isBlank()) {
+                            input.error = "Enter the Tangem card code"
+                        } else {
+                            dialog.setOnCancelListener(null)
+                            dialog.dismiss()
+                            callback(CompletionResult.Success(code))
+                        }
+                    }
+                    input.requestFocus()
+                    dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+                }
+                dialog.show()
+            }
+        }
+
+        override fun requestUserCodeChange(
+            type: UserCodeType,
+            cardId: String?,
+            callback: CompletionCallback<String>,
+        ) {
+            callback(CompletionResult.Failure(TangemSdkError.UserCancelled()))
+        }
+
+        override fun setConfig(config: Config) = Unit
+
+        override fun setMessage(message: ViewDelegateMessage?) = Unit
+
+        override fun dismiss() = Unit
+
+        override fun attestationDidFail(
+            isDevCard: Boolean,
+            positive: VoidCallback,
+            negative: VoidCallback,
+        ) {
+            activity.tangemPolicyFailure =
+                "Tangem card attestation failed. Kaspire did not authorize this card."
+            activity.tangemDiagnostic("card-attestation-failed-blocked")
+            negative()
+        }
+
+        override fun attestationCompletedOffline(
+            positive: VoidCallback,
+            negative: VoidCallback,
+            retry: VoidCallback,
+        ) {
+            activity.tangemAttestationWarning =
+                "Tangem's online authenticity service was unavailable. Kaspire continued with local public-key, address and signature verification."
+            activity.tangemDiagnostic("card-attestation-offline-local-verification")
+            positive()
+        }
+
+        override fun attestationCompletedWithWarnings(positive: VoidCallback) {
+            activity.tangemAttestationWarning =
+                "Tangem returned an authenticity warning. Kaspire will still verify the card address and every transaction signature locally."
+            activity.tangemDiagnostic("card-attestation-warning-local-verification")
+            positive()
+        }
+
+        private fun toast(message: String) {
+            activity.runOnUiThread {
+                Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
             }
         }
     }

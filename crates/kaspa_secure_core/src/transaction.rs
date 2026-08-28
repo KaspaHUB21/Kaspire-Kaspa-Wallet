@@ -63,9 +63,9 @@ pub(crate) struct Spendable {
     pub(crate) entry: UtxoEntry,
 }
 
-struct Built {
-    signable: SignableTransaction,
-    review: PreparedTransaction,
+pub(crate) struct Built {
+    pub(crate) signable: SignableTransaction,
+    pub(crate) review: PreparedTransaction,
 }
 
 pub fn prepare_transaction(request: &SendRequest) -> Result<PreparedTransaction> {
@@ -106,7 +106,7 @@ pub fn sign_transaction(
     })
 }
 
-fn build(request: &SendRequest) -> Result<Built> {
+pub(crate) fn build(request: &SendRequest) -> Result<Built> {
     if (!request.send_all && request.amount_sompi == 0)
         || !request.fee_rate.is_finite()
         || request.fee_rate < 1.0

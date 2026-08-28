@@ -4,6 +4,7 @@ mod kcc20;
 mod kron;
 mod policy_transaction;
 mod pskt;
+mod tangem_rescue;
 mod transaction;
 
 #[cfg(target_arch = "wasm32")]
@@ -24,8 +25,8 @@ use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub use evm::{
-    derive_evm_address, export_evm_private_key, prepare_evm_transaction, sign_evm_transaction, EvmTransactionRequest,
-    PreparedEvmTransaction, SignedEvmTransaction,
+    derive_evm_address, export_evm_private_key, prepare_evm_transaction, sign_evm_transaction,
+    EvmTransactionRequest, PreparedEvmTransaction, SignedEvmTransaction,
 };
 pub use inscription::{
     prepare_inscription, prepare_reveal, sign_reveal, InscriptionPlan, InscriptionRequest,
@@ -44,6 +45,11 @@ pub use pskt::{
     prepare_pskt, sign_pskt, PreparedPskt, PsktInputReview, PsktOutputReview, PsktRequest,
     PsktScriptArgument, PsktScriptInput, PsktSignInput, PsktSignatureScriptMode,
     PsktSignatureScriptTemplate, SignedPskt,
+};
+pub use tangem_rescue::{
+    finalize_tangem_commit, finalize_tangem_reveal, prepare_tangem_commit, prepare_tangem_reveal,
+    tangem_address, PreparedTangemCommit, PreparedTangemReveal, TangemCommitRequest,
+    TangemRevealRequest,
 };
 pub use transaction::{
     prepare_transaction, sign_transaction, PreparedTransaction, SendRequest, SignedTransaction,

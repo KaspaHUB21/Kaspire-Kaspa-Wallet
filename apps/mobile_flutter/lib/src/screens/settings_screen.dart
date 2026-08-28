@@ -12,6 +12,7 @@ import '../services/app_settings.dart';
 import '../services/update_service.dart';
 import '../theme.dart';
 import 'diagnostics_screen.dart';
+import 'tangem_rescue_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -1080,6 +1081,16 @@ class _SettingsOverview extends StatelessWidget {
               title: 'HUB21 Toolbox',
               subtitle: 'Explorers, vaults and developer tools',
               children: [
+                _ToolAction(
+                  icon: Icons.nfc_rounded,
+                  title: 'Tangem Rescue',
+                  subtitle: 'Recover KRC-721 NFTs with a Tangem card',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const TangemRescueScreen(),
+                    ),
+                  ),
+                ),
                 _ToolLink(
                   icon: Icons.token_outlined,
                   title: 'Token Explorer',
@@ -1270,6 +1281,32 @@ class _ToolLink extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
         trailing: const Icon(Icons.open_in_new_rounded, size: 19),
+      );
+}
+
+class _ToolAction extends StatelessWidget {
+  const _ToolAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+        onTap: onTap,
+        leading: Icon(icon, color: KasVaultTheme.cyan),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right_rounded),
       );
 }
 

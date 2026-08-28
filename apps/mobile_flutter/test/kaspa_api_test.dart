@@ -327,6 +327,82 @@ void main() {
     expect(snapshot.knsDomains.single.name, 'fallback.kas');
   });
 
+  test('uses the direct KasLab KRC20 indexer when Kasplex is unavailable',
+      () async {
+    final client = MockClient((request) async {
+      if (request.url.host == 'kcc.kaslab.space' &&
+          request.url.path.endsWith('/tokenlist')) {
+        return http.Response(
+          '{"message":"successful","result":[{"tick":"NACHO","balance":"1250000000","dec":"8"}]}',
+          200,
+        );
+      }
+      if (request.url.host == 'kcc.kaslab.space' &&
+          request.url.path.endsWith('/oplist')) {
+        return http.Response(
+          '{"message":"successful","result":[{"op":"transfer","tick":"NACHO","amt":"250000000","from":"$otherAddress","to":"$address","opScore":"123","hashRev":"${'1' * 64}","mtsAdd":"1787879867505"}]}',
+          200,
+        );
+      }
+      if (request.url.host == 'api.kasplex.org' ||
+          request.url.host == 'kaspatoken.kaslab.space' ||
+          request.url.host == 'kascov.io' ||
+          request.url.host == 'kcc20.info') {
+        return http.Response('unavailable', 503);
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":0}', 200);
+      }
+      if (request.url.path.endsWith('/info/price')) {
+        return http.Response('{"price":0.1}', 200);
+      }
+      return http.Response('[]', 200);
+    });
+
+    final snapshot = await KaspaApi(client: client).loadWallet(address);
+    expect(snapshot.krc20Tokens.single.symbol, 'NACHO');
+    expect(snapshot.krc20Tokens.single.balance, 12.5);
+    final activity = snapshot.transactions.singleWhere(
+      (transaction) => transaction.id == '1' * 64,
+    );
+    expect(activity.amountLabel, '2.5 NACHO');
+    expect(activity.incoming, isTrue);
+  });
+
+  test('adds address-scoped KRON swaps to wallet activity', () async {
+    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final txid = 'a' * 64;
+    final client = MockClient((request) async {
+      if (request.url.host == 'idx.kron.technology') {
+        return http.Response(
+          '{"message":"successful","result":[{"tick":"kron","txid":"$txid","ts":$nowSeconds,"side":"buy","kind":"pool","price":0.01,"volume":25}]}',
+          200,
+        );
+      }
+      if (request.url.host == 'kaspatoken.kaslab.space' ||
+          request.url.host == 'kascov.io' ||
+          request.url.host == 'kcc20.info') {
+        return http.Response('unavailable', 503);
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":0}', 200);
+      }
+      if (request.url.path.endsWith('/info/price')) {
+        return http.Response('{"price":0.1}', 200);
+      }
+      return http.Response('[]', 200);
+    });
+
+    final snapshot = await KaspaApi(client: client).loadWallet(address);
+    final trade = snapshot.transactions.singleWhere(
+      (transaction) => transaction.id == txid,
+    );
+    expect(trade.assetKind, 'KRON SWAP');
+    expect(trade.assetSymbol, 'KRON');
+    expect(trade.operationLabel, 'KRON Buy');
+    expect(trade.amountLabel, '25 KAS volume');
+  });
+
   test('rejects manipulated token metadata while preserving KAS data',
       () async {
     final client = MockClient((request) async {
@@ -633,15 +709,21 @@ void main() {
 
   test('loads individual NFTs for an owned KRC-721 collection', () async {
     final client = MockClient(
-      (request) async => request.method == 'POST'
-          ? http.Response(
-              '{"items":[{"tokenId":"42","rarityRank":7}]}',
-              200,
-            )
-          : http.Response(
-              '{"data":{"ticker":"TOCCATA","total":1,"next_offset":null,"nfts":[{"ticker":"TOCCATA","token_id":"42","image_url":"https://images.example/42.png","rarity_rank":null}]}}',
-              200,
-            ),
+      (request) async {
+        if (request.method == 'POST') {
+          return http.Response(
+            '{"items":[{"tokenId":"42","rarityRank":7}]}',
+            200,
+          );
+        }
+        if (request.url.host == 'krc721-indexer.kaspa.com') {
+          return http.Response(
+            '{"message":"success","result":[{"tick":"TOCCATA","tokenId":"42"}]}',
+            200,
+          );
+        }
+        return http.Response('unavailable', 503);
+      },
     );
 
     final page = await KaspaApi(client: client).loadNftCollection(

@@ -1,7 +1,7 @@
 name: kasvault_wallet
 description: Android-first Kaspa wallet with a native Rust signing boundary.
 publish_to: none
-version: 0.11.27+85
+version: 0.11.28+94
 
 environment:
   sdk: ">=3.5.0 <4.0.0"

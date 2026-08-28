@@ -118,7 +118,11 @@ pub fn prepare_evm_transaction_js(request: &str) -> std::result::Result<String, 
 }
 
 #[wasm_bindgen(js_name = signEvmTransaction)]
-pub fn sign_evm_transaction_js(secret: &str, request: &str, review_hash: &str) -> std::result::Result<String, JsError> {
+pub fn sign_evm_transaction_js(
+    secret: &str,
+    request: &str,
+    review_hash: &str,
+) -> std::result::Result<String, JsError> {
     let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid EVM request"))?;
     json(sign_evm_transaction(secret, &request, review_hash))
 }

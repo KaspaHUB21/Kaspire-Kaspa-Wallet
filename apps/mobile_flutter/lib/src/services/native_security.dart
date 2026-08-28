@@ -412,6 +412,79 @@ class NativeSecurity {
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
+  Future<Map<String, Object?>> scanTangemKaspa() async {
+    final raw = await _channel.invokeMethod<String>('scanTangemKaspa');
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> getTangemDiagnostic() async {
+    final raw = await _channel.invokeMethod<String>('getTangemDiagnostic');
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<void> clearTangemDiagnostic() async {
+    await _channel.invokeMethod<void>('clearTangemDiagnostic');
+  }
+
+  Future<void> cancelTangemSession() async {
+    await _channel.invokeMethod<void>('cancelTangemSession');
+  }
+
+  Future<List<String>> signTangemHashes(
+    List<String> hashes,
+    String address,
+  ) async {
+    final raw = await _channel.invokeMethod<String>('signTangemHashes', {
+      'hashes': hashes,
+      'address': address,
+    });
+    return (jsonDecode(raw!) as List).cast<String>();
+  }
+
+  Future<Map<String, Object?>> prepareTangemCommit(
+    Map<String, Object?> request,
+  ) async {
+    final raw = await _channel.invokeMethod<String>('prepareTangemCommit', {
+      'request': jsonEncode(request),
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> finalizeTangemCommit(
+    Map<String, Object?> request,
+    String reviewHash,
+    List<String> signatures,
+  ) async {
+    final raw = await _channel.invokeMethod<String>('finalizeTangemCommit', {
+      'request': jsonEncode(request),
+      'reviewHash': reviewHash,
+      'signatures': jsonEncode(signatures),
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> prepareTangemReveal(
+    Map<String, Object?> request,
+  ) async {
+    final raw = await _channel.invokeMethod<String>('prepareTangemReveal', {
+      'request': jsonEncode(request),
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> finalizeTangemReveal(
+    Map<String, Object?> request,
+    String reviewHash,
+    List<String> signatures,
+  ) async {
+    final raw = await _channel.invokeMethod<String>('finalizeTangemReveal', {
+      'request': jsonEncode(request),
+      'reviewHash': reviewHash,
+      'signatures': jsonEncode(signatures),
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
   Future<Map<String, Object?>> preparePolicyTransaction(
       Map<String, Object?> request) async {
     final raw = await _channel.invokeMethod<String>(

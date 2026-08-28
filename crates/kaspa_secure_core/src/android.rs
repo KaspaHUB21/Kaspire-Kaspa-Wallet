@@ -1,13 +1,109 @@
 use crate::{
-    derive_address_range, derive_backup_key, derive_evm_address, export_evm_private_key, export_private_key,
+    derive_address_range, derive_backup_key, derive_evm_address, export_evm_private_key,
+    export_private_key, finalize_tangem_commit, finalize_tangem_reveal,
     generate_wallet_with_passphrase, import_private_key, import_wallet_with_passphrase,
     prepare_evm_transaction, prepare_inscription, prepare_kcc20_transfer, prepare_kron_transfer,
-    prepare_policy_transaction, prepare_pskt, prepare_reveal, prepare_transaction, public_key,
-    sign_evm_transaction, sign_kcc20_transfer, sign_personal_message, sign_policy_transaction,
-    sign_pskt, sign_reveal, sign_transaction, EvmTransactionRequest, InscriptionRequest,
+    prepare_policy_transaction, prepare_pskt, prepare_reveal, prepare_tangem_commit,
+    prepare_tangem_reveal, prepare_transaction, public_key, sign_evm_transaction,
+    sign_kcc20_transfer, sign_personal_message, sign_policy_transaction, sign_pskt, sign_reveal,
+    sign_transaction, tangem_address, EvmTransactionRequest, InscriptionRequest,
     Kcc20TransferRequest, KronTransferRequest, PolicyTransactionRequest, PsktRequest,
-    RevealRequest, SendRequest,
+    RevealRequest, SendRequest, TangemCommitRequest, TangemRevealRequest,
 };
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_tangemAddress(
+    mut env: JNIEnv,
+    _class: JClass,
+    public_key_hex: JString,
+) -> jstring {
+    let result = read(&mut env, &public_key_hex)
+        .and_then(|key| tangem_address(&key).map_err(|error| error.to_string()))
+        .map(|address| json!({"address": address}).to_string());
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareTangemCommit(
+    mut env: JNIEnv,
+    _class: JClass,
+    request_json: JString,
+) -> jstring {
+    let result = read(&mut env, &request_json)
+        .and_then(|raw| {
+            serde_json::from_str::<TangemCommitRequest>(&raw)
+                .map_err(|_| "invalid Tangem commit request".to_string())
+        })
+        .and_then(|request| prepare_tangem_commit(&request).map_err(|error| error.to_string()))
+        .and_then(|prepared| {
+            serde_json::to_string(&prepared).map_err(|_| "serialization failed".to_string())
+        });
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_finalizeTangemCommit(
+    mut env: JNIEnv,
+    _class: JClass,
+    request_json: JString,
+    review_hash: JString,
+    signatures_json: JString,
+) -> jstring {
+    let result = (|| {
+        let raw = read(&mut env, &request_json)?;
+        let review_hash = read(&mut env, &review_hash)?;
+        let signatures_raw = read(&mut env, &signatures_json)?;
+        let request: TangemCommitRequest =
+            serde_json::from_str(&raw).map_err(|_| "invalid Tangem commit request".to_string())?;
+        let signatures: Vec<String> = serde_json::from_str(&signatures_raw)
+            .map_err(|_| "invalid Tangem signatures".to_string())?;
+        let signed = finalize_tangem_commit(&request, &review_hash, &signatures)
+            .map_err(|error| error.to_string())?;
+        serde_json::to_string(&signed).map_err(|_| "serialization failed".to_string())
+    })();
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareTangemReveal(
+    mut env: JNIEnv,
+    _class: JClass,
+    request_json: JString,
+) -> jstring {
+    let result = read(&mut env, &request_json)
+        .and_then(|raw| {
+            serde_json::from_str::<TangemRevealRequest>(&raw)
+                .map_err(|_| "invalid Tangem reveal request".to_string())
+        })
+        .and_then(|request| prepare_tangem_reveal(&request).map_err(|error| error.to_string()))
+        .and_then(|prepared| {
+            serde_json::to_string(&prepared).map_err(|_| "serialization failed".to_string())
+        });
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_finalizeTangemReveal(
+    mut env: JNIEnv,
+    _class: JClass,
+    request_json: JString,
+    review_hash: JString,
+    signatures_json: JString,
+) -> jstring {
+    let result = (|| {
+        let raw = read(&mut env, &request_json)?;
+        let review_hash = read(&mut env, &review_hash)?;
+        let signatures_raw = read(&mut env, &signatures_json)?;
+        let request: TangemRevealRequest =
+            serde_json::from_str(&raw).map_err(|_| "invalid Tangem reveal request".to_string())?;
+        let signatures: Vec<String> = serde_json::from_str(&signatures_raw)
+            .map_err(|_| "invalid Tangem signatures".to_string())?;
+        let signed = finalize_tangem_reveal(&request, &review_hash, &signatures)
+            .map_err(|error| error.to_string())?;
+        serde_json::to_string(&signed).map_err(|_| "serialization failed".to_string())
+    })();
+    output(&mut env, result.unwrap_or_else(error_json))
+}
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareKronTransfer(
