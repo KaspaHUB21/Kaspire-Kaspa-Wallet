@@ -1,16 +1,38 @@
-# KaspaCom-compatible provider profile
+# Kaspire provider API hand-off for KaspaCom
+
+This document is the provider API documentation KaspaCom requested for its
+wallet review. It documents Kaspire-owned native capabilities and transports;
+it is **not** a KCOM adapter, SDK, or KaspaCom application integration.
+
+## Responsibility boundary
+
+- **Kaspire owns:** the injected extension provider and Android WalletConnect
+  methods, account/network state, user approval, native transaction review,
+  signing, returned signed PSKT JSON, optional typed-wallet broadcasts, and
+  provider events.
+- **KaspaCom owns:** its internal KCOM adapter, mapping the Kaspire API onto
+  KaspaCom's shared wallet contract, application transaction construction,
+  product/business validation, backend broadcast, and final target-app tests.
+- **Joint work:** after KaspaCom has implemented its internal adapter, both
+  teams run provider-plus-adapter smoke tests and collect TN10/Mainnet evidence.
+
+The existing Kasware and Kastle adapters are KaspaCom-internal reference
+implementations. Kaspire neither needs access to them nor publishes a
+replacement for them.
 
 Kaspire exposes the same reviewed transaction primitives through two transports:
 
 - Browser extension: `window.kaspire`
 - Android app: WalletConnect v2, Kaspa namespace
 
-A complete normalization example for the browser side is available in
-[`docs/examples/kaspacom-kaspire-adapter.ts`](examples/kaspacom-kaspire-adapter.ts).
+A provider-consumer example for the browser side is available in
+[`docs/examples/kaspire-provider-client.ts`](examples/kaspire-provider-client.ts).
+It demonstrates the native request and response shapes only. It deliberately
+does not claim to implement KaspaCom's internal shared-wallet adapter.
 
 KaspaCom and other marketplaces remain responsible for listing, buying, cancelling, royalty and DEX product logic. Kaspire does not require a marketplace-specific signing method. It reconstructs the supplied Kaspa SafeJSON in the shared Rust core, presents the resulting inputs, outputs, fee, wallet effect, scripts and sighashes to the user, and signs only the requested inputs.
 
-## Provider mapping
+## Native provider mapping
 
 | Primitive | Extension | Android WalletConnect |
 | --- | --- | --- |
@@ -23,6 +45,70 @@ KaspaCom and other marketplaces remain responsible for listing, buying, cancelli
 | PSKT sign-only | `signPskt` | `kaspa_signPskt` |
 | Backend broadcast | the dApp backend | the dApp backend |
 | Disconnect | `disconnect` | WalletConnect session disconnect |
+
+## Browser-extension discovery and request envelope
+
+Kaspire injects `window.kaspire` into the page and dispatches
+`kaspire#initialized` when the provider becomes available. A dApp can verify:
+
+```ts
+const provider = window.kaspire;
+if (!provider?.isKaspire || typeof provider.request !== "function") {
+  throw new Error("Kaspire extension is not available");
+}
+```
+
+The current injected-provider protocol version is available as
+`window.kaspire.version`. Requests use an EIP-1193-style envelope:
+
+```ts
+const result = await window.kaspire.request({
+  method: "getNetwork",
+  params: undefined,
+});
+```
+
+Kaspire exposes convenience methods such as `requestAccounts()`,
+`getAccounts()`, `getNetwork()`, `switchNetwork(network)`, `getPublicKey()`,
+`getBalance()`, `signMessage(message, address?)`, `sendKaspa(params)`,
+`signPskt(request)`, and `disconnect()`. Direct `request()` calls and the
+convenience methods reach the same origin-bound implementation.
+
+### Extension method contract used by KaspaCom
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `requestAccounts` | none | one approved full Kaspa address in `string[]` |
+| `getAccounts` | none | the connected address in `string[]`, otherwise `[]` |
+| `getNetwork` | none | `"mainnet"` or `"testnet-10"` for Kaspa primitives |
+| `switchNetwork` | `{ "network": "mainnet" | "testnet-10" }` | approved network label; unsupported labels reject |
+| `getPublicKey` | none | selected 32-byte x-only public key as 64 hex characters |
+| `signMessage` | `{ "message": string, "address"?: string }` | `{ address, publicKey, signedMessage, signature }` |
+| `getBalance` | optional `{ network }` | native snapshot plus `{ current, pending, outgoing }` in KAS |
+| `sendKaspa` | `{ to, amountSompi, from?, priorityFeeSompi? }` | legacy txid string, or `{ transactionId }` when priority-fee shape is used |
+| `signPskt` | normalized request documented below | `{ psktTransactionJson }` |
+| `disconnect` | none | `true`, followed by local disconnect/account events |
+
+The `address`/`from` value, when supplied, must equal the selected connected
+account. Numeric transaction values are exact sompi integers; they are not KAS
+decimal strings.
+
+### Extension errors
+
+Provider rejections contain a numeric `code` and human-readable `message`.
+Important codes for an internal adapter are:
+
+| Code | Meaning |
+| --- | --- |
+| `4001` | user rejected the connection, switch, signature, or transaction |
+| `4100` | origin/account is not connected, wallet is locked, or selected wallet cannot sign |
+| `4200` | method or requested mode is intentionally unsupported, including generic wallet-side PSKT broadcast |
+| `-32601` | method is unavailable for the selected network/type |
+| `-32602` | malformed or inconsistent request |
+| `-32000` | node, broadcast, or verified execution failure |
+
+KaspaCom should preserve these distinctions in its internal adapter rather than
+turning every failure into a generic rejection.
 
 Both transports support Mainnet and TN10 for generic Kaspa primitives. The
 extension reports `mainnet` or `testnet-10`; WalletConnect uses
@@ -122,9 +208,26 @@ Duplicate outpoints, pre-signed selected inputs, malformed integers, invalid scr
 
 The extension emits `accountsChanged`, `networkChanged`, `chainChanged` and `disconnect`; `balanceChanged` is produced by a bounded 15-second provider monitor while a listener is registered. Android WalletConnect supports `accountsChanged`, `networkChanged` and `balanceChanged`; the app publishes changes to sessions that negotiated those events. WalletConnect session deletion is the connection-state signal.
 
+Extension payloads relevant to KaspaCom are:
+
+| Event | Payload |
+| --- | --- |
+| `accountsChanged` | connected full Kaspa address in `string[]`, or `[]` after disconnect |
+| `networkChanged` | `"mainnet"` or `"testnet-10"` |
+| `balanceChanged` | `{ current, pending, outgoing }` in KAS |
+| `disconnect` | `{ code: 4900, message: string }` |
+
+Listeners use `provider.on(event, listener)` and are removed with
+`provider.removeListener(event, listener)`. Account or network mutation during
+an open approval invalidates the signing context and the request is rejected.
+
 ## Integration rule
 
 Do not ask Kaspire to implement marketplace-specific listing or DEX business methods. Build and validate the PSKT in the dApp, request only the necessary input signatures, show the dApp's own product review, then let Kaspire independently show and authorize the transaction-level review. Domain verification is phishing context, not a guarantee that a listing or trade is economically safe.
+
+KaspaCom should implement the Kaspire mapping inside its private KCOM adapter
+after reviewing this API. Changes required in that adapter belong to the
+KaspaCom application repositories, not to the Kaspire wallet repository.
 
 ## Verification status
 
@@ -144,11 +247,11 @@ not only the Rust functions:
 - Android method/chain advertisement, Mainnet/TN10 address conversion and the
   same shared native PSKT core.
 
-The current recommendation is **private pilot**, not public listing. The
-KaspaCom guide requires KaspaCom itself to test the complete adapter in the
-current KCC20 and Kaspiano `origin/develop` applications and requires public
-TN10 evidence with real transaction IDs. Those application repositories and a
-funded KaspaCom test environment were not supplied with this integration. Do
-not replace these records with invented transactions or provider-only unit
-tests. Use [the evidence procedure](kaspacom-evidence/README.md) when KaspaCom
-provides the target builds.
+The Kaspire-native provider hand-off is ready for KaspaCom review. This is not
+the same as declaring the complete KaspaCom integration ready for listing.
+KaspaCom must first build its private KCOM adapter, after which both teams must
+test the provider-plus-adapter result in the current KCC20 and Kaspiano target
+applications and collect TN10 evidence with real transaction IDs. Do not
+replace those records with invented transactions or provider-only unit tests.
+Use [the evidence procedure](kaspacom-evidence/README.md) for the two-stage
+handoff and joint validation.

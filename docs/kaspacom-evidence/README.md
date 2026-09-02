@@ -1,8 +1,17 @@
 # KaspaCom compatibility evidence
 
 This directory is the hand-off record required by the KaspaCom wallet-provider
-guides dated 2026-08-23. It separates reproducible Kaspire conformance evidence
-from evidence that only KaspaCom can produce in its current target apps.
+guide dated 2026-08-23 and clarified directly by KaspaCom. The KCOM adapter is
+not a public SDK or a Kaspire deliverable. KaspaCom builds that wallet-specific
+integration layer privately after reviewing Kaspire's provider API.
+
+The evidence is therefore collected in two distinct phases:
+
+1. **Provider-native hand-off:** Kaspire supplies API documentation and
+   reproducible evidence for its own extension and Android capabilities.
+2. **Joint integration evidence:** after KaspaCom builds its private adapter,
+   KaspaCom and Kaspire run the complete provider-plus-adapter tests in the
+   current target applications.
 
 ## Scope
 
@@ -13,15 +22,15 @@ from evidence that only KaspaCom can produce in its current target apps.
 - Broadcast mode: sign-only plus KaspaCom backend broadcast. Generic wallet
   PSKT broadcast is not advertised.
 
-KaspaCom's named KCC20 and Kaspiano `origin/develop` repositories were not
-provided and could not be found among KaspaCom's public repositories on
-2026-08-24. The guide explicitly requires repo-dependent checks to be marked
-unavailable in this situation. The legacy public `front-interface-v1` is not a
-substitute for the target versions.
+No KCOM adapter source is expected from Kaspire. KaspaCom's current KCC20 and
+Kaspiano target builds and its internal Kasware/Kastle reference adapters are
+private, so app-dependent checks remain pending until KaspaCom supplies a test
+environment or runs them jointly. The legacy public `front-interface-v1` is
+not a substitute for the target versions.
 
 ## Current matrix
 
-| Primitive | Extension | Android | Local evidence | KaspaCom TN10 evidence |
+| Primitive | Extension | Android | Kaspire-native evidence | Joint KaspaCom evidence |
 | --- | --- | --- | --- | --- |
 | Availability and initialize | Pass | Pass through WalletConnect | Chromium onboarding and origin approval; WalletConnect proposal tests | Pending target app |
 | Address and network | Pass | Pass | Mainnet/TN10 prefix and chain tests | Pending target app |
@@ -39,9 +48,28 @@ substitute for the target versions.
 | Account/network/balance/disconnect updates | Pass | Pass | Native events or bounded monitoring; stale-network browser test | Pending target app |
 | Stale request rejection | Pass | Pass | Chromium mutation test and Android pre/post-approval binding | Pending target app |
 
-Recommendation: **private pilot**. Change this to **list** only after every
-`Pending` cell has a real evidence record and KaspaCom confirms the exact app
-versions used.
+Provider hand-off status: **ready for KaspaCom review**. Listing status remains
+**private pilot** until KaspaCom has built its internal adapter and every
+`Pending` joint-evidence cell has a real record tied to exact app and adapter
+versions.
+
+## Provider hand-off package
+
+Send KaspaCom these repository files:
+
+- [`../KASPACOM_PROVIDER.md`](../KASPACOM_PROVIDER.md): exact extension and
+  Android methods, schemas, network labels, events, signing behavior and
+  security constraints;
+- [`../examples/kaspire-provider-client.ts`](../examples/kaspire-provider-client.ts):
+  non-adapter provider-consumer example;
+- [`provider-native-evidence.md`](provider-native-evidence.md): versioned native
+  capability evidence and exact test/source mapping;
+- this capability matrix and the output of `./scripts/kaspacom_conformance.sh`;
+- redacted request/response fixtures requested during KaspaCom's review.
+
+Do not describe the example as a KCOM adapter. KaspaCom owns the production
+adapter and decides how to normalize provider-native units, events and errors
+inside its applications.
 
 ## Reproducible local suite
 
@@ -58,13 +86,14 @@ PSKT, verifies SafeJSON preservation, switches to TN10, observes the network
 event and proves that changing networks during approval rejects the stale
 signature request.
 
-## Collecting live evidence
+## Collecting joint live evidence
 
-Copy `evidence-template.json` once for every primitive and transport. Complete
-it using the actual KCC20 or Kaspiano test environment. For a broadcast, include
-the public TN10 transaction ID and whether the wallet or backend broadcast it.
-For sign-only, store the redacted signed PSKT fixture separately. For events,
-record the event name and non-secret payload.
+After KaspaCom has implemented its adapter, copy `evidence-template.json` once
+for every primitive and transport. Complete it using the actual KCC20 or
+Kaspiano test environment and record the KaspaCom adapter/app version. For a
+broadcast, include the public TN10 transaction ID and whether the wallet or
+backend broadcast it. For sign-only, store the redacted signed PSKT fixture
+separately. For events, record the event name and non-secret payload.
 
 Never store recovery phrases, private keys, wallet passwords, WalletConnect
 pairing URIs, access tokens or API keys. After KaspaCom has accepted all TN10

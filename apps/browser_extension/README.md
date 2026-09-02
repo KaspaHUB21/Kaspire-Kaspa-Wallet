@@ -25,9 +25,12 @@ KAS signing validates unique live UTXOs and node fee data. KRC-20, KRC-721 and K
 
 ## Marketplace and DEX provider profile
 
-`window.kaspire` implements the KaspaCom primitive profile without embedding
-marketplace-specific business methods. Normalized PSKT requests support
-explicit input indexes, all six Kaspa sighashes, P2SH redeem scripts and the
+`window.kaspire` exposes the native primitives KaspaCom requested without
+embedding marketplace-specific business methods. The KCOM adapter is a private
+KaspaCom integration layer built inside KCC20/Kaspiano after provider review;
+it is not an SDK or adapter maintained in this repository. Normalized PSKT
+requests support explicit input indexes, all six Kaspa sighashes, P2SH redeem
+scripts and the
 `wrap-signature`, `signature-first-args`, and `ordered-args` argument templates.
 The Rust core preserves app metadata and covenant outputs and rejects stale
 account or network state after the approval window opens.
@@ -38,8 +41,9 @@ Account, network, connection and monitored balance changes are exposed as
 provider events. Mainnet and TN10 generic Kaspa operations are available;
 unsupported networks and Mainnet-only asset helpers fail with explicit errors.
 
-See [the complete KaspaCom-compatible provider contract](../../docs/KASPACOM_PROVIDER.md)
-for request schemas, response compatibility and backend-broadcast guidance.
+See [the complete Kaspire provider API hand-off](../../docs/KASPACOM_PROVIDER.md)
+for request schemas, response compatibility, native evidence and
+backend-broadcast guidance.
 
 The packaged build is validated by unit tests, Rust security-core tests and a
 real headless-Chromium flow covering onboarding, Manifest V3 worker restart,
