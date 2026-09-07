@@ -17,6 +17,22 @@ class KaspaApiException implements Exception {
   String toString() => message;
 }
 
+/// A failed mirror must not beat a healthy response.
+Future<T> _firstSuccessful<T>(List<Future<T>> futures) {
+  final result = Completer<T>();
+  var remaining = futures.length;
+  for (final future in futures) {
+    future.then((value) {
+      if (!result.isCompleted) result.complete(value);
+    }, onError: (Object error, StackTrace stack) {
+      if (--remaining == 0 && !result.isCompleted) {
+        result.completeError(error, stack);
+      }
+    });
+  }
+  return result.future;
+}
+
 class KaspaApi {
   KaspaApi({
     http.Client? client,
@@ -67,8 +83,31 @@ class KaspaApi {
     String address, {
     int transactionLimit = 20,
     bool includeNativeTransactions = true,
+    void Function(WalletSnapshot)? onProgress,
   }) async {
     final testnet = NetworkSettings.isTestnet;
+    Object? progressiveTokens;
+    _Kcc20Wallet? progressiveCovenants;
+    var progressiveUtxos = 0;
+    void publish() {
+      if (onProgress == null) return;
+      final parsed = _parseAssets(progressiveTokens);
+      onProgress(WalletSnapshot(
+        balanceSompi: 0,
+        kasUsd: null,
+        fiatCode: AppSettings.fiatCurrency.value.code,
+        fiatSymbol: AppSettings.fiatCurrency.value.symbol,
+        usdToFiat: double.nan,
+        transactions: const [],
+        krc20Tokens: parsed.krc20.toList()
+          ..sort((a, b) => a.symbol.compareTo(b.symbol)),
+        krc721Collections: parsed.krc721,
+        knsDomains: parsed.domains,
+        kcc20Tokens: progressiveCovenants?.assets ?? const [],
+        utxoCount: progressiveUtxos,
+      ));
+    }
+
     final results = await Future.wait([
       _getReadOnlyWithFallback(
         '/addresses/${Uri.encodeComponent(address)}/balance',
@@ -83,18 +122,26 @@ class KaspaApi {
           : Future<Object?>.value(const <Object?>[]),
       testnet
           ? Future<Object?>.value(null)
-          : _loadTokenWallet(address).catchError((_) => null),
+          : _loadTokenWallet(address, onProgress: (value) {
+              progressiveTokens = value;
+              publish();
+            }).catchError((_) => null),
       testnet
           ? Future<Object?>.value(null)
-          : _loadKcc20Wallet(address)
-              .then<Object?>((value) => value)
-              .catchError((_) => null),
+          : _loadKcc20Wallet(address, onProgress: (value) {
+              progressiveCovenants = value;
+              publish();
+            }).then<Object?>((value) => value).catchError((_) => null),
       testnet
           ? Future<Object?>.value(const <WalletTransaction>[])
           : _loadKronTrades(address)
               .timeout(const Duration(seconds: 8))
               .catchError((_) => const <WalletTransaction>[]),
-      loadUtxos(address).catchError((_) => '[]'),
+      loadUtxos(address).then((value) {
+        progressiveUtxos = (jsonDecode(value) as List).length;
+        publish();
+        return value;
+      }).catchError((_) => '[]'),
       _loadUsdExchangeRate(AppSettings.fiatCurrency.value).catchError(
         (_) => double.nan,
       ),
@@ -147,6 +194,7 @@ class KaspaApi {
     final krc20 = await Future.wait(
       assets.krc20.map((asset) => _withTokenMarket(asset, kasUsd)),
     );
+    krc20.sort((a, b) => a.symbol.compareTo(b.symbol));
     final assetWarnings = <String>[
       if (!testnet && tokenWallet == null)
         'KRC-20, KRC-721 and KNS data is temporarily unavailable.',
@@ -282,12 +330,15 @@ class KaspaApi {
     return address;
   }
 
-  Future<Object?> _loadTokenWallet(String addressOrDomain) async {
+  Future<Object?> _loadTokenWallet(
+    String addressOrDomain, {
+    void Function(Object?)? onProgress,
+  }) async {
     // Query the protocol indexers directly. KaspaToken remains an independent
     // compatibility source for metadata and activity that an upstream does
     // not expose, but wallet discovery no longer depends on that aggregator.
     final results = await Future.wait<Object?>([
-      _loadTokenWalletFromUpstreams(addressOrDomain)
+      _loadTokenWalletFromUpstreams(addressOrDomain, onProgress: onProgress)
           .then<Object?>((value) => value)
           .catchError((_) => null),
       _loadTokenWalletFromKaspaToken(addressOrDomain)
@@ -302,7 +353,9 @@ class KaspaApi {
         'KRC-20, KRC-721 and KNS indexers are temporarily unavailable.',
       );
     }
-    return _mergeTokenWalletSources(direct, explorer, addressOrDomain);
+    final merged = _mergeTokenWalletSources(direct, explorer, addressOrDomain);
+    onProgress?.call(merged);
+    return merged;
   }
 
   Future<Object?> _loadTokenWalletFromKaspaToken(
@@ -322,8 +375,9 @@ class KaspaApi {
   }
 
   Future<Object?> _loadTokenWalletFromUpstreams(
-    String addressOrDomain,
-  ) async {
+    String addressOrDomain, {
+    void Function(Object?)? onProgress,
+  }) async {
     var address = addressOrDomain.trim().toLowerCase();
     if (_isKnsName(address)) {
       final result = _map(await _externalGet(
@@ -355,19 +409,34 @@ class KaspaApi {
       throw KaspaApiException('Invalid Kaspa wallet address.');
     }
 
-    final results = await Future.wait<List<Map<String, Object?>>>([
+    final progress = <String, Object?>{'address': address};
+    Future<List<Map<String, Object?>>> track(
+        String key, Future<List<Map<String, Object?>>> future) async {
+      final rows = await future;
+      progress[key] = rows;
+      onProgress?.call({'data': Map<String, Object?>.of(progress)});
+      return rows;
+    }
+
+    final tokenList = _firstSuccessful([
       _loadKrc20WalletTokens(kccKrc20BaseUrl, address)
-          .timeout(const Duration(seconds: 8))
-          .catchError((_) => <Map<String, Object?>>[]),
+          .timeout(const Duration(seconds: 8)),
       _loadKrc20WalletTokens(kasplexBaseUrl, address)
-          .timeout(const Duration(seconds: 8))
-          .catchError((_) => <Map<String, Object?>>[]),
-      _loadKnsWalletDomains(address)
-          .timeout(const Duration(seconds: 12))
-          .catchError((_) => <Map<String, Object?>>[]),
-      _loadKrc721WalletHoldings(address)
-          .timeout(const Duration(seconds: 12))
-          .catchError((_) => <Map<String, Object?>>[]),
+          .timeout(const Duration(seconds: 8)),
+    ]);
+    final results = await Future.wait<List<Map<String, Object?>>>([
+      track('tokens', tokenList.catchError((_) => <Map<String, Object?>>[])),
+      Future.value(<Map<String, Object?>>[]),
+      track(
+          'domains',
+          _loadKnsWalletDomains(address)
+              .timeout(const Duration(seconds: 12))
+              .catchError((_) => <Map<String, Object?>>[])),
+      track(
+          'krc721_tokens',
+          _loadKrc721WalletHoldings(address)
+              .timeout(const Duration(seconds: 12))
+              .catchError((_) => <Map<String, Object?>>[])),
       _loadKrc20WalletTransactions(kccKrc20BaseUrl, address)
           .timeout(const Duration(seconds: 8))
           .catchError((_) => <Map<String, Object?>>[]),
@@ -490,6 +559,9 @@ class KaspaApi {
             : '/address/${Uri.encodeComponent(address)}/tokenlist',
         query: {if (cursor != null) 'next': cursor},
       ));
+      if (raw['result'] is! List && raw['data'] is! List) {
+        throw KaspaApiException('Invalid KRC20 token-list response.');
+      }
       final items = _externalItems(raw);
       for (final item in items) {
         final symbol = (item['tick'] ?? item['ticker'] ?? item['symbol'] ?? '')
@@ -518,8 +590,8 @@ class KaspaApi {
       if (cursor == null || items.isEmpty) break;
     }
     return tokens.values.toList()
-      ..sort((left, right) => (_asDouble(right['balance']) ?? 0)
-          .compareTo(_asDouble(left['balance']) ?? 0));
+      ..sort((left, right) =>
+          left['symbol'].toString().compareTo(right['symbol'].toString()));
   }
 
   Future<List<Map<String, Object?>>> _loadKnsWalletDomains(
@@ -782,17 +854,33 @@ class KaspaApi {
     return DateTime.tryParse(text);
   }
 
-  Future<_Kcc20Wallet> _loadKcc20Wallet(String address) async {
+  Future<_Kcc20Wallet> _loadKcc20Wallet(
+    String address, {
+    void Function(_Kcc20Wallet)? onProgress,
+  }) async {
+    _Kcc20Wallet? primaryProgress;
+    _Kcc20Wallet? fallbackProgress;
+    void publish() {
+      final value = primaryProgress != null && fallbackProgress != null
+          ? _mergeKcc20Wallets(primaryProgress!, fallbackProgress!)
+          : primaryProgress ?? fallbackProgress;
+      if (value != null) onProgress?.call(value);
+    }
+
     // Query both independent indexers at the same time. KCC20.info remains the
     // preferred source, but a failed or incomplete response can immediately be
     // repaired with Kascov data without waiting for a second request round.
     final results = await Future.wait<_Kcc20Wallet?>([
-      _loadKcc20WalletFromIndexer(address)
-          .then<_Kcc20Wallet?>((value) => value)
-          .catchError((_) => null),
-      _loadKcc20WalletFromKascov(address)
-          .then<_Kcc20Wallet?>((value) => value)
-          .catchError((_) => null),
+      _loadKcc20WalletFromIndexer(address).then<_Kcc20Wallet?>((value) {
+        primaryProgress = value;
+        publish();
+        return value;
+      }).catchError((_) => null),
+      _loadKcc20WalletFromKascov(address).then<_Kcc20Wallet?>((value) {
+        fallbackProgress = value;
+        publish();
+        return value;
+      }).catchError((_) => null),
     ]);
     final primary = results[0];
     final fallback = results[1];
@@ -1168,15 +1256,18 @@ class KaspaApi {
     if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(pubkey)) {
       throw KaspaApiException('Kascov did not resolve the wallet public key.');
     }
-    final directory = _map(await _kascovGet('/tokens.json'));
-    final rows = (directory['tokens'] as List? ?? const [])
+    // Only inspect tokens held by this address, not the global catalogue.
+    final rows = (addressData['token_holdings'] as List? ?? const [])
         .whereType<Map>()
         .map((item) => item.cast<String, Object?>())
         .where((item) => item['status']?.toString() == 'verified')
-        .take(64)
+        .map((item) => <String, Object?>{
+              ...item,
+              'covenant_id': item['token_id'] ?? item['covenant_id']
+            })
         .toList();
-    final tipDaa = _asInt(directory['tip_daa']);
-    final tipAtMs = _asInt(directory['tip_at_ms']);
+    final tipDaa = _asInt(addressData['tip_daa']);
+    final tipAtMs = _asInt(addressData['tip_at_ms']);
     final details = await Future.wait(
       rows.map((row) => _tryLoadKcc20Token(
             row,
@@ -1189,8 +1280,7 @@ class KaspaApi {
         details.map((item) => item.asset).whereType<WalletAsset>().toList();
     final transactions = details.expand((item) => item.transactions).toList()
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    final limited =
-        rows.length >= 64 || details.any((item) => item.discoveryLimited);
+    final limited = details.any((item) => item.discoveryLimited);
     return _Kcc20Wallet(
       assets: assets,
       transactions: transactions,
@@ -1472,6 +1562,17 @@ class KaspaApi {
     }
     return _map(jsonDecode(response.body));
   }
+
+  Future<WalletAsset> loadTokenMarket(WalletAsset asset) async {
+    double? price;
+    try {
+      price = _asDouble(
+          _map(await _getReadOnlyWithFallback('/info/price'))['price']);
+    } catch (_) {}
+    return _withTokenMarket(asset, price);
+  }
+
+  Future<double> loadSelectedFiatRate() => _loadUsdExchangeRate(AppSettings.fiatCurrency.value);
 
   Future<WalletAsset> _withTokenMarket(
     WalletAsset asset,

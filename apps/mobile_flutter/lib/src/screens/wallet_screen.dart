@@ -44,6 +44,8 @@ class WalletScreen extends StatefulWidget {
 class _WalletScreenState extends State<WalletScreen> {
   final KaspaApi _api = KaspaApi();
   late Future<WalletSnapshot> _snapshot;
+  WalletSnapshot? _progress;
+  int _loadGeneration = 0;
   late Future<WalletSnapshot> _balance;
   late Future<int> _kasBalance;
   late Future<String> _walletName;
@@ -85,11 +87,18 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   Future<WalletSnapshot> _loadSnapshot() async {
+    final generation = ++_loadGeneration;
+    _progress = null;
     final results = await Future.wait([
       _api.loadWallet(
         widget.address,
         transactionLimit: _historyLimit,
         includeNativeTransactions: false,
+        onProgress: (snapshot) {
+          if (mounted && generation == _loadGeneration) {
+            setState(() => _progress = snapshot);
+          }
+        },
       ),
       ActivityStore().load(widget.address),
     ]);
@@ -376,7 +385,7 @@ class _WalletScreenState extends State<WalletScreen> {
                   ],
                 ),
                 const SizedBox(height: 32),
-                if (snapshot.hasData) ...[
+                if (snapshot.hasData || _progress != null) ...[
                   Text(
                     displayLabel('ASSETS & NAMES'),
                     style: TextStyle(
@@ -387,14 +396,14 @@ class _WalletScreenState extends State<WalletScreen> {
                   ),
                   const SizedBox(height: 12),
                   _AssetOverview(
-                    data: snapshot.data!,
+                    data: snapshot.data ?? _progress!,
                     address: widget.address,
                     onSendAsset: widget.onSendAsset,
                     hideAmounts: hideAmounts,
                   ),
                   const SizedBox(height: 12),
                   _UtxoCard(
-                    count: snapshot.data!.utxoCount,
+                    count: (snapshot.data ?? _progress!).utxoCount,
                     working: _compounding,
                     onCompound: _compoundUtxos,
                   ),

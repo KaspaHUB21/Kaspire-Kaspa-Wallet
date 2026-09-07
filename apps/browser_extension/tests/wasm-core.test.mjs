@@ -5,6 +5,29 @@ import init,{addressWithPrefix,deriveBackupKey,deriveEvmAddress,exportEvmPrivate
 
 await init(await readFile(new URL("./generated/wasm/kaspa_secure_core_bg.wasm",import.meta.url)));
 
+test("browser WASM signs an underfunded seller offer without inventing a fee or broadcast transaction", async () => {
+  const wallet=JSON.parse(generateWallet("")), secret=`mnemonic:${wallet.mnemonic}`;
+  const fixture=JSON.parse(await readFile(new URL('./fixtures/kaspacom-seller-offer.json',import.meta.url),'utf8'));
+  const transaction=JSON.parse(fixture.psktTransactionJson);
+  // Use a generated owned P2PK input for signing; the exact P2SH fixture is
+  // additionally covered in native Rust tests with official sighash checks.
+  delete transaction.id;
+  transaction.inputs[0].utxo.scriptPublicKey=`000020${publicKey(secret)}ac`;
+  transaction.inputs[0].utxo.address=wallet.address;
+  transaction.outputs[0].scriptPublicKey=`000020${publicKey(secret)}ac`;
+  const request={sender:wallet.address,txJsonString:JSON.stringify(transaction),signInputs:fixture.signInputs,scripts:[]};
+  const review=JSON.parse(preparePskt(JSON.stringify(request)));
+  assert.equal(review.feeSompi,null);
+  assert.equal(review.fundingDeficitSompi,200000000);
+  assert.equal(review.finalFeeKnown,false);
+  assert.equal(review.outputs[0].signatureBound,true);
+  const signed=JSON.parse(signPskt(secret,JSON.stringify(request),review.reviewHash));
+  assert.equal(signed.submitJson,null);
+  assert.match(JSON.parse(signed.signedTxJson).inputs[0].signatureScript,/84$/);
+  request.signInputs=[{index:0,sighashType:1}];
+  assert.throws(()=>preparePskt(JSON.stringify(request)),/outputs exceed/);
+});
+
 test("browser WASM creates and deterministically restores a wallet",()=>{const created=JSON.parse(generateWallet(""));assert.equal(created.mnemonic.split(" ").length,24);const restored=JSON.parse(importWallet(created.mnemonic,""));assert.equal(restored.address,created.address);assert.match(publicKey(`mnemonic:${created.mnemonic}`),/^[0-9a-f]{64}$/)});
 test("browser WASM creates requested 12 and 24 word wallets",()=>{for(const count of[12,24]){const created=JSON.parse(generateWalletWithWordCount("optional passphrase",count));assert.equal(created.mnemonic.split(" ").length,count);assert.match(created.address,/^kaspa:/)}assert.throws(()=>generateWalletWithWordCount("",18))});
 test("browser WASM preserves ownership across TN10 prefix conversion",()=>{const created=JSON.parse(generateWallet(""));assert.match(addressWithPrefix(created.address,true),/^kaspatest:/)});

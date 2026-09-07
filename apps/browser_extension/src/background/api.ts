@@ -1012,36 +1012,63 @@ export async function broadcastKcc20(wrpcJson: string, expectedId: string) {
     );
   return parseKcc20BroadcastId(value, expectedId);
 }
-async function loadTokenAssets(address: string) {
+async function loadTokenAssets(address: string): Promise<any> {
+  // Compatibility/history enrichment is separate from the progressive home
+  // screen. Keep KNS resolution and inscription activity from the aggregator.
   try {
-    return await get(
-      `https://kaspatoken.kaslab.space/api/wallet/krc20/${encodeURIComponent(address)}`,
-    );
-  } catch {
-    const [tokens, domains, krc721] = await Promise.all([
-      loadKasplexTokens(address).catch(() => []),
-      loadKnsDomains(address).catch(() => []),
-      loadKrc721Collections(address).catch(() => []),
-    ]);
-    return {
-      data: {
-        address,
-        tokens,
-        domains,
-        krc721_tokens: krc721,
-        transactions: [],
-      },
-      source_mode: "DIRECT_FALLBACK",
-    };
-  }
+    return await get(`https://kaspatoken.kaslab.space/api/wallet/krc20/${encodeURIComponent(address)}`);
+  } catch { /* individual direct sources remain available below */ }
+  const [tokens, domains, krc721] = await Promise.all([
+    walletAssetCategory(address, "mainnet", "tokens"),
+    walletAssetCategory(address, "mainnet", "domains"),
+    walletAssetCategory(address, "mainnet", "krc721"),
+  ]);
+  return { data: { address, tokens, domains, krc721_tokens: krc721, transactions: [] }, source_mode: "DIRECT_REDUNDANT" };
 }
-async function loadKasplexTokens(address: string) {
+
+const categoryCache = new Map<string, { at: number; value: any[] }>();
+const categoryPending = new Map<string, Promise<any[]>>();
+/** Independent categories: a slow NFT or covenant indexer cannot hold tokens back. */
+export async function walletAssetCategory(address: string, network: KaspaNetwork, category: string): Promise<any[]> {
+  if (!["tokens", "domains", "krc721", "kcc20"].includes(category)) throw new Error("Unknown asset category.");
+  if (network !== "mainnet") return [];
+  const key = `${network}:${address}:${category}`;
+  const cached = categoryCache.get(key);
+  if (cached && Date.now() - cached.at < 30_000) return cached.value;
+  const pending = categoryPending.get(key);
+  if (pending) return pending;
+  const task = (async () => {
+    let rows: any[];
+    try {
+      rows = category === "tokens" ? await Promise.any([
+        loadKasplexTokens(address, "https://kcc.kaslab.space/api/krc20"),
+        loadKasplexTokens(address),
+      ]) : category === "domains" ? await loadKnsDomains(address)
+        : category === "krc721" ? await loadKrc721Collections(address)
+        : await loadKcc20Assets(address);
+    } catch (error) {
+      if (category === "kcc20") throw error;
+      const fallback = await get(`https://kaspatoken.kaslab.space/api/wallet/krc20/${encodeURIComponent(address)}`);
+      rows = fallback?.data?.[category === "krc721" ? "krc721_tokens" : category];
+      if (!Array.isArray(rows)) throw error;
+    }
+    if (category === "tokens") rows = rows.map(item => ({...item, symbol: String(item.symbol).toUpperCase()}))
+      .sort((a,b) => a.symbol.localeCompare(b.symbol, "en"));
+    categoryCache.set(key, {at: Date.now(), value: rows});
+    return rows;
+  })();
+  categoryPending.set(key, task);
+  try { return await task; } finally { categoryPending.delete(key); }
+}
+async function loadKasplexTokens(address: string, endpoint = "https://api.kasplex.org/v1/krc20") {
   const values: any[] = [];
   let next = "";
   for (let page = 0; page < 20; page++) {
     const value = await get(
-      `https://api.kasplex.org/v1/krc20/address/${encodeURIComponent(address)}/tokenlist${next ? `?next=${encodeURIComponent(next)}` : ""}`,
+      `${endpoint}/address/${encodeURIComponent(address)}/tokenlist${next ? `?next=${encodeURIComponent(next)}` : ""}`,
     );
+    if (!Array.isArray(value?.result) && !Array.isArray(value?.data))
+      throw new Error("Invalid KRC20 token-list response.");
     const rows = Array.isArray(value?.result)
       ? value.result
       : Array.isArray(value?.data)
@@ -1072,7 +1099,7 @@ async function loadKasplexTokens(address: string) {
     next = String(value?.next ?? value?.next_cursor ?? "");
     if (!next || !rows.length) break;
   }
-  return values;
+  return values.sort((a, b) => a.symbol.localeCompare(b.symbol, "en"));
 }
 async function loadKnsDomains(address: string) {
   const values: any[] = [];
@@ -1170,9 +1197,9 @@ const assetCache = new Map<string, { at: number; value: any }>();
 const inscriptionCache = new Map<string, { at: number; value: any }>();
 export async function inscriptionAssets(address: string) {
   const cached = inscriptionCache.get(address);
-  if (cached) return cached.value;
+  if (cached && Date.now() - cached.at < 30_000) return cached.value;
   const walletCached = assetCache.get(address);
-  if (walletCached) {
+  if (walletCached && Date.now() - walletCached.at < 30_000) {
     const value = {
       tokens: walletCached.value.tokens,
       domains: walletCached.value.domains,
@@ -1200,6 +1227,7 @@ export async function inscriptionAssets(address: string) {
       : [],
     transactions: Array.isArray(data.transactions) ? data.transactions : [],
   };
+  value.tokens.sort((a: any,b: any) => a.symbol.localeCompare(b.symbol, "en"));
   inscriptionCache.set(address, { at: Date.now(), value });
   return value;
 }
@@ -1254,6 +1282,7 @@ export async function walletAssets(
     })),
     transactions: Array.isArray(data.transactions) ? data.transactions : [],
   };
+  value.tokens.sort((a: any,b: any) => a.symbol.localeCompare(b.symbol, "en"));
   assetCache.set(address, { at: Date.now(), value });
   inscriptionCache.set(address, {
     at: Date.now(),

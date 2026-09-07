@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -12,6 +13,41 @@ void main() {
       'kaspa:qz03mracsz6c0pjxmsdaql39453tn3jgmrldkqpy24ea39rxtvd9xxynslpyc';
   const otherAddress =
       'kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh';
+
+  test(
+      'publishes alphabetically sorted tokens before stalled metadata and unrelated indexers',
+      () async {
+    final stalled = Completer<http.Response>();
+    final visible = Completer<WalletSnapshot>();
+    var globalCatalogueRead = false;
+    final client = MockClient((request) async {
+      if (request.url.path.endsWith('/tokens.json')) globalCatalogueRead = true;
+      if (request.url.host == 'kcc.kaslab.space' &&
+          request.url.path.endsWith('/tokenlist')) {
+        return http.Response(
+            '{"result":[{"tick":"ZZZ","balance":"1","dec":0},{"tick":"AAA","balance":"2","dec":0}]}',
+            200);
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":0}', 200);
+      }
+      if (request.url.path.endsWith('/utxos')) return http.Response('[]', 200);
+      return stalled.future;
+    });
+    final loading =
+        KaspaApi(client: client).loadWallet(address, onProgress: (snapshot) {
+      if (snapshot.krc20Tokens.length == 2 && !visible.isCompleted) {
+        visible.complete(snapshot);
+      }
+    });
+    final early = await visible.future.timeout(const Duration(seconds: 1));
+    expect(early.krc20Tokens.map((token) => token.symbol), ['AAA', 'ZZZ']);
+    stalled.complete(http.Response('{}', 503));
+    try {
+      await loading;
+    } catch (_) {/* market price is deliberately offline */}
+    expect(globalCatalogueRead, isFalse);
+  });
 
   test('parses an incoming transaction from decoded outputs', () {
     final result = KaspaApi.parseTransactions([
@@ -478,7 +514,9 @@ void main() {
     final client = MockClient((request) async {
       if (request.url.host == 'kascov.io') {
         if (request.url.path.contains('/addr/')) {
-          return http.Response('{"pubkey":"$owner"}', 200);
+          return http.Response(
+              '{"pubkey":"$owner","tip_daa":200,"tip_at_ms":1780000000000,"token_holdings":[{"token_id":"$covenant","status":"verified","claimed_ticker":"COIN","claimed_decimals":2}]}',
+              200);
         }
         if (request.url.path.endsWith('/tokens.json')) {
           return http.Response(

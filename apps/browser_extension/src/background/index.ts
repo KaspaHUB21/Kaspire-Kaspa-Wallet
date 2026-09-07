@@ -26,6 +26,7 @@ import {
   verifyKrc721Ownership,
   waitForUtxo,
   walletAssets,
+  walletAssetCategory,
   walletBalance,
   walletCoreSnapshot,
   walletHistory,
@@ -253,6 +254,10 @@ async function walletCommand(
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
     if (state.network === "kasplex" || state.network === "igra") return evmWalletSnapshot(state);
     return walletBalance(state.selectedAddress, state.network);
+  }
+  if (message.command === "assetCategory") {
+    if (!state.selectedAddress) throw new Error("No wallet is selected.");
+    return walletAssetCategory(state.selectedAddress, state.network, String(message.category));
   }
   if (message.command === "assetsSnapshot") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
@@ -1904,7 +1909,7 @@ async function handle(
     if (!permissionNetworks(permission, state.network).includes(kaspaNetwork))
       throw rpc(4100, `${kaspaNetwork === "mainnet" ? "Kaspa Mainnet" : "Kaspa TN10"} is not connected.`);
     const kaspaState = await kaspaProviderState(state, kaspaNetwork);
-    const snapshot = await walletSnapshot(kaspaState.selectedAddress!, kaspaNetwork);
+    const snapshot = await walletBalance(kaspaState.selectedAddress!, kaspaNetwork);
     return {
       ...snapshot,
       current: snapshot.balanceKas,
@@ -1921,7 +1926,7 @@ async function handle(
     if (!permissionNetworks(permission, state.network).includes(kaspaNetwork))
       throw rpc(4100, `${kaspaNetwork === "mainnet" ? "Kaspa Mainnet" : "Kaspa TN10"} is not connected.`);
     const kaspaState = await kaspaProviderState(state, kaspaNetwork);
-    return (await walletSnapshot(kaspaState.selectedAddress!, kaspaNetwork)).utxos;
+    return (await walletCoreSnapshot(kaspaState.selectedAddress!, kaspaNetwork)).utxos;
   }
   if (method === "disconnect") {
     delete state.permissions[origin];
@@ -2298,8 +2303,13 @@ async function handle(
           "Kaspire will sign only the selected inputs shown by the Rust security core.",
         details: [
           `Transaction: ${review.transactionId}`,
-          `Fee: ${(review.feeSompi / 100_000_000).toLocaleString("en-US")} KAS`,
-          `Wallet net: ${(review.walletNetSompi / 100_000_000).toLocaleString("en-US")} KAS`,
+          review.finalFeeKnown && review.feeSompi != null
+            ? `Network fee: ${formatSompi(review.feeSompi)} KAS`
+            : "Final network fee: unknown until buyer completes the transaction",
+          `Buyer funding still required: ${formatSompi(review.fundingDeficitSompi)} KAS${review.fundingDeficitSompi > 0 ? " plus network fee · sign only" : ""}`,
+          `Draft wallet balance change: ${(review.walletNetSompi / 100_000_000).toLocaleString("en-US")} KAS`,
+          ...review.outputs.map((output: any) =>
+            `Output ${output.index} · ${output.signatureBound ? "SIGNATURE-BOUND" : "UNBOUND"}: ${formatSompi(output.amountSompi)} KAS → ${output.address ?? output.scriptPublicKey}`),
           `${review.selectedInputCount.toLocaleString("en-US")} of ${review.inputCount.toLocaleString("en-US")} inputs selected`,
           ...warningDetails,
         ],

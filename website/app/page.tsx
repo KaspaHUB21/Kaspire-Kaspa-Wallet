@@ -629,6 +629,11 @@ export default function Home() {
                 Kaspire Wallet is live in the Chrome Web Store. Chrome installs
                 verified updates automatically through the official listing.
               </p>
+              <p>
+                <a href={`https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/v${currentRelease.version}/kaspire-extension-${extensionRelease.version}.zip`}>
+                  Download extension {extensionRelease.version} ZIP
+                </a>. The latest ZIP may be newer than the version approved in the Chrome Web Store.
+              </p>
             </div>
           </div>
         </section>

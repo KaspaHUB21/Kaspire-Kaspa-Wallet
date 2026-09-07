@@ -1370,9 +1370,12 @@ async function legacyActivity() {
   }
 }
 async function loadHome() {
+  const homeElement = document.querySelector("#asset-list");
+  const stillHome = () => homeElement != null && document.querySelector("#asset-list") === homeElement;
   try {
     if (isL2()) return await loadEvmHome();
     const balance = await command("balanceSnapshot");
+    if (!stillHome()) return;
     snapshot = {
       ...balance,
       utxoCount: 0,
@@ -1387,29 +1390,37 @@ async function loadHome() {
     document.querySelector("#fiat")!.textContent = "Loading market value…";
     void command("market")
       .then((market) => {
-        if (!document.querySelector("#fiat")) return;
+        if (!stillHome()) return;
         document.querySelector("#fiat")!.textContent =
           market && !status.settings.hideBalances
             ? `≈ ${(balance.balanceKas * market.kasUsd * market.rate).toLocaleString("en-US", { style: "currency", currency: market.currency })}`
             : "Live balance";
       })
       .catch(() => {
-        if (document.querySelector("#fiat"))
+        if (stillHome() && document.querySelector("#fiat"))
           document.querySelector("#fiat")!.textContent = "Live balance";
       });
     void command("coreSnapshot").then((core) => {
+      if (!stillHome()) return;
       snapshot = { ...snapshot, ...core };
       if (document.querySelector("#fiat"))
         document.querySelector("#fiat")!.textContent +=
           " · " + fmt(core.utxoCount, 0) + " UTXOs";
       addCompound(core);
-    });
-    const assets = await command("assetsSnapshot");
-    if (!document.querySelector("#asset-list")) return;
-    snapshot = { ...snapshot, assets };
-    renderAssetGroups(assets);
+    }).catch(() => undefined);
+    const assets: any = {tokens: [], domains: [], krc721: [], kcc20: []};
+    const failures: string[] = [];
+    await Promise.all(Object.keys(assets).map(async category => {
+      try { assets[category] = await command("assetCategory", {category}); }
+      catch { failures.push(category === "tokens" ? "KRC20" : category.toUpperCase()); }
+      if (!stillHome()) return;
+      snapshot = { ...snapshot, assets: {...assets} };
+      renderAssetGroups(assets);
+    }));
+    if (stillHome() && failures.length)
+      homeElement?.insertAdjacentHTML("beforeend", `<p class="error">${esc(failures.join(", "))}: temporarily unavailable. Please retry.</p>`);
   } catch (error) {
-    if (document.querySelector("#asset-list"))
+    if (stillHome())
       document.querySelector("#asset-list")!.innerHTML =
         `<p class="error">${esc((error as Error).message)}</p>`;
   }
@@ -1426,11 +1437,12 @@ async function loadEvmHome() {
 }
 function evmTokenDetail(token:any){shell(`<section class="token-detail"><div class="token-logo">${token.iconUrl?`<img src="${esc(token.iconUrl)}" alt="">`:esc(token.symbol.slice(0,2))}</div><h1 data-preserve-case>${esc(token.symbol)}</h1><p>${status.settings.hideBalances?"••••••":esc(token.balance)} ${esc(token.symbol)}</p><div class="review-card"><div><span>Network</span><b>${networkLabel()}</b></div><div><span>Contract</span><b class="wrap-id">${esc(token.contract)}</b></div><div><span>Verification</span><b>${token.trusted?"Known bridge asset":"On-chain token"}</b></div></div><button id="send-evm-token">Send asset</button></section>`,"TOKEN DETAILS",true);document.querySelector<HTMLButtonElement>("#send-evm-token")!.onclick=()=>sendEvm(token);}
 function renderAssetGroups(assets: any) {
+  const openGroups = new Set(Array.from(document.querySelectorAll<HTMLDetailsElement>("details.asset-group[open]"), el => el.dataset.category));
   const groups = [
     {
       key: "krc20",
       title: "KRC-20 TOKENS",
-      items: (assets.tokens ?? []).map((raw: any) => ({
+      items: [...(assets.tokens ?? [])].sort((a: any,b: any) => ticker(a.symbol).localeCompare(ticker(b.symbol), "en")).map((raw: any) => ({
         kind: "krc20",
         symbol: ticker(raw.symbol),
         balance: tokenAmount(raw.raw_balance, raw.decimals),
@@ -1475,7 +1487,7 @@ function renderAssetGroups(assets: any) {
     ? groups
         .map(
           (group) =>
-            `<details class="asset-group"><summary><span class="group-icon">▱</span><span><b>${group.title}</b><small>${group.items.length} asset${group.items.length === 1 ? "" : "s"}</small></span><i>⌄</i></summary><div>${group.key === "kns" ? `<div class="kns-chips">${group.items.map((item: any, index: number) => `<button data-group="${group.key}" data-index="${index}">◎ ${esc(item.symbol)}</button>`).join("")}</div>` : group.items.map((item: any, index: number) => `<button class="asset-row" data-group="${group.key}" data-index="${index}"><span class="asset-icon" id="icon-${group.key}-${index}">${item.raw.image_url ? `<img src="${esc(item.raw.image_url)}" alt="">` : esc(item.symbol.slice(0, 1))}</span><span><b data-preserve-case>${esc(item.symbol)}</b><small>${status.settings.hideBalances ? "••••••" : esc(item.balance)}</small></span><i>›</i></button>`).join("")}</div></details>`,
+            `<details class="asset-group" data-category="${group.key}" ${openGroups.has(group.key) ? "open" : ""}><summary><span class="group-icon">▱</span><span><b>${group.title}</b><small>${group.items.length} asset${group.items.length === 1 ? "" : "s"}</small></span><i>⌄</i></summary><div>${group.key === "kns" ? `<div class="kns-chips">${group.items.map((item: any, index: number) => `<button data-group="${group.key}" data-index="${index}">◎ ${esc(item.symbol)}</button>`).join("")}</div>` : group.items.map((item: any, index: number) => `<button class="asset-row" data-group="${group.key}" data-index="${index}"><span class="asset-icon" id="icon-${group.key}-${index}">${item.raw.image_url ? `<img src="${esc(item.raw.image_url)}" alt="">` : esc(item.symbol.slice(0, 1))}</span><span><b data-preserve-case>${esc(item.symbol)}</b><small>${status.settings.hideBalances ? "••••••" : esc(item.balance)}</small></span><i>›</i></button>`).join("")}</div></details>`,
         )
         .join("")
     : '<div class="empty">No assets or names found.</div>';

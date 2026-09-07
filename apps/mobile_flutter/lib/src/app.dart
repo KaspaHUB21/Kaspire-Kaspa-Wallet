@@ -1474,12 +1474,17 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  'Wallet effect: ${walletNet <= 0 ? '−' : '+'}${formatSompi(walletNet.abs())} KAS',
+                  'Draft wallet balance change: ${walletNet <= 0 ? '−' : '+'}${formatSompi(walletNet.abs())} KAS',
                   style: const TextStyle(
                       fontSize: 23, fontWeight: FontWeight.w900),
                 ),
-                Text(
-                    'Network fee: ${formatSompi((review['feeSompi'] as num).toInt())} KAS'),
+                Text(review['finalFeeKnown'] == true &&
+                        review['feeSompi'] is num
+                    ? 'Network fee: ${formatSompi((review['feeSompi'] as num).toInt())} KAS'
+                    : 'Final network fee: determined when the buyer completes the transaction'),
+                if ((review['fundingDeficitSompi'] as num? ?? 0) > 0)
+                  Text(
+                      'Buyer funding required: ${formatSompi((review['fundingDeficitSompi'] as num).toInt())} KAS plus network fee · Sign only'),
                 Text(
                     'Signing ${review['selectedInputCount']} of ${review['inputCount']} inputs · ${review['outputCount']} outputs'),
                 const SizedBox(height: 12),
@@ -1525,6 +1530,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                     child: SelectableText(
                       '#${item['index']} · ${formatSompi((item['amountSompi'] as num).toInt())} KAS'
                       '${item['returnsToWallet'] == true ? ' · RETURNS TO WALLET' : ''}\n'
+                      '${item['signatureBound'] == true ? 'SIGNATURE-BOUND PAYOUT\n' : 'NOT BOUND BY THIS SIGNATURE\n'}'
                       '${item['address'] ?? 'Non-standard/covenant script'}'
                       '${item['covenantId'] == null ? '' : '\nCovenant: ${item['covenantId']}'}\n'
                       'Script: ${item['scriptPublicKey']}',

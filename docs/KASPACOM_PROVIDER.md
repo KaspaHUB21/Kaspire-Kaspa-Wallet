@@ -1,5 +1,9 @@
 # Kaspire provider API hand-off for KaspaCom
 
+Seller-order update: [partially funded SINGLE|ANYONECANPAY offers](PSKT_SELLER_OFFERS.md)
+are supported from Android 0.11.29 / extension 0.4.7, including native review
+of the missing buyer funding and signature-bound payouts.
+
 This document is the provider API documentation KaspaCom requested for its
 wallet review. It documents Kaspire-owned native capabilities and transports;
 it is **not** a KCOM adapter, SDK, or KaspaCom application integration.

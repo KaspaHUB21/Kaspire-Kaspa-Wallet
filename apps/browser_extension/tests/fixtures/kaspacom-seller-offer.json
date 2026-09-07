@@ -1,0 +1,20 @@
+{
+  "psktTransactionJson": "{\"id\":\"9df922c27a0e79909e47d79d8e0f647d2a6036393407266ddf6544f446b2ee5d\",\"version\":0,\"inputs\":[{\"transactionId\":\"399dd54189f267670cdd8c2d5abc8711066730292e5e82bace4c4a5e4756db2f\",\"index\":0,\"sequence\":\"0\",\"sigOpCount\":1,\"computeBudget\":0,\"signatureScript\":\"\",\"utxo\":{\"address\":\"kaspatest:ppzuffepqpzn6h5c28fsmu0sxpagnrc8aase85pg3gaf2mnajdpuz30wh5uf2\",\"amount\":\"105000000\",\"scriptPublicKey\":\"0000aa2045c4a72100453d5e9851d30df1f0307a898f07ef6193d0288a3a956e7d9343c187\",\"blockDaaScore\":\"564550998\",\"isCoinbase\":false,\"covenantId\":null}}],\"outputs\":[{\"value\":\"305000000\",\"scriptPublicKey\":\"0000205a2410e8675943ad1277cc3f42474b74739c67f962b60276b3ad1ddc870dd0daac\",\"covenant\":null}],\"subnetworkId\":\"0000000000000000000000000000000000000000\",\"lockTime\":\"0\",\"gas\":\"0\",\"storageMass\":\"0\",\"payload\":\"\"}",
+  "submitTransaction": false,
+  "signInputs": [
+    {
+      "index": 0,
+      "sighashType": 132
+    }
+  ],
+  "scripts": [
+    {
+      "inputIndex": 0,
+      "scriptHex": "205a2410e8675943ad1277cc3f42474b74739c67f962b60276b3ad1ddc870dd0daac0063076b6173706c6578002a7b2270223a226b72632d3230222c226f70223a2273656e64222c227469636b223a2267696c616465227d68",
+      "signType": 132,
+      "signatureScript": {
+        "mode": "wrap-signature"
+      }
+    }
+  ]
+}

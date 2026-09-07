@@ -1700,8 +1700,16 @@ class MainActivity : FlutterFragmentActivity() {
             "signPskt" ->
                 "PSKT ${json.getString("transactionId").take(16)}…\n" +
                     "${json.getInt("selectedInputCount")} of ${json.getInt("inputCount")} inputs · " +
-                    "${json.getInt("outputCount")} outputs · Fee ${json.getLong("feeSompi")} sompi · " +
-                    "${json.getJSONArray("warnings").length()} warning(s)"
+                    "${json.getInt("outputCount")} outputs · " +
+                    (if (json.optBoolean("finalFeeKnown") && !json.isNull("feeSompi"))
+                        "Fee ${json.getLong("feeSompi")} sompi"
+                    else "Final fee unknown · buyer funding ${json.optLong("fundingDeficitSompi")} sompi plus fee") +
+                    "\n" + (0 until json.getJSONArray("outputs").length()).joinToString("\n") { index ->
+                        val output = json.getJSONArray("outputs").getJSONObject(index)
+                        "Output $index: ${output.getLong("amountSompi")} sompi · " +
+                            (if (output.optBoolean("signatureBound")) "BOUND" else "UNBOUND") +
+                            "\n${output.optString("address", "Script: " + output.getString("scriptPublicKey"))}"
+                    } + "\n${json.getJSONArray("warnings").length()} warning(s)"
             else -> error("Unsupported native review operation")
         }
         synchronized(authorizationLock) {

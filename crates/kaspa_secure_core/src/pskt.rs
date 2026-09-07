@@ -127,6 +127,7 @@ pub struct PsktOutputReview {
     pub script_public_key: String,
     pub returns_to_wallet: bool,
     pub covenant_id: Option<String>,
+    pub signature_bound: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,7 +142,9 @@ pub struct PreparedPskt {
     pub selected_input_count: usize,
     pub input_total_sompi: u64,
     pub output_total_sompi: u64,
-    pub fee_sompi: u64,
+    pub fee_sompi: Option<u64>,
+    pub funding_deficit_sompi: u64,
+    pub final_fee_known: bool,
     pub wallet_input_sompi: u64,
     pub wallet_output_sompi: u64,
     pub wallet_net_sompi: i128,
@@ -204,7 +207,11 @@ pub fn sign_pskt(
             Value::String(hex::encode(signature_script));
     }
     built.tx.finalize();
-    let submit_json = crate::transaction::submit_json(&built.tx).ok();
+    let submit_json = if built.review.funding_deficit_sompi == 0 {
+        crate::transaction::submit_json(&built.tx).ok()
+    } else {
+        None // A seller offer is sign-only, not a broadcastable transaction.
+    };
     Ok(SignedPskt {
         signed_tx_json: serde_json::to_string(&built.json).map_err(|_| CoreError::Serialization)?,
         submit_json,
@@ -328,6 +335,9 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         });
         let script_sighash = SigHashType::from_u8(requested_script_sighash)
             .map_err(|_| CoreError::InvalidRequest("unsupported script sighash type".into()))?;
+        if script_sighash.is_sighash_single() && script.input_index >= outputs_json.len() {
+            return Err(CoreError::InvalidRequest("SIGHASH_SINGLE input has no matching output".into()));
+        }
         if let Some(selected_sighash) = sighashes_by_index.get(&script.input_index) {
             if selected_sighash.to_u8() != script_sighash.to_u8() {
                 return Err(CoreError::InvalidRequest(
@@ -451,7 +461,7 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         let selection = sighashes
             .iter()
             .find(|(selected_index, _)| *selected_index == index);
-        let address = extract_script_pub_key_address(&script, Prefix::Mainnet)
+        let address = extract_script_pub_key_address(&script, sender.prefix)
             .ok()
             .map(|address| address.to_string());
         input_reviews.push(PsktInputReview {
@@ -499,7 +509,7 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
                 .ok_or_else(|| CoreError::InvalidRequest("wallet amount overflow".into()))?;
         }
         let covenant = parse_covenant(item.get("covenant"), inputs_json.len())?;
-        let address = extract_script_pub_key_address(&script, Prefix::Mainnet)
+        let address = extract_script_pub_key_address(&script, sender.prefix)
             .ok()
             .map(|address| address.to_string());
         if address.is_none() {
@@ -514,16 +524,31 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
             script_public_key: script_hex.to_owned(),
             returns_to_wallet: returns,
             covenant_id: covenant.map(|binding| binding.covenant_id.to_string()),
+            signature_bound: sighashes.iter().any(|(input_index, hash)| {
+                hash.is_sighash_all() || (hash.is_sighash_single() && *input_index == index)
+            }),
         });
         outputs.push(TransactionOutput::with_covenant(amount, script, covenant));
     }
-    if output_total > input_total {
+    let funding_deficit = output_total.saturating_sub(input_total);
+    // A marketplace seller commits their input and same-index payout while
+    // the buyer supplies funding later. Never relax this for other sighashes.
+    let seller_offer = !sighashes.is_empty()
+        && sighashes.iter().all(|(_, hash)| hash.to_u8() == 132);
+    if funding_deficit > 0 && !seller_offer {
         return Err(CoreError::InvalidRequest(
             "outputs exceed embedded UTXO value".into(),
         ));
     }
-    let fee = input_total - output_total;
-    if fee > input_total / 10 && fee > 10_000_000 {
+    let fee = input_total.checked_sub(output_total);
+    let final_fee_known = sighashes.iter().all(|(_, hash)| hash.to_u8() == 1);
+    if funding_deficit > 0 {
+        warnings.push(format!("Unfunded seller offer: buyer must add at least {funding_deficit} sompi plus the network fee. Final fee is unknown. Sign-only; not ready for broadcast."));
+    }
+    if !final_fee_known {
+        warnings.push("Totals describe this draft only. Inspect the signature-bound outputs: other inputs or outputs may change; the final network fee is not yet fixed.".into());
+    }
+    if fee.is_some_and(|fee| fee > input_total / 10 && fee > 10_000_000) {
         warnings.push("Network fee exceeds 10% of all transaction inputs.".into());
     }
     if sighashes.len() != inputs_json.len() {
@@ -572,7 +597,9 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         "version": version,
         "inputTotalSompi": input_total.to_string(),
         "outputTotalSompi": output_total.to_string(),
-        "feeSompi": fee.to_string(),
+        "feeSompi": fee.map(|value| value.to_string()),
+        "fundingDeficitSompi": funding_deficit.to_string(),
+        "finalFeeKnown": final_fee_known,
         "walletInputSompi": wallet_input.to_string(),
         "walletOutputSompi": wallet_output.to_string(),
         "payloadHex": payload_hex,
@@ -606,6 +633,8 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
             input_total_sompi: input_total,
             output_total_sompi: output_total,
             fee_sompi: fee,
+            funding_deficit_sompi: funding_deficit,
+            final_fee_known,
             wallet_input_sompi: wallet_input,
             wallet_output_sompi: wallet_output,
             wallet_net_sompi: wallet_net,
@@ -942,10 +971,88 @@ mod tests {
     }
 
     #[test]
+    fn prepares_exact_kaspacom_testnet_seller_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!("../../../apps/browser_extension/tests/fixtures/kaspacom-seller-offer.json")).unwrap();
+        let sender = Address::new(Prefix::Testnet, kaspa_addresses::Version::PubKey, &hex::decode("5a2410e8675943ad1277cc3f42474b74739c67f962b60276b3ad1ddc870dd0da").unwrap());
+        let request = PsktRequest {
+            sender: sender.to_string(),
+            tx_json_string: fixture["psktTransactionJson"].as_str().unwrap().into(),
+            sign_inputs: serde_json::from_value(fixture["signInputs"].clone()).unwrap(),
+            scripts: serde_json::from_value(fixture["scripts"].clone()).unwrap(),
+        };
+        let review = prepare_pskt(&request).unwrap();
+        assert_eq!(review.funding_deficit_sompi, 200_000_000);
+        assert_eq!(review.fee_sompi, None);
+        assert_eq!(review.outputs[0].address.as_deref(), Some(request.sender.as_str()));
+        assert_eq!(review.inputs[0].signature_script_mode.as_deref(), Some("wrap-signature"));
+        assert!(review.outputs[0].signature_bound);
+    }
+
+    #[test]
+    fn seller_offer_allows_buyer_funding_but_binds_payout() {
+        use kaspa_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
+        let mut request = request();
+        request.sign_inputs[0].sighash_type = 132;
+        let mut json: Value = serde_json::from_str(&request.tx_json_string).unwrap();
+        let key = derive_key(SECRET).unwrap();
+        let pair = secp256k1::Keypair::from_seckey_slice(&secp256k1::Secp256k1::new(), &*key).unwrap();
+        let pubkey = pair.x_only_public_key().0;
+        let redeem = hex::decode(format!("20{}ac", hex::encode(pubkey.serialize()))).unwrap();
+        json["inputs"][0]["utxo"]["scriptPublicKey"] = json!(script_json(&pay_to_script_hash_script(&redeem)));
+        json["inputs"][0]["utxo"]["amount"] = json!("105000000");
+        json["outputs"][0]["value"] = json!("305000000");
+        json["marketplaceMetadata"] = json!({"seller": "preserved"});
+        request.scripts = vec![PsktScriptInput {input_index: 0, script_hex: hex::encode(&redeem), sign_type: Some(132), signature_script: None}];
+        request.tx_json_string = json.to_string();
+        let built = build_pskt(&request).unwrap();
+        assert_eq!(built.review.funding_deficit_sompi, 200_000_000);
+        assert_eq!(built.review.fee_sompi, None);
+        assert!(!built.review.final_fee_known);
+        assert!(built.review.outputs[0].signature_bound);
+        let signed = sign_pskt(SECRET, &request, &built.review.review_hash).unwrap();
+        assert!(signed.submit_json.is_none());
+        let signed_json: Value = serde_json::from_str(&signed.signed_tx_json).unwrap();
+        assert_eq!(signed_json["marketplaceMetadata"], json["marketplaceMetadata"]);
+        let script = hex::decode(signed_json["inputs"][0]["signatureScript"].as_str().unwrap()).unwrap();
+        let signature = secp256k1::schnorr::Signature::from_slice(&script[1..65]).unwrap();
+        assert_eq!(script[65], 132);
+        let sighash = SigHashType::from_u8(132).unwrap();
+        let hash = |tx: Transaction, entries: Vec<UtxoEntry>| {
+            let populated = SignableTransaction::with_entries(tx, entries);
+            let digest = calc_schnorr_signature_hash(&populated.as_verifiable(), 0, sighash, &SigHashReusedValuesUnsync::new());
+            digest
+        };
+        let original_hash = hash(built.tx.clone(), built.entries.clone());
+        let mut completed = built.tx.clone();
+        let mut buyer_input = completed.inputs[0].clone();
+        buyer_input.previous_outpoint.transaction_id = Hash::from_str(&"22".repeat(32)).unwrap();
+        completed.inputs.push(buyer_input);
+        let mut entries = built.entries.clone();
+        let mut buyer_entry = entries[0].clone();
+        buyer_entry.amount = 250_000_000;
+        entries.push(buyer_entry);
+        let mut change = completed.outputs[0].clone();
+        change.value = 49_000_000;
+        completed.outputs.push(change);
+        let completed_hash = hash(completed.clone(), entries.clone());
+        assert_eq!(original_hash, completed_hash);
+        let secp = secp256k1::Secp256k1::verification_only();
+        secp.verify_schnorr(&signature, &secp256k1::Message::from_digest_slice(&completed_hash.as_bytes()).unwrap(), &pubkey).unwrap();
+        completed.outputs[0].value -= 1;
+        let tampered = hash(completed, entries);
+        assert!(secp.verify_schnorr(&signature, &secp256k1::Message::from_digest_slice(&tampered.as_bytes()).unwrap(), &pubkey).is_err());
+        for disallowed in [1, 2, 4, 129, 130] {
+            request.sign_inputs[0].sighash_type = disallowed;
+            request.scripts[0].sign_type = Some(disallowed);
+            assert!(prepare_pskt(&request).is_err(), "sighash {disallowed}");
+        }
+    }
+
+    #[test]
     fn signs_reviewed_safejson_and_binds_review() {
         let request = request();
         let prepared = prepare_pskt(&request).unwrap();
-        assert_eq!(prepared.fee_sompi, 1_000_000);
+        assert_eq!(prepared.fee_sompi, Some(1_000_000));
         assert_eq!(prepared.wallet_net_sompi, -1_000_000);
         assert!(prepared.warnings.is_empty());
         assert!(matches!(

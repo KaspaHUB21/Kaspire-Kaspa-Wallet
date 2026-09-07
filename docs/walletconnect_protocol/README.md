@@ -144,6 +144,11 @@ The wallet fetches untrusted UTXOs itself, then the native Rust core reconstruct
 
 ## Generic PSKT signing
 
+From Android 0.11.29, sign-only seller drafts may have outputs exceeding the
+currently embedded inputs when all selected inputs use `SINGLE|ANYONECANPAY`
+(132) with matching output indexes. See [seller offers](../PSKT_SELLER_OFFERS.md)
+for funding-deficit, nullable fee and signature-bound payout review fields.
+
 Kaspire exposes `kaspa_signPskt` for dApp-independent Kaspa transaction flows,
 including marketplace listings and purchases, KRC-721/KNS transfers, and
 covenant interactions. It uses the Kasware-compatible SafeJSON request shape:

@@ -4,9 +4,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
 import '../services/app_settings.dart';
+import '../services/kaspa_api.dart';
 import '../theme.dart';
 
-class Krc20TokenDetailScreen extends StatelessWidget {
+class Krc20TokenDetailScreen extends StatefulWidget {
   const Krc20TokenDetailScreen({
     super.key,
     required this.asset,
@@ -21,6 +22,31 @@ class Krc20TokenDetailScreen extends StatelessWidget {
   final String fiatCode;
   final String fiatSymbol;
   final VoidCallback onSend;
+
+  @override
+  State<Krc20TokenDetailScreen> createState() => _Krc20TokenDetailScreenState();
+}
+
+class _Krc20TokenDetailScreenState extends State<Krc20TokenDetailScreen> {
+  WalletAsset? _enriched;
+  double? _rate;
+  WalletAsset get asset => _enriched ?? widget.asset;
+  double get usdToFiat => _rate ?? widget.usdToFiat;
+  String get fiatCode => widget.fiatCode;
+  String get fiatSymbol => widget.fiatSymbol;
+  VoidCallback get onSend => widget.onSend;
+
+  @override
+  void initState() {
+    super.initState();
+    KaspaApi().loadSelectedFiatRate().then((value) {
+      if (mounted) setState(() => _rate = value);
+    }).catchError((_) {});
+    // The user can open a token before background market enrichment completes.
+    KaspaApi().loadTokenMarket(widget.asset).then((value) {
+      if (mounted) setState(() => _enriched = value);
+    });
+  }
 
   String _price(double? value, String unit, {String prefix = ''}) {
     if (value == null || !value.isFinite) return '—';
