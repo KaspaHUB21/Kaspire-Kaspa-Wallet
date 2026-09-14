@@ -1,0 +1,119 @@
+/* Same local relief + brushed metal assets as the Android HUB21 theme.
+   No remote textures, no rasterized labels, balances or controls. */
+:root[data-theme="hub21"] {
+  --accent: #f2d687;
+  --accent2: #fff1c7;
+  --surface: #1c1e19;
+  --surface2: #2b2d26;
+  --line: #8f7b4e;
+  --muted: #d8d5c8;
+  --glow: #4b3716;
+  --text: #faf4e1;
+  --panel: #1c1e19;
+  --border: #8f7b4e;
+  --hub-metal: url("themes/hub21/brushed-metal.png"), linear-gradient(112deg, #77796f 0%, #353932 28%, #1d211e 62%, #655738 100%);
+  --hub-gold: url("themes/hub21/brushed-metal.png"), linear-gradient(105deg, #73766e 0%, #2d312c 35%, #353323 55%, #c38d21 100%);
+}
+:root[data-theme="hub21"] body {
+  color: var(--text);
+  background: #12110c url("themes/hub21/relief.png") center top / cover no-repeat;
+}
+:root[data-theme="hub21"] .app { background: linear-gradient(#00000012, #00000045); }
+:root[data-theme="hub21"] :is(.top, .bottom-actions) {
+  background: var(--hub-metal);
+  background-blend-mode: soft-light, normal;
+  background-size: 512px, cover;
+  border-block: 1px solid #e5d49b;
+  box-shadow: 0 2px 0 #66542c, 0 8px 20px #0009;
+}
+:root[data-theme="hub21"] .top > b,
+:root[data-theme="hub21"] .first-brand b {
+  background: linear-gradient(130deg, #fff, #d6d8d2 35%, #ffe8b1 58%, #bc8c30 80%, #fff1c7);
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 1px #000);
+}
+:root[data-theme="hub21"] .brand-store img {
+  filter: grayscale(1) sepia(.6) brightness(1.4) drop-shadow(0 2px 2px #000);
+}
+:root[data-theme="hub21"] :is(.balance-card, .quick-actions > button, .asset-group, .settings-link, .settings-group, .wallet-card, .price-grid > div, .review-card, .tx-meta, .address-full, .private-key-card, .detail-section, .copy-detail, .receipt-details, .app-promo) {
+  border: 3px double #efdfa6;
+  border-radius: 18px;
+  background: var(--hub-metal);
+  background-blend-mode: soft-light, normal;
+  background-size: 512px, cover;
+  box-shadow: inset 0 2px 1px #ffffff75, inset 0 -2px 2px #000b, 0 0 0 1px #745727, 0 5px 12px #000b;
+  color: var(--text);
+}
+:root[data-theme="hub21"] .dashboard .balance-card {
+  margin-top: 24px;
+  background-image: url("themes/hub21/brushed-metal.png"), linear-gradient(105deg, #898c80, #353932 30%, #63572c 60%, #c49322 86%, #e4b94e);
+  border-width: 5px;
+  border-radius: 23px;
+  padding: 24px 18px;
+}
+:root[data-theme="hub21"] .balance-card strong {
+  color: #f3ecd4;
+  text-shadow: 0 2px 1px #0c0c09, 0 -1px 0 #fff8;
+  font-size: clamp(23px, 6.6vw, 30px);
+  overflow-wrap: anywhere;
+}
+:root[data-theme="hub21"] .balance-card p { max-width: calc(100% - 34px); }
+:root[data-theme="hub21"] .balance-card small { font-weight: 700; color: #ffedb4; }
+:root[data-theme="hub21"] .quick-actions { gap: 10px; }
+:root[data-theme="hub21"] .quick-actions > button { border-radius: 13px; min-height: 76px; }
+:root[data-theme="hub21"] .quick-actions b { text-shadow: 0 2px 2px #000; }
+:root[data-theme="hub21"] .asset-group { margin-bottom: 12px; padding: 4px 12px; }
+:root[data-theme="hub21"] .settings-link { padding: 14px 12px; margin-bottom: 12px; }
+:root[data-theme="hub21"] .settings-group { padding: 0 12px; margin-bottom: 12px; }
+:root[data-theme="hub21"] .asset-row { color: var(--text); }
+:root[data-theme="hub21"] .group-icon { background: transparent; font-size: 26px; text-shadow: 0 2px 2px #000; }
+/* Reading surfaces protect all text that otherwise sits on the busy relief. */
+:root[data-theme="hub21"] :is(.section-title, .settings-title, .settings-about, .wallet-head, .form, .verify-grid, .onboard > p, .first-run > p, .first-run > h1, .token-detail > h1, .token-detail > p, .token-detail > strong, .nft-screen > h1, .nft-screen > p, .receive > h1, .receive > p, .send-screen > h1, .form-page > h1, .wallets-screen > h1, .wallets-screen > h2, .network-screen > h1, .address-book > h1, .eyebrow, .hint, .note, .available, .loading, .empty, .confirm-page > p, .confirm-page > h1, .unlock > h1, .unlock > p, .private-key-result > h1, .transaction-detail > header, .receipt-screen > h1) {
+  background: #141611;
+  color: var(--text);
+  border: 1px solid #756647;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 3px 8px #0007;
+}
+:root[data-theme="hub21"] .wallet-head { padding: 9px; }
+:root[data-theme="hub21"] .form :is(.available, .eyebrow) { box-shadow: none; }
+:root[data-theme="hub21"] .price-grid { grid-template-columns: 1fr; }
+:root[data-theme="hub21"] .price-grid > div { text-align: left; gap: 8px; }
+:root[data-theme="hub21"] .price-grid b { font-size: 20px; color: var(--text); }
+:root[data-theme="hub21"] .price-grid span { color: var(--accent2); }
+:root[data-theme="hub21"] :is(input, textarea, select, .password-input) {
+  background: #20221b;
+  color: var(--text);
+  border-color: #897b52;
+}
+:root[data-theme="hub21"] :is(.recipient-sheet, .nft-preview, .approval-sheet, .brand-verification, .address-verification, .info-box, .endpoint-card, .network-list, .diagnostic, .raw-json pre, .seed-word) {
+  background: #191c16;
+  color: var(--text);
+  border-color: #b49a5c;
+}
+:root[data-theme="hub21"] button:not(.wallet-select):not(.brand-store):not(.asset-row):not(.recipient-row):not(.copy-wallet):not(.report-bug):not(#hub21):not(.password-reveal):not(.eye):not(.nft-card) {
+  background-image: var(--hub-gold);
+  background-blend-mode: soft-light, normal;
+  background-size: 512px, cover;
+  color: var(--accent2);
+  border: 3px double #dac991;
+  box-shadow: inset 0 1px 1px #fff9, inset 0 -2px 2px #0009, 0 2px 5px #0008;
+  text-shadow: 0 1px 2px #000;
+}
+:root[data-theme="hub21"] button:disabled { opacity: .5; cursor: not-allowed; }
+:root[data-theme="hub21"] button:focus-visible { outline: 2px solid #fff3c7; outline-offset: 3px; }
+:root[data-theme="hub21"] :is(.error, .warning-box) { background: #291b14; padding: 10px; border-radius: 10px; }
+:root[data-theme="hub21"] .error:empty { display: none; }
+:root[data-theme="hub21"] .top button { text-shadow: none; }
+:root[data-theme="hub21"] .receive img { background: white; }
+:root[data-theme="hub21"] body > #app > main:not(.app) > :is(h1, p) { background: #141611; padding: 12px; border-radius: 12px; }
+:root[data-theme="hub21"] .transaction-detail > :is(h1, p),
+:root[data-theme="hub21"] .activity > h1,
+:root[data-theme="hub21"] .wallets-screen > p {
+  background: #141611;
+  padding: 12px;
+  border: 1px solid #756647;
+  border-radius: 12px;
+}

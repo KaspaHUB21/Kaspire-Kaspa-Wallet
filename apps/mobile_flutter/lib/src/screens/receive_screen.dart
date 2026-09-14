@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
@@ -36,21 +37,23 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
           padding: const EdgeInsets.all(20),
           children: [
             const SizedBox(height: 8),
-            const Text(
+            Hub21Readable(
+                child: const Text(
               'RECEIVE KAS',
               style: TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.w900,
                 letterSpacing: -.8,
               ),
-            ),
+            )),
             const SizedBox(height: 8),
-            Text(
+            Hub21Readable(
+                child: Text(
               NetworkSettings.isTestnet
                   ? 'Share this address for TN10 test KAS payments.'
                   : 'Share this address for Kaspa mainnet payments.',
               style: TextStyle(color: KasVaultTheme.muted),
-            ),
+            )),
             const SizedBox(height: 34),
             Center(
               child: Container(
@@ -94,11 +97,13 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(17),
-              decoration: BoxDecoration(
-                color: KasVaultTheme.panel,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: KasVaultTheme.line),
-              ),
+              decoration: KasVaultTheme.isHub21
+                  ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+                  : BoxDecoration(
+                      color: KasVaultTheme.panel,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: KasVaultTheme.line),
+                    ),
               child: Text(
                 widget.address,
                 textAlign: TextAlign.center,
@@ -139,14 +144,15 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(54),
                       backgroundColor: KasVaultTheme.mint,
-                      foregroundColor: KasVaultTheme.ink,
+                      foregroundColor: KasVaultTheme.filledButtonText,
                     ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 20),
-            Row(
+            Hub21Readable(
+                child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Icon(Icons.info_outline,
@@ -165,7 +171,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                   ),
                 ),
               ],
-            ),
+            )),
           ],
         ),
       );

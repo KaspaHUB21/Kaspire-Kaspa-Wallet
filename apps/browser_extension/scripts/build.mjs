@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 
@@ -12,7 +12,14 @@ execFileSync("/root/.cargo/bin/wasm-bindgen", ["../../target/wasm32-unknown-unkn
 await cp("generated/wasm", "dist/wasm", { recursive: true });
 await cp("node_modules/@kronsdk/kron-sdk/vendor/kaspa/kaspa_bg.wasm", "dist/wasm/kron_kaspa_bg.wasm");
 await cp("manifest.json", "dist/manifest.json");
+if (process.env.KASPIRE_TEST_BUILD === "hub21") {
+  const manifest = JSON.parse(await readFile("dist/manifest.json", "utf8"));
+  manifest.version = "0.4.7.1";
+  manifest.version_name = "0.4.7.1 HUB21 test";
+  await writeFile("dist/manifest.json", JSON.stringify(manifest, null, 2) + "\n");
+}
 await cp("static", "dist", { recursive: true });
+await cp("../mobile_flutter/assets/themes/hub21", "dist/themes/hub21", { recursive: true });
 await cp("../mobile_flutter/assets/branding/kaspire_app_icon_v4.png", "dist/kaspire-icon.png");
 await cp("../mobile_flutter/assets/branding/hub21_wordmark.png", "dist/hub21-wordmark.png");
 for (const [entry, outfile] of Object.entries({ "src/background/index.ts": "dist/background.js", "src/content/index.ts": "dist/content.js", "src/inpage/provider.ts": "dist/inpage.js", "src/ui/popup.ts": "dist/popup.js", "src/ui/wallet.ts": "dist/wallet.js", "src/ui/approval.ts":"dist/approval.js" })) {

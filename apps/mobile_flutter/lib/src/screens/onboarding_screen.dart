@@ -184,7 +184,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(58),
                   backgroundColor: KasVaultTheme.mint,
-                  foregroundColor: KasVaultTheme.ink,
+                  foregroundColor: KasVaultTheme.filledButtonText,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(18),
                   ),
@@ -252,7 +252,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(58),
                   backgroundColor: KasVaultTheme.mint,
-                  foregroundColor: KasVaultTheme.ink,
+                  foregroundColor: KasVaultTheme.filledButtonText,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(18),
                   ),

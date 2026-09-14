@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 
 import '../decimal_input_formatter.dart';
 import '../services/app_settings.dart';
@@ -50,10 +51,12 @@ class _EvmSendScreenState extends State<EvmSendScreen> {
               child: Column(children: [
                 SafeArea(
                     bottom: false,
-                    child: TabBar(tabs: [
-                      Tab(text: EvmNetworkConfig.current.nativeSymbol),
-                      const Tab(text: 'ASSETS')
-                    ])),
+                    child: Hub21Readable(
+                        padding: EdgeInsets.zero,
+                        child: TabBar(tabs: [
+                          Tab(text: EvmNetworkConfig.current.nativeSymbol),
+                          const Tab(text: 'ASSETS')
+                        ]))),
                 Expanded(
                     child: TabBarView(children: [
                   _EvmSendPanel(
@@ -274,8 +277,10 @@ class _EvmSendPanelState extends State<_EvmSendPanel> {
   @override
   Widget build(BuildContext context) =>
       ListView(padding: const EdgeInsets.fromLTRB(20, 22, 20, 40), children: [
-        Text('SEND $_symbol',
-            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
+        Hub21Readable(
+            child: Text('SEND $_symbol',
+                style: const TextStyle(
+                    fontSize: 26, fontWeight: FontWeight.w900))),
         const SizedBox(height: 18),
         TextField(
             controller: _recipient,
@@ -302,17 +307,21 @@ class _EvmSendPanelState extends State<_EvmSendPanel> {
           OutlinedButton(onPressed: _max, child: const Text('MAX'))
         ]),
         const SizedBox(height: 7),
-        Text(
-            'Available ${formatUnits(_balance, _decimals, visible: _decimals)} $_symbol',
-            textAlign: TextAlign.right,
-            style: const TextStyle(color: KasVaultTheme.muted, fontSize: 12)),
+        Hub21Readable(
+            child: Text(
+                'Available ${formatUnits(_balance, _decimals, visible: _decimals)} $_symbol',
+                textAlign: TextAlign.right,
+                style:
+                    const TextStyle(color: KasVaultTheme.muted, fontSize: 12))),
         const SizedBox(height: 20),
         Container(
             padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-                color: KasVaultTheme.panel,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: KasVaultTheme.line)),
+            decoration: KasVaultTheme.isHub21
+                ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+                : BoxDecoration(
+                    color: KasVaultTheme.panel,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: KasVaultTheme.line)),
             child: Column(children: [
               _InfoRow(label: 'Network', value: EvmNetworkConfig.current.name),
               const SizedBox(height: 10),
@@ -347,7 +356,7 @@ class _InfoRow extends StatelessWidget {
   final String value;
   @override
   Widget build(BuildContext context) => Row(children: [
-        Text(label, style: const TextStyle(color: KasVaultTheme.muted)),
+        Text(label, style: TextStyle(color: KasVaultTheme.detailText)),
         const Spacer(),
         Flexible(
             child: Text(value,
@@ -376,10 +385,12 @@ class _ReceiptCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-          color: KasVaultTheme.panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Theme.of(context).colorScheme.primary)),
+      decoration: KasVaultTheme.isHub21
+          ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+          : BoxDecoration(
+              color: KasVaultTheme.panel,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Theme.of(context).colorScheme.primary)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('TRANSACTION CONFIRMED',
             style: TextStyle(fontWeight: FontWeight.w900)),

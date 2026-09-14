@@ -1,0 +1,4 @@
+New optional HUB21 gold/silver theme with brushed-metal panels and readable text surfaces.
+KCC20, KRC721 collections and KNS names now sort alphabetically, alongside KRC20.
+Improved KNS pagination: successfully loaded pages remain visible if a later request fails, with an explicit incomplete-loading notice.
+Existing themes and signing protections remain unchanged.

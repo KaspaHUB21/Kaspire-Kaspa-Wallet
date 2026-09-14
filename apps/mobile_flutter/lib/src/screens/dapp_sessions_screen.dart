@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 
 import '../services/dapp_session_service.dart';
 import '../theme.dart';
@@ -172,18 +173,20 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
           const SizedBox(height: 24),
           Container(
             padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  KasVaultTheme.mint.withValues(alpha: .22),
-                  KasVaultTheme.panel,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: KasVaultTheme.mint),
-            ),
+            decoration: KasVaultTheme.isHub21
+                ? const Hub21MetalDecoration(radius: 22, rim: 2.5)
+                : BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        KasVaultTheme.mint.withValues(alpha: .22),
+                        KasVaultTheme.panel,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: KasVaultTheme.mint),
+                  ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -214,13 +217,14 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
             ),
           ),
           const SizedBox(height: 26),
-          const Text(
+          Hub21Readable(
+              child: const Text(
             'PAIR MANUALLY',
             style: TextStyle(
               color: KasVaultTheme.muted,
               fontWeight: FontWeight.w900,
             ),
-          ),
+          )),
           const SizedBox(height: 8),
           TextField(
             controller: _pairing,
@@ -245,25 +249,28 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
           ),
           if (_message != null) ...[
             const SizedBox(height: 10),
-            Text(
+            Hub21Readable(
+                child: Text(
               _message!,
               style: const TextStyle(color: KasVaultTheme.muted),
-            ),
+            )),
           ],
           const SizedBox(height: 28),
-          Text(
+          Hub21Readable(
+              child: Text(
             displayLabel('ACTIVE SESSIONS'),
             style: TextStyle(
               color: KasVaultTheme.muted,
               fontWeight: FontWeight.w900,
             ),
-          ),
+          )),
           const SizedBox(height: 8),
           if (sessions.isEmpty)
-            const Text(
+            Hub21Readable(
+                child: const Text(
               'No dApps connected.',
               style: TextStyle(color: KasVaultTheme.muted),
-            ),
+            )),
           ...sessions.map((entry) {
             final session = entry.value;
             final methods = <String>{
@@ -299,10 +306,11 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
             );
           }),
           const SizedBox(height: 24),
-          const Text(
+          Hub21Readable(
+              child: const Text(
             'Pairing does not authorize transactions. You approve the dApp, account permissions, and every later signing request separately. Reown domain verification provides anti-phishing context but does not guarantee that a dApp is safe.',
             style: TextStyle(color: KasVaultTheme.muted, height: 1.45),
-          ),
+          )),
         ],
       ),
     );

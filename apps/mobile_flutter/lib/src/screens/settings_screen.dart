@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -424,7 +425,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       (theme) => DropdownMenuItem(
                         value: theme,
                         child: Text(
-                          theme.name[0].toUpperCase() + theme.name.substring(1),
+                          theme.label,
                         ),
                       ),
                     )
@@ -863,8 +864,7 @@ class _SettingsOverview extends StatelessWidget {
                           (theme) => DropdownMenuItem(
                             value: theme,
                             child: Text(
-                              theme.name[0].toUpperCase() +
-                                  theme.name.substring(1),
+                              theme.label,
                             ),
                           ),
                         )
@@ -1136,20 +1136,21 @@ class _SettingsOverview extends StatelessWidget {
             Center(
               child: FutureBuilder<String>(
                 future: version,
-                builder: (context, snapshot) => Text(
+                builder: (context, snapshot) => Hub21Readable(
+                    child: Text(
                   snapshot.data ?? 'Kaspire · Layer 1 + L2',
                   style: const TextStyle(
                     color: KasVaultTheme.muted,
                     fontSize: 12,
                   ),
-                ),
+                )),
               ),
             ),
             Center(
               child: TextButton.icon(
                 onPressed: () => _open('https://t.me/kaspirewallet'),
                 icon: const Icon(Icons.telegram, size: 18),
-                label: const Text('Report a bug'),
+                label: const Hub21Readable(child: Text('Report a bug')),
               ),
             ),
           ],
@@ -1173,11 +1174,13 @@ class _SettingsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         margin: const EdgeInsets.only(bottom: 10),
-        decoration: BoxDecoration(
-          color: KasVaultTheme.panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: KasVaultTheme.line),
-        ),
+        decoration: KasVaultTheme.isHub21
+            ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+            : BoxDecoration(
+                color: KasVaultTheme.panel,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: KasVaultTheme.line),
+              ),
         child: ExpansionTile(
           leading: Icon(icon, color: KasVaultTheme.mint),
           title: Text(
@@ -1211,11 +1214,13 @@ class _NavigationSetting extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         margin: const EdgeInsets.only(bottom: 10),
-        decoration: BoxDecoration(
-          color: KasVaultTheme.panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: KasVaultTheme.line),
-        ),
+        decoration: KasVaultTheme.isHub21
+            ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+            : BoxDecoration(
+                color: KasVaultTheme.panel,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: KasVaultTheme.line),
+              ),
         child: ListTile(
           onTap: onTap,
           leading: Icon(icon, color: KasVaultTheme.mint),
@@ -1343,11 +1348,13 @@ class _SettingTile extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: KasVaultTheme.panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: KasVaultTheme.line),
-        ),
+        decoration: KasVaultTheme.isHub21
+            ? const Hub21MetalDecoration(radius: 18, rim: 1.5)
+            : BoxDecoration(
+                color: KasVaultTheme.panel,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: KasVaultTheme.line),
+              ),
         child: Row(
           children: [
             Icon(icon, color: color),

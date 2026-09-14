@@ -9,6 +9,10 @@ enum KaspireTheme {
   crimson,
   phoenix,
   cypherpunk,
+  hub21;
+
+  String get label =>
+      this == hub21 ? 'HUB21' : name[0].toUpperCase() + name.substring(1);
 }
 
 enum FiatCurrency {

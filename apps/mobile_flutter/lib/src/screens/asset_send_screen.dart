@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/asset_send_intent.dart';
@@ -683,29 +684,35 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             ],
           ),
           const SizedBox(height: 5),
-          Row(
+          Hub21Readable(
+              child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
                 'Available',
                 style: TextStyle(color: KasVaultTheme.muted, fontSize: 12),
               ),
-              Text(
+              const SizedBox(width: 8),
+              Expanded(
+                  child: Text(
                 '${_assetBalance(asset)} ${asset.symbol}',
                 style: const TextStyle(fontSize: 12),
-              ),
+                textAlign: TextAlign.right,
+              )),
             ],
-          ),
+          )),
         ],
       );
 
   Widget _networkSummary() => Container(
         padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: KasVaultTheme.panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: KasVaultTheme.line),
-        ),
+        decoration: KasVaultTheme.isHub21
+            ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+            : BoxDecoration(
+                color: KasVaultTheme.panel,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: KasVaultTheme.line),
+              ),
         child: const Column(
           children: [
             _TransferFact(label: 'Network', value: 'Kaspa Mainnet'),
@@ -769,12 +776,14 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
     return SafeArea(
       top: false,
       child: ListView(padding: const EdgeInsets.all(20), children: [
-        Text(displayLabel('SEND ASSET'),
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+        Hub21Readable(
+            child: Text(displayLabel('SEND ASSET'),
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900))),
         const SizedBox(height: 8),
-        const Text(
-            'KRC-20, KRC-721 and KNS use commit/reveal. KCC20 is signed locally and submitted directly to Kaspa mainnet.',
-            style: TextStyle(color: KasVaultTheme.muted)),
+        const Hub21Readable(
+            child: Text(
+                'KRC-20, KRC-721 and KNS use commit/reveal. KCC20 is signed locally and submitted directly to Kaspa mainnet.',
+                style: TextStyle(color: KasVaultTheme.muted))),
         const SizedBox(height: 20),
         SegmentedButton<_AssetKind>(segments: const [
           ButtonSegment(value: _AssetKind.krc20, label: Text('KRC-20')),
@@ -1018,15 +1027,17 @@ class _Kcc20Review extends StatelessWidget {
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 10),
-            const Text(
+            Hub21Readable(
+                child: const Text(
               'The native core reconstructed every state script and will execute every input locally before sending the transaction to Kaspa mainnet.',
               style: TextStyle(color: KasVaultTheme.muted),
-            ),
+            )),
             const SizedBox(height: 8),
-            const Text(
+            Hub21Readable(
+                child: const Text(
               'Toccata fees use fee mass (compute or normalized transient). Storage mass is shown separately as a hard capacity limit.',
               style: TextStyle(color: KasVaultTheme.muted),
-            ),
+            )),
             const SizedBox(height: 18),
             _Card(children: [
               const _Row('Validation', 'Indexer verified'),
@@ -1150,9 +1161,10 @@ class _AssetReview extends StatelessWidget {
               'Commit network fee', '${formatEnglishNumber(commit.feeKas)} KAS')
         ]),
         const SizedBox(height: 14),
-        const Text(
-            'The 0.3 KAS commit is returned to your wallet by the reveal transaction, minus its network fee. A saved pending transfer can be resumed.',
-            style: TextStyle(color: KasVaultTheme.muted)),
+        Hub21Readable(
+            child: const Text(
+                'The 0.3 KAS commit is returned to your wallet by the reveal transaction, minus its network fee. A saved pending transfer can be resumed.',
+                style: TextStyle(color: KasVaultTheme.muted))),
         if (status != null)
           Padding(
               padding: const EdgeInsets.only(top: 14),
@@ -1182,7 +1194,7 @@ class _TransferFact extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(color: KasVaultTheme.muted),
+              style: TextStyle(color: KasVaultTheme.detailText),
             ),
           ),
           Expanded(
@@ -1300,10 +1312,12 @@ class _Card extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.all(17),
-      decoration: BoxDecoration(
-          color: KasVaultTheme.panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: KasVaultTheme.line)),
+      decoration: KasVaultTheme.isHub21
+          ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+          : BoxDecoration(
+              color: KasVaultTheme.panel,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: KasVaultTheme.line)),
       child: Column(children: children));
 }
 
@@ -1315,7 +1329,7 @@ class _Row extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 7),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: const TextStyle(color: KasVaultTheme.muted)),
+        Text(label, style: TextStyle(color: KasVaultTheme.detailText)),
         const SizedBox(width: 12),
         Expanded(
             child: SelectableText(value,

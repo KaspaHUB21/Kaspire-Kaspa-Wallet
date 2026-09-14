@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/wallet_snapshot.dart';
@@ -98,16 +99,18 @@ class _Krc20TokenDetailScreenState extends State<Krc20TokenDetailScreen> {
             const SizedBox(height: 10),
             Center(child: _TokenImage(asset.imageUrl)),
             const SizedBox(height: 18),
-            Text(
+            Hub21Readable(
+                child: Text(
               asset.symbol,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 30,
                 fontWeight: FontWeight.w900,
               ),
-            ),
+            )),
             const SizedBox(height: 6),
-            Text(
+            Hub21Readable(
+                child: Text(
               '$_balance ${asset.symbol}',
               textAlign: TextAlign.center,
               style: const TextStyle(
@@ -115,7 +118,7 @@ class _Krc20TokenDetailScreenState extends State<Krc20TokenDetailScreen> {
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
               ),
-            ),
+            )),
             const SizedBox(height: 28),
             _PricePanel(
               title: 'Floor price',
@@ -172,24 +175,26 @@ class _PricePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: KasVaultTheme.panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: KasVaultTheme.mint, width: 1.2),
-          boxShadow: [
-            BoxShadow(
-              color: KasVaultTheme.mint.withValues(alpha: .13),
-              blurRadius: 18,
-            ),
-          ],
-        ),
+        decoration: KasVaultTheme.isHub21
+            ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+            : BoxDecoration(
+                color: KasVaultTheme.panel,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: KasVaultTheme.mint, width: 1.2),
+                boxShadow: [
+                  BoxShadow(
+                    color: KasVaultTheme.mint.withValues(alpha: .13),
+                    blurRadius: 18,
+                  ),
+                ],
+              ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               title,
-              style: const TextStyle(
-                color: KasVaultTheme.muted,
+              style: TextStyle(
+                color: KasVaultTheme.detailText,
                 fontWeight: FontWeight.w800,
               ),
             ),

@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import { sortedAssets, assetTicker, sameAsset } from "../shared/assetPresentation";
 const root = document.querySelector<HTMLElement>("#app")!;
 type View =
   | "home"
@@ -190,7 +191,7 @@ function classicCase(container: HTMLElement) {
   let node: Node | null;
   while ((node = walker.nextNode())) {
     if (node.parentElement?.closest(
-      "[data-preserve-case], .wallet-select b, .wallet-card-main b, .my-wallet b, .receive h1",
+      "[data-preserve-case], .wallet-select b, .wallet-card-main b, .my-wallet b, .receive h1, .token-detail h1, .token-detail > p, .token-detail > strong, .token-logo, .asset-icon, .nft-screen h1, .nft-preview h2, #asset-select, .kns-chips, .receipt-details b, .detail-row b, .detail-section b, .activity-row strong, .activity-row b, .activity-row small, .tx-detail-head b, code, pre",
     )) continue;
     const text = node.textContent ?? "";
     if (!/[A-Z]/.test(text) || text !== text.toUpperCase()) continue;
@@ -205,9 +206,7 @@ function classicCase(container: HTMLElement) {
   }
 }
 function ticker(input: unknown) {
-  return String(input ?? "")
-    .trim()
-    .toUpperCase();
+  return assetTicker(input);
 }
 function eyeIcon(hidden = false) {
   return `<svg class="ui-symbol" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.7"/>${hidden ? '<path d="m4 4 16 16"/>' : ""}</svg>`;
@@ -217,6 +216,9 @@ function lockIcon() {
 }
 function copyIcon() {
   return '<svg class="ui-symbol" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg>';
+}
+function settingsIcon() {
+  return '<svg class="ui-symbol" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 3-.6 2.2-1.7 1L4.5 6 2 10l1.6 1.6v1.8L2 15l2.5 4 2.2-.2 1.7 1L9 22h5l.6-2.2 1.7-1 2.2.2 2.5-4-1.6-1.6v-1.8L21 10l-2.5-4-2.2.2-1.7-1L14 3Z"/><circle cx="11.5" cy="12.5" r="3.2"/></svg>';
 }
 function storeUpdateStatus() {
   storeUpdateRequest ??= rawCommand("storeUpdateStatus").catch(() => ({
@@ -598,7 +600,7 @@ function home() {
     (item: any) => item.address === status.selectedAddress,
   );
   shell(
-    `<section class="dashboard"><div class="wallet-head"><div class="wallet-brand"><button id="wallets" class="wallet-select"><img src="kaspire-icon.png" alt=""><span><b>${esc(selected?.name ?? "Wallet")}</b><small id="active-address">${short(status.selectedAddress)}</small></span></button><button id="copy-main-address" class="copy-main" title="Verify and copy wallet address" aria-label="Verify and copy wallet address">${copyIcon()}</button></div><div class="head-buttons"><button id="network" class="pill" title="Switch network" aria-label="Switch network">● ${networkLabel()} <span aria-hidden="true">⌄</span></button><button id="settings" class="icon">⚙</button></div></div><section class="balance-card"><p>TOTAL BALANCE</p><strong id="balance">— ${status.network === "igra" ? "iKAS" : "KAS"}</strong><small id="fiat"></small><button id="privacy" class="eye" aria-label="${status.settings.hideBalances ? "Show balances" : "Hide balances"}">${eyeIcon(status.settings.hideBalances)}</button></section><div class="quick-actions"><button id="send"><b>↑</b><span>SEND</span></button><button id="receive"><b>↓</b><span>RECEIVE</span></button><button id="activity"><b>≡</b><span>ACTIVITY</span></button></div><section class="assets"><div class="section-title"><h2>ASSETS & NAMES</h2><span id="asset-count"></span></div><div id="asset-list"><div class="loading">Loading assets…</div></div></section><button id="app-promo" class="app-promo">Kaspire is even better in the app!<span>›</span></button></section>`,
+    `<section class="dashboard"><div class="wallet-head"><div class="wallet-brand"><button id="wallets" class="wallet-select"><img src="kaspire-icon.png" alt=""><span><b>${esc(selected?.name ?? "Wallet")}</b><small id="active-address">${short(status.selectedAddress)}</small></span></button><button id="copy-main-address" class="copy-main" title="Verify and copy wallet address" aria-label="Verify and copy wallet address">${copyIcon()}</button></div><div class="head-buttons"><button id="network" class="pill" title="Switch network" aria-label="Switch network">● ${networkLabel()} <span aria-hidden="true">⌄</span></button><button id="settings" class="icon" aria-label="Settings" title="Settings">${settingsIcon()}</button></div></div><section class="balance-card"><p>TOTAL BALANCE</p><strong id="balance">— ${status.network === "igra" ? "iKAS" : "KAS"}</strong><small id="fiat"></small><button id="privacy" class="eye" aria-label="${status.settings.hideBalances ? "Show balances" : "Hide balances"}">${eyeIcon(status.settings.hideBalances)}</button></section><div class="quick-actions"><button id="send"><b>↑</b><span>SEND</span></button><button id="receive"><b>↓</b><span>RECEIVE</span></button><button id="activity"><b>≡</b><span>ACTIVITY</span></button></div><section class="assets"><div class="section-title"><h2>ASSETS & NAMES</h2><span id="asset-count"></span></div><div id="asset-list"><div class="loading">Loading assets…</div></div></section><button id="app-promo" class="app-promo">Kaspire is even better in the app!<span>›</span></button></section>`,
   );
   document.querySelector<HTMLButtonElement>("#wallets")!.onclick = () =>
     go("wallets");
@@ -1065,7 +1067,7 @@ function settingsDetail() {
     );
   else if (view === "display")
     shell(
-      `<section class="form-page"><h1>Wallet display</h1><div class="form"><label>Currency<select id="currency">${["USD", "EUR", "GBP", "AUD", "CAD", "JPY", "CNY", "CHF", "INR", "BRL", "KRW"].map((code) => `<option ${status.settings.currency === code ? "selected" : ""}>${code}</option>`).join("")}</select></label><label>Kaspire design<select id="theme">${["midnight", "emerald", "amethyst", "sakura", "crimson", "phoenix", "cypherpunk"].map((theme) => `<option ${status.settings.theme === theme ? "selected" : ""}>${theme}</option>`).join("")}</select></label>${toggle("show-subwallets", "Show subwallets", status.settings.showSubwallets)}${toggle("hide", "Privacy: hide wallet amounts", status.settings.hideBalances)}</div></section>`,
+      `<section class="form-page"><h1>Wallet display</h1><div class="form"><label>Currency<select id="currency">${["USD", "EUR", "GBP", "AUD", "CAD", "JPY", "CNY", "CHF", "INR", "BRL", "KRW"].map((code) => `<option ${status.settings.currency === code ? "selected" : ""}>${code}</option>`).join("")}</select></label><label>Kaspire design<select id="theme">${["midnight", "emerald", "amethyst", "sakura", "crimson", "phoenix", "cypherpunk", "hub21"].map((theme) => `<option ${status.settings.theme === theme ? "selected" : ""} value="${theme}">${theme === "hub21" ? "HUB21" : theme}</option>`).join("")}</select></label>${toggle("show-subwallets", "Show subwallets", status.settings.showSubwallets)}${toggle("hide", "Privacy: hide wallet amounts", status.settings.hideBalances)}</div></section>`,
       "WALLET DISPLAY",
       true,
     );
@@ -1426,7 +1428,7 @@ async function loadHome() {
   }
 }
 async function loadEvmHome() {
-  const data = await command("balanceSnapshot"); snapshot = data;
+  const data = await command("balanceSnapshot"); data.tokens = sortedAssets(data.tokens ?? []); snapshot = data;
   if (!document.querySelector("#balance")) return;
   document.querySelector("#active-address")!.textContent = short(data.address);
   document.querySelector("#balance")!.textContent = status.settings.hideBalances ? `•••• ${data.nativeSymbol}` : `${fmt(data.balanceKas)} ${data.nativeSymbol}`;
@@ -1442,7 +1444,7 @@ function renderAssetGroups(assets: any) {
     {
       key: "krc20",
       title: "KRC-20 TOKENS",
-      items: [...(assets.tokens ?? [])].sort((a: any,b: any) => ticker(a.symbol).localeCompare(ticker(b.symbol), "en")).map((raw: any) => ({
+      items: sortedAssets(assets.tokens ?? []).map((raw: any) => ({
         kind: "krc20",
         symbol: ticker(raw.symbol),
         balance: tokenAmount(raw.raw_balance, raw.decimals),
@@ -1452,7 +1454,7 @@ function renderAssetGroups(assets: any) {
     {
       key: "kcc20",
       title: "KCC20 COVENANT TOKENS",
-      items: (assets.kcc20 ?? []).map((raw: any) => ({
+      items: sortedAssets(assets.kcc20 ?? []).map((raw: any) => ({
         kind: "kcc20",
         symbol: ticker(raw.symbol),
         balance: tokenAmount(raw.rawBalance, raw.decimals),
@@ -1462,7 +1464,7 @@ function renderAssetGroups(assets: any) {
     {
       key: "krc721",
       title: "KRC-721 COLLECTIONS",
-      items: (assets.krc721 ?? []).map((raw: any) => ({
+      items: sortedAssets(assets.krc721 ?? []).map((raw: any) => ({
         kind: "krc721",
         symbol: ticker(raw.symbol),
         balance: String(raw.balance ?? 1),
@@ -1472,7 +1474,7 @@ function renderAssetGroups(assets: any) {
     {
       key: "kns",
       title: "KNS DOMAINS",
-      items: (assets.domains ?? []).map((raw: any) => ({
+      items: sortedAssets(assets.domains ?? []).map((raw: any) => ({
         kind: "kns",
         symbol: raw.name,
         balance: "",
@@ -1641,7 +1643,7 @@ function legacyNftPreview(nft: any, asset: any) {
 }
 function send(asset: any) {
   let sendAllNative = false;
-  const owned =
+  const owned = sortedAssets(
     asset.kind === "krc20"
       ? (snapshot?.assets?.tokens ?? [])
       : asset.kind === "krc721"
@@ -1650,9 +1652,9 @@ function send(asset: any) {
           ? (snapshot?.assets?.domains ?? [])
           : asset.kind === "kcc20"
             ? (snapshot?.assets?.kcc20 ?? [])
-            : [];
+            : []);
   shell(
-    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send <span data-preserve-case>${esc(ticker(asset.symbol ?? asset.kind))}</span>`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select" data-preserve-case>${owned.map((item: any, index: number) => `<option value="${index}" ${item === asset.raw || item.symbol === asset.raw?.symbol ? "selected" : ""}>${esc(asset.kind === "kns" ? item.name : ticker(item.symbol))}${asset.tokenId ? ` #${esc(asset.tokenId)}` : ""}</option>`).join("")}</select></label>` : ""}<label>Address / KNS name<div class="recipient-input"><input id="recipient" autocomplete="off"><button id="choose-recipient" type="button" title="Address book">♙</button></div></label>${asset.kind === "krc721" ? `<label>Token ID<input id="token-id" value="${esc(asset.tokenId ?? asset.raw?.tokenId ?? "")}" readonly></label>` : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max" type="button">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div></section>`,
+    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send <span data-preserve-case>${esc(asset.kind === "kns" ? asset.symbol : ticker(asset.symbol ?? asset.kind))}</span>`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select" data-preserve-case>${owned.map((item: any, index: number) => `<option value="${index}" ${sameAsset(item, asset.raw, asset.kind) ? "selected" : ""}>${esc(asset.kind === "kns" ? item.name : ticker(item.symbol))}${asset.tokenId ? ` #${esc(asset.tokenId)}` : ""}</option>`).join("")}</select></label>` : ""}<label>Address / KNS name<div class="recipient-input"><input id="recipient" autocomplete="off"><button id="choose-recipient" type="button" title="Address book">♙</button></div></label>${asset.kind === "krc721" ? `<label>Token ID<input id="token-id" value="${esc(asset.tokenId ?? asset.raw?.tokenId ?? "")}" readonly></label>` : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max" type="button">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div></section>`,
     "Send",
     true,
   );
@@ -1831,6 +1833,9 @@ async function activity() {
               item.from = [{address:item.from}]; item.to = [{address:item.to}];
             }
             const direction = item.incoming ? "Received" : "Sent";
+            if (!isL2() && ["KRC20", "KRC721", "KCC20"].includes(String(item.assetKind).replaceAll("-", "").toUpperCase())) {
+              item.assetSymbol = ticker(item.assetSymbol);
+            }
             const amount =
               !isL2() && item.assetKind === "KAS"
                 ? sompiLabel(item.amountSompi)

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/asset_send_intent.dart';
@@ -42,7 +43,9 @@ class _SendScreenState extends State<SendScreen> {
           children: [
             const SafeArea(
               bottom: false,
-              child: TabBar(tabs: [Tab(text: 'KAS'), Tab(text: 'ASSETS')]),
+              child: Hub21Readable(
+                  padding: EdgeInsets.zero,
+                  child: TabBar(tabs: [Tab(text: 'KAS'), Tab(text: 'ASSETS')])),
             ),
             Expanded(
               child: TabBarView(
@@ -267,19 +270,21 @@ class _KasSendPanelState extends State<_KasSendPanel> {
         padding: const EdgeInsets.all(20),
         children: [
           const SizedBox(height: 8),
-          Text(
+          Hub21Readable(
+              child: Text(
             displayLabel('SEND KAS'),
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w900,
               letterSpacing: -.8,
             ),
-          ),
+          )),
           const SizedBox(height: 8),
-          const Text(
+          Hub21Readable(
+              child: const Text(
             'The native Rust core independently verifies UTXOs, outputs, change, fee and the approved review hash.',
             style: TextStyle(color: KasVaultTheme.muted, height: 1.4),
-          ),
+          )),
           const SizedBox(height: 28),
           TextField(
             controller: _recipient,
@@ -357,30 +362,36 @@ class _KasSendPanelState extends State<_KasSendPanel> {
           const SizedBox(height: 5),
           FutureBuilder<WalletSnapshot>(
             future: _wallet,
-            builder: (context, snapshot) => Row(
+            builder: (context, snapshot) => Hub21Readable(
+                child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
                   'Available',
                   style: TextStyle(color: KasVaultTheme.muted, fontSize: 12),
                 ),
-                Text(
+                const SizedBox(width: 8),
+                Expanded(
+                    child: Text(
                   snapshot.hasData
                       ? '${formatEnglishNumber(snapshot.data!.balanceKas, decimals: 8, trimTrailingZeros: true)} KAS'
                       : '— KAS',
                   style: const TextStyle(fontSize: 12),
-                ),
+                  textAlign: TextAlign.right,
+                )),
               ],
-            ),
+            )),
           ),
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(17),
-            decoration: BoxDecoration(
-              color: KasVaultTheme.panel,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: KasVaultTheme.line),
-            ),
+            decoration: KasVaultTheme.isHub21
+                ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+                : BoxDecoration(
+                    color: KasVaultTheme.panel,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: KasVaultTheme.line),
+                  ),
             child: Column(
               children: [
                 _SendFact(label: 'Network', value: NetworkSettings.displayName),
@@ -415,18 +426,19 @@ class _KasSendPanelState extends State<_KasSendPanel> {
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(58),
               backgroundColor: KasVaultTheme.mint,
-              foregroundColor: KasVaultTheme.ink,
+              foregroundColor: KasVaultTheme.filledButtonText,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
               ),
             ),
           ),
           const SizedBox(height: 14),
-          const Text(
+          Hub21Readable(
+              child: const Text(
             'For the first Mainnet test, send the smallest practical amount to an address you control.',
             textAlign: TextAlign.center,
             style: TextStyle(color: KasVaultTheme.muted, fontSize: 12),
-          ),
+          )),
         ],
       ),
     );
@@ -514,13 +526,15 @@ class _PaymentSuccess extends StatelessWidget {
             const SizedBox(height: 26),
             Container(
               padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: KasVaultTheme.panel,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: KasVaultTheme.mint.withValues(alpha: .4),
-                ),
-              ),
+              decoration: KasVaultTheme.isHub21
+                  ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+                  : BoxDecoration(
+                      color: KasVaultTheme.panel,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: KasVaultTheme.mint.withValues(alpha: .4),
+                      ),
+                    ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -587,7 +601,7 @@ class _PaymentSuccess extends StatelessWidget {
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(58),
                 backgroundColor: KasVaultTheme.mint,
-                foregroundColor: KasVaultTheme.ink,
+                foregroundColor: KasVaultTheme.filledButtonText,
               ),
             ),
           ],
@@ -731,7 +745,7 @@ class _SendFact extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(color: KasVaultTheme.muted),
+              style: TextStyle(color: KasVaultTheme.detailText),
             ),
           ),
           Expanded(

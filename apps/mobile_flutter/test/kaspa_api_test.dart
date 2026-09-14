@@ -14,6 +14,80 @@ void main() {
   const otherAddress =
       'kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh';
 
+  test('merged NFT and KNS holdings remain alphabetical after fallback merge',
+      () async {
+    final api = KaspaApi(client: MockClient((request) async {
+      if (request.url.host == 'kaspatoken.kaslab.space') {
+        return http.Response(
+            jsonEncode({
+              'data': {
+                'krc721_tokens': [
+                  {'symbol': 'ZZZ', 'balance': 1, 'decimals': 0},
+                  {'symbol': 'AAA', 'balance': 1, 'decimals': 0},
+                ],
+                'domains': [
+                  {'name': 'zzz.kas'},
+                  {'name': 'aaa.kas'},
+                  {'name': 'AAA.kas'}
+                ],
+              }
+            }),
+            200);
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":0}', 200);
+      }
+      if (request.url.path.endsWith('/info/price')) {
+        return http.Response('{"price":0}', 200);
+      }
+      if (request.url.path.endsWith('/utxos')) return http.Response('[]', 200);
+      return http.Response('{}', 503);
+    }));
+    final snapshot =
+        await api.loadWallet(address, includeNativeTransactions: false);
+    expect(snapshot.krc721Collections.map((asset) => asset.symbol),
+        ['AAA', 'ZZZ']);
+    expect(snapshot.knsDomains.map((domain) => domain.name),
+        ['aaa.kas', 'zzz.kas']);
+  });
+
+  test('KNS partial pages survive a later failure in final wallet and progress',
+      () async {
+    final progress = <WalletSnapshot>[];
+    final api = KaspaApi(client: MockClient((request) async {
+      if (request.url.host == 'api.knsdomains.org') {
+        if (request.url.queryParameters['page'] == '2') {
+          return http.Response('{}', 503);
+        }
+        return http.Response(
+            jsonEncode({
+              'data': {
+                'assets': [
+                  {'asset': 'zulu.kas'},
+                  {'asset': 'alpha.kas'}
+                ]
+              },
+              'pagination': {'totalPages': 2}
+            }),
+            200);
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":0}', 200);
+      }
+      if (request.url.path.endsWith('/info/price')) {
+        return http.Response('{"price":0}', 200);
+      }
+      if (request.url.path.endsWith('/utxos')) return http.Response('[]', 200);
+      return http.Response('{}', 503);
+    }));
+    final snapshot = await api.loadWallet(address,
+        includeNativeTransactions: false, onProgress: progress.add);
+    expect(snapshot.knsDomains.map((domain) => domain.name),
+        ['alpha.kas', 'zulu.kas']);
+    expect(snapshot.assetWarning, contains('KNS loading incomplete:'));
+    expect(progress.any((snapshot) => snapshot.knsDomains.length == 2), isTrue);
+  });
+
   test(
       'publishes alphabetically sorted tokens before stalled metadata and unrelated indexers',
       () async {

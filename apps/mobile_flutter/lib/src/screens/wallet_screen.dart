@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
@@ -299,13 +300,16 @@ class _WalletScreenState extends State<WalletScreen> {
                             horizontal: 10,
                             vertical: 7,
                           ),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary
-                                .withValues(alpha: .14),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
+                          decoration: KasVaultTheme.isHub21
+                              ? const Hub21MetalDecoration(
+                                  radius: 20, rim: 2, gold: true)
+                              : BoxDecoration(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary
+                                      .withValues(alpha: .14),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -329,7 +333,7 @@ class _WalletScreenState extends State<WalletScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 28),
+                SizedBox(height: KasVaultTheme.isHub21 ? 50 : 28),
                 FutureBuilder<int>(
                   future: _kasBalance,
                   builder: (context, kasBalance) =>
@@ -386,14 +390,15 @@ class _WalletScreenState extends State<WalletScreen> {
                 ),
                 const SizedBox(height: 32),
                 if (snapshot.hasData || _progress != null) ...[
-                  Text(
+                  Hub21Readable(
+                      child: Text(
                     displayLabel('ASSETS & NAMES'),
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 1.2,
                     ),
-                  ),
+                  )),
                   const SizedBox(height: 12),
                   _AssetOverview(
                     data: snapshot.data ?? _progress!,
@@ -417,14 +422,15 @@ class _WalletScreenState extends State<WalletScreen> {
                     child: Row(
                       children: [
                         Expanded(
-                          child: Text(
+                          child: Hub21Readable(
+                              child: Text(
                             displayLabel('ACTIVITY'),
                             style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w900,
                               letterSpacing: 1.2,
                             ),
-                          ),
+                          )),
                         ),
                         Icon(
                           _activityExpanded
@@ -500,11 +506,13 @@ class _AssetOverview extends StatelessWidget {
         data.knsDomains.isEmpty;
     return Container(
       padding: const EdgeInsets.all(17),
-      decoration: BoxDecoration(
-        color: KasVaultTheme.panel,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: KasVaultTheme.line),
-      ),
+      decoration: KasVaultTheme.isHub21
+          ? const Hub21MetalDecoration()
+          : BoxDecoration(
+              color: KasVaultTheme.panel,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: KasVaultTheme.line),
+            ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -610,6 +618,14 @@ class _AssetOverview extends StatelessWidget {
                       .toList(),
                 ),
               ],
+            ),
+          if (data.assetWarning?.contains('KNS loading incomplete:') == true)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Text(
+                  'KNS: not all pages could be loaded. Already loaded '
+                  'names are shown. Pull to refresh to retry.',
+                  style: TextStyle(color: Color(0xFFFFD779), height: 1.4)),
             ),
         ],
       ),
@@ -781,6 +797,15 @@ class _BalanceCard extends StatelessWidget {
         : data?.fiatValue == null
             ? 'Live balance'
             : '${data!.fiatSymbol}${formatEnglishNumber(data.fiatValue!, decimals: 2)} ${data.fiatCode}';
+    if (KasVaultTheme.isHub21) {
+      return Hub21BalanceCard(
+          walletName: walletName,
+          amount: kas,
+          symbol: 'KAS',
+          fiat: fiat,
+          hideAmounts: hideAmounts,
+          onTogglePrivacy: onTogglePrivacy);
+    }
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -876,32 +901,34 @@ class _Action extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 17),
-          decoration: BoxDecoration(
-            color: KasVaultTheme.panel,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: KasVaultTheme.line),
-          ),
-          child: Column(
-            children: [
-              Icon(icon, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(height: 7),
-              Text(
-                buttonLabel(label),
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: .7,
+  Widget build(BuildContext context) => KasVaultTheme.isHub21
+      ? Hub21Action(icon: icon, label: label, onTap: onTap)
+      : InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 17),
+            decoration: BoxDecoration(
+              color: KasVaultTheme.panel,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: KasVaultTheme.line),
+            ),
+            child: Column(
+              children: [
+                Icon(icon, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(height: 7),
+                Text(
+                  buttonLabel(label),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: .7,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      );
+        );
 }
 
 class _UtxoCard extends StatelessWidget {
@@ -918,11 +945,13 @@ class _UtxoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(17),
-        decoration: BoxDecoration(
-          color: KasVaultTheme.panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: KasVaultTheme.line),
-        ),
+        decoration: KasVaultTheme.isHub21
+            ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+            : BoxDecoration(
+                color: KasVaultTheme.panel,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: KasVaultTheme.line),
+              ),
         child: Row(
           children: [
             CircleAvatar(

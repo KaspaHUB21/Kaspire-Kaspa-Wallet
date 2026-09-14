@@ -1,3 +1,32 @@
+.wallet-head { gap: 5px; }
+.wallet-head .head-buttons { gap: 5px; flex: none; align-items: center; }
+.wallet-head .wallet-brand { flex: 1; gap: 5px; }
+.wallet-head .wallet-select { flex: 1; overflow: hidden; }
+.wallet-select b, .wallet-select small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#top-lock, #settings, #copy-main-address {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  padding: 0;
+  flex: 0 0 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+}
+#network {
+  width: 76px;
+  min-width: 76px;
+  height: 38px;
+  padding: 0 6px;
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  white-space: nowrap;
+}
+#network > span { margin: 0 0 0 auto; flex-shrink: 0; }
 .top-lock {
   align-items: center;
   display: flex;

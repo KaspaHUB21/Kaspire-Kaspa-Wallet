@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 
 await rm("tests/generated", { recursive: true, force: true });
 await mkdir("tests/generated/wasm", { recursive: true });
+await build({entryPoints:["src/shared/assetPresentation.ts"],outfile:"tests/generated/assetPresentation.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/shared/protocol.ts"],outfile:"tests/generated/protocol.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/shared/tokenAmount.ts"],outfile:"tests/generated/tokenAmount.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/background/api.ts"],outfile:"tests/generated/api.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});

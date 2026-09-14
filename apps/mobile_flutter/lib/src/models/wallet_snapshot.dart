@@ -1,5 +1,17 @@
 import '../number_format.dart';
 
+/// Sort without mutating snapshots or conflating different covenants that use
+/// the same ticker. Indexer arrival order must not determine the display order.
+List<WalletAsset> alphabeticalWalletAssets(Iterable<WalletAsset> assets) =>
+    assets.toList()
+      ..sort((a, b) {
+        final symbol = a.symbol.toUpperCase().compareTo(b.symbol.toUpperCase());
+        return symbol != 0
+            ? symbol
+            : (a.covenantId ?? a.id ?? '')
+                .compareTo(b.covenantId ?? b.id ?? '');
+      });
+
 class WalletSnapshot {
   const WalletSnapshot({
     required this.balanceSompi,

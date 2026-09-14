@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'kns_holdings_loader.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -72,6 +73,9 @@ class KaspaApi {
   final String toccataBroadcastUrl;
   Future<Map<String, double>>? _floorPrices;
 
+  List<WalletAsset> _alphabeticalAssets(Iterable<WalletAsset> assets) =>
+      alphabeticalWalletAssets(assets);
+
   static String _normalizeScriptPublicKey(Object? value) {
     final script = value?.toString().trim().toLowerCase() ?? '';
     // KCC20 indexers serialize Kaspa ScriptPublicKey as version (u16) +
@@ -103,7 +107,10 @@ class KaspaApi {
           ..sort((a, b) => a.symbol.compareTo(b.symbol)),
         krc721Collections: parsed.krc721,
         knsDomains: parsed.domains,
-        kcc20Tokens: progressiveCovenants?.assets ?? const [],
+        kcc20Tokens:
+            _alphabeticalAssets(progressiveCovenants?.assets ?? const []),
+        assetWarning:
+            parsed.warnings.isEmpty ? null : parsed.warnings.join(' '),
         utxoCount: progressiveUtxos,
       ));
     }
@@ -217,7 +224,7 @@ class KaspaApi {
         ...kronTransactions,
       ]..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
       krc20Tokens: krc20,
-      kcc20Tokens: kcc20Wallet?.assets ?? const [],
+      kcc20Tokens: _alphabeticalAssets(kcc20Wallet?.assets ?? const []),
       krc721Collections: assets.krc721,
       knsDomains: assets.domains,
       assetWarning: assetWarnings.isEmpty ? null : assetWarnings.join(' '),
@@ -410,11 +417,16 @@ class KaspaApi {
     }
 
     final progress = <String, Object?>{'address': address};
+    final warnings = <String>[];
+    void emit() => onProgress?.call({
+          'data': Map<String, Object?>.of(progress),
+          'warnings': List<String>.of(warnings),
+        });
     Future<List<Map<String, Object?>>> track(
         String key, Future<List<Map<String, Object?>>> future) async {
       final rows = await future;
       progress[key] = rows;
-      onProgress?.call({'data': Map<String, Object?>.of(progress)});
+      emit();
       return rows;
     }
 
@@ -429,9 +441,13 @@ class KaspaApi {
       Future.value(<Map<String, Object?>>[]),
       track(
           'domains',
-          _loadKnsWalletDomains(address)
-              .timeout(const Duration(seconds: 12))
-              .catchError((_) => <Map<String, Object?>>[])),
+          _loadKnsWalletDomains(address, onProgress: (rows) {
+            progress['domains'] = rows;
+            emit();
+          }, onWarning: (warning) {
+            warnings.add(warning);
+            emit();
+          })),
       track(
           'krc721_tokens',
           _loadKrc721WalletHoldings(address)
@@ -461,6 +477,7 @@ class KaspaApi {
         'transactions': transactions,
       },
       'source_mode': 'DIRECT_REDUNDANT',
+      'warnings': warnings,
     };
   }
 
@@ -595,51 +612,47 @@ class KaspaApi {
   }
 
   Future<List<Map<String, Object?>>> _loadKnsWalletDomains(
-    String address,
-  ) async {
-    final domains = <String, Map<String, Object?>>{};
-    const pageSize = 100;
-    for (var page = 1; page <= 100; page++) {
-      final raw = _map(await _externalGet(
-        knsIndexerBaseUrl,
-        '/api/v1/assets',
-        query: {
-          'owner': address,
-          'page': '$page',
-          'pageSize': '$pageSize',
-          'type': 'domain',
-        },
-      ));
-      final data = _map(raw['data']);
-      final items = (data['assets'] as List? ?? const [])
-          .whereType<Map>()
-          .map((item) => item.cast<String, Object?>())
-          .toList();
+    String address, {
+    void Function(List<Map<String, Object?>>)? onProgress,
+    void Function(String)? onWarning,
+  }) async {
+    List<Map<String, Object?>> normalize(List<Map<String, Object?>> items) {
+      final domains = <String, Map<String, Object?>>{};
       for (final item in items) {
         final name = (item['asset'] ?? item['domain'] ?? item['name'] ?? '')
             .toString()
+            .trim()
             .toLowerCase();
         if (!_isKnsName(name)) continue;
-        final assetId =
-            (item['assetId'] ?? item['asset_id'])?.toString().toLowerCase();
-        domains[assetId ?? name] = {
+        final assetId = (item['assetId'] ?? item['asset_id'])
+            ?.toString()
+            .trim()
+            .toLowerCase();
+        domains[assetId != null && assetId.isNotEmpty ? assetId : name] = {
           'name': name,
           'status': item['status'],
           'asset_id': assetId,
         };
       }
-      final pagination = _map(data['pagination']);
-      final totalPages = _asInt(
-        pagination['totalPages'] ?? pagination['total_pages'],
-      );
-      if (items.isEmpty ||
-          (totalPages > 0 ? page >= totalPages : items.length < pageSize)) {
-        break;
-      }
+      return domains.values.toList()
+        ..sort((a, b) => a['name'].toString().compareTo(b['name'].toString()));
     }
-    return domains.values.toList()
-      ..sort((left, right) =>
-          left['name'].toString().compareTo(right['name'].toString()));
+
+    final result = await loadKnsHoldingsPages(
+      fetchPage: (page) async => _map(await _externalGet(
+        knsIndexerBaseUrl,
+        '/api/v1/assets',
+        query: {
+          'owner': address,
+          'page': '$page',
+          'pageSize': '100',
+          'type': 'domain',
+        },
+      )),
+      onProgress: (rows) => onProgress?.call(normalize(rows)),
+    );
+    if (result.warning != null) onWarning?.call(result.warning!);
+    return normalize(result.records);
   }
 
   Future<List<Map<String, Object?>>> _loadKrc721WalletHoldings(
@@ -1572,7 +1585,8 @@ class KaspaApi {
     return _withTokenMarket(asset, price);
   }
 
-  Future<double> loadSelectedFiatRate() => _loadUsdExchangeRate(AppSettings.fiatCurrency.value);
+  Future<double> loadSelectedFiatRate() =>
+      _loadUsdExchangeRate(AppSettings.fiatCurrency.value);
 
   Future<WalletAsset> _withTokenMarket(
     WalletAsset asset,
@@ -1878,7 +1892,7 @@ class KaspaApi {
           'are still shown.',
         );
       }
-      return valid;
+      return _alphabeticalAssets(valid);
     }
 
     final domains = <KnsDomain>[];
@@ -1915,7 +1929,10 @@ class KaspaApi {
     return _WalletAssets(
       krc20: assets('tokens', 'KRC-20'),
       krc721: assets('krc721_tokens', 'KRC-721'),
-      domains: domains,
+      domains: {
+        for (final domain in domains) domain.assetId ?? domain.name: domain
+      }.values.toList()
+        ..sort((a, b) => a.name.compareTo(b.name)),
       warnings: warnings,
     );
   }

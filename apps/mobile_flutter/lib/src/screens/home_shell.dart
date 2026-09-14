@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -184,7 +185,7 @@ class _HomeShellState extends State<HomeShell> {
         },
         child: Scaffold(
           body: IndexedStack(index: _index, children: evmPages),
-          bottomNavigationBar: NavigationBar(
+          bottomNavigationBar: KaspireNavigationBar(
             selectedIndex: _index,
             onDestinationSelected: (value) => setState(() {
               if (value == 1 && _index != 1) {
@@ -334,7 +335,7 @@ class _HomeShellState extends State<HomeShell> {
             Expanded(child: IndexedStack(index: _index, children: pages)),
           ],
         ),
-        bottomNavigationBar: NavigationBar(
+        bottomNavigationBar: KaspireNavigationBar(
           selectedIndex: _index,
           onDestinationSelected: _selectDestination,
           destinations: const [

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'services/app_settings.dart';
+import 'widgets/hub21_material.dart';
 
 class KasVaultTheme {
   static const _midnight = _KaspirePalette(
@@ -20,9 +21,20 @@ class KasVaultTheme {
   static Color get panel => _current.panel;
   static Color get line => _current.line;
   static const muted = Color(0xFF82949C);
+  static Color get detailText => isHub21 ? const Color(0xFFE0DACB) : muted;
+  static Color get filledButtonText => isHub21 ? const Color(0xFFFFEDC7) : ink;
+  static bool get isHub21 => AppSettings.theme.value == KaspireTheme.hub21;
 
   static _KaspirePalette _palette(KaspireTheme theme) => switch (theme) {
         KaspireTheme.midnight => _midnight,
+        KaspireTheme.hub21 => const _KaspirePalette(
+            accent: Color(0xFFFFD779),
+            secondary: Color(0xFFE7E4DD),
+            background: Color(0xFF100F0B),
+            panel: Color(0xFF252520),
+            line: Color(0xFF8D7749),
+            muted: Color(0xFFC4BEAC),
+          ),
         KaspireTheme.emerald => const _KaspirePalette(
             accent: Color(0xFF35F2A0),
             secondary: Color(0xFF60FFD0),
@@ -74,6 +86,7 @@ class KasVaultTheme {
       };
 
   static ThemeData forTheme(KaspireTheme theme) {
+    final hub21 = theme == KaspireTheme.hub21;
     final palette = _palette(theme);
     final accent = palette.accent;
     final scheme = ColorScheme.fromSeed(
@@ -83,10 +96,12 @@ class KasVaultTheme {
       secondary: palette.secondary,
       surface: palette.panel,
     );
-    final shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(18),
-      side: BorderSide(color: palette.line),
-    );
+    final shape = hub21
+        ? const Hub21CardShape()
+        : RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+            side: BorderSide(color: palette.line),
+          );
     final inputBorder = OutlineInputBorder(
       borderRadius: BorderRadius.circular(18),
       borderSide: BorderSide(color: palette.line),
@@ -94,7 +109,7 @@ class KasVaultTheme {
     return ThemeData(
       brightness: Brightness.dark,
       colorScheme: scheme,
-      scaffoldBackgroundColor: palette.background,
+      scaffoldBackgroundColor: hub21 ? Colors.transparent : palette.background,
       canvasColor: palette.background,
       cardColor: palette.panel,
       dividerColor: palette.line,
@@ -116,6 +131,7 @@ class KasVaultTheme {
         shape: shape,
       ),
       dialogTheme: DialogThemeData(
+        shape: hub21 ? const Hub21CardShape() : null,
         backgroundColor: palette.panel,
         surfaceTintColor: accent.withValues(alpha: 0.08),
       ),
@@ -141,17 +157,52 @@ class KasVaultTheme {
         style: FilledButton.styleFrom(
           backgroundColor: accent,
           foregroundColor: palette.background,
+        ).copyWith(
+          foregroundColor:
+              hub21 ? const WidgetStatePropertyAll(Color(0xFFFFEDC7)) : null,
+          backgroundBuilder: hub21
+              ? (context, states, child) => Hub21Panel(
+                  gold: true,
+                  radius: 16,
+                  rim: 2.5,
+                  child: Opacity(
+                      opacity: states.contains(WidgetState.disabled) ? .4 : 1,
+                      child: child))
+              : null,
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: accent,
           side: BorderSide(color: accent),
+        ).copyWith(
+          backgroundBuilder: hub21
+              ? (context, states, child) => Hub21Panel(
+                  radius: 16,
+                  rim: 2,
+                  child: Opacity(
+                      opacity: states.contains(WidgetState.disabled) ? .4 : 1,
+                      child: child))
+              : null,
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: accent),
+        style: TextButton.styleFrom(
+            foregroundColor: accent,
+            backgroundColor: hub21 ? palette.panel : null),
       ),
+      segmentedButtonTheme: hub21
+          ? SegmentedButtonThemeData(
+              style: ButtonStyle(
+                backgroundColor: WidgetStateProperty.resolveWith((states) =>
+                    states.contains(WidgetState.selected)
+                        ? const Color(0xFF6C5120)
+                        : palette.background),
+                foregroundColor:
+                    const WidgetStatePropertyAll(Color(0xFFF4E8CD)),
+              ),
+            )
+          : const SegmentedButtonThemeData(),
       iconButtonTheme: IconButtonThemeData(
         style: IconButton.styleFrom(foregroundColor: accent),
       ),
@@ -168,8 +219,9 @@ class KasVaultTheme {
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(color: accent),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: palette.panel,
-        indicatorColor: accent.withValues(alpha: 0.24),
+        backgroundColor: hub21 ? Colors.transparent : palette.panel,
+        surfaceTintColor: hub21 ? Colors.transparent : null,
+        indicatorColor: accent.withValues(alpha: hub21 ? 0.42 : 0.24),
         iconTheme: WidgetStateProperty.resolveWith(
           (states) => IconThemeData(
             color:

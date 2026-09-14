@@ -905,6 +905,7 @@ async function walletCommand(
         "crimson",
         "phoenix",
         "cypherpunk",
+        "hub21",
       ].includes(next?.theme)
     )
       state.settings.theme = next.theme;

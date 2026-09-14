@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
@@ -24,17 +25,19 @@ class EvmReceiveScreen extends StatelessWidget {
           return SafeArea(
               child: ListView(padding: const EdgeInsets.all(20), children: [
             const SizedBox(height: 8),
-            Text(
-                displayLabel(
-                    'RECEIVE ${EvmNetworkConfig.current.nativeSymbol}'),
-                style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -.8)),
+            Hub21Readable(
+                child: Text(
+                    displayLabel(
+                        'RECEIVE ${EvmNetworkConfig.current.nativeSymbol}'),
+                    style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -.8))),
             const SizedBox(height: 8),
-            Text(
-                'Share this address only for L2 payments and assets.',
-                style: const TextStyle(color: KasVaultTheme.muted)),
+            Hub21Readable(
+                child: Text(
+                    'Share this address only for L2 payments and assets.',
+                    style: const TextStyle(color: KasVaultTheme.muted))),
             const SizedBox(height: 34),
             Center(
                 child: Container(
@@ -59,10 +62,12 @@ class EvmReceiveScreen extends StatelessWidget {
             const SizedBox(height: 30),
             Container(
                 padding: const EdgeInsets.all(17),
-                decoration: BoxDecoration(
-                    color: KasVaultTheme.panel,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: KasVaultTheme.line)),
+                decoration: KasVaultTheme.isHub21
+                    ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+                    : BoxDecoration(
+                        color: KasVaultTheme.panel,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: KasVaultTheme.line)),
                 child: Text(value,
                     textAlign: TextAlign.center,
                     style: TextStyle(

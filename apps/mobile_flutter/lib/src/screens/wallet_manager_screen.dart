@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/kaspa_api.dart';
@@ -544,11 +545,15 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                           child: Container(
                             margin: const EdgeInsets.all(28),
                             padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: KasVaultTheme.panel,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: KasVaultTheme.line),
-                            ),
+                            decoration: KasVaultTheme.isHub21
+                                ? const Hub21MetalDecoration(
+                                    radius: 18, rim: 2.5)
+                                : BoxDecoration(
+                                    color: KasVaultTheme.panel,
+                                    borderRadius: BorderRadius.circular(20),
+                                    border:
+                                        Border.all(color: KasVaultTheme.line),
+                                  ),
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [

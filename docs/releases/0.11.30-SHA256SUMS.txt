@@ -1,0 +1,2 @@
+10326f8f0df41210b693f7a05ecf313f896db7a619875975f29cb8cc7c155008  Kaspire-Android-mainnet-v0.11.30.apk
+5612ed6091698ab7d25f644bfdb8e2a61aff65fc3e462a737dd2a618edd559f9  kaspire-extension-0.4.7.1.zip

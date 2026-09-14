@@ -2,7 +2,7 @@ import DagField from "./dag-field";
 import { currentRelease, extensionRelease } from "./release";
 
 const downloadUrl =
-  `https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/v${currentRelease.version}/Kaspire-Android-mainnet-v${currentRelease.version}.apk`;
+  "/downloads/Kaspire-Android-mainnet-latest.apk";
 const extensionStoreUrl =
   "https://chromewebstore.google.com/detail/kaspire-wallet/ldjonnkfjmcingabncepnibledcanmoe";
 
@@ -48,6 +48,12 @@ const highlights = [
     title: "Kaspa L2 networks, one familiar wallet.",
     copy: "Switch between Kaspa Mainnet, TN10, Kasplex and Igra while keeping the same wallet identity, receive flow, asset layout and native review model.",
     tags: ["Kasplex L2", "Igra L2", "EVM", "Native review"],
+  },
+  {
+    number: "08",
+    title: "Your wallet. Your style.",
+    copy: "Choose the HUB21 gold-and-silver theme with brushed-metal panels and clear, readable controls. Find tokens and names in alphabetically sorted asset lists. Available in the latest Android app and extension ZIP; the extension update is awaiting Chrome Web Store review.",
+    tags: ["HUB21 theme", "Readable panels", "A–Z assets"],
   },
 ];
 
@@ -603,8 +609,8 @@ export default function Home() {
                 />
               </div>
               <div>
-                <span>Current browser extension</span>
-                <strong>{extensionRelease.version} <small>build {extensionRelease.build}</small></strong>
+                <span>Latest browser extension package</span>
+                <strong>{extensionRelease.version} <small>Store review pending</small></strong>
               </div>
               <dl>
                 <div><dt>Platform</dt><dd>Chrome · Chromium</dd></div>
@@ -627,7 +633,9 @@ export default function Home() {
               </div>
               <p>
                 Kaspire Wallet is live in the Chrome Web Store. Chrome installs
-                verified updates automatically through the official listing.
+                approved updates automatically through the official listing.
+                Version {extensionRelease.version} has been submitted for review
+                and is not yet confirmed live in the Store.
               </p>
               <p>
                 <a href={`https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/v${currentRelease.version}/kaspire-extension-${extensionRelease.version}.zip`}>

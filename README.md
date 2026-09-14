@@ -40,9 +40,9 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.29**, build **95**
+- Android app: **0.11.30**, build **98**
 - Android package: `space.kaspire.wallet`
-- Browser extension: **0.4.7**, build **47**
+- Browser extension package: **0.4.7.1** (Chrome Web Store review pending)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - Extension networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
@@ -53,6 +53,17 @@ permissioned `window.kaspire` provider directly to websites.
 | Browser extension | Injected `window.kaspire` provider with per-origin approval | Packaged Rust/WASM core and an Argon2id-encrypted extension vault |
 
 ## Features
+
+### HUB21 design and clearer asset lists
+
+- Optional HUB21 gold/silver theme in Android and the extension, with local
+  brushed-metal textures and readable text panels. Midnight remains the default.
+- Alphabetical KRC20, KCC20, KRC721 collection and KNS lists; token tickers retain
+  uppercase spelling while KNS names keep their original spelling.
+- Android keeps already loaded KNS pages if a later page fails and clearly
+  marks incomplete results instead of silently dropping previously loaded names.
+- Extension header controls have consistent dimensions and centered icons;
+  asset send selection preserves token identity after sorting.
 
 ### Wallets and recovery
 

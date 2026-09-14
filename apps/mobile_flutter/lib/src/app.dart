@@ -21,6 +21,7 @@ import 'services/update_service.dart';
 import 'services/network_settings.dart';
 import 'services/evm_api.dart';
 import 'theme.dart';
+import 'widgets/hub21_material.dart';
 
 class KasVaultApp extends StatefulWidget {
   const KasVaultApp({super.key});
@@ -1908,7 +1909,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
             builder: (context, child) => Listener(
               behavior: HitTestBehavior.translucent,
               onPointerDown: (_) => _recordActivity(),
-              child: child,
+              child: Hub21Backdrop(child: child ?? const SizedBox.shrink()),
             ),
             home: FutureBuilder<String?>(
               future: _address,

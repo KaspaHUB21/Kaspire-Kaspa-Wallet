@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/hub21_material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/app_settings.dart';
@@ -113,13 +114,16 @@ class _EvmWalletScreenState extends State<EvmWalletScreen> {
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 10, vertical: 7),
-                                    decoration: BoxDecoration(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: .14),
-                                        borderRadius:
-                                            BorderRadius.circular(20)),
+                                    decoration: KasVaultTheme.isHub21
+                                        ? const Hub21MetalDecoration(
+                                            radius: 20, rim: 2, gold: true)
+                                        : BoxDecoration(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary
+                                                .withValues(alpha: .14),
+                                            borderRadius:
+                                                BorderRadius.circular(20)),
                                     child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
@@ -141,7 +145,7 @@ class _EvmWalletScreenState extends State<EvmWalletScreen> {
                                 ),
                               ),
                             ]),
-                            const SizedBox(height: 28),
+                            SizedBox(height: KasVaultTheme.isHub21 ? 50 : 28),
                             FutureBuilder<String>(
                                 future: _walletName,
                                 builder: (context, name) => _EvmBalanceCard(
@@ -274,7 +278,8 @@ class _EvmWalletScreenState extends State<EvmWalletScreen> {
                             if (address.hasData)
                               Padding(
                                 padding: const EdgeInsets.only(top: 22),
-                                child: Row(children: [
+                                child: Hub21Readable(
+                                    child: Row(children: [
                                   Expanded(
                                       child: Text(address.data!,
                                           overflow: TextOverflow.ellipsis,
@@ -284,7 +289,7 @@ class _EvmWalletScreenState extends State<EvmWalletScreen> {
                                   IconButton(
                                       onPressed: () => _copy(address.data!),
                                       icon: const Icon(Icons.copy_rounded)),
-                                ]),
+                                ])),
                               ),
                           ],
                         ))),
@@ -307,11 +312,12 @@ class _SectionHeader extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(children: [
             Expanded(
-                child: Text(displayLabel(label),
-                    style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.2))),
+                child: Hub21Readable(
+                    child: Text(displayLabel(label),
+                        style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.2)))),
             Icon(expanded
                 ? Icons.expand_less_rounded
                 : Icons.expand_more_rounded),
@@ -329,49 +335,59 @@ class _EvmBalanceCard extends StatelessWidget {
   final bool hideAmounts;
   final VoidCallback onTogglePrivacy;
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [
-              Color.alphaBlend(KasVaultTheme.mint.withValues(alpha: .22),
-                  KasVaultTheme.panel),
-              KasVaultTheme.panel
+  Widget build(BuildContext context) => KasVaultTheme.isHub21
+      ? Hub21BalanceCard(
+          walletName: walletName,
+          amount: balance == null ? '—' : formatUnits(balance!, 18),
+          symbol: EvmNetworkConfig.current.nativeSymbol,
+          fiat: '',
+          hideAmounts: hideAmounts,
+          onTogglePrivacy: onTogglePrivacy)
+      : Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [
+                Color.alphaBlend(KasVaultTheme.mint.withValues(alpha: .22),
+                    KasVaultTheme.panel),
+                KasVaultTheme.panel
+              ]),
+              borderRadius: BorderRadius.circular(28),
+              border:
+                  Border.all(color: KasVaultTheme.mint.withValues(alpha: .4)),
+              boxShadow: [
+                BoxShadow(
+                    color: KasVaultTheme.mint.withValues(alpha: .13),
+                    blurRadius: 34,
+                    spreadRadius: -8)
+              ]),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(
+                  child: Text(walletName,
+                      style: const TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w900))),
+              IconButton(
+                  onPressed: onTogglePrivacy,
+                  tooltip: hideAmounts ? 'Show balances' : 'Hide balances',
+                  icon: Icon(hideAmounts
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded)),
             ]),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: KasVaultTheme.mint.withValues(alpha: .4)),
-            boxShadow: [
-              BoxShadow(
-                  color: KasVaultTheme.mint.withValues(alpha: .13),
-                  blurRadius: 34,
-                  spreadRadius: -8)
-            ]),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Expanded(
-                child: Text(walletName,
+            const SizedBox(height: 12),
+            FittedBox(
+                child: Text(
+                    hideAmounts
+                        ? '••••••'
+                        : balance == null
+                            ? '—'
+                            : '${formatUnits(balance!, 18)} ${EvmNetworkConfig.current.nativeSymbol}',
                     style: const TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.w900))),
-            IconButton(
-                onPressed: onTogglePrivacy,
-                tooltip: hideAmounts ? 'Show balances' : 'Hide balances',
-                icon: Icon(hideAmounts
-                    ? Icons.visibility_off_rounded
-                    : Icons.visibility_rounded)),
+                        fontSize: 38,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -1.5))),
           ]),
-          const SizedBox(height: 12),
-          FittedBox(
-              child: Text(
-                  hideAmounts
-                      ? '••••••'
-                      : balance == null
-                          ? '—'
-                          : '${formatUnits(balance!, 18)} ${EvmNetworkConfig.current.nativeSymbol}',
-                  style: const TextStyle(
-                      fontSize: 38,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -1.5))),
-        ]),
-      );
+        );
 }
 
 class _EvmAction extends StatelessWidget {
@@ -381,24 +397,26 @@ class _EvmAction extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 17),
-          decoration: BoxDecoration(
-              color: KasVaultTheme.panel,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: KasVaultTheme.line)),
-          child: Column(children: [
-            Icon(icon, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 7),
-            Text(buttonLabel(label),
-                style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: .7)),
-          ])));
+  Widget build(BuildContext context) => KasVaultTheme.isHub21
+      ? Hub21Action(icon: icon, label: label, onTap: onTap)
+      : InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 17),
+              decoration: BoxDecoration(
+                  color: KasVaultTheme.panel,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: KasVaultTheme.line)),
+              child: Column(children: [
+                Icon(icon, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(height: 7),
+                Text(buttonLabel(label),
+                    style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .7)),
+              ])));
 }
 
 class _EvmActivityTile extends StatelessWidget {
