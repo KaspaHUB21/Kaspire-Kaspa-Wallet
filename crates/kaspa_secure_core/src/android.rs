@@ -12,6 +12,20 @@ use crate::{
 };
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveDotkDeed(
+    mut env: JNIEnv,
+    _class: JClass,
+    request_json: JString,
+) -> jstring {
+    let result = read(&mut env, &request_json)
+        .and_then(|raw| serde_json::from_str::<crate::dotk::Request>(&raw)
+            .map_err(|_| "invalid dot.k request".to_string()))
+        .and_then(|r| crate::dotk::derive(&r).map_err(|e| e.to_string()))
+        .and_then(|r| serde_json::to_string(&r).map_err(|e| e.to_string()));
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_tangemAddress(
     mut env: JNIEnv,
     _class: JClass,

@@ -52,8 +52,14 @@ const highlights = [
   {
     number: "08",
     title: "Your wallet. Your style.",
-    copy: "Choose the HUB21 gold-and-silver theme with brushed-metal panels and clear, readable controls. Find tokens and names in alphabetically sorted asset lists. Available in the latest Android app and extension ZIP; the extension update is awaiting Chrome Web Store review.",
+    copy: "Choose the HUB21 gold-and-silver theme with brushed-metal panels and clear, readable controls. Find tokens and names in alphabetically sorted asset lists. Available in the latest Android app and extension ZIP; Chrome Web Store versions depend on approval.",
     tags: ["HUB21 theme", "Readable panels", "A–Z assets"],
+  },
+  {
+    number: "09",
+    title: "Pay a name. Verify its owner.",
+    copy: "Find your dot.k covenant names alongside your other assets. Enter a .k name to send KAS or assets on Layer 1: Kaspire derives its deed in Rust and checks live ownership through the node before selecting the payment address. Available in Android and the latest extension ZIP; name registration and name transfers are not yet included.",
+    tags: ["dot.k names", "Rust verification", "Layer 1 payments"],
   },
 ];
 
@@ -610,7 +616,7 @@ export default function Home() {
               </div>
               <div>
                 <span>Latest browser extension package</span>
-                <strong>{extensionRelease.version} <small>Store review pending</small></strong>
+                <strong>{extensionRelease.version} <small>Latest ZIP</small></strong>
               </div>
               <dl>
                 <div><dt>Platform</dt><dd>Chrome · Chromium</dd></div>
@@ -634,8 +640,8 @@ export default function Home() {
               <p>
                 Kaspire Wallet is live in the Chrome Web Store. Chrome installs
                 approved updates automatically through the official listing.
-                Version {extensionRelease.version} has been submitted for review
-                and is not yet confirmed live in the Store.
+                Version {extensionRelease.version} is available below as a ZIP;
+                availability of this version in the Store is not yet confirmed.
               </p>
               <p>
                 <a href={`https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/v${currentRelease.version}/kaspire-extension-${extensionRelease.version}.zip`}>

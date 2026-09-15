@@ -15,6 +15,7 @@ type CoreModule = {
   signEvmTransaction(secret: string, request: string, reviewHash: string): string;
   exportPrivateKey(secret: string): string;
   publicKey(secret: string): string;
+  deriveDotkDeed(request: string): string;
   deriveBackupKey(password: string, saltHex: string): string;
   prepareTransaction(request: string): string;
   signTransaction(secret: string, request: string, reviewHash: string): string;

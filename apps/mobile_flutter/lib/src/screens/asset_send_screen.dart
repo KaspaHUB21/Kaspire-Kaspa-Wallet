@@ -634,7 +634,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         controller: _recipient,
         autocorrect: false,
         decoration: InputDecoration(
-          labelText: 'Address / KNS name',
+          labelText: 'Address / KNS / .k name',
           hintText: 'Long press to paste',
           suffixIcon: Row(
             mainAxisSize: MainAxisSize.min,

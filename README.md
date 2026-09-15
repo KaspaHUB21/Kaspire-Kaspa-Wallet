@@ -40,9 +40,9 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.30**, build **98**
+- Android app: **0.11.31**, build **100**
 - Android package: `space.kaspire.wallet`
-- Browser extension package: **0.4.7.1** (Chrome Web Store review pending)
+- Browser extension package: **0.4.8** (GitHub ZIP; Chrome Web Store availability is separate)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - Extension networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
@@ -53,6 +53,21 @@ permissioned `window.kaspire` provider directly to websites.
 | Browser extension | Injected `window.kaspire` provider with per-origin approval | Packaged Rust/WASM core and an Argon2id-encrypted extension vault |
 
 ## Features
+
+### dot.k covenant names
+
+- Android and the extension display dot.k names in a separate alphabetical,
+  collapsible asset category. Directory listings are explicitly distinguished
+  from verified ownership.
+- Enter `name.k` when sending KAS or existing assets on Layer 1, or when adding
+  a watch wallet/contact. The shared Rust core independently derives the deed
+  and payment address; the own-node endpoint checks the live deed, its script,
+  bond and pinned registry covenant ID before accepting a recipient.
+- Opening a name shows its freshly verified owner, deed address and outpoint.
+  No stale name-resolution cache is reused for payments.
+- Registration, transferring the name itself and custom records are not yet
+  included. Covenant-only owners without a payment address are refused.
+- Protocol details, trust boundaries and tests: [dot.k integration](docs/dotk_integration.md).
 
 ### HUB21 design and clearer asset lists
 

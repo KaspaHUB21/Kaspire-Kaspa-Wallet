@@ -110,6 +110,7 @@ const sections = [
           <code>kcc20.info</code>, <code>kascov.io</code>,
           <code>krc721-indexer.kaspa.com</code>,
           <code>api.knsdomains.org</code>, <code>api.kaspa.com</code>,
+          <code>api.dotk.name</code> (public dot.k names and wallet-address lookups),
           <code>gothdag.kaslab.space</code>, and
           <code>open.er-api.com</code>, depending on the feature used. These
           services also receive ordinary connection metadata such as the

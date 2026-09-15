@@ -2,6 +2,13 @@ use super::*;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+#[wasm_bindgen(js_name = deriveDotkDeed)]
+pub fn derive_dotk_deed_js(request: &str) -> std::result::Result<String, JsError> {
+    let parsed = serde_json::from_str::<crate::dotk::Request>(request)
+        .map_err(|_| JsError::new("invalid dot.k request"))?;
+    json(crate::dotk::derive(&parsed))
+}
+
 fn json<T: Serialize>(value: Result<T>) -> std::result::Result<String, JsError> {
     value
         .and_then(|item| serde_json::to_string(&item).map_err(|_| CoreError::Serialization))

@@ -1,0 +1,4 @@
+dot.k covenant names are now supported on Kaspa Layer 1.
+Find your names in a separate alphabetical asset group and inspect ownership details.
+Send KAS or existing assets to name.k, with native Rust deed derivation and fresh node-backed ownership checks.
+Registration and transfers of the name itself are not included yet.

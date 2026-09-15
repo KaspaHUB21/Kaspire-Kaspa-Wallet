@@ -1,4 +1,5 @@
 mod evm;
+pub mod dotk;
 mod inscription;
 mod kcc20;
 mod kron;

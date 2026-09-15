@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'kns_holdings_loader.dart';
+import 'dotk_service.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -73,6 +74,8 @@ class KaspaApi {
   final String toccataBroadcastUrl;
   Future<Map<String, double>>? _floorPrices;
 
+  DotkService get dotk => DotkService(client: _client, nodeBaseUrl: baseUrl);
+
   List<WalletAsset> _alphabeticalAssets(Iterable<WalletAsset> assets) =>
       alphabeticalWalletAssets(assets);
 
@@ -93,6 +96,8 @@ class KaspaApi {
     Object? progressiveTokens;
     _Kcc20Wallet? progressiveCovenants;
     var progressiveUtxos = 0;
+    var progressiveDotk = <DotkName>[];
+    String? dotkWarning;
     void publish() {
       if (onProgress == null) return;
       final parsed = _parseAssets(progressiveTokens);
@@ -107,6 +112,7 @@ class KaspaApi {
           ..sort((a, b) => a.symbol.compareTo(b.symbol)),
         krc721Collections: parsed.krc721,
         knsDomains: parsed.domains,
+        dotkNames: progressiveDotk,
         kcc20Tokens:
             _alphabeticalAssets(progressiveCovenants?.assets ?? const []),
         assetWarning:
@@ -152,6 +158,17 @@ class KaspaApi {
       _loadUsdExchangeRate(AppSettings.fiatCurrency.value).catchError(
         (_) => double.nan,
       ),
+      testnet
+          ? Future<Object?>.value(null)
+          : dotk.namesOf(address).then<Object?>((names) {
+              progressiveDotk = names;
+              publish();
+              return names;
+            }).catchError((_) {
+              dotkWarning =
+                  'dot.k names are temporarily unavailable. Pull to refresh to retry.';
+              return null;
+            }),
     ]);
     final balanceJson = results[0];
     final priceJson = results[1];
@@ -203,6 +220,7 @@ class KaspaApi {
     );
     krc20.sort((a, b) => a.symbol.compareTo(b.symbol));
     final assetWarnings = <String>[
+      if (dotkWarning != null) dotkWarning!,
       if (!testnet && tokenWallet == null)
         'KRC-20, KRC-721 and KNS data is temporarily unavailable.',
       ...tokenIntegrityWarnings,
@@ -227,6 +245,7 @@ class KaspaApi {
       kcc20Tokens: _alphabeticalAssets(kcc20Wallet?.assets ?? const []),
       krc721Collections: assets.krc721,
       knsDomains: assets.domains,
+      dotkNames: progressiveDotk,
       assetWarning: assetWarnings.isEmpty ? null : assetWarnings.join(' '),
       hasMoreTransactions: includeNativeTransactions &&
           nativeTransactions.length >= transactionLimit,
@@ -324,9 +343,20 @@ class KaspaApi {
     if (NetworkSettings.isTestnet) {
       throw KaspaApiException('Enter a valid TN10 kaspatest: address.');
     }
+    if (normalized.endsWith('.k')) {
+      if (NetworkSettings.isEvm) {
+        throw KaspaApiException(
+            'dot.k payments are available on Kaspa Layer 1 only.');
+      }
+      final network = NetworkSettings.network.value;
+      final resolved = await dotk.resolve(normalized);
+      if (NetworkSettings.network.value != network) {
+        throw KaspaApiException('Network changed. Review the recipient again.');
+      }
+      return resolved.address;
+    }
     if (!_isKnsName(normalized)) {
-      throw KaspaApiException(
-          'Enter a Kaspa address or a valid name.kas domain.');
+      throw KaspaApiException('Enter a Kaspa address, name.kas or name.k.');
     }
     final response = _map(await _loadTokenWallet(normalized));
     final data = _map(response['data']);

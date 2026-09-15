@@ -19,6 +19,7 @@ import '../theme.dart';
 import 'nft_collection_screen.dart';
 import 'krc20_token_detail_screen.dart';
 import 'transaction_detail_screen.dart';
+import 'dotk_name_screen.dart';
 import '../widgets/kaspire_brand.dart';
 
 class WalletScreen extends StatefulWidget {
@@ -503,7 +504,8 @@ class _AssetOverview extends StatelessWidget {
     final empty = data.krc20Tokens.isEmpty &&
         data.kcc20Tokens.isEmpty &&
         data.krc721Collections.isEmpty &&
-        data.knsDomains.isEmpty;
+        data.knsDomains.isEmpty &&
+        data.dotkNames.isEmpty;
     return Container(
       padding: const EdgeInsets.all(17),
       decoration: KasVaultTheme.isHub21
@@ -518,7 +520,7 @@ class _AssetOverview extends StatelessWidget {
         children: [
           if (empty)
             const Text(
-              'No KRC-20, KRC-721 or KNS assets found for this address.',
+              'No token, NFT or name assets found for this address.',
               style: TextStyle(color: KasVaultTheme.muted),
             ),
           if (data.krc20Tokens.isNotEmpty)
@@ -619,6 +621,37 @@ class _AssetOverview extends StatelessWidget {
                 ),
               ],
             ),
+          if (data.dotkNames.isNotEmpty)
+            _AssetSection(
+                title: 'DOT.K NAMES',
+                count: data.dotkNames.length,
+                children: [
+                  const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text(
+                          'Directory listing · tap a name to verify ownership.')),
+                  Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: data.dotkNames
+                          .map((name) => ActionChip(
+                                avatar: Icon(Icons.alternate_email_rounded,
+                                    size: 17, color: KasVaultTheme.mint),
+                                label: Text(name.name),
+                                onPressed: () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                        builder: (_) =>
+                                            DotkNameScreen(name: name))),
+                              ))
+                          .toList()),
+                ]),
+          if (data.assetWarning
+                  ?.contains('dot.k names are temporarily unavailable') ==
+              true)
+            const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text(
+                    'dot.k names could not be loaded. Pull to refresh to retry.')),
           if (data.assetWarning?.contains('KNS loading incomplete:') == true)
             const Padding(
               padding: EdgeInsets.only(top: 12),

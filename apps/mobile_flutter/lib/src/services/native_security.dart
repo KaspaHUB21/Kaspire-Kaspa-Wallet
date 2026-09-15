@@ -116,6 +116,15 @@ class NativeSecurity {
   Future<String?> getNativeAddress() =>
       _channel.invokeMethod<String>('getNativeAddress');
 
+  Future<Map<String, Object?>> deriveDotkDeed(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+      'deriveDotkDeed',
+      {'request': jsonEncode(request)},
+    );
+    return (jsonDecode(raw ?? '{}') as Map).cast<String, Object?>();
+  }
+
   Future<String> getEvmAddress() async {
     final raw = await _channel.invokeMethod<String>('deriveEvmAddress');
     final decoded = jsonDecode(raw ?? '{}') as Map;

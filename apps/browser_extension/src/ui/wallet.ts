@@ -752,7 +752,7 @@ function legacySend(asset: any) {
             ? (snapshot?.assets?.kcc20 ?? [])
             : [];
   shell(
-    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send ${esc(asset.symbol ?? asset.kind.toUpperCase())}`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select">${owned.map((item: any, index: number) => `<option value="${index}" ${item === asset.raw ? "selected" : ""}>${esc(item.symbol ?? item.name)}</option>`).join("")}</select></label>` : ""}<label>Address / KNS name<input id="recipient" list="recipients"></label>${asset.kind === "krc721" ? '<label>Token ID<input id="token-id"></label>' : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div>${recipients()}</section>`,
+    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send ${esc(asset.symbol ?? asset.kind.toUpperCase())}`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select">${owned.map((item: any, index: number) => `<option value="${index}" ${item === asset.raw ? "selected" : ""}>${esc(item.symbol ?? item.name)}</option>`).join("")}</select></label>` : ""}<label>Address / KNS / .k name<input id="recipient" list="recipients"></label>${asset.kind === "krc721" ? '<label>Token ID<input id="token-id"></label>' : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div>${recipients()}</section>`,
     "SEND",
     true,
   );
@@ -914,7 +914,7 @@ function walletForm() {
           ? "Import private key"
           : "Rename wallet";
   shell(
-    `<section class="form-page"><p class="eyebrow">${mode === "watch" ? "WATCH ONLY" : "KASPIRE WALLET"}</p><h1>${title}</h1>${mode === "watch" ? '<p class="info-box">Watch wallets display public balances and assets, but cannot sign or spend.</p>' : mode === "create-wallet" ? '<p class="info-box">Choose 12 or 24 recovery words. An optional BIP-39 passphrase creates a separate wallet and cannot be recovered from the words alone.</p>' : ""}<div class="form"><label>Wallet name<input id="wallet-name" value="${esc(current?.name ?? (mode === "watch" ? "Watch wallet" : mode === "create-wallet" ? `Wallet ${status.addresses.filter((item: any) => !item.watchOnly && item.account === 0 && item.index === 0).length + 1}` : mode === "import-key" ? "Imported key" : "Imported wallet"))}"></label>${mode === "watch" ? '<label>Kaspa address or name.kas<input id="wallet-address" placeholder="kaspa:… or name.kas"></label>' : mode === "import-key" ? '<label>Private key<input id="private-key" type="password" maxlength="64"></label><label>Vault password<input id="vault-password" type="password"></label>' : mode === "import-seed" ? `<div class="word-count"><button data-count="12" class="active">12 words</button><button data-count="24">24 words</button></div><div id="seed-grid" class="seed-grid">${seedFields(12)}</div><label>BIP-39 passphrase <small>optional</small><input id="passphrase" type="password"></label><label>Vault password<input id="vault-password" type="password"></label>` : mode === "create-wallet" ? '<div class="word-count"><button data-count="12" class="active">12 words</button><button data-count="24">24 words</button></div><label>Vault password<input id="vault-password" type="password" autocomplete="current-password"></label><label class="toggle-row"><span>Use BIP39 passphrase</span><input id="use-passphrase" type="checkbox"></label><label id="passphrase-field" style="display:none">BIP39 passphrase<input id="passphrase" type="password" autocomplete="off"><small>This cannot be recovered from the seed words.</small></label>' : ""}<button id="save">${mode === "rename" ? "SAVE NAME" : mode === "watch" ? "ADD WATCH WALLET" : mode === "create-wallet" ? "CREATE WALLET" : "IMPORT WALLET"}</button><p id="error" class="error"></p></div></section>`,
+    `<section class="form-page"><p class="eyebrow">${mode === "watch" ? "WATCH ONLY" : "KASPIRE WALLET"}</p><h1>${title}</h1>${mode === "watch" ? '<p class="info-box">Watch wallets display public balances and assets, but cannot sign or spend.</p>' : mode === "create-wallet" ? '<p class="info-box">Choose 12 or 24 recovery words. An optional BIP-39 passphrase creates a separate wallet and cannot be recovered from the words alone.</p>' : ""}<div class="form"><label>Wallet name<input id="wallet-name" value="${esc(current?.name ?? (mode === "watch" ? "Watch wallet" : mode === "create-wallet" ? `Wallet ${status.addresses.filter((item: any) => !item.watchOnly && item.account === 0 && item.index === 0).length + 1}` : mode === "import-key" ? "Imported key" : "Imported wallet"))}"></label>${mode === "watch" ? '<label>Kaspa address, name.kas or name.k<input id="wallet-address" placeholder="kaspa:… / name.kas / name.k"></label>' : mode === "import-key" ? '<label>Private key<input id="private-key" type="password" maxlength="64"></label><label>Vault password<input id="vault-password" type="password"></label>' : mode === "import-seed" ? `<div class="word-count"><button data-count="12" class="active">12 words</button><button data-count="24">24 words</button></div><div id="seed-grid" class="seed-grid">${seedFields(12)}</div><label>BIP-39 passphrase <small>optional</small><input id="passphrase" type="password"></label><label>Vault password<input id="vault-password" type="password"></label>` : mode === "create-wallet" ? '<div class="word-count"><button data-count="12" class="active">12 words</button><button data-count="24">24 words</button></div><label>Vault password<input id="vault-password" type="password" autocomplete="current-password"></label><label class="toggle-row"><span>Use BIP39 passphrase</span><input id="use-passphrase" type="checkbox"></label><label id="passphrase-field" style="display:none">BIP39 passphrase<input id="passphrase" type="password" autocomplete="off"><small>This cannot be recovered from the seed words.</small></label>' : ""}<button id="save">${mode === "rename" ? "SAVE NAME" : mode === "watch" ? "ADD WATCH WALLET" : mode === "create-wallet" ? "CREATE WALLET" : "IMPORT WALLET"}</button><p id="error" class="error"></p></div></section>`,
     title.toUpperCase(),
     true,
   );
@@ -1291,7 +1291,7 @@ function contactForm() {
     (item: any) => item.id === context.contactId,
   );
   shell(
-    `<section class="form-page"><p class="eyebrow">ADDRESS BOOK</p><h1>${contact ? "Edit contact" : "Add contact"}</h1><div class="form"><label>Name<input id="name" value="${esc(contact?.name ?? "")}"></label><label>Kaspa address or name.kas<input id="address" value="${esc(contact?.address ?? "")}"></label><button id="save">SAVE CONTACT</button><p id="error" class="error"></p></div></section>`,
+    `<section class="form-page"><p class="eyebrow">ADDRESS BOOK</p><h1>${contact ? "Edit contact" : "Add contact"}</h1><div class="form"><label>Name<input id="name" value="${esc(contact?.name ?? "")}"></label><label>Kaspa address, name.kas or name.k<input id="address" value="${esc(contact?.address ?? "")}"></label><button id="save">SAVE CONTACT</button><p id="error" class="error"></p></div></section>`,
     "CONTACT",
     true,
   );
@@ -1410,7 +1410,7 @@ async function loadHome() {
           " · " + fmt(core.utxoCount, 0) + " UTXOs";
       addCompound(core);
     }).catch(() => undefined);
-    const assets: any = {tokens: [], domains: [], krc721: [], kcc20: []};
+    const assets: any = {tokens: [], domains: [], krc721: [], kcc20: [], dotk: []};
     const failures: string[] = [];
     await Promise.all(Object.keys(assets).map(async category => {
       try { assets[category] = await command("assetCategory", {category}); }
@@ -1481,6 +1481,10 @@ function renderAssetGroups(assets: any) {
         raw,
       })),
     },
+    {key: "dotk", title: "DOT.K NAMES", items: [...(assets.dotk ?? [])]
+      .sort((a: any,b: any) => a.name.localeCompare(b.name, "en"))
+      .map((raw: any) => ({kind: "dotk", symbol: raw.name,
+        balance: "Directory listing · tap to verify ownership", raw}))},
   ].filter((group) => group.items.length);
   document.querySelector("#asset-count")!.textContent = String(
     groups.reduce((sum, group) => sum + group.items.length, 0),
@@ -1519,7 +1523,23 @@ function renderAssetGroups(assets: any) {
         .catch(() => undefined),
   );
 }
+async function dotkDetail(listing: any) {
+  shell(`<section class="token-detail" id="dotk-detail"><h1 data-preserve-case>${esc(listing.name)}</h1><div id="dotk-proof" class="review-card">Verifying the current owner with the Kaspa node…</div><p>Name display and payment resolution are supported. Registration, name transfers and custom records are not included.</p></section>`, "DOT.K NAME", true);
+  const root = document.querySelector("#dotk-detail")!;
+  try {
+    const result = await command("resolveDotkName", {name: listing.name});
+    if (!root.isConnected) return;
+    root.querySelector("#dotk-proof")!.innerHTML = `<p>Ownership verified · Rust + live node proof</p>${listing.address !== result.address ? '<p class="error">The owner has changed since this listing was loaded. Refresh your wallet.</p>' : ''}<div class="detail-row"><span>Payment address</span><b class="wrap-id" data-preserve-case>${esc(result.address)}</b></div><button id="copy-dotk-owner" class="outline">Copy payment address</button><button id="copy-dotk-name" class="outline">Copy name</button><div class="detail-row"><span>Deed address (not a payment recipient)</span><b class="wrap-id" data-preserve-case>${esc(result.deedAddress)}</b></div><div class="detail-row"><span>Registry covenant ID</span><b class="wrap-id" data-preserve-case>${esc(result.registryCovenantId)}</b></div><div class="detail-row"><span>Live deed outpoint</span><b class="wrap-id" data-preserve-case>${esc(result.outpoint)}</b></div><p>Enter this .k name in the KAS or asset recipient field. Ownership is verified again when preparing your payment.</p>`;
+    root.querySelector<HTMLButtonElement>("#copy-dotk-owner")!.onclick = () => { void navigator.clipboard.writeText(result.address); };
+    root.querySelector<HTMLButtonElement>("#copy-dotk-name")!.onclick = () => { void navigator.clipboard.writeText(result.name); };
+  } catch (error) {
+    if (!root.isConnected) return;
+    root.querySelector("#dotk-proof")!.innerHTML = `<p class="error">${esc((error as Error).message)}</p><button id="retry-dotk" class="outline">Retry</button>`;
+    root.querySelector<HTMLButtonElement>("#retry-dotk")!.onclick = () => { void dotkDetail(listing); };
+  }
+}
 function assetDetail(asset: any) {
+  if (asset.kind === "dotk") return dotkDetail(asset.raw);
   if (asset.kind === "krc721") return nftGallery(asset);
   if (asset.kind === "kcc20" && asset.raw?.standard === "kron-native")
     return kronDetail(asset);
@@ -1654,7 +1674,7 @@ function send(asset: any) {
             ? (snapshot?.assets?.kcc20 ?? [])
             : []);
   shell(
-    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send <span data-preserve-case>${esc(asset.kind === "kns" ? asset.symbol : ticker(asset.symbol ?? asset.kind))}</span>`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select" data-preserve-case>${owned.map((item: any, index: number) => `<option value="${index}" ${sameAsset(item, asset.raw, asset.kind) ? "selected" : ""}>${esc(asset.kind === "kns" ? item.name : ticker(item.symbol))}${asset.tokenId ? ` #${esc(asset.tokenId)}` : ""}</option>`).join("")}</select></label>` : ""}<label>Address / KNS name<div class="recipient-input"><input id="recipient" autocomplete="off"><button id="choose-recipient" type="button" title="Address book">♙</button></div></label>${asset.kind === "krc721" ? `<label>Token ID<input id="token-id" value="${esc(asset.tokenId ?? asset.raw?.tokenId ?? "")}" readonly></label>` : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max" type="button">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div></section>`,
+    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send <span data-preserve-case>${esc(asset.kind === "kns" ? asset.symbol : ticker(asset.symbol ?? asset.kind))}</span>`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select" data-preserve-case>${owned.map((item: any, index: number) => `<option value="${index}" ${sameAsset(item, asset.raw, asset.kind) ? "selected" : ""}>${esc(asset.kind === "kns" ? item.name : ticker(item.symbol))}${asset.tokenId ? ` #${esc(asset.tokenId)}` : ""}</option>`).join("")}</select></label>` : ""}<label>Address / KNS / .k name<div class="recipient-input"><input id="recipient" autocomplete="off"><button id="choose-recipient" type="button" title="Address book">♙</button></div></label>${asset.kind === "krc721" ? `<label>Token ID<input id="token-id" value="${esc(asset.tokenId ?? asset.raw?.tokenId ?? "")}" readonly></label>` : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max" type="button">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div></section>`,
     "Send",
     true,
   );
@@ -2041,7 +2061,7 @@ function nftPreview(nft: any, asset: any) {
 }
 function onboarding() {
   shell(
-    `<section class="first-run"><div class="first-brand"><img src="kaspire-icon.png" alt=""><b>KASPIRE</b></div><h1>YOUR KASPA.<br>YOUR CONTROL.</h1><p>The Kaspa wallet that makes no compromises. Fully open source and secure.</p><div class="first-actions"><button id="first-create">＋ CREATE 24-WORD WALLET</button><button id="first-seed" class="outline">◆ IMPORT 12 / 24 WORDS</button><button id="first-key" class="outline">▣ IMPORT PRIVATE KEY</button></div><div class="watch-divider"><span></span><b>OR WATCH ONLY</b><span></span></div><div class="form"><label>Watch a Kaspa address or KNS domain<input id="first-watch-address" placeholder="kaspa:q… or name.kas"></label><label>Wallet name<input id="first-watch-name" value="Watch wallet"></label><label>Vault password<input id="first-watch-password" type="password" minlength="12"></label><label>Confirm password<input id="first-watch-confirm" type="password" minlength="12"></label><button id="first-watch">WATCH WALLET</button><p id="first-error" class="error"></p></div></section>`,
+    `<section class="first-run"><div class="first-brand"><img src="kaspire-icon.png" alt=""><b>KASPIRE</b></div><h1>YOUR KASPA.<br>YOUR CONTROL.</h1><p>The Kaspa wallet that makes no compromises. Fully open source and secure.</p><div class="first-actions"><button id="first-create">＋ CREATE 24-WORD WALLET</button><button id="first-seed" class="outline">◆ IMPORT 12 / 24 WORDS</button><button id="first-key" class="outline">▣ IMPORT PRIVATE KEY</button></div><div class="watch-divider"><span></span><b>OR WATCH ONLY</b><span></span></div><div class="form"><label>Watch a Kaspa address or name<input id="first-watch-address" placeholder="kaspa:q… / name.kas / name.k"></label><label>Wallet name<input id="first-watch-name" value="Watch wallet"></label><label>Vault password<input id="first-watch-password" type="password" minlength="12"></label><label>Confirm password<input id="first-watch-confirm" type="password" minlength="12"></label><button id="first-watch">WATCH WALLET</button><p id="first-error" class="error"></p></div></section>`,
   );
   document.querySelector<HTMLButtonElement>("#first-create")!.onclick = () =>
     legacyOnboarding("create");

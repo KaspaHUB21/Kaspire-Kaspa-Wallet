@@ -60,7 +60,7 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
               TextField(
                 controller: address,
                 decoration: const InputDecoration(
-                  labelText: 'Kaspa address or name.kas',
+                  labelText: 'Kaspa address, name.kas or name.k',
                 ),
               ),
               if (error != null)

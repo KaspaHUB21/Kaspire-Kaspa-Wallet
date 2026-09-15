@@ -291,7 +291,7 @@ class _KasSendPanelState extends State<_KasSendPanel> {
             autocorrect: false,
             enableSuggestions: false,
             decoration: InputDecoration(
-              labelText: 'Address / KNS name',
+              labelText: 'Address / KNS / .k name',
               hintText: 'Long press to paste',
               suffixIcon: Row(
                 mainAxisSize: MainAxisSize.min,

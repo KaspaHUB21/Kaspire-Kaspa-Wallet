@@ -12,6 +12,7 @@ const fixtureAssets = {
   kcc20: ['zeta','BURTLE','Alpha'].map((symbol,index)=>({symbol,rawBalance:'100000000',decimals:8,covenantId:`fixture-${index}`})),
   krc721: ['zombies','Burtle','ANGELS'].map(symbol=>({symbol,balance:3})),
   domains: ['zulu.kas','alpha.kas','beta.kas'].map(name=>({name})),
+  dotk: ['zulu.k','alpha.k'].map(name=>({name,address:fixtureAddress,verified:false})),
 };
 window.chrome ??= {};
 window.chrome.runtime = {
@@ -24,6 +25,7 @@ window.chrome.runtime = {
       case 'setNetwork': fixtureState.network=message.network;result=fixtureState;break;
       case 'balanceSnapshot': case 'coreSnapshot': result={address:fixtureAddress,balanceKas:7783.8699,utxoCount:0,utxos:[],nativeSymbol:fixtureState.network==='igra'?'iKAS':'KAS',tokens:[{symbol:'ZED',balance:'3'},{symbol:'ALPHA',balance:'2'}]};break;
       case 'assetCategory': result=fixtureAssets[message.category];break;
+      case 'resolveDotkName': result={name:message.name,address:fixtureAddress,deedAddress:'kaspa:p'+'a'.repeat(60),registryCovenantId:'e'.repeat(64),outpoint:'f'.repeat(64)+':0',verified:true};break;
       case 'market': result={kasUsd:.0346,rate:1,currency:'USD'};break;
       case 'tokenMarket': result={priceKas:.869,priceUsd:.03,explorerUrl:'https://example.invalid/token'};break;
       case 'evmAddress': result='0x'+'1'.repeat(40);break;

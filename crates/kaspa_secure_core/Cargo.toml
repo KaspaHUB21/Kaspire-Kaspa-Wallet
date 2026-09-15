@@ -8,6 +8,7 @@ publish = false
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
+blake3 = "1.8.2"
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
 hex = "0.4.3"
 getrandom = { version = "0.2.17", features = ["js"] }

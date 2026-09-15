@@ -241,8 +241,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 minLines: 2,
                 maxLines: 3,
                 decoration: InputDecoration(
-                  labelText: 'Watch a Kaspa address or KNS domain',
-                  hintText: 'kaspa:q… or name.kas',
+                  labelText: 'Watch a Kaspa address or name',
+                  hintText: 'kaspa:q… / name.kas / name.k',
                   errorText: _error,
                 ),
               ),

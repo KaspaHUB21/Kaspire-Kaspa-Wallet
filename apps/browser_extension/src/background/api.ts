@@ -1,4 +1,5 @@
 import type { KaspaNetwork } from "../shared/protocol";
+import {dotkNamesOf, resolveDotkName} from "./dotk";
 const MAINNET = "https://kaspire.kaslab.space/api";
 const TN10 = "https://api-tn10.kaspa.org";
 async function request(
@@ -271,13 +272,17 @@ export async function resolveWalletInput(
   network: KaspaNetwork,
 ) {
   const normalized = input.trim().toLowerCase();
+  if (normalized.endsWith(".k")) {
+    if (network !== "mainnet") throw new Error("dot.k payments are available on Kaspa Layer 1 only.");
+    return (await resolveDotkName(normalized)).address;
+  }
   const prefix = network === "mainnet" ? "kaspa" : "kaspatest";
   if (new RegExp(`^${prefix}:[a-z0-9]{61,63}$`).test(normalized))
     return normalized;
   if (network !== "mainnet" || !/^[a-z0-9][a-z0-9.-]*\.kas$/.test(normalized))
     throw new Error(
       network === "mainnet"
-        ? "Enter a Kaspa address or valid name.kas domain."
+        ? "Enter a Kaspa address, name.kas or name.k."
         : "Enter a valid TN10 kaspatest: address.",
     );
   const value = await loadTokenAssets(normalized);
@@ -1030,6 +1035,7 @@ const categoryCache = new Map<string, { at: number; value: any[] }>();
 const categoryPending = new Map<string, Promise<any[]>>();
 /** Independent categories: a slow NFT or covenant indexer cannot hold tokens back. */
 export async function walletAssetCategory(address: string, network: KaspaNetwork, category: string): Promise<any[]> {
+  if (category === "dotk") return network === "mainnet" ? dotkNamesOf(address) : [];
   if (!["tokens", "domains", "krc721", "kcc20"].includes(category)) throw new Error("Unknown asset category.");
   if (network !== "mainnet") return [];
   const key = `${network}:${address}:${category}`;

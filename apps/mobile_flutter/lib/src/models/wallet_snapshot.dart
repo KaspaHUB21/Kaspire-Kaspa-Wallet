@@ -1,4 +1,5 @@
 import '../number_format.dart';
+import '../services/dotk_service.dart';
 
 /// Sort without mutating snapshots or conflating different covenants that use
 /// the same ticker. Indexer arrival order must not determine the display order.
@@ -24,6 +25,7 @@ class WalletSnapshot {
     this.kcc20Tokens = const [],
     required this.krc721Collections,
     required this.knsDomains,
+    this.dotkNames = const [],
     this.assetWarning,
     this.hasMoreTransactions = false,
     this.utxoCount = 0,
@@ -39,6 +41,7 @@ class WalletSnapshot {
   final List<WalletAsset> kcc20Tokens;
   final List<WalletAsset> krc721Collections;
   final List<KnsDomain> knsDomains;
+  final List<DotkName> dotkNames;
   final String? assetWarning;
   final bool hasMoreTransactions;
   final int utxoCount;
@@ -60,6 +63,7 @@ class WalletSnapshot {
         kcc20Tokens: kcc20Tokens,
         krc721Collections: krc721Collections,
         knsDomains: knsDomains,
+        dotkNames: dotkNames,
         assetWarning: assetWarning,
         hasMoreTransactions: hasMoreTransactions,
         utxoCount: utxoCount,

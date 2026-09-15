@@ -1,5 +1,7 @@
 import { loadState, saveState } from "./state";
 import { core } from "./core";
+import {configureDotkDeriver, resolveDotkName} from "./dotk";
+configureDotkDeriver(async request => JSON.parse((await core()).deriveDotkDeed(JSON.stringify(request))));
 import {
   createPortableBackup,
   createVault,
@@ -258,6 +260,13 @@ async function walletCommand(
   if (message.command === "assetCategory") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
     return walletAssetCategory(state.selectedAddress, state.network, String(message.category));
+  }
+  if (message.command === "resolveDotkName") {
+    if (state.network !== "mainnet") throw new Error("dot.k is available on Layer 1 only.");
+    const result = await resolveDotkName(String(message.name ?? ""));
+    const fresh = await loadState();
+    if (fresh.network !== state.network || fresh.selectedAddress !== state.selectedAddress) throw new Error("Account or network changed. Please retry.");
+    return result;
   }
   if (message.command === "assetsSnapshot") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");

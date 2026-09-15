@@ -151,8 +151,8 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
         content: TextField(
           controller: controller,
           autocorrect: false,
-          decoration:
-              const InputDecoration(labelText: 'Kaspa address or name.kas'),
+          decoration: const InputDecoration(
+              labelText: 'Kaspa address, name.kas or name.k'),
         ),
         actions: [
           TextButton(

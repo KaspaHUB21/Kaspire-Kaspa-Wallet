@@ -4,6 +4,7 @@ object SecureCore {
     init { System.loadLibrary("kaspa_secure_core") }
 
     external fun generateWallet(passphrase: String): String
+    external fun deriveDotkDeed(requestJson: String): String
     external fun importWallet(phrase: String, passphrase: String): String
     external fun importPrivateKey(privateKey: String): String
     external fun exportPrivateKey(secret: String): String

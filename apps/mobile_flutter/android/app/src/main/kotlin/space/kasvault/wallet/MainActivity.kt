@@ -201,6 +201,9 @@ class MainActivity : FlutterFragmentActivity() {
                     "hasNativeWallet" -> result.success(hasNativeWallet(call.argument<String>("address")))
                     "getNativeAddress" -> result.success(activeWalletAddress())
                     "listWallets" -> result.success(listWalletsJson().toString())
+                    "deriveDotkDeed" -> resultFromCore(
+                        SecureCore.deriveDotkDeed(call.argument<String>("request") ?: error("Missing dot.k request")), result,
+                    )
                     "deriveAddresses" -> {
                         val secret = decryptSecret()
                         val raw = SecureCore.deriveAddresses(
