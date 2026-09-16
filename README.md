@@ -40,7 +40,7 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.31**, build **100**
+- Android app: **0.11.32**, build **104**
 - Android package: `space.kaspire.wallet`
 - Browser extension package: **0.4.8** (GitHub ZIP; Chrome Web Store availability is separate)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
@@ -65,8 +65,16 @@ permissioned `window.kaspire` provider directly to websites.
   bond and pinned registry covenant ID before accepting a recipient.
 - Opening a name shows its freshly verified owner, deed address and outpoint.
   No stale name-resolution cache is reused for payments.
-- Registration, transferring the name itself and custom records are not yet
-  included. Covenant-only owners without a payment address are refused.
+- Android includes the dot.k Marketplace: list, buy and cancel name sales using
+  a native sale covenant. Minimum listing price is 10 KAS; marketplace fee is
+  2.1%, with the recipient fixed in each offer. Network fees are separate, and
+  the sale reserve is returned to the seller on purchase or cancellation.
+  Publication is automatic with an explicit retry path; published offers show
+  Published, and sold/cancelled offers retain their completion history.
+- The marketplace is Android-only in this release. Standalone name transfers,
+  registration and custom records are not included. Covenant-only owners
+  without a payment address are refused for name-based payments.
+- Marketplace design and review boundaries: [dot.k marketplace](docs/dotk_marketplace_prototype.md).
 - Protocol details, trust boundaries and tests: [dot.k integration](docs/dotk_integration.md).
 
 ### HUB21 design and clearer asset lists

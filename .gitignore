@@ -13,6 +13,7 @@ __pycache__/
 *.pyc
 **/dist/
 target/
+artifacts/
 *.jks
 *.keystore
 *.apk

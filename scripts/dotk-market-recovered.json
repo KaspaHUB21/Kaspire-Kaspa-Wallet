@@ -1,0 +1,12 @@
+[
+  {
+    "terms": {
+      "name": "gothmil",
+      "seller": "kaspa:qp0mtdvzscrkfft702j85s8yzdl8a87n5d6pgtm8vrxg6hqu0wywzvwkevdk3",
+      "feeAddress": "kaspa:qraed0llukpgfvnnhsctmrsrm4m9vkeqyvg6ek82vtq7gmh99c8qcz9atrgz6",
+      "priceSompi": 3000000000
+    },
+    "listingTxId": "38380fffb630daf5ca0ab361ead8c7eaf44708c6b6e67909501bbab3d37f5fed",
+    "saleId": "8ddb0275defbd0eb820865783ca9ff50e3860d1e087bcd8fda2cf628dda4f372"
+  }
+]

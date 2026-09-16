@@ -1,0 +1,44 @@
+// Prototype v1. Never fund until the complete dot.k + sale VM tests pass.
+// Input 0: dot.k deed; input 1: unique sale covenant; inputs 2+: funding.
+// Price is gross. Fee is floor(price * 21 / 1000), calculated in Rust.
+contract DotkSale(byte[32] seller, byte[] feeScript, int sellerNet, int marketFee,
+                 int reserve, byte[32] registry, byte[] deedPrefix, byte[] deedSuffix) {
+    function checkDeed(byte[32] newOwner) {
+        require(this.activeInputIndex == 1);
+        require(tx.inputs[1].value == reserve);
+        byte[32] saleId = OpInputCovenantId(1);
+        require(saleId != registry);
+        require(OpCovInputCount(saleId) == 1);
+        require(OpCovOutputCount(saleId) == 0);
+        require(OpInputCovenantId(0) == registry);
+        require(OpCovInputCount(registry) == 1);
+        require(OpCovOutputCount(registry) == 1);
+        require(OpCovOutputIdx(registry, 0) == 0);
+        require(tx.inputs[0].value == 100000000);
+        require(tx.outputs[0].value == 100000000);
+        byte[] oldDeed = deedPrefix + [0x04, 0x20] + saleId + deedSuffix;
+        require(tx.inputs[0].scriptPubKey == new ScriptPubKeyP2SHFromRedeemScript(oldDeed));
+        byte[] nextDeed = deedPrefix + [0x00, 0x20] + newOwner + deedSuffix;
+        require(tx.outputs[0].scriptPubKey == new ScriptPubKeyP2SHFromRedeemScript(nextDeed));
+    }
+
+    entrypoint function buy(byte[32] buyer, sig approval) {
+        require(approval.length == 65);
+        require(approval.slice(64, 65) == [0x01]);
+        require(checkSig(approval, buyer));
+        checkDeed(buyer);
+        require(tx.outputs[1].scriptPubKey == new ScriptPubKeyP2PK(seller));
+        require(tx.outputs[1].value == sellerNet + reserve);
+        require(tx.outputs[2].scriptPubKey == feeScript);
+        require(tx.outputs[2].value == marketFee);
+    }
+
+    entrypoint function cancel(sig approval) {
+        require(approval.length == 65);
+        require(approval.slice(64, 65) == [0x01]);
+        require(checkSig(approval, seller));
+        checkDeed(seller);
+        require(tx.outputs[1].scriptPubKey == new ScriptPubKeyP2PK(seller));
+        require(tx.outputs[1].value == reserve);
+    }
+}

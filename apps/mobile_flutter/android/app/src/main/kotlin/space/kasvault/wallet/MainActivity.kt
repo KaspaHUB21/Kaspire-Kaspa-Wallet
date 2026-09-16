@@ -204,6 +204,38 @@ class MainActivity : FlutterFragmentActivity() {
                     "deriveDotkDeed" -> resultFromCore(
                         SecureCore.deriveDotkDeed(call.argument<String>("request") ?: error("Missing dot.k request")), result,
                     )
+                    "describeDotkMarket" -> resultFromCore(
+                        SecureCore.describeDotkMarket(call.argument<String>("request") ?: error("Missing marketplace request")), result,
+                    )
+                    "prepareDotkMarket", "signDotkMarket" -> {
+                        val request = call.argument<String>("request") ?: error("Missing marketplace request")
+                        check(request.length <= 512 * 1024) { "Marketplace request is too large" }
+                        val signing = call.method == "signDotkMarket"
+                        val approved = if (signing) call.argument<String>("reviewHash") ?: error("Missing review hash") else ""
+                        val walletId = activeWalletId()
+                        if (signing) requireAuthorization(call, "signDotkMarket", approved)
+                        Thread {
+                            try {
+                                val raw = SecureCore.prepareDotkMarket(request)
+                                val prepared = parseCore(raw)
+                                if (signing) check(prepared.getString("reviewHash") == approved) { "Marketplace review changed" }
+                                DotkMarketNode.verify(prepared)
+                                runOnUiThread {
+                                    try {
+                                        check(activeWalletId() == walletId) { "Wallet changed; review again" }
+                                        if (signing) {
+                                            val secret = decryptSecret(JSONObject(request).getString("sender"))
+                                            resultFromCore(SecureCore.signDotkMarket(secret, request, approved), result)
+                                        } else resultPreparedFromCore(raw, "signDotkMarket", result)
+                                    } catch (error: Exception) {
+                                        result.error("MARKETPLACE_ERROR", error.message, null)
+                                    }
+                                }
+                            } catch (error: Exception) {
+                                runOnUiThread { result.error("MARKETPLACE_ERROR", error.message, null) }
+                            }
+                        }.start()
+                    }
                     "deriveAddresses" -> {
                         val secret = decryptSecret()
                         val raw = SecureCore.deriveAddresses(
@@ -1679,6 +1711,17 @@ class MainActivity : FlutterFragmentActivity() {
         val json = parseCore(raw)
         val reviewHash = json.getString("reviewHash")
         val summary = when (operation) {
+            "signDotkMarket" ->
+                "dot.k ${json.getString("action")} · ${json.getString("name")}\n" +
+                    "Seller ${json.getString("seller")}\n" +
+                    "Gross price ${json.getLong("priceSompi")} sompi\n" +
+                    "Seller net ${json.getLong("sellerNetSompi")} sompi\n" +
+                    "Marketplace fee ${json.getLong("marketplaceFeeSompi")} sompi (purchase only)\n" +
+                    "Fee recipient ${json.getString("feeAddress")}\n" +
+                    "Sale reserve ${json.getLong("saleReserveSompi")} sompi\n" +
+                    "Network fee ${json.getLong("feeSompi")} sompi\n" +
+                    "Account ${json.getString("sender")}\n" +
+                    "Sale covenant ${json.getString("covenantId")}"
             "signTransaction" ->
                 "Recipient ${json.getString("recipient")}\n" +
                     "Amount ${json.getLong("amountSompi")} sompi · " +
@@ -2280,7 +2323,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun authorizationPrompt(operation: String, binding: String): String? = when (operation) {
-        "signTransaction", "signEvmTransaction", "signKcc20Transfer", "signReveal", "signPolicyTransaction", "signPskt" ->
+        "signTransaction", "signEvmTransaction", "signKcc20Transfer", "signReveal", "signPolicyTransaction", "signPskt", "signDotkMarket" ->
             synchronized(authorizationLock) {
                 nativeReviewSummaries[binding]
                     ?.takeIf {
@@ -2373,7 +2416,7 @@ class MainActivity : FlutterFragmentActivity() {
         ) {
             error("Operation authorization does not match this request")
         }
-        if (operation in setOf("signTransaction", "signKcc20Transfer", "signReveal")) {
+        if (operation in setOf("signTransaction", "signKcc20Transfer", "signReveal", "signDotkMarket")) {
             synchronized(authorizationLock) {
                 nativeReviewSummaries.remove(binding)
             }

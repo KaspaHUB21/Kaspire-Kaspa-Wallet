@@ -1,5 +1,7 @@
 mod evm;
 pub mod dotk;
+mod dotk_sale;
+mod dotk_market;
 mod inscription;
 mod kcc20;
 mod kron;
@@ -57,6 +59,12 @@ pub use transaction::{
 };
 
 pub const REQUIRED_RUSTY_KASPA_RELEASE: &str = "v2.0.1";
+
+/// Read-only descriptor used by the test marketplace directory. No signing API.
+pub fn describe_dotk_market_json(raw: &str) -> Result<String> {
+    let request: dotk_market::DescribeRequest = serde_json::from_str(raw).map_err(|_| CoreError::Serialization)?;
+    Ok(dotk_market::describe(&request)?.to_string())
+}
 pub const DERIVATION_PATH: &str = "m/44'/111111'/0'/0/0";
 pub const MODERN_COIN_TYPE: u32 = 111_111;
 pub const LEGACY_COIN_TYPE: u32 = 972;

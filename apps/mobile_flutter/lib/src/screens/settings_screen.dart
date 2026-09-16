@@ -14,6 +14,8 @@ import '../services/update_service.dart';
 import '../theme.dart';
 import 'diagnostics_screen.dart';
 import 'tangem_rescue_screen.dart';
+import 'dotk_market_screen.dart';
+import '../services/dotk_market_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -1081,6 +1083,16 @@ class _SettingsOverview extends StatelessWidget {
               title: 'HUB21 Toolbox',
               subtitle: 'Explorers, vaults and developer tools',
               children: [
+                if (DotkMarketService.enabled)
+                  _ToolAction(
+                    icon: Icons.storefront_outlined,
+                    title: 'dot.k Marketplace',
+                    subtitle: 'List, buy and cancel covenant names',
+                    onTap: () =>
+                        Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => DotkMarketScreen(address: address),
+                    )),
+                  ),
                 _ToolAction(
                   icon: Icons.nfc_rounded,
                   title: 'Tangem Rescue',

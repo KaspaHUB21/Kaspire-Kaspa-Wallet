@@ -20,6 +20,8 @@ import 'nft_collection_screen.dart';
 import 'krc20_token_detail_screen.dart';
 import 'transaction_detail_screen.dart';
 import 'dotk_name_screen.dart';
+import 'dotk_market_screen.dart';
+import '../services/dotk_market_service.dart';
 import '../widgets/kaspire_brand.dart';
 
 class WalletScreen extends StatefulWidget {
@@ -621,6 +623,18 @@ class _AssetOverview extends StatelessWidget {
                 ),
               ],
             ),
+          if (DotkMarketService.enabled && !NetworkSettings.isTestnet)
+            Card(child: ListTile(
+              leading: const Icon(Icons.storefront_outlined),
+              title: const Text('dot.k Marketplace'),
+              subtitle: const Text('Your listed names are locked in sale covenants. Open My listings to verify status or cancel.'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => DotkMarketScreen(address: address),
+              )),
+            )),
+          if (DotkMarketService.enabled && !NetworkSettings.isTestnet)
+            DotkListedAssets(address: address),
           if (data.dotkNames.isNotEmpty)
             _AssetSection(
                 title: 'DOT.K NAMES',

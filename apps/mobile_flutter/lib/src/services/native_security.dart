@@ -377,6 +377,32 @@ class NativeSecurity {
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
+  Future<Map<String, Object?>> describeDotkMarket(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+        'describeDotkMarket', {'request': jsonEncode(request)});
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> prepareDotkMarket(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+        'prepareDotkMarket', {'request': jsonEncode(request)});
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> signDotkMarket(
+      Map<String, Object?> request, String reviewHash) async {
+    final token = await _authorizeOperation(
+        operation: 'signDotkMarket', binding: reviewHash);
+    final raw = await _channel.invokeMethod<String>('signDotkMarket', {
+      'request': jsonEncode(request),
+      'reviewHash': reviewHash,
+      'authorizationToken': token,
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
   Future<Map<String, Object?>> signKcc20Transfer(
     Map<String, Object?> request,
     String reviewHash,

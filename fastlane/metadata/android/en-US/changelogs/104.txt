@@ -1,0 +1,5 @@
+dot.k Marketplace: list, buy and cancel covenant name sales in the app.
+Automatic publication with clear retry instructions and Published status.
+Active listings first; sold/cancelled history and price sorting in Browse.
+Native Rust review, own-node checks, 10 KAS minimum and 2.1% marketplace fee.
+Kaspire Marketplace analytics are now available in the Token Explorer.

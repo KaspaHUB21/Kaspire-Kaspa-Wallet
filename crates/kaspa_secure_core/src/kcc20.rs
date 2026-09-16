@@ -925,7 +925,7 @@ fn sign_hash(
     Ok(signature)
 }
 
-fn simulate_all(transaction: &Transaction, entries: &[UtxoEntry]) -> Result<()> {
+pub(crate) fn simulate_all(transaction: &Transaction, entries: &[UtxoEntry]) -> Result<()> {
     let populated = PopulatedTransaction::new(transaction, entries.to_vec());
     let covenant_context = CovenantsContext::from_tx(&populated)
         .map_err(|error| CoreError::Transaction(format!("covenant context failed: {error}")))?;
@@ -974,7 +974,7 @@ fn encoded_script_public_key(version: u16, script: &[u8]) -> String {
 /// Serializes the signed transaction using the Kaspa SDK's SafeJSON schema.
 /// Unlike the legacy REST submit schema, this preserves Toccata's per-input
 /// `computeBudget` all the way to wRPC.
-fn wrpc_safe_json(transaction: &Transaction, entries: &[UtxoEntry]) -> Result<String> {
+pub(crate) fn wrpc_safe_json(transaction: &Transaction, entries: &[UtxoEntry]) -> Result<String> {
     if transaction.inputs.len() != entries.len() {
         return Err(CoreError::Serialization);
     }
