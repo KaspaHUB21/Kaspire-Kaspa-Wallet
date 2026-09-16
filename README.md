@@ -40,7 +40,7 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.32**, build **104**
+- Android app: **0.11.33**, build **105**
 - Android package: `space.kaspire.wallet`
 - Browser extension package: **0.4.8** (GitHub ZIP; Chrome Web Store availability is separate)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**

@@ -1,0 +1,1 @@
+Fix dot.k Marketplace listings incorrectly showing Status unavailable during API request bursts. Verification requests are paced, duplicate transaction reads are combined and temporary network failures are retried. Live UTXO and covenant security checks remain required.

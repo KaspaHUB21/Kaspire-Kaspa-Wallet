@@ -6,6 +6,7 @@ import 'dotk_service.dart';
 import 'kaspa_api.dart';
 import 'native_security.dart';
 import 'network_settings.dart';
+import 'marketplace_reads.dart';
 
 typedef MarketMap = Map<String, Object?>;
 
@@ -93,7 +94,11 @@ class DotkMarketService {
   final _native = NativeSecurity();
   final _api = KaspaApi();
   final http.Client _client;
-  void close() => _client.close();
+  late final _reads = MarketplaceReads(_client);
+  void close() {
+    _reads.close();
+    _client.close();
+  }
 
   void _network() {
     if (!enabled || NetworkSettings.network.value != KaspaNetwork.mainnet) {
@@ -101,16 +106,7 @@ class DotkMarketService {
     }
   }
 
-  Future<Object?> _get(String url) async {
-    final response =
-        await _client.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
-    if (response.statusCode != 200 ||
-        response.bodyBytes.length > 4 * 1024 * 1024) {
-      throw StateError(
-          'Marketplace data unavailable (${response.statusCode}).');
-    }
-    return jsonDecode(response.body);
-  }
+  Future<Object?> _get(String url) => _reads.get(url);
 
   Future<List<DotkOffer>> search(String query) async {
     final result = <DotkOffer>[];
@@ -169,7 +165,9 @@ class DotkMarketService {
 
   Future<MarketMap> _cell(
       String address, String script, String covenant, int amount,
-      {String? txid, int? index}) async {
+      {String? txid,
+      int? index,
+      Future<Map> Function()? transactionProof}) async {
     final rows =
         (await _get('$node/addresses/${Uri.encodeComponent(address)}/utxos')
             as List);
@@ -186,7 +184,9 @@ class DotkMarketService {
       }
       final id = point['transactionId'].toString();
       if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(id)) continue;
-      final tx = (await _get('$node/transactions/$id') as Map);
+      final tx = transactionProof == null
+          ? (await _get('$node/transactions/$id') as Map)
+          : await transactionProof();
       if (tx['transaction_id'] != id || tx['is_accepted'] != true) continue;
       if (!(tx['outputs'] as List).whereType<Map>().any((o) =>
           o['index'] == point['index'] &&
@@ -212,13 +212,17 @@ class DotkMarketService {
     final d = await _native
         .describeDotkMarket({'terms': offer.terms, 'saleId': offer.saleId});
     final deed = d['deed'] as Map;
+    Future<Map>? proof;
+    Future<Map> loadProof() =>
+        proof ??= _get('$node/transactions/${offer.listingTxId}')
+            .then((value) => value as Map);
     return Future.wait([
       _cell(deed['deedAddress'] as String, deed['scriptPublicKey'] as String,
           DotkService.registry, 100000000,
-          txid: offer.listingTxId, index: 0),
+          txid: offer.listingTxId, index: 0, transactionProof: loadProof),
       _cell(d['saleAddress'] as String, d['saleScriptPublicKey'] as String,
           offer.saleId, 100000000,
-          txid: offer.listingTxId, index: 1),
+          txid: offer.listingTxId, index: 1, transactionProof: loadProof),
     ]);
   }
 
@@ -229,6 +233,9 @@ class DotkMarketService {
     try {
       await verifiedCells(offer);
       return const DotkOfferStatus(DotkOfferState.active);
+    } on MarketplaceReadUnavailable {
+      // Do not amplify a rate limit/outage with unrelated history requests.
+      return const DotkOfferStatus(DotkOfferState.unavailable);
     } catch (_) {/* Check for an accepted completion, never assume sold. */}
     try {
       final key = await _get(
