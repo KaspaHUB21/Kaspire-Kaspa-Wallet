@@ -1,7 +1,7 @@
 export const currentRelease = {
-  version: "0.11.33",
-  build: 105,
-  sha256: "9d0bda657cc321c62a8e1626f911d1f548847ce3b6874523d889bcbf775fbdb2",
+  version: "0.11.34",
+  build: 106,
+  sha256: "731dacceec09c6ea70453cd422b05e33b53f0c9f3f2e14bcaf01764398aaacc8",
 } as const;
 
 export const extensionRelease = {

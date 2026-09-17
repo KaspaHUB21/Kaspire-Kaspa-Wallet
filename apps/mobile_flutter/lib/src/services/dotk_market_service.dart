@@ -93,6 +93,7 @@ class DotkMarketService {
   static final changes = ValueNotifier<int>(0);
   final _native = NativeSecurity();
   final _api = KaspaApi();
+  Future<List<DotkName>> namesOf(String address) => _api.dotk.namesOf(address);
   final http.Client _client;
   late final _reads = MarketplaceReads(_client);
   void close() {

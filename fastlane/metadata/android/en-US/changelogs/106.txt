@@ -1,0 +1,1 @@
+Faster dot.k Marketplace: Browse displays offers without waiting for all status checks or wallet holdings. Twelve offers per page with Load more; search and sorting cover the full directory. Visible listings are verified progressively. Fresh transaction security checks remain required.

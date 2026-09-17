@@ -1,9 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/dotk_market_service.dart';
 import '../services/dotk_service.dart';
-import '../services/kaspa_api.dart';
 import '../services/network_settings.dart';
 import '../services/native_security.dart';
 import '../services/app_settings.dart';
@@ -82,25 +82,88 @@ class _DotkListedAssetsState extends State<DotkListedAssets> {
 }
 
 class DotkMarketScreen extends StatefulWidget {
-  const DotkMarketScreen({super.key, required this.address});
+  const DotkMarketScreen({super.key, required this.address, this.service});
   final String address;
+  final DotkMarketService? service;
   @override
   State<DotkMarketScreen> createState() => _DotkMarketScreenState();
 }
 
 class _DotkMarketScreenState extends State<DotkMarketScreen> {
-  final _service = DotkMarketService();
+  late final _service = widget.service ?? DotkMarketService();
   final _search = TextEditingController();
   List<DotkOffer> _offers = [], _saved = [];
   List<DotkName> _names = [];
   bool _busy = false;
   bool _loading = false;
+  bool _namesLoading = true;
   bool _priceDescending = false;
   Map<String, DotkOfferStatus> _statuses = {};
   Set<String> _published = {};
   final Set<String> _publishing = {};
   String? _error;
   int _tab = 0;
+  int _limit = 12;
+  int _generation = 0;
+  bool _verifying = false;
+  List<DotkOffer> get _page => (_tab == 2
+          ? sortMyMarketOffers(_saved, _statuses)
+          : sortMarketOffers(_visibleOffers, descending: _priceDescending))
+      .take(_limit)
+      .toList();
+
+  void _selectionChanged(VoidCallback change) {
+    setState(() {
+      change();
+      _limit = 12;
+    });
+    unawaited(_verifyVisible());
+  }
+
+  Future<void> _verifyVisible() async {
+    if (_verifying || _loading || _busy || !mounted || _tab == 1) return;
+    _verifying = true;
+    final generation = _generation;
+    try {
+      while (mounted &&
+          !_busy &&
+          !_loading &&
+          generation == _generation &&
+          _tab != 1) {
+        final pending = _page
+            .where((o) => !_statuses.containsKey(o.listingTxId))
+            .take(2)
+            .toList();
+        if (pending.isEmpty) break;
+        await Future.wait(pending.map((offer) async {
+          final status = await _service.status(offer);
+          if (!mounted || generation != _generation || _busy) return;
+          setState(() {
+            _statuses[offer.listingTxId] = status;
+            if ([DotkOfferState.sold, DotkOfferState.cancelled]
+                .contains(status.state)) {
+              _offers.removeWhere((o) => o.listingTxId == offer.listingTxId);
+            }
+          });
+        }));
+      }
+    } finally {
+      _verifying = false;
+      if (mounted && generation != _generation) unawaited(_verifyVisible());
+    }
+  }
+
+  Future<void> _loadNames(int generation) async {
+    try {
+      final names = await _service.namesOf(widget.address);
+      if (mounted && generation == _generation) setState(() => _names = names);
+    } catch (_) {/* Holdings must never block Browse. */} finally {
+      if (mounted && generation == _generation) {
+        setState(() => _namesLoading = false);
+      }
+    }
+  }
+
   List<DotkOffer> get _visibleOffers => _offers
       .where((o) => o.name.contains(_search.text.trim().toLowerCase()))
       .toList();
@@ -121,24 +184,25 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
     if (_busy || _loading) return;
     setState(() {
       _loading = true;
+      _namesLoading = true;
+      _generation++;
+      _statuses = {};
       if (!quiet) _error = null;
     });
+    unawaited(_loadNames(_generation));
     try {
       final saved = await _service.saved(widget.address);
       if (mounted) setState(() => _saved = saved);
-      try {
-        final names = await KaspaApi().dotk.namesOf(widget.address);
-        if (mounted) setState(() => _names = names);
-      } catch (_) {
-        /* Search and cancellation do not depend on holdings loading. */
-      }
       List<DotkOffer> offers = _offers;
       try {
         // Fetch the directory independently of the Browse query, so a search
         // cannot turn an already published entry back into a Publish action.
         offers = await _service.search('');
         if (mounted) {
-          setState(() => _published = offers.map((o) => o.listingTxId).toSet());
+          setState(() {
+            _published = offers.map((o) => o.listingTxId).toSet();
+            _offers = List.of(offers);
+          });
         }
       } catch (e) {
         if (mounted && !quiet) setState(() => _error = e.toString());
@@ -148,14 +212,8 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
         await _service.save(offer);
       }
       final restored = await _service.saved(widget.address);
-      final states = await _service.statuses([...restored, ...offers]);
       if (mounted) {
         setState(() {
-          _statuses = states;
-          _offers = offers
-              .where((o) => ![DotkOfferState.sold, DotkOfferState.cancelled]
-                  .contains(states[o.listingTxId]?.state))
-              .toList();
           _saved = restored;
         });
       }
@@ -163,6 +221,7 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
       if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
+      if (mounted) unawaited(_verifyVisible());
     }
   }
 
@@ -508,7 +567,7 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
                 },
                 onSelectionChanged: _busy
                     ? null
-                    : (value) => setState(() => _tab = value.single)),
+                    : (value) => _selectionChanged(() => _tab = value.single)),
             const SizedBox(height: 16),
             if (_busy || _loading) const LinearProgressIndicator(),
             if (_error != null)
@@ -530,7 +589,8 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
                       suffixIcon: IconButton(
                           onPressed: _busy ? null : _load,
                           icon: const Icon(Icons.search))),
-                  onSubmitted: (_) => _load()),
+                  onChanged: (_) => _selectionChanged(() {}),
+                  onSubmitted: (_) => _selectionChanged(() {})),
               if (_visibleOffers.isEmpty && !_busy && !_loading)
                 const ListTile(title: Text('No offers found')),
               const SizedBox(height: 12),
@@ -544,13 +604,15 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
                         value: true, child: Text('Price: High to Low')),
                   ],
                   onChanged: (value) {
-                    if (value != null) setState(() => _priceDescending = value);
+                    if (value != null) {
+                      _selectionChanged(() => _priceDescending = value);
+                    }
                   }),
-              ...sortMarketOffers(_visibleOffers, descending: _priceDescending)
-                  .map((o) => _offer(o, mine: o.seller == widget.address)),
+              ..._page.map((o) => _offer(o, mine: o.seller == widget.address)),
             ],
             if (_tab == 1) ...[
-              if (_names.isEmpty && !_busy)
+              if (_namesLoading) const LinearProgressIndicator(),
+              if (_names.isEmpty && !_busy && !_namesLoading)
                 const ListTile(
                     title: Text('No dot.k names found for this address')),
               ..._names.map((n) => Card(
@@ -569,9 +631,23 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
               const Hub21Readable(
                   child: Text(
                       'Cancel a listing first to change its price. Once cancellation is confirmed, refresh My names and list again. Recovery entries stay on this device even after a sale or cancellation.')),
-              ...sortMyMarketOffers(_saved, _statuses)
-                  .map((o) => _offer(o, mine: true)),
+              ..._page.map((o) => _offer(o, mine: true)),
             ],
+            if ((_tab == 0 && _visibleOffers.length > _limit) ||
+                (_tab == 2 && _saved.length > _limit))
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: OutlinedButton.icon(
+                  onPressed: _busy
+                      ? null
+                      : () {
+                          setState(() => _limit += 12);
+                          unawaited(_verifyVisible());
+                        },
+                  icon: const Icon(Icons.expand_more),
+                  label: const Text('Load more'),
+                ),
+              ),
           ])));
 }
 
