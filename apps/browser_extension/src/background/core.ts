@@ -16,6 +16,9 @@ type CoreModule = {
   exportPrivateKey(secret: string): string;
   publicKey(secret: string): string;
   deriveDotkDeed(request: string): string;
+  describeDotkMarket(request: string): string;
+  prepareDotkMarket(request: string): string;
+  signDotkMarket(secret: string, request: string, reviewHash: string): string;
   deriveBackupKey(password: string, saltHex: string): string;
   prepareTransaction(request: string): string;
   signTransaction(secret: string, request: string, reviewHash: string): string;

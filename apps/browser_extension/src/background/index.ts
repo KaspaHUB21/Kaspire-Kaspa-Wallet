@@ -1,6 +1,18 @@
 import { loadState, saveState } from "./state";
 import { core } from "./core";
 import {configureDotkDeriver, resolveDotkName} from "./dotk";
+import {
+  marketNames,
+  marketOffer,
+  marketOffers,
+  marketStatus,
+  prepareMarketRequest,
+  publishOffer,
+  saveOffer,
+  savedOffers,
+  verifiedMarketCells,
+  verifyPreparedMarket,
+} from "./dotkMarket";
 configureDotkDeriver(async request => JSON.parse((await core()).deriveDotkDeed(JSON.stringify(request))));
 import {
   createPortableBackup,
@@ -97,6 +109,7 @@ interface ApprovalView {
   description: string;
   details: string[];
   rawJson?: unknown;
+  recoveryCode?: string;
 }
 const approvals = new Map<
   string,
@@ -267,6 +280,107 @@ async function walletCommand(
     const fresh = await loadState();
     if (fresh.network !== state.network || fresh.selectedAddress !== state.selectedAddress) throw new Error("Account or network changed. Please retry.");
     return result;
+  }
+  if (message.command === "dotkMarketOffers") {
+    if (state.network !== "mainnet") throw new Error("K-Agora is available on Layer 1 only.");
+    return marketOffers(String(message.query ?? ""));
+  }
+  if (message.command === "dotkMarketNames") {
+    if (state.network !== "mainnet" || !state.selectedAddress) throw new Error("K-Agora is available on Layer 1 only.");
+    return marketNames(state.selectedAddress);
+  }
+  if (message.command === "dotkMarketSaved") {
+    if (!state.selectedAddress) throw new Error("Select a wallet first.");
+    return savedOffers(state.selectedAddress);
+  }
+  if (message.command === "dotkMarketStatus") {
+    if (state.network !== "mainnet") throw new Error("K-Agora is available on Layer 1 only.");
+    return marketStatus(marketOffer(message.offer));
+  }
+  if (message.command === "dotkMarketSave") {
+    if (!state.selectedAddress) throw new Error("Select a wallet first.");
+    const offer = marketOffer(message.offer);
+    if (offer.terms.seller !== state.selectedAddress) throw new Error("Select the selling wallet before restoring this listing.");
+    await verifiedMarketCells(offer);
+    await verifiedMarketCells(offer);
+    return saveOffer(offer);
+  }
+  if (message.command === "dotkMarketPublish") {
+    const offer = marketOffer(message.offer);
+    if (offer.terms.seller !== state.selectedAddress) throw new Error("Select the selling wallet first.");
+    await publishOffer(offer);
+    return true;
+  }
+  if (message.command === "dotkMarketRemember") {
+    if (!state.selectedAddress) throw new Error("Select a wallet first.");
+    const offer = marketOffer(message.offer);
+    if (offer.terms.seller !== state.selectedAddress) throw new Error("Listing belongs to another wallet.");
+    await saveOffer(offer);
+    return true;
+  }
+  if (message.command === "prepareDotkMarket") {
+    if (!sessionVault || !state.selectedAddress || state.network !== "mainnet") throw new Error("Unlock a Layer 1 signing wallet first.");
+    const entry = state.addresses.find((item) => item.address === state.selectedAddress);
+    const wallet = sessionVault.wallets.find((item) => item.id === entry?.walletId);
+    if (!entry || entry.watchOnly || !wallet) throw new Error("A signing wallet is required. Watch wallets cannot list or buy.");
+    const action = String(message.action ?? "") as "list" | "buy" | "cancel";
+    if (!["list", "buy", "cancel"].includes(action)) throw new Error("Invalid marketplace action.");
+    const spending = await spendingData(entry.address, "mainnet");
+    let input: any;
+    if (action === "list") {
+      const priceSompi = Number(message.priceSompi);
+      if (!Number.isSafeInteger(priceSompi) || priceSompi < 1_000_000_000 || priceSompi > 9_000_000_000_000_000)
+        throw new Error("Marketplace price must be between 10 and 90,000,000 KAS.");
+      input = { name: String(message.name ?? ""), priceSompi,
+        feeAddress: await resolveWalletInput("hub21.kas", "mainnet") };
+    } else input = { offer: marketOffer(message.offer) };
+    const prepared = await prepareMarketRequest(action, entry.address, input, spending.feeRate, spending.utxosJson);
+    const fresh = await loadState();
+    if (fresh.network !== "mainnet" || fresh.selectedAddress !== entry.address) throw new Error("Account or network changed. Please retry.");
+    return prepared;
+  }
+  if (message.command === "submitDotkMarket") {
+    if (!sessionVault || !state.selectedAddress || state.network !== "mainnet") throw new Error("Unlock a Layer 1 signing wallet first.");
+    const entry = state.addresses.find((item) => item.address === state.selectedAddress);
+    const wallet = sessionVault.wallets.find((item) => item.id === entry?.walletId);
+    if (!entry || entry.watchOnly || !wallet) throw new Error("Selected wallet cannot sign.");
+    const request = message.request as any, review = message.review as any;
+    if (request?.sender !== entry.address || !["list", "buy", "cancel"].includes(request?.action) ||
+        typeof review?.reviewHash !== "string") throw new Error("Invalid marketplace approval request.");
+    await verifyPreparedMarket(review);
+    const details = [
+      `Name: ${review.name}.k`,
+      ...(request.action === "list" || request.action === "buy" ? [`Gross price: ${formatSompi(review.priceSompi)} KAS`] : []),
+      ...(request.action === "buy" ? [`Seller proceeds: ${formatSompi(review.sellerNetSompi)} KAS`, `Marketplace fee: ${formatSompi(review.marketplaceFeeSompi)} KAS`] : []),
+      `Network fee: ${formatSompi(review.feeSompi)} KAS`,
+      `Covenant ID: ${review.covenantId}`,
+    ];
+    if (!(await approve({ origin: "Kaspire Wallet", title: `Approve dot.k ${request.action}?`,
+      description: "Verify the covenant transaction reconstructed by the Rust security core.", details,
+      rawJson: { request, review } }))) throw rpc(4001, "Marketplace transaction rejected.");
+    const fresh = await loadState();
+    if (fresh.network !== "mainnet" || fresh.selectedAddress !== entry.address) throw new Error("Account or network changed. Please retry.");
+    const wasm = await core();
+    const signed = JSON.parse(wasm.signDotkMarket(signingSecret(wallet, entry), JSON.stringify(request), review.reviewHash));
+    let offer: any = null;
+    if (request.action === "list") {
+      offer = marketOffer({ terms: request.terms, listingTxId: signed.transactionId, saleId: review.covenantId });
+      await saveOffer(offer);
+      if (!(await approve({ origin: "Kaspire Wallet", title: "Save listing recovery code",
+        description: "Keep this public code with your wallet backup. It contains no private key. The name is not locked until you approve submission.",
+        details: ["Copy the complete recovery code before continuing."], rawJson: offer,
+        recoveryCode: JSON.stringify(offer) })))
+        throw rpc(4001, "Listing submission cancelled. The signed transaction was not broadcast.");
+    }
+    await broadcastKcc20(signed.wrpcJson, signed.transactionId);
+    let published = request.action !== "list";
+    if (offer) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try { await publishOffer(offer); published = true; break; }
+        catch { if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 2000)); }
+      }
+    }
+    return { transactionId: signed.transactionId, action: request.action, published, offer, review };
   }
   if (message.command === "assetsSnapshot") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");

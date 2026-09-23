@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Kaspire Wallet",
   "short_name": "Kaspire",
-  "version": "0.4.8",
-  "version_name": "0.4.8",
+  "version": "0.4.9",
+  "version_name": "0.4.9",
   "description": "Self-custody for the Kaspa ecosystem in your browser.",
   "minimum_chrome_version": "120",
   "icons": {

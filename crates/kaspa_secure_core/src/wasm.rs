@@ -9,6 +9,33 @@ pub fn derive_dotk_deed_js(request: &str) -> std::result::Result<String, JsError
     json(crate::dotk::derive(&parsed))
 }
 
+#[wasm_bindgen(js_name = describeDotkMarket)]
+pub fn describe_dotk_market_js(request: &str) -> std::result::Result<String, JsError> {
+    let parsed = serde_json::from_str::<crate::dotk_market::DescribeRequest>(request)
+        .map_err(|_| JsError::new("invalid dot.k marketplace descriptor request"))?;
+    crate::dotk_market::describe(&parsed)
+        .map(|value| value.to_string())
+        .map_err(|error| JsError::new(&error.to_string()))
+}
+
+#[wasm_bindgen(js_name = prepareDotkMarket)]
+pub fn prepare_dotk_market_js(request: &str) -> std::result::Result<String, JsError> {
+    let parsed = serde_json::from_str::<crate::dotk_market::Request>(request)
+        .map_err(|_| JsError::new("invalid dot.k marketplace transaction"))?;
+    json(crate::dotk_market::prepare(&parsed))
+}
+
+#[wasm_bindgen(js_name = signDotkMarket)]
+pub fn sign_dotk_market_js(
+    secret: &str,
+    request: &str,
+    review_hash: &str,
+) -> std::result::Result<String, JsError> {
+    let parsed = serde_json::from_str::<crate::dotk_market::Request>(request)
+        .map_err(|_| JsError::new("invalid dot.k marketplace transaction"))?;
+    json(crate::dotk_market::sign(secret, &parsed, review_hash))
+}
+
 fn json<T: Serialize>(value: Result<T>) -> std::result::Result<String, JsError> {
     value
         .and_then(|item| serde_json::to_string(&item).map_err(|_| CoreError::Serialization))

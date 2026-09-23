@@ -36,7 +36,7 @@
 :root[data-theme="hub21"] .brand-store img {
   filter: grayscale(1) sepia(.6) brightness(1.4) drop-shadow(0 2px 2px #000);
 }
-:root[data-theme="hub21"] :is(.balance-card, .quick-actions > button, .asset-group, .settings-link, .settings-group, .wallet-card, .price-grid > div, .review-card, .tx-meta, .address-full, .private-key-card, .detail-section, .copy-detail, .receipt-details, .app-promo) {
+:root[data-theme="hub21"] :is(.balance-card, .quick-actions > button, .asset-group, .settings-link, .settings-group, .wallet-card, .price-grid > div, .review-card, .tx-meta, .address-full, .private-key-card, .detail-section, .copy-detail, .receipt-details, .app-promo, .market-offer, .market-name, .market-tabs, .market-emblem) {
   border: 3px double #efdfa6;
   border-radius: 18px;
   background: var(--hub-metal);
@@ -68,6 +68,14 @@
 :root[data-theme="hub21"] .settings-group { padding: 0 12px; margin-bottom: 12px; }
 :root[data-theme="hub21"] .asset-row { color: var(--text); }
 :root[data-theme="hub21"] .group-icon { background: transparent; font-size: 26px; text-shadow: 0 2px 2px #000; }
+:root[data-theme="hub21"] .market-name { margin-bottom: 10px; padding: 12px; }
+:root[data-theme="hub21"] .market-tools {
+  background: #141611;
+  border: 1px solid #756647;
+  border-radius: 14px;
+  padding: 12px;
+  box-shadow: 0 3px 8px #0007;
+}
 /* Reading surfaces protect all text that otherwise sits on the busy relief. */
 :root[data-theme="hub21"] :is(.section-title, .settings-title, .settings-about, .wallet-head, .form, .verify-grid, .onboard > p, .first-run > p, .first-run > h1, .token-detail > h1, .token-detail > p, .token-detail > strong, .nft-screen > h1, .nft-screen > p, .receive > h1, .receive > p, .send-screen > h1, .form-page > h1, .wallets-screen > h1, .wallets-screen > h2, .network-screen > h1, .address-book > h1, .eyebrow, .hint, .note, .available, .loading, .empty, .confirm-page > p, .confirm-page > h1, .unlock > h1, .unlock > p, .private-key-result > h1, .transaction-detail > header, .receipt-screen > h1) {
   background: #141611;

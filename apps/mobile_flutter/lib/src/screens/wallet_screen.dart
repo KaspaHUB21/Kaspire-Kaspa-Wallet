@@ -365,7 +365,7 @@ class _WalletScreenState extends State<WalletScreen> {
                         onTap: widget.onSend,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: _Action(
                         icon: Icons.arrow_downward_rounded,
@@ -373,7 +373,7 @@ class _WalletScreenState extends State<WalletScreen> {
                         onTap: widget.onReceive,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: _Action(
                         icon: Icons.qr_code_scanner_rounded,
@@ -387,6 +387,29 @@ class _WalletScreenState extends State<WalletScreen> {
                                   ),
                                 )
                             : widget.onPairDapps,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _Action(
+                        icon: Icons.account_balance_rounded,
+                        label: 'K-AGORA',
+                        onTap: NetworkSettings.network.value ==
+                                KaspaNetwork.mainnet
+                            ? () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => DotkMarketScreen(
+                                      address: widget.address,
+                                    ),
+                                  ),
+                                )
+                            : () => ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'K-Agora is available on Layer 1 only.',
+                                    ),
+                                  ),
+                                ),
                       ),
                     ),
                   ],
@@ -624,10 +647,12 @@ class _AssetOverview extends StatelessWidget {
               ],
             ),
           if (DotkMarketService.enabled && !NetworkSettings.isTestnet)
-            Card(child: ListTile(
+            Card(
+                child: ListTile(
               leading: const Icon(Icons.storefront_outlined),
               title: const Text('dot.k Marketplace'),
-              subtitle: const Text('Your listed names are locked in sale covenants. Open My listings to verify status or cancel.'),
+              subtitle: const Text(
+                  'Your listed names are locked in sale covenants. Open My listings to verify status or cancel.'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                 builder: (_) => DotkMarketScreen(address: address),

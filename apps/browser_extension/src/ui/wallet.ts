@@ -19,7 +19,8 @@ type View =
   | "my-wallets"
   | "backups"
   | "receive"
-  | "activity";
+  | "activity"
+  | "marketplace";
 let view: View = "home";
 let status: any;
 let snapshot: any;
@@ -220,6 +221,9 @@ function copyIcon() {
 function settingsIcon() {
   return '<svg class="ui-symbol" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 3-.6 2.2-1.7 1L4.5 6 2 10l1.6 1.6v1.8L2 15l2.5 4 2.2-.2 1.7 1L9 22h5l.6-2.2 1.7-1 2.2.2 2.5-4-1.6-1.6v-1.8L21 10l-2.5-4-2.2.2-1.7-1L14 3Z"/><circle cx="11.5" cy="12.5" r="3.2"/></svg>';
 }
+function agoraIcon() {
+  return '<svg class="ui-symbol agora-symbol" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M5 17h14M6 9h12M7 9v8m3-8v8m4-8v8m3-8v8M4 9l8-5 8 5"/></svg>';
+}
 function storeUpdateStatus() {
   storeUpdateRequest ??= rawCommand("storeUpdateStatus").catch(() => ({
     installedVersion: chrome.runtime.getManifest().version,
@@ -406,6 +410,7 @@ async function render() {
   if (view === "my-wallets") return myWallets();
   if (view === "receive") return receive();
   if (view === "activity") return activity();
+  if (view === "marketplace") return marketplace();
 }
 
 function legacyOnboarding(initialMode: "create" | "seed" | "key" = "create") {
@@ -600,7 +605,7 @@ function home() {
     (item: any) => item.address === status.selectedAddress,
   );
   shell(
-    `<section class="dashboard"><div class="wallet-head"><div class="wallet-brand"><button id="wallets" class="wallet-select"><img src="kaspire-icon.png" alt=""><span><b>${esc(selected?.name ?? "Wallet")}</b><small id="active-address">${short(status.selectedAddress)}</small></span></button><button id="copy-main-address" class="copy-main" title="Verify and copy wallet address" aria-label="Verify and copy wallet address">${copyIcon()}</button></div><div class="head-buttons"><button id="network" class="pill" title="Switch network" aria-label="Switch network">● ${networkLabel()} <span aria-hidden="true">⌄</span></button><button id="settings" class="icon" aria-label="Settings" title="Settings">${settingsIcon()}</button></div></div><section class="balance-card"><p>TOTAL BALANCE</p><strong id="balance">— ${status.network === "igra" ? "iKAS" : "KAS"}</strong><small id="fiat"></small><button id="privacy" class="eye" aria-label="${status.settings.hideBalances ? "Show balances" : "Hide balances"}">${eyeIcon(status.settings.hideBalances)}</button></section><div class="quick-actions"><button id="send"><b>↑</b><span>SEND</span></button><button id="receive"><b>↓</b><span>RECEIVE</span></button><button id="activity"><b>≡</b><span>ACTIVITY</span></button></div><section class="assets"><div class="section-title"><h2>ASSETS & NAMES</h2><span id="asset-count"></span></div><div id="asset-list"><div class="loading">Loading assets…</div></div></section><button id="app-promo" class="app-promo">Kaspire is even better in the app!<span>›</span></button></section>`,
+    `<section class="dashboard"><div class="wallet-head"><div class="wallet-brand"><button id="wallets" class="wallet-select"><img src="kaspire-icon.png" alt=""><span><b>${esc(selected?.name ?? "Wallet")}</b><small id="active-address">${short(status.selectedAddress)}</small></span></button><button id="copy-main-address" class="copy-main" title="Verify and copy wallet address" aria-label="Verify and copy wallet address">${copyIcon()}</button></div><div class="head-buttons"><button id="network" class="pill" title="Switch network" aria-label="Switch network">● ${networkLabel()} <span aria-hidden="true">⌄</span></button><button id="settings" class="icon" aria-label="Settings" title="Settings">${settingsIcon()}</button></div></div><section class="balance-card"><p>TOTAL BALANCE</p><strong id="balance">— ${status.network === "igra" ? "iKAS" : "KAS"}</strong><small id="fiat"></small><button id="privacy" class="eye" aria-label="${status.settings.hideBalances ? "Show balances" : "Hide balances"}">${eyeIcon(status.settings.hideBalances)}</button></section><div class="quick-actions four"><button id="send"><b>↑</b><span>SEND</span></button><button id="receive"><b>↓</b><span>RECEIVE</span></button><button id="activity"><b>≡</b><span>ACTIVITY</span></button><button id="marketplace"><b>${agoraIcon()}</b><span>K-AGORA</span></button></div><section class="assets"><div class="section-title"><h2>ASSETS & NAMES</h2><span id="asset-count"></span></div><div id="asset-list"><div class="loading">Loading assets…</div></div></section><button id="app-promo" class="app-promo">Kaspire is even better in the app!<span>›</span></button></section>`,
   );
   document.querySelector<HTMLButtonElement>("#wallets")!.onclick = () =>
     go("wallets");
@@ -626,6 +631,8 @@ function home() {
     go("receive");
   document.querySelector<HTMLButtonElement>("#activity")!.onclick = () =>
     go("activity");
+  document.querySelector<HTMLButtonElement>("#marketplace")!.onclick = () =>
+    go("marketplace");
   document.querySelector<HTMLButtonElement>("#app-promo")!.onclick = () =>
     chrome.tabs.create({ url: "https://kaspire.kaslab.space/" });
   void loadHome();
@@ -1877,6 +1884,162 @@ async function activity() {
   }
 }
 
+type MarketTab = "browse" | "names" | "listings";
+const market = {
+  offers: [] as any[], saved: [] as any[], names: [] as any[], statuses: {} as Record<string, any>,
+  published: new Set<string>(), tab: "browse" as MarketTab, query: "", descending: false,
+  limit: 12, generation: 0, loading: false, namesLoading: false, verifying: false, error: "", verifyEpoch: 0,
+};
+function marketPrice(value: any) { return `${sompiLabel(value)}`; }
+function marketStatusLabel(value: any) {
+  return value?.state === "active" ? "Listed · locked in sale covenant" : value?.state === "pending" ? "Awaiting confirmation" :
+    value?.state === "sold" ? "Sold" : value?.state === "cancelled" ? "Cancelled · name returned to seller" :
+    value?.state === "unavailable" ? "Status unavailable · retry verification" : "Checking listing…";
+}
+function sortedMarketRows(rows: any[], mine = false) {
+  const result = [...rows];
+  if (mine) {
+    const group = (offer: any) => market.statuses[offer.listingTxId]?.state === "active" ? 0 :
+      ["sold", "cancelled"].includes(market.statuses[offer.listingTxId]?.state) ? 2 : 1;
+    return result.reverse().sort((a, b) => group(a) - group(b));
+  }
+  result.sort((a, b) => {
+    const difference = Number(a.terms.priceSompi) - Number(b.terms.priceSompi);
+    return difference === 0 ? String(a.terms.name).localeCompare(String(b.terms.name)) : market.descending ? -difference : difference;
+  });
+  return result;
+}
+function visibleMarketRows() {
+  const source = market.tab === "listings" ? sortedMarketRows(market.saved, true) :
+    sortedMarketRows(market.offers.filter((offer) => `${offer.terms.name}.k`.includes(market.query.trim().toLowerCase())));
+  return source.slice(0, market.limit);
+}
+function marketOfferCard(offer: any, mine: boolean) {
+  const item = market.statuses[offer.listingTxId], active = item?.state === "active";
+  const terminal = ["sold", "cancelled"].includes(item?.state);
+  return `<article class="market-offer" data-offer="${esc(offer.listingTxId)}"><h2 data-preserve-case>${esc(offer.terms.name)}.k</h2><strong>${esc(marketPrice(offer.terms.priceSompi))}</strong><p class="market-status">${esc(marketStatusLabel(item))}</p>${item?.transactionId ? `<code>${esc(item.transactionId)}</code>` : ""}<div class="market-actions">${mine ? `${!terminal ? `<button class="outline recovery-code">Recovery code</button><button class="outline publish-offer" ${market.published.has(offer.listingTxId) ? "disabled" : ""}>${market.published.has(offer.listingTxId) ? "Published" : "Publish"}</button><button class="cancel-offer" ${active ? "" : "disabled"}>Cancel listing</button>` : ""}` : `<button class="buy-offer" ${active ? "" : "disabled"}>Review purchase</button>`}</div></article>`;
+}
+function paintMarketplace() {
+  const host = document.querySelector<HTMLElement>("#market-content");
+  if (!host) return;
+  if (status.network !== "mainnet") {
+    host.innerHTML = `<div class="review-card"><p>K-Agora is available on Layer 1 only.</p><button id="market-layer1">Switch to Layer 1</button></div>`;
+    host.querySelector<HTMLButtonElement>("#market-layer1")!.onclick = async () => { await command("setNetwork", { network: "mainnet" }); await render(); };
+    return;
+  }
+  const tabs = `<div class="market-tabs">${[["browse","Browse"],["names","My names"],["listings","My listings"]].map(([id,label]) => `<button data-market-tab="${id}" class="${market.tab === id ? "active" : ""}">${label}</button>`).join("")}</div>`;
+  let body = "";
+  if (market.tab === "browse") {
+    const rows = visibleMarketRows();
+    body = `<div class="market-tools"><label>Search dot.k names<input id="market-search" value="${esc(market.query)}"></label><label>Sort offers<select id="market-sort"><option value="asc" ${market.descending ? "" : "selected"}>Price: Low to High</option><option value="desc" ${market.descending ? "selected" : ""}>Price: High to Low</option></select></label></div>${rows.length ? rows.map((offer) => marketOfferCard(offer, offer.terms.seller === status.selectedAddress)).join("") : market.loading ? '<div class="loading">Loading offers…</div>' : '<div class="empty">No offers found</div>'}${market.offers.filter((offer) => `${offer.terms.name}.k`.includes(market.query.trim().toLowerCase())).length > market.limit ? '<button id="market-more" class="outline">Load more</button>' : ""}`;
+  } else if (market.tab === "names") {
+    body = `${market.namesLoading ? '<div class="loading">Loading names…</div>' : ""}${market.names.length ? market.names.map((name) => `<article class="market-name"><span class="market-name-icon">@</span><b data-preserve-case>${esc(name.name)}</b><button class="list-name" data-name="${esc(name.name)}">List for sale</button></article>`).join("") : !market.namesLoading ? '<div class="empty">No dot.k names found for this address</div>' : ""}`;
+  } else {
+    const rows = visibleMarketRows();
+    body = `<button id="market-import" class="outline">Restore listing recovery code</button><div class="review-card"><p>Cancel a listing first to change its price. Once cancellation is confirmed, refresh My names and list again. Recovery entries stay in this extension after a sale or cancellation.</p></div>${rows.length ? rows.map((offer) => marketOfferCard(offer, true)).join("") : market.loading ? '<div class="loading">Loading listings…</div>' : '<div class="empty">No saved listings</div>'}${market.saved.length > market.limit ? '<button id="market-more" class="outline">Load more</button>' : ""}`;
+  }
+  host.innerHTML = `${tabs}${market.loading ? '<div class="market-progress"></div>' : ""}${market.error ? `<p class="error">${esc(market.error)}</p>` : ""}${body}`;
+  host.querySelectorAll<HTMLButtonElement>("[data-market-tab]").forEach((button) => button.onclick = () => {
+    market.tab = button.dataset.marketTab as MarketTab; market.limit = 12; paintMarketplace(); void verifyVisibleMarket();
+  });
+  const search = host.querySelector<HTMLInputElement>("#market-search");
+  if (search) search.oninput = () => {
+    const position = search.selectionStart ?? search.value.length;
+    market.query = search.value; market.limit = 12; paintMarketplace();
+    const replacement = document.querySelector<HTMLInputElement>("#market-search");
+    replacement?.focus(); replacement?.setSelectionRange(position, position);
+    void verifyVisibleMarket();
+  };
+  const sort = host.querySelector<HTMLSelectElement>("#market-sort");
+  if (sort) sort.onchange = () => { market.descending = sort.value === "desc"; market.limit = 12; paintMarketplace(); void verifyVisibleMarket(); };
+  host.querySelector<HTMLButtonElement>("#market-more")?.addEventListener("click", () => { market.limit += 12; paintMarketplace(); void verifyVisibleMarket(); });
+  host.querySelector<HTMLButtonElement>("#market-import")?.addEventListener("click", restoreMarketOffer);
+  host.querySelectorAll<HTMLButtonElement>(".list-name").forEach((button) => button.onclick = () => listMarketName(button.dataset.name ?? ""));
+  host.querySelectorAll<HTMLElement>(".market-offer").forEach((card) => {
+    const offer = [...market.offers, ...market.saved].find((row) => row.listingTxId === card.dataset.offer); if (!offer) return;
+    card.querySelector<HTMLButtonElement>(".buy-offer")?.addEventListener("click", () => prepareMarketAction("buy", offer));
+    card.querySelector<HTMLButtonElement>(".cancel-offer")?.addEventListener("click", () => prepareMarketAction("cancel", offer));
+    card.querySelector<HTMLButtonElement>(".recovery-code")?.addEventListener("click", () => recoveryModal(offer));
+    card.querySelector<HTMLButtonElement>(".publish-offer")?.addEventListener("click", async () => { try { await command("dotkMarketPublish", { offer }); market.published.add(offer.listingTxId); toast("Offer published"); await loadMarketplace(); } catch (error) { market.error = (error as Error).message; paintMarketplace(); } });
+  });
+  classicCase(host);
+}
+async function marketplace() {
+  market.tab = "browse"; market.limit = 12; market.query = ""; market.error = ""; market.statuses = {};
+  shell('<section class="marketplace-screen"><div class="market-title"><span class="market-emblem">'+agoraIcon()+'</span><div><p class="eyebrow">DOT.K MARKETPLACE</p><h1>K-Agora</h1></div><button id="market-refresh" class="icon" aria-label="Refresh marketplace">↻</button></div><div id="market-content"><div class="loading">Loading marketplace…</div></div></section>', "K-Agora", true);
+  document.querySelector<HTMLButtonElement>("#market-refresh")!.onclick = () => { void loadMarketplace(); };
+  if (status.network === "mainnet") await loadMarketplace(); else paintMarketplace();
+}
+async function loadMarketplace() {
+  const generation = ++market.generation; market.loading = true; market.namesLoading = true; market.error = ""; market.statuses = {}; paintMarketplace();
+  void command("dotkMarketNames").then((names) => { if (generation === market.generation) { market.names = names; market.namesLoading = false; paintMarketplace(); } }).catch(() => { if (generation === market.generation) { market.namesLoading = false; paintMarketplace(); } });
+  try {
+    const [offers, saved] = await Promise.all([command("dotkMarketOffers"), command("dotkMarketSaved")]);
+    if (generation !== market.generation) return;
+    market.offers = offers; market.saved = saved; market.published = new Set(offers.map((offer: any) => offer.listingTxId));
+    const mine = offers.filter((offer: any) => offer.terms.seller === status.selectedAddress);
+    await Promise.all(mine.map((offer: any) => command("dotkMarketRemember", { offer })));
+    market.saved = await command("dotkMarketSaved");
+  } catch (error) { if (generation === market.generation) market.error = (error as Error).message; }
+  if (generation !== market.generation) return;
+  market.loading = false; paintMarketplace(); void verifyVisibleMarket();
+}
+async function verifyVisibleMarket() {
+  const epoch = ++market.verifyEpoch;
+  if (market.loading || market.tab === "names" || view !== "marketplace") { market.verifying = false; return; }
+  market.verifying = true; const generation = market.generation;
+  try {
+    while (view === "marketplace" && generation === market.generation && epoch === market.verifyEpoch && market.tab !== ("names" as MarketTab)) {
+      const pending = visibleMarketRows().filter((offer) => !market.statuses[offer.listingTxId]).slice(0, 2);
+      if (!pending.length) break;
+      await Promise.all(pending.map(async (offer) => { const result = await command("dotkMarketStatus", { offer }); if (generation === market.generation && epoch === market.verifyEpoch && view === "marketplace") market.statuses[offer.listingTxId] = result; }));
+      if (generation === market.generation && epoch === market.verifyEpoch && view === "marketplace") { market.offers = market.offers.filter((offer) => !["sold","cancelled"].includes(market.statuses[offer.listingTxId]?.state)); paintMarketplace(); }
+    }
+  } catch (error) { if (generation === market.generation && epoch === market.verifyEpoch) { market.error = (error as Error).message; paintMarketplace(); } }
+  finally { if (epoch === market.verifyEpoch) market.verifying = false; }
+}
+function listMarketName(name: string) {
+  const overlay = document.createElement("div"); overlay.className = "kaspire-modal";
+  overlay.innerHTML = `<section class="approval-sheet"><p class="eyebrow">LIST FOR SALE</p><h1 data-preserve-case>${esc(name)}</h1><p>The name will be locked in a sale covenant. You receive 97.9% of the price. A separate 1 KAS sale reserve is returned on sale or cancellation.</p><label>Gross price in KAS<input id="listing-price" inputmode="decimal" placeholder="Minimum 10 KAS"></label><p id="listing-error" class="error"></p><div class="approval-actions"><button id="listing-cancel" class="outline">Cancel</button><button id="listing-review">Review listing</button></div></section>`;
+  document.body.append(overlay); overlay.querySelector<HTMLButtonElement>("#listing-cancel")!.onclick=()=>overlay.remove();
+  overlay.querySelector<HTMLButtonElement>("#listing-review")!.onclick=async()=>{ const text=overlay.querySelector<HTMLInputElement>("#listing-price")!.value.trim(); if(!/^\d+(?:\.\d{0,8})?$/.test(text)){overlay.querySelector("#listing-error")!.textContent="Enter no more than 8 decimal places.";return;} const [whole,fraction=""]=text.split("."); const amount=Number(whole+fraction.padEnd(8,"0")); if(!Number.isSafeInteger(amount)||amount<1_000_000_000){overlay.querySelector("#listing-error")!.textContent="Marketplace minimum: 10 KAS";return;} overlay.remove(); await prepareMarketAction("list", null, name, amount); };
+}
+async function prepareMarketAction(action: "list"|"buy"|"cancel", offer?: any, name?: string, priceSompi?: number) {
+  try { const prepared = await command("prepareDotkMarket", { action, offer, name, priceSompi }); showMarketReview(prepared); }
+  catch (error) { market.error = (error as Error).message; paintMarketplace(); }
+}
+function showMarketReview(prepared: any) {
+  const review=prepared.review, action=prepared.request.action;
+  const money = [
+    ["Gross sale price", review.priceSompi],
+    ["Seller proceeds on purchase", review.sellerNetSompi],
+    ["Marketplace fee on purchase (2.1%)", review.marketplaceFeeSompi],
+    ["Sale reserve (returned to seller)", review.saleReserveSompi],
+    ["Existing name bond (stays with name)", review.deedBondSompi],
+    ["Network fee for this transaction", review.feeSompi],
+    ["Your KAS change", review.changeSompi],
+  ].map(([label,value])=>`<div class="detail-row"><span>${label}</span><b>${esc(sompiLabel(value))}</b></div>`).join("");
+  const identity = [
+    ["Signing account", review.sender],
+    ["Seller", review.seller],
+    ["Fee recipient — pinned from hub21.kas", review.feeAddress],
+    ["Sale covenant ID", review.covenantId],
+    ["Effective mass", review.mass],
+    ["Native review hash", review.reviewHash],
+  ].map(([label,value])=>`<div class="detail-row"><span>${label}</span><b>${esc(value)}</b></div>`).join("");
+  shell(`<section class="market-review"><p class="eyebrow">SECURE REVIEW</p><h1>Review ${esc(action)}</h1><article class="market-offer"><h2 data-preserve-case>${esc(review.name)}.k</h2>${money}${identity}</article><div class="review-card"><p>The sale reserve is not a fee. Listing locks the name on-chain. A sale and a cancellation can race; only one can succeed. Never send payments directly to the deed or sale address.</p></div><details class="raw-json"><summary>Raw transaction JSON (unsigned)</summary><pre>${esc(prettyJson(JSON.parse(review.transactionJson)))}</pre></details><p id="market-review-error" class="error"></p><div class="approval-actions"><button id="market-review-cancel" class="outline">Cancel</button><button id="market-review-submit">Authorize transaction</button></div></section>`, "K-Agora", true);
+  document.querySelector<HTMLButtonElement>("#market-review-cancel")!.onclick=()=>{view="marketplace";void render();};
+  document.querySelector<HTMLButtonElement>("#back")!.onclick=()=>{view="marketplace";void render();};
+  document.querySelector<HTMLButtonElement>("#market-review-submit")!.onclick=async()=>{const button=document.querySelector<HTMLButtonElement>("#market-review-submit")!;button.disabled=true;try{const result=await command("submitDotkMarket",{request:prepared.request,review});marketReceipt(result);}catch(error){document.querySelector("#market-review-error")!.textContent=(error as Error).message;button.disabled=false;}};
+}
+function marketReceipt(result:any) {
+  shell(`<section class="receipt-screen"><div class="receipt-check">✓</div><p class="eyebrow">TRANSACTION SUBMITTED</p><h1>${result.action==="list"?(result.published?"Listed for sale":"Publication needs attention"):"Transaction submitted"}</h1><p>${result.action==="list"&&!result.published?"The name is locked, but the offer is not yet visible. Open My listings and tap Publish after confirmation.":"K-Agora refreshes when you close this receipt."}</p><div class="copy-detail"><label>Transaction ID</label><code>${esc(result.transactionId)}</code><button id="market-copy-tx">Copy transaction ID</button></div><details class="raw-json"><summary>Raw JSON output</summary><pre>${esc(prettyJson(result))}</pre></details><button id="market-done">Done</button></section>`,"K-Agora");
+  document.querySelector<HTMLButtonElement>("#market-copy-tx")!.onclick=()=>copy(result.transactionId,"Transaction ID copied");
+  document.querySelector<HTMLButtonElement>("#market-done")!.onclick=()=>{view="marketplace";void render();};
+}
+function recoveryModal(offer:any) { const code=prettyJson(offer), overlay=document.createElement("div"); overlay.className="kaspire-modal"; overlay.innerHTML=`<section class="approval-sheet"><p class="eyebrow">PUBLIC RECOVERY CODE</p><h1>Save listing recovery code</h1><p>Keep this with your wallet backup. It contains no private key.</p><pre class="recovery-json">${esc(code)}</pre><div class="approval-actions"><button id="recovery-close" class="outline">Close</button><button id="recovery-copy">Copy code</button></div></section>`; document.body.append(overlay); overlay.querySelector<HTMLButtonElement>("#recovery-close")!.onclick=()=>overlay.remove(); overlay.querySelector<HTMLButtonElement>("#recovery-copy")!.onclick=()=>copy(code,"Recovery code copied"); }
+function restoreMarketOffer() { const overlay=document.createElement("div");overlay.className="kaspire-modal";overlay.innerHTML=`<section class="approval-sheet"><p class="eyebrow">RESTORE LISTING</p><h1>Recovery code</h1><textarea id="market-recovery-input" rows="8" placeholder="Listing JSON — never enter a seed or private key"></textarea><p id="market-restore-error" class="error"></p><div class="approval-actions"><button id="market-restore-cancel" class="outline">Cancel</button><button id="market-restore">Restore</button></div></section>`;document.body.append(overlay);overlay.querySelector<HTMLButtonElement>("#market-restore-cancel")!.onclick=()=>overlay.remove();overlay.querySelector<HTMLButtonElement>("#market-restore")!.onclick=async()=>{try{const text=overlay.querySelector<HTMLTextAreaElement>("#market-recovery-input")!.value;if(text.length>8192)throw new Error("Recovery code too large.");await command("dotkMarketSave",{offer:JSON.parse(text)});overlay.remove();await loadMarketplace();}catch(error){overlay.querySelector("#market-restore-error")!.textContent=(error as Error).message;}}; }
+
 function sendEvm(token?:any) {
   let sendAllNative = false;
   const symbol = token?.symbol ?? (status.network === "igra" ? "iKAS" : "KAS");
@@ -1936,6 +2099,7 @@ async function command(name: string, values: Record<string, unknown> = {}) {
     "resumeInscription",
     "exportSecret",
     "submitEvmTransfer",
+    "submitDotkMarket",
   ].includes(name);
   return guarded
     ? withInAppApprovals(persistentCommand(name, values))
@@ -1968,7 +2132,7 @@ function approvalModal(item: any) {
   return new Promise<boolean>((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "kaspire-modal approval-modal";
-    overlay.innerHTML = `<section class="approval-sheet"><p class="eyebrow">SECURE APPROVAL</p><h1>${esc(item.title)}</h1><h2>${esc(item.origin)}</h2><p>${esc(item.description)}</p><div class="approval-details">${item.details.map((detail: string) => `<p>${esc(detail)}</p>`).join("")}</div>${item.rawJson != null ? `<details class="raw-json"><summary>Raw JSON output</summary><pre>${esc(prettyJson(item.rawJson))}</pre></details>` : ""}<div class="approval-actions"><button id="reject-approval" class="outline">REJECT</button><button id="accept-approval">APPROVE</button></div><small>Verify every detail. Kaspire never signs silently.</small></section>`;
+    overlay.innerHTML = `<section class="approval-sheet"><p class="eyebrow">SECURE APPROVAL</p><h1>${esc(item.title)}</h1><h2>${esc(item.origin)}</h2><p>${esc(item.description)}</p><div class="approval-details">${item.details.map((detail: string) => `<p>${esc(detail)}</p>`).join("")}</div>${item.rawJson != null ? `<details class="raw-json"><summary>Raw JSON output</summary><pre>${esc(prettyJson(item.rawJson))}</pre></details>` : ""}${item.recoveryCode ? '<button id="copy-recovery-code" class="outline">COPY RECOVERY CODE</button>' : ""}<div class="approval-actions"><button id="reject-approval" class="outline">REJECT</button><button id="accept-approval">APPROVE</button></div><small>Verify every detail. Kaspire never signs silently.</small></section>`;
     document.body.append(overlay);
     const finish = (approved: boolean) => {
       overlay.remove();
@@ -1978,6 +2142,10 @@ function approvalModal(item: any) {
       () => finish(false);
     overlay.querySelector<HTMLButtonElement>("#accept-approval")!.onclick =
       () => finish(true);
+    overlay.querySelector<HTMLButtonElement>("#copy-recovery-code")?.addEventListener(
+      "click",
+      () => copy(String(item.recoveryCode), "Recovery code copied"),
+    );
   });
 }
 function kaspaTransactionReceipt(result: any, details: any) {

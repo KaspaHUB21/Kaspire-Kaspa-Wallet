@@ -58,7 +58,7 @@ const highlights = [
   {
     number: "09",
     title: "Pay a name. Verify its owner.",
-    copy: "Find your dot.k covenant names alongside your other assets. Enter a .k name to send KAS or assets on Layer 1: Kaspire derives its deed in Rust and checks live ownership through the node before selecting the payment address. Name resolution is available in Android and the latest extension ZIP. The Android app also includes the Kaspire Marketplace: list, buy and cancel dot.k name sales through native sale covenants, with a 10 KAS minimum price and a 2.1% marketplace fee. Network fees are separate.",
+    copy: "Find your dot.k covenant names alongside your other assets. Enter a .k name to send KAS or assets on Layer 1: Kaspire derives its deed in Rust and checks live ownership through the node before selecting the payment address. Android and the browser extension include K-Agora: list, buy and cancel dot.k name sales through native sale covenants, with a 10 KAS minimum price and a 2.1% marketplace fee. Network fees are separate.",
     tags: ["dot.k names", "Rust verification", "Layer 1 payments"],
   },
 ];
