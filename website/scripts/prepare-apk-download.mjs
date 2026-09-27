@@ -24,6 +24,16 @@ export async function prepareApkDownload(
     throw new Error("Invalid signed Android update manifest");
   }
   const release = JSON.parse(payload.toString("utf8"));
+  if (!/^\d+\.\d+\.\d+$/.test(release.version ?? "")) {
+    throw new Error("Invalid release version in signed Android update manifest");
+  }
+  const expectedApkUrl =
+    `https://kaspire.kaslab.space/downloads/Kaspire-Android-mainnet-v${release.version}.apk`;
+  if (release.apkUrl !== expectedApkUrl) {
+    throw new Error(
+      "Android update URL is incompatible with installed Kaspire clients",
+    );
+  }
   if (!/^[a-f0-9]{64}$/.test(release.sha256 ?? "")) {
     throw new Error("Missing release APK checksum");
   }
