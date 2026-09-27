@@ -10,6 +10,7 @@ object SecureCore {
     external fun signDotkMarket(secret: String, requestJson: String, reviewHash: String): String
     external fun importWallet(phrase: String, passphrase: String): String
     external fun importPrivateKey(privateKey: String): String
+    external fun addressWithPrefix(address: String, testnet: Boolean): String
     external fun exportPrivateKey(secret: String): String
     external fun publicKey(secret: String): String
     external fun deriveAddresses(secret: String, coinType: Int, account: Int, change: Int, start: Int, count: Int): String

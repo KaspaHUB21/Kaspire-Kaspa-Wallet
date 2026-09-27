@@ -21,6 +21,7 @@ import 'krc20_token_detail_screen.dart';
 import 'transaction_detail_screen.dart';
 import 'dotk_name_screen.dart';
 import 'dotk_market_screen.dart';
+import 'kasparocket_screen.dart';
 import '../widgets/kaspire_brand.dart';
 
 class WalletScreen extends StatefulWidget {
@@ -402,13 +403,27 @@ class _WalletScreenState extends State<WalletScreen> {
                                     ),
                                   ),
                                 )
-                            : () => ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'K-Agora is available on Layer 1 only.',
+                            : NetworkSettings.network.value == KaspaNetwork.tn10
+                                ? () async {
+                                    await Navigator.of(context).push(
+                                      MaterialPageRoute<bool>(
+                                        builder: (_) => KaspaRocketScreen(
+                                          address:
+                                              NetworkSettings.addressForNetwork(
+                                                  widget.address),
+                                        ),
+                                      ),
+                                    );
+                                    if (mounted) _refresh();
+                                  }
+                                : () =>
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'K-Agora DEX testing is available on TN10.',
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
                       ),
                     ),
                   ],
@@ -582,12 +597,24 @@ class _AssetOverview extends StatelessWidget {
                     (asset) => _AssetRow(
                       asset: asset,
                       hideAmount: hideAmounts,
-                      onTap: () => onSendAsset(
-                        AssetSendIntent.kcc20(
-                          asset.symbol,
-                          asset.covenantId ?? asset.id ?? '',
-                        ),
-                      ),
+                      onTap: asset.standard == 'kasparocket-kcc20'
+                          ? () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => KaspaRocketScreen(
+                                    address:
+                                        NetworkSettings.addressForNetwork(
+                                            address),
+                                    initialTokenId:
+                                        asset.covenantId ?? asset.id,
+                                  ),
+                                ),
+                              )
+                          : () => onSendAsset(
+                                AssetSendIntent.kcc20(
+                                  asset.symbol,
+                                  asset.covenantId ?? asset.id ?? '',
+                                ),
+                              ),
                     ),
                   )
                   .toList(),

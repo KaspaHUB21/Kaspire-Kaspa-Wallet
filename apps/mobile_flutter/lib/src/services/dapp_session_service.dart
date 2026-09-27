@@ -468,11 +468,27 @@ class DappSessionService {
           ? approvedChains.where(supportedKaspaChains.contains)
           : approvedChains.where((chain) => chain == forChainId);
       for (final chain in chains) {
+        Object? eventData = data;
+        if (name == 'accountsChanged' && data is List) {
+          final approved = namespace.accounts
+              .where((account) => account.startsWith('$chain:'))
+              .map((account) {
+                final parts = account.split(':');
+                if (parts.length != 3) return '';
+                return '${chain == testnet10ChainId ? 'kaspatest' : 'kaspa'}:${parts[2]}';
+              })
+              .where((address) => address.isNotEmpty)
+              .toSet();
+          eventData = data
+              .whereType<String>()
+              .where(approved.contains)
+              .toList(growable: false);
+        }
         try {
           await walletKit.emitSessionEvent(
             topic: session.topic,
             chainId: chain,
-            event: SessionEventParams(name: name, data: data),
+            event: SessionEventParams(name: name, data: eventData),
           );
         } catch (_) {
           // A disconnected or expired session will be removed by WalletKit.

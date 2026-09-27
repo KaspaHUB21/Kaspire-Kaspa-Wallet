@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'kns_holdings_loader.dart';
 import 'dotk_service.dart';
+import 'kasparocket_service.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -140,7 +141,16 @@ class KaspaApi {
               publish();
             }).catchError((_) => null),
       testnet
-          ? Future<Object?>.value(null)
+          ? KaspaRocketService(client: _client)
+              .walletAssets(address)
+              .then<Object?>((assets) => _Kcc20Wallet(
+                    assets: assets,
+                    transactions: const [],
+                    warning: assets.any((asset) => !asset.discoveryComplete)
+                        ? 'KaspaRocket TN10 balances are visible. Generic KCC20 transfers remain disabled until complete signing cells are independently verified.'
+                        : '',
+                  ))
+              .catchError((_) => null)
           : _loadKcc20Wallet(address, onProgress: (value) {
               progressiveCovenants = value;
               publish();
@@ -224,7 +234,7 @@ class KaspaApi {
       if (!testnet && tokenWallet == null)
         'KRC-20, KRC-721 and KNS data is temporarily unavailable.',
       ...tokenIntegrityWarnings,
-      if (!testnet && kcc20Wallet == null)
+      if (kcc20Wallet == null)
         'KCC20 covenant data is temporarily unavailable.',
       if (kcc20Wallet != null && kcc20Wallet.warning.isNotEmpty)
         kcc20Wallet.warning,
@@ -2277,8 +2287,14 @@ class KaspaApi {
       );
     }
     final decoded = _map(jsonDecode(response.body));
-    return (decoded['transactionId'] ?? decoded['transaction_id'] ?? '')
-        .toString();
+    final transactionId =
+        (decoded['transactionId'] ?? decoded['transaction_id'] ?? '')
+            .toString();
+    if (!RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(transactionId)) {
+      throw KaspaApiException(
+          'The Kaspa broadcaster returned no valid transaction ID.');
+    }
+    return transactionId.toLowerCase();
   }
 
   Future<String> broadcastKcc20(

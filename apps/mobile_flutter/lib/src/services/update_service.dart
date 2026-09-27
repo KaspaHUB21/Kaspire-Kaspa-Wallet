@@ -65,6 +65,8 @@ class UpdateService {
   static const _lastCheckedKey = 'updates_last_checked_v1';
   static const _remindBuildKey = 'updates_remind_build_v1';
   static const _remindAfterKey = 'updates_remind_after_v1';
+  static const _highestBuildKey = 'updates_highest_signed_build_v1';
+  static const _highestPublishedKey = 'updates_highest_signed_published_v1';
 
   final http.Client _client;
   final Future<bool> Function(String payload, String signature) _verify;
@@ -144,6 +146,23 @@ class UpdateService {
       final update = _parse(data);
       final installed = int.parse((await _packageInfo()).buildNumber);
       final preferences = await SharedPreferences.getInstance();
+      final highestBuild = preferences.getInt(_highestBuildKey);
+      final highestPublished = preferences.getInt(_highestPublishedKey);
+      final publishedMillis = update.publishedAt.millisecondsSinceEpoch;
+      if (highestBuild != null && update.build < highestBuild) {
+        throw StateError('The signed update manifest is older than a previously verified release.');
+      }
+      if (highestBuild == update.build &&
+          highestPublished != null &&
+          publishedMillis < highestPublished) {
+        throw StateError('The signed update manifest publication time moved backwards.');
+      }
+      if (highestBuild == null || update.build > highestBuild) {
+        await preferences.setInt(_highestBuildKey, update.build);
+        await preferences.setInt(_highestPublishedKey, publishedMillis);
+      } else if (highestPublished == null || publishedMillis > highestPublished) {
+        await preferences.setInt(_highestPublishedKey, publishedMillis);
+      }
       final now = DateTime.now().toUtc();
       await preferences.setInt(_lastCheckedKey, now.millisecondsSinceEpoch);
       final remindBuild = preferences.getInt(_remindBuildKey);

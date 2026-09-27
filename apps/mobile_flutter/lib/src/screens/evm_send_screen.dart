@@ -252,10 +252,14 @@ class _EvmSendPanelState extends State<_EvmSendPanel> {
       final signed = await _security.signEvmTransaction(
           request, '${prepared['reviewHash']}');
       final txid = await _api.broadcast('${signed['rawTransaction']}');
-      final receipt = await _api.waitForReceipt(txid);
+      final expectedTxid = '${signed['transactionHash']}';
+      if (txid.toLowerCase() != expectedTxid.toLowerCase()) {
+        throw StateError('L2 broadcaster returned a mismatching transaction ID.');
+      }
+      final receipt = await _api.waitForReceipt(expectedTxid);
       if (!mounted) return;
       setState(() => _receipt = _EvmReceipt(
-          txid: txid,
+          txid: expectedTxid,
           from: widget.address,
           to: to,
           amount: _amount.text.trim(),

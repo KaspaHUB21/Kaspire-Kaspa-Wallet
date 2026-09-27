@@ -13,6 +13,23 @@ import {
   verifiedMarketCells,
   verifyPreparedMarket,
 } from "./dotkMarket";
+import {
+  formatRocketTokenRaw,
+  mergeRocketTransaction,
+  rawRocketAmount,
+  rocketActivity,
+  rocketHolding,
+  rocketHoldingRaw,
+  rocketPlan,
+  rocketPool,
+  rocketQuote,
+  rocketSigningRequest,
+  rocketTokens,
+  rocketWalletAssets,
+  submitRocket,
+  validateRocketFunds,
+  type RocketToken,
+} from "./kasparocket";
 configureDotkDeriver(async request => JSON.parse((await core()).deriveDotkDeed(JSON.stringify(request))));
 import {
   createPortableBackup,
@@ -87,6 +104,19 @@ const l1ProviderMethods = new Set<ProviderMethod>([
   "transferKNS",
 ]);
 const extensionVersion = chrome.runtime.getManifest().version;
+const unlockProviderMethods = new Set<ProviderMethod>([
+  "getPublicKey",
+  "signMessage",
+  "sendKaspa",
+  "sendKRC20",
+  "sendKCC20",
+  "signPskt",
+  "signPolicyTransaction",
+  "transferKRC721",
+  "transferKNS",
+  "eth_sendTransaction",
+]);
+let walletUiConnections = 0;
 interface VaultWallet {
   id: string;
   name: string;
@@ -101,7 +131,31 @@ interface VaultPayload {
 let sessionVault: VaultPayload | null = null;
 let sessionPassword: string | null = null;
 let lastActivity = 0;
-const preparedEvmTransfers = new Map<string, { request: any; review: any; secret: string; createdAt: number }>();
+let sessionGeneration = 0;
+let offscreenCreation: Promise<void> | null = null;
+// Secrets exist only in volatile extension memory while unlocked. Chrome
+// session storage contains only the activity timestamp and an unguessable
+// channel capability; the vault itself is encrypted by a non-exportable key
+// owned by the offscreen document.
+// Remove plaintext session data written by older builds and sanitize legacy state.
+void chrome.storage.session.setAccessLevel({
+  accessLevel: chrome.storage.AccessLevel.TRUSTED_CONTEXTS,
+});
+void chrome.storage.session.remove("unlockedVault");
+void loadState();
+const preparedEvmTransfers = new Map<string, { request: any; review: any; address: string; walletId: string; network: "kasplex" | "igra"; createdAt: number }>();
+interface PreparedRocketSwap {
+  address: string;
+  walletId: string;
+  token: RocketToken;
+  side: "buy" | "sell";
+  poolId: string;
+  plan: any;
+  requests: any[];
+  reviews: any[];
+  createdAt: number;
+}
+const preparedRocketSwaps = new Map<string, PreparedRocketSwap>();
 interface ApprovalView {
   id: string;
   origin: string;
@@ -110,11 +164,34 @@ interface ApprovalView {
   details: string[];
   rawJson?: unknown;
   recoveryCode?: string;
+  unlockOnly?: boolean;
 }
 const approvals = new Map<
   string,
-  { view: ApprovalView; resolve: (approved: boolean) => void; timer: number }
+  {
+    view: ApprovalView;
+    resolve: (approved: boolean) => void;
+    timer: number;
+    generation: number | null;
+  }
 >();
+let inscriptionOperationInFlight = false;
+async function runExclusiveInscription<T>(operation: () => Promise<T>): Promise<T> {
+  if (inscriptionOperationInFlight)
+    throw new Error("Another inscription transfer is already in progress.");
+  const pending = (await chrome.storage.local.get("pendingInscription"))
+    .pendingInscription;
+  if (pending)
+    throw new Error(
+      "Complete or resume the pending asset reveal before starting another transfer.",
+    );
+  inscriptionOperationInFlight = true;
+  try {
+    return await operation();
+  } finally {
+    inscriptionOperationInFlight = false;
+  }
+}
 interface PreparedAssetTransfer {
   type: "inscription" | "kcc20" | "kron";
   sender: string;
@@ -132,17 +209,7 @@ chrome.alarms.onAlarm.addListener(async ({ name }) => {
   if (name !== "auto-lock") return;
   await hydrateSession();
   const state = await loadState();
-  const autoLockMs = state.settings.autoLockMinutes * 60_000;
-  if (state.settings.autoLockMinutes < 0) return;
-  if (
-    !sessionVault ||
-    (autoLockMs > 0 && Date.now() - lastActivity < autoLockMs)
-  )
-    return;
-  sessionVault = null;
-  sessionPassword = null;
-  await chrome.storage.session.remove(["unlockedVault", "lastActivity"]);
-  await saveState({ ...state, locked: true });
+  await expireSessionIfNeeded(state);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
@@ -157,11 +224,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return false;
     }
     if (message.command === "resolve" && pending) {
-      clearTimeout(pending.timer);
-      approvals.delete(pending.view.id);
-      pending.resolve(message.approved === true);
-      respond({ result: true });
-      return false;
+      void resolveApproval(pending.view.id, message.approved === true)
+        .then(() => respond({ result: true }))
+        .catch((error) => respond({ error: normalize(error) }));
+      return true;
     }
   }
   if (message?.channel === "wallet") {
@@ -179,10 +245,22 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     sender,
   )
     .then((result) => respond({ result }))
-    .catch((error) => respond({ error: normalize(error) }));
+    .catch((error) => respond({ error: normalize(error) }))
+    .finally(() => {
+      if (unlockProviderMethods.has(message.request.method))
+        void lockImmediateSessionWithoutWalletUi();
+    });
   return true;
 });
 chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === "wallet-ui-lifetime") {
+    walletUiConnections += 1;
+    port.onDisconnect.addListener(() => {
+      walletUiConnections = Math.max(0, walletUiConnections - 1);
+      void lockImmediateSessionWithoutWalletUi();
+    });
+    return;
+  }
   if (port.name !== "wallet-operation") return;
   port.onMessage.addListener((message) => {
     if (message?.channel !== "wallet") return;
@@ -196,13 +274,13 @@ chrome.runtime.onConnect.addListener((port) => {
       .catch((error) => port.postMessage({ error: normalize(error) }));
   });
 });
-
 async function walletCommand(
   message: { command: string; [key: string]: unknown },
   progress: (stage: string) => void = () => {},
 ) {
   await hydrateSession();
   const state = await loadState();
+  await expireSessionIfNeeded(state);
   if (sessionVault) await touchSession();
   if (message.command === "storeUpdateStatus") {
     return new Promise<{
@@ -247,9 +325,7 @@ async function walletCommand(
     const pending = approvals.get(id);
     if (!pending || pending.view.origin !== "Kaspire Wallet")
       throw new Error("Approval request expired.");
-    clearTimeout(pending.timer);
-    approvals.delete(id);
-    pending.resolve(message.approved === true);
+    await resolveApproval(id, message.approved === true);
     return true;
   }
   if (message.command === "mnemonicWordStatus")
@@ -272,6 +348,8 @@ async function walletCommand(
   }
   if (message.command === "assetCategory") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
+    if (state.network === "testnet-10" && String(message.category) === "kcc20")
+      return rocketWalletAssets(state.selectedAddress);
     return walletAssetCategory(state.selectedAddress, state.network, String(message.category));
   }
   if (message.command === "resolveDotkName") {
@@ -421,7 +499,7 @@ async function walletCommand(
   if (message.command === "evmAddress") return (await evmContext(state)).address;
   if (message.command === "prepareEvmTransfer") {
     if (state.network !== "kasplex" && state.network !== "igra") throw new Error("Select Kasplex or Igra first.");
-    const { address, secret } = await evmContext(state);
+    const { address } = await evmContext(state);
     const recipient = String(message.recipient ?? "").trim();
     if (!/^0x[0-9a-fA-F]{40}$/.test(recipient)) throw new Error("Enter a valid EVM address.");
     const token = message.token as any;
@@ -459,8 +537,20 @@ async function walletCommand(
     const request = { walletAddress: state.selectedAddress, from: address, to, recipient, valueWei: value.toString(), nonce: Number(fields.nonce), gasLimit: Number(fields.gas), gasPriceWei: fields.gasPrice.toString(), chainId: config.chainId, data, tokenSymbol: token ? String(token.symbol).toUpperCase() : config.nativeSymbol, displayAmount: amountText };
     const wasm = await core();
     const review = JSON.parse(wasm.prepareEvmTransaction(JSON.stringify(request)));
+    const entry = state.addresses.find(
+      (item) => item.address === state.selectedAddress,
+    );
+    if (!entry || entry.watchOnly)
+      throw new Error("Select a signing wallet for Layer 2.");
     const id = crypto.randomUUID();
-    preparedEvmTransfers.set(id, { request, review, secret, createdAt: Date.now() });
+    preparedEvmTransfers.set(id, {
+      request,
+      review,
+      address,
+      walletId: entry.walletId,
+      network: state.network,
+      createdAt: Date.now(),
+    });
     return { id, review, fee: formatUnits(fee, 18, 18), nativeSymbol: config.nativeSymbol, rawJson: request };
   }
   if (message.command === "submitEvmTransfer") {
@@ -469,7 +559,24 @@ async function walletCommand(
     preparedEvmTransfers.delete(id);
     const config = evmConfig(state.network);
     if (!(await approve({ origin: "Kaspire Wallet", title: `Send ${prepared.review.tokenSymbol}`, description: "Review this L2 transaction before signing.", details: [`Network: ${prepared.review.network}`, `Recipient: ${prepared.review.recipient}`, `Amount: ${prepared.review.displayAmount} ${prepared.review.tokenSymbol}`, `Network fee: ${formatUnits(BigInt(prepared.request.gasPriceWei) * BigInt(prepared.request.gasLimit), 18, 18)} ${config.nativeSymbol}`], rawJson: prepared.request }))) throw rpc(4001, "User rejected the transaction.");
-    const signed = JSON.parse((await core()).signEvmTransaction(prepared.secret, JSON.stringify(prepared.request), prepared.review.reviewHash));
+    await hydrateSession();
+    const fresh = await loadState();
+    const entry = fresh.addresses.find(
+      (item) => item.address === fresh.selectedAddress,
+    );
+    if (
+      !sessionVault ||
+      fresh.network !== prepared.network ||
+      fresh.selectedAddress !== prepared.request.walletAddress ||
+      !entry ||
+      entry.watchOnly ||
+      entry.walletId !== prepared.walletId
+    )
+      throw new Error("Account or network changed. Review the transfer again.");
+    const context = await evmContext(fresh);
+    if (context.address.toLowerCase() !== prepared.address.toLowerCase())
+      throw new Error("Signing account changed. Review the transfer again.");
+    const signed = JSON.parse((await core()).signEvmTransaction(context.secret, JSON.stringify(prepared.request), prepared.review.reviewHash));
     const result = String(await evmRpc(state.network, "eth_sendRawTransaction", [signed.rawTransaction]));
     if (result.toLowerCase() !== String(signed.transactionHash).toLowerCase()) throw new Error("L2 broadcaster returned a mismatching transaction ID.");
     const receipt = await waitReceipt(state.network, result);
@@ -480,6 +587,261 @@ async function walletCommand(
       String(message.tokenId ?? ""),
       String(message.symbol ?? ""),
     );
+  if (message.command === "rocketTokens") {
+    if (state.network !== "testnet-10")
+      throw new Error("KaspaRocket swaps are available on TN10 only.");
+    return rocketTokens();
+  }
+  if (message.command === "rocketActivity") {
+    if (state.network !== "testnet-10" || !state.selectedAddress)
+      throw new Error("Select a TN10 wallet first.");
+    return rocketActivity(state.selectedAddress);
+  }
+  if (message.command === "rocketTokenContext") {
+    if (state.network !== "testnet-10" || !state.selectedAddress)
+      throw new Error("Select a TN10 wallet first.");
+    const tokenId = String(message.tokenId ?? "");
+    const [poolId, holding, balance] = await Promise.all([
+      rocketPool(tokenId),
+      rocketHolding(state.selectedAddress, tokenId),
+      walletBalance(state.selectedAddress, state.network),
+    ]);
+    const holdingRaw = rocketHoldingRaw(holding);
+    return {
+      poolId,
+      holding,
+      holdingRaw: holdingRaw.toString(),
+      holdingDisplay: formatRocketTokenRaw(holdingRaw),
+      balanceSompi: String(balance.balanceSompi),
+      balanceKas: balance.balanceKas,
+    };
+  }
+  if (message.command === "rocketQuote") {
+    if (state.network !== "testnet-10")
+      throw new Error("KaspaRocket swaps are available on TN10 only.");
+    const side = String(message.side) as "buy" | "sell";
+    if (!["buy", "sell"].includes(side))
+      throw new Error("Invalid swap direction.");
+    const rawAmount = rawRocketAmount(
+      String(message.amount ?? ""),
+      side === "buy" ? 8 : 3,
+    );
+    if (!state.selectedAddress)
+      throw new Error("Select a TN10 wallet first.");
+    const tokenId = String(message.tokenId ?? "");
+    const [holding, balance] = await Promise.all([
+      rocketHolding(state.selectedAddress, tokenId),
+      walletBalance(state.selectedAddress, state.network),
+    ]);
+    validateRocketFunds(
+      side,
+      rawAmount,
+      holding,
+      balance.balanceSompi,
+      undefined,
+      String(message.ticker ?? "token"),
+    );
+    const quote = await rocketQuote(
+      tokenId,
+      String(message.poolId ?? ""),
+      side,
+      rawAmount,
+    );
+    validateRocketFunds(
+      side,
+      rawAmount,
+      holding,
+      balance.balanceSompi,
+      quote,
+      String(message.ticker ?? "token"),
+    );
+    return quote;
+  }
+  if (message.command === "prepareRocketSwap") {
+    if (
+      !sessionVault ||
+      state.network !== "testnet-10" ||
+      !state.selectedAddress
+    )
+      throw new Error("Unlock a TN10 signing wallet first.");
+    const entry = state.addresses.find(
+      (item) => item.address === state.selectedAddress,
+    );
+    const wallet = sessionVault.wallets.find(
+      (item) => item.id === entry?.walletId,
+    );
+    if (!entry || entry.watchOnly || !wallet)
+      throw new Error("A signing wallet is required.");
+    const token = message.token as RocketToken;
+    if (
+      !token ||
+      !/^[0-9a-f]{64}$/i.test(String(token.tokenId)) ||
+      !String(token.ticker)
+    )
+      throw new Error("Invalid KaspaRocket token.");
+    const side = String(message.side) as "buy" | "sell";
+    if (!["buy", "sell"].includes(side))
+      throw new Error("Invalid swap direction.");
+    const rawAmount = rawRocketAmount(
+      String(message.amount ?? ""),
+      side === "buy" ? 8 : 3,
+    );
+    const [poolId, holding, balance] = await Promise.all([
+      rocketPool(token.tokenId),
+      rocketHolding(entry.address, token.tokenId),
+      walletBalance(entry.address, state.network),
+    ]);
+    validateRocketFunds(
+      side,
+      rawAmount,
+      holding,
+      balance.balanceSompi,
+      undefined,
+      token.ticker,
+    );
+    const quote = await rocketQuote(
+      token.tokenId,
+      poolId,
+      side,
+      rawAmount,
+    );
+    validateRocketFunds(
+      side,
+      rawAmount,
+      holding,
+      balance.balanceSompi,
+      quote,
+      token.ticker,
+    );
+    if (quote?.uneconomic === true)
+      throw new Error("This trade is uneconomic after fees.");
+    const plan = await rocketPlan(
+      entry.address,
+      token.tokenId,
+      poolId,
+      side,
+      rawAmount,
+    );
+    const transactions = Array.isArray(plan?.transactions)
+      ? plan.transactions
+      : [];
+    if (transactions.length < 1 || transactions.length > 8)
+      throw new Error("KaspaRocket returned an invalid transaction plan.");
+    const wasm = await core();
+    const requests = transactions.map((planned: any) =>
+      rocketSigningRequest(
+        entry.address,
+        token,
+        poolId,
+        side,
+        plan.summary,
+        planned,
+      ),
+    );
+    const reviews = requests.map((request: any) =>
+      JSON.parse(wasm.preparePskt(JSON.stringify(request))),
+    );
+    const id = crypto.randomUUID();
+    preparedRocketSwaps.set(id, {
+      address: entry.address,
+      walletId: wallet.id,
+      token,
+      side,
+      poolId,
+      plan,
+      requests,
+      reviews,
+      createdAt: Date.now(),
+    });
+    return {
+      id,
+      token,
+      side,
+      poolId,
+      summary: plan.summary,
+      reviews,
+      transactionCount: transactions.length,
+      rawPlan: plan,
+    };
+  }
+  if (message.command === "submitRocketSwap") {
+    const id = String(message.id ?? "");
+    const prepared = preparedRocketSwaps.get(id);
+    if (!prepared || Date.now() - prepared.createdAt > 10 * 60_000)
+      throw new Error("Secure swap review expired. Review the swap again.");
+    preparedRocketSwaps.delete(id);
+    if (
+      !sessionVault ||
+      state.network !== "testnet-10" ||
+      state.selectedAddress !== prepared.address
+    )
+      throw new Error("Account or network changed. Review the swap again.");
+    const entry = state.addresses.find(
+      (item) => item.address === prepared.address,
+    );
+    const wallet = sessionVault.wallets.find(
+      (item) => item.id === prepared.walletId,
+    );
+    if (!entry || entry.watchOnly || !wallet)
+      throw new Error("The reviewed signing wallet is unavailable.");
+    const summary = prepared.plan.summary ?? {};
+    const fees = prepared.reviews.reduce(
+      (total: bigint, review: any) =>
+        total + BigInt(String(review.feeSompi ?? 0)),
+      0n,
+    );
+    if (
+      !(await approve({
+        origin: "Kaspire Wallet",
+        title: `${prepared.side.toUpperCase()} ${prepared.token.ticker}`,
+        description:
+          "Verify both covenant IDs before signing this TN10 DEX swap.",
+        details: [
+          `Token covenant: ${prepared.token.tokenId}`,
+          `Pool covenant: ${prepared.poolId}`,
+          ...prepared.reviews.flatMap((review: any, index: number) => [
+            `Transaction ${index + 1}: ${review.transactionId}`,
+            `Wallet input: ${formatSompi(review.walletInputSompi ?? 0)} KAS`,
+            `Wallet output: ${formatSompi(review.walletOutputSompi ?? 0)} KAS`,
+            `Wallet net: ${formatSignedSompi(review.walletNetSompi ?? 0)} KAS`,
+            `Network fee: ${formatSompi(review.feeSompi ?? 0)} KAS`,
+          ]),
+        ],
+        rawJson: prepared.plan,
+      })))
+      throw rpc(4001, "Swap rejected.");
+    const fresh = await loadState();
+    if (
+      fresh.network !== "testnet-10" ||
+      fresh.selectedAddress !== prepared.address
+    )
+      throw new Error("Account or network changed. Review the swap again.");
+    const wasm = await core();
+    const secret = signingSecret(wallet, entry);
+    const signed = prepared.requests.map((request: any, index: number) => {
+      const result = JSON.parse(
+        wasm.signPskt(
+          secret,
+          JSON.stringify(request),
+          prepared.reviews[index].reviewHash,
+        ),
+      );
+      return mergeRocketTransaction(
+        prepared.plan.transactions[index].tx,
+        result.signedTxJson,
+      );
+    });
+    const receipts = [];
+    for (let index = 0; index < signed.length; index++)
+      receipts.push(
+        await submitRocket(
+          signed[index],
+          index === signed.length - 1 ? prepared.plan.order_row : undefined,
+        ),
+      );
+    return { receipts, reviews: prepared.reviews, plan: prepared.plan };
+  }
+
   if (message.command === "nftCollection") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
     return nftCollection(
@@ -631,8 +993,11 @@ async function walletCommand(
     state.selectedAddress = state.addresses[0]?.address ?? null;
     state.recoveryVerified = true;
     if (state.addresses.length === 0) {
+      sessionGeneration += 1;
+      rejectApprovals();
       sessionVault = null;
       sessionPassword = null;
+      await clearVolatileSession();
       await chrome.storage.local.remove("encryptedVault");
       await chrome.storage.session.remove(["unlockedVault", "lastActivity"]);
     } else {
@@ -970,8 +1335,11 @@ async function walletCommand(
       );
     }
     if (state.addresses.length === 0) {
+      sessionGeneration += 1;
+      rejectApprovals();
       sessionVault = null;
       sessionPassword = null;
+      await clearVolatileSession();
       await chrome.storage.local.remove("encryptedVault");
       await chrome.storage.session.remove(["unlockedVault", "lastActivity"]);
     } else if (removesSigningWallet) {
@@ -1257,12 +1625,19 @@ async function walletCommand(
     const pending = (await chrome.storage.local.get("pendingInscription"))
       .pendingInscription;
     if (!pending) throw new Error("No pending reveal exists.");
-    return finishPendingInscription(
-      "Kaspire Wallet",
-      pending,
-      state,
-      sessionVault,
-    );
+    if (inscriptionOperationInFlight)
+      throw new Error("Another inscription transfer is already in progress.");
+    inscriptionOperationInFlight = true;
+    try {
+      return await finishPendingInscription(
+        "Kaspire Wallet",
+        pending,
+        state,
+        sessionVault,
+      );
+    } finally {
+      inscriptionOperationInFlight = false;
+    }
   }
   if (message.command === "prepareAsset") {
     if (!sessionVault) throw new Error("Unlock Kaspire first.");
@@ -1270,10 +1645,12 @@ async function walletCommand(
   }
   if (message.command === "confirmPreparedAsset") {
     if (!sessionVault) throw new Error("Unlock Kaspire first.");
-    return confirmPreparedAsset(
-      String(message.preparedId ?? ""),
-      state,
-      sessionVault,
+    return runExclusiveInscription(() =>
+      confirmPreparedAsset(
+        String(message.preparedId ?? ""),
+        state,
+        sessionVault!,
+      ),
     );
   }
   if (message.command === "sendAsset") {
@@ -1365,9 +1742,12 @@ async function walletCommand(
   }
   if (message.command === "importBackup") {
     const password = String(message.password ?? "");
+    const backupText = String(message.backup ?? "");
+    if (new TextEncoder().encode(backupText).byteLength > 2 * 1024 * 1024)
+      throw new Error("Backup is too large.");
     let backup: any;
     try {
-      backup = JSON.parse(String(message.backup ?? ""));
+      backup = JSON.parse(backupText);
     } catch {
       throw new Error("Backup is not valid JSON.");
     }
@@ -1383,12 +1763,57 @@ async function walletCommand(
       )) as unknown as VaultPayload;
       if (payload.version !== 2 || !Array.isArray(payload.wallets))
         throw new Error("Damaged Kaspire vault payload.");
-      const addresses = backup.state.addresses.filter(
-        (item: any) =>
-          typeof item?.address === "string" &&
-          typeof item?.walletId === "string",
-      );
-      if (!addresses.length) throw new Error("Backup contains no wallets.");
+      const wasm = await core();
+      const addresses = [] as any[];
+      for (const item of backup.state.addresses) {
+        if (item?.watchOnly === true) continue;
+        const wallet = payload.wallets.find(
+          (candidate) => candidate.id === item?.walletId,
+        );
+        if (!wallet || typeof item?.address !== "string") continue;
+        let verifiedAddress = "";
+        let verifiedPath = String(item?.path ?? "");
+        if (wallet.type === "private" && wallet.secret.startsWith("private:")) {
+          const material = JSON.parse(
+            wasm.importPrivateKey(wallet.secret.slice("private:".length)),
+          );
+          verifiedAddress = String(material.address ?? "");
+          verifiedPath = String(material.derivationPath ?? verifiedPath);
+        } else if (wallet.type === "mnemonic") {
+          const coinType = Number(item?.coinType);
+          const account = Number(item?.account);
+          const change = Number(item?.change);
+          const index = Number(item?.index);
+          if (![coinType, account, change, index].every(Number.isInteger))
+            throw new Error("Invalid legacy backup derivation metadata.");
+          const derived = JSON.parse(
+            wasm.deriveAddressRange(
+              wallet.secret,
+              coinType,
+              account,
+              change,
+              index,
+              1,
+            ),
+          )[0];
+          verifiedAddress = String(derived?.address ?? "");
+          verifiedPath = String(derived?.derivationPath ?? "");
+        }
+        const expected = wasm.addressWithPrefix(item.address, false).toLowerCase();
+        const actual = wasm.addressWithPrefix(verifiedAddress, false).toLowerCase();
+        if (!actual || actual !== expected ||
+            (item?.path && verifiedPath !== String(item.path)))
+          throw new Error("Legacy backup address verification failed.");
+        addresses.push({
+          ...item,
+          address: actual,
+          path: verifiedPath,
+          walletId: wallet.id,
+          watchOnly: false,
+        });
+      }
+      if (!addresses.length)
+        throw new Error("Backup contains no verified signing wallets.");
       sessionVault = payload;
       sessionPassword = password;
       await rememberSession(payload);
@@ -1516,10 +1941,7 @@ async function walletCommand(
     return true;
   }
   if (message.command === "lock") {
-    sessionVault = null;
-    sessionPassword = null;
-    await chrome.storage.session.remove(["unlockedVault", "lastActivity"]);
-    await saveState({ ...state, locked: true });
+    await lockSession(state);
     return true;
   }
   throw rpc(-32601, "Unknown wallet command.");
@@ -1551,23 +1973,186 @@ async function persistVault() {
     );
   }
   await createVault(sessionPassword, sessionVault);
-  await rememberSession(sessionVault);
+  await rememberSession();
 }
-async function hydrateSession() {
-  if (sessionVault) return;
+async function ensureOffscreenSessionDocument() {
+  if (await chrome.offscreen.hasDocument()) return;
+  if (!offscreenCreation) {
+    offscreenCreation = chrome.offscreen
+      .createDocument({
+        url: "session.html",
+        reasons: [chrome.offscreen.Reason.WORKERS],
+        justification:
+          "Keep the timed wallet unlock key in volatile browser memory without persisting decrypted wallet secrets.",
+      })
+      .finally(() => {
+        offscreenCreation = null;
+      });
+  }
+  await offscreenCreation;
+}
+
+function newSessionChannelToken() {
+  return [...crypto.getRandomValues(new Uint8Array(32))]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function storeVolatileSession() {
+  if (!sessionVault || !sessionPassword || sessionGeneration <= 0)
+    throw new Error("Cannot preserve a locked wallet session.");
+  const stored = await chrome.storage.session.get("sessionChannelToken");
+  const token =
+    typeof stored.sessionChannelToken === "string" &&
+    /^[0-9a-f]{64}$/.test(stored.sessionChannelToken)
+      ? stored.sessionChannelToken
+      : newSessionChannelToken();
+  await chrome.storage.session.set({ sessionChannelToken: token });
+  await ensureOffscreenSessionDocument();
+  const response = await chrome.runtime.sendMessage({
+    kind: "volatile-session",
+    command: "store",
+    token,
+    generation: sessionGeneration,
+    vault: sessionVault,
+    password: sessionPassword,
+  });
+  if (!response?.ok)
+    throw new Error(response?.error || "Unable to preserve the unlock session.");
+}
+
+async function restoreVolatileSession() {
   const stored = await chrome.storage.session.get([
-    "unlockedVault",
+    "sessionChannelToken",
     "lastActivity",
   ]);
-  const payload = stored.unlockedVault as VaultPayload | undefined;
-  if (payload?.version === 2 && Array.isArray(payload.wallets)) {
-    sessionVault = payload;
-    lastActivity = Number(stored.lastActivity) || Date.now();
+  lastActivity = Number(stored.lastActivity) || 0;
+  const token = stored.sessionChannelToken;
+  if (
+    typeof token !== "string" ||
+    !/^[0-9a-f]{64}$/.test(token) ||
+    !(await chrome.offscreen.hasDocument())
+  )
+    return null;
+  const response = await chrome.runtime.sendMessage({
+    kind: "volatile-session",
+    command: "get",
+    token,
+  });
+  const restored = response?.session;
+  if (
+    restored?.vault?.version !== 2 ||
+    !Array.isArray(restored?.vault?.wallets) ||
+    typeof restored?.password !== "string" ||
+    !Number.isSafeInteger(restored?.generation) ||
+    restored.generation <= 0
+  )
+    return null;
+  return restored as {
+    vault: VaultPayload;
+    password: string;
+    generation: number;
+  };
+}
+
+async function clearVolatileSession() {
+  const stored = await chrome.storage.session.get("sessionChannelToken");
+  const token = stored.sessionChannelToken;
+  if (await chrome.offscreen.hasDocument()) {
+    if (typeof token === "string") {
+      await chrome.runtime
+        .sendMessage({
+          kind: "volatile-session",
+          command: "clear",
+          token,
+        })
+        .catch(() => undefined);
+    }
+    await chrome.offscreen.closeDocument().catch(() => undefined);
+  }
+  await chrome.storage.session.remove("sessionChannelToken");
+}
+
+function rejectApprovals(boundOnly = false) {
+  for (const [id, pending] of approvals) {
+    if (boundOnly && pending.generation === null) continue;
+    clearTimeout(pending.timer);
+    approvals.delete(id);
+    pending.resolve(false);
   }
 }
-async function rememberSession(payload: VaultPayload) {
+
+async function resolveApproval(id: string, approved: boolean) {
+  await hydrateSession();
+  const pending = approvals.get(id);
+  if (!pending) throw new Error("Approval request expired.");
+  clearTimeout(pending.timer);
+  approvals.delete(id);
+  const validSession =
+    pending.generation === null ||
+    (sessionVault !== null && pending.generation === sessionGeneration);
+  pending.resolve(approved && validSession);
+}
+
+async function lockSession(state: Awaited<ReturnType<typeof loadState>>) {
+  sessionGeneration += 1;
+  rejectApprovals();
+  preparedEvmTransfers.clear();
+  preparedRocketSwaps.clear();
+  sessionVault = null;
+  sessionPassword = null;
+  lastActivity = 0;
+  await clearVolatileSession();
+  await chrome.storage.session.remove([
+    "unlockedVault",
+    "lastActivity",
+    "preparedAsset",
+  ]);
+  await saveState({ ...state, locked: true });
+}
+
+async function lockImmediateSessionWithoutWalletUi() {
+  if (walletUiConnections > 0) return;
+  await hydrateSession();
+  if (!sessionVault) return;
+  const state = await loadState();
+  if (state.settings.autoLockMinutes === 0) await lockSession(state);
+}
+
+async function expireSessionIfNeeded(
+  state: Awaited<ReturnType<typeof loadState>>,
+) {
+  if (
+    !sessionVault ||
+    state.settings.autoLockMinutes < 0 ||
+    state.settings.autoLockMinutes === 0
+  )
+    return;
+  const timeout = state.settings.autoLockMinutes * 60_000;
+  if (!lastActivity || Date.now() - lastActivity >= timeout)
+    await lockSession(state);
+}
+
+async function hydrateSession() {
+  if (sessionVault) return;
+  await chrome.storage.session.remove("unlockedVault");
+  const restored = await restoreVolatileSession().catch(() => null);
+  if (!restored) return;
+  sessionVault = restored.vault;
+  sessionPassword = restored.password;
+  sessionGeneration = restored.generation;
+}
+async function rememberSession(payload?: VaultPayload) {
+  if (payload) {
+    sessionGeneration += 1;
+    rejectApprovals(true);
+  } else if (sessionGeneration <= 0) {
+    sessionGeneration = 1;
+  }
   lastActivity = Date.now();
-  await chrome.storage.session.set({ unlockedVault: payload, lastActivity });
+  await chrome.storage.session.remove("unlockedVault");
+  await chrome.storage.session.set({ lastActivity });
+  await storeVolatileSession();
 }
 async function touchSession() {
   lastActivity = Date.now();
@@ -1861,6 +2446,7 @@ async function handle(
   if (!/^https?:\/\//.test(origin) || senderOrigin !== origin)
     throw rpc(4100, "Untrusted request origin.");
   const state = await loadState();
+  await expireSessionIfNeeded(state);
   let permission = state.permissions[origin];
   let permitted = permission?.accounts === true;
   if (method === "requestNetworkAccounts") {
@@ -2072,7 +2658,10 @@ async function handle(
       }))
     )
       throw rpc(4001, "Network switch rejected.");
-    await convertNetwork(state, network as KaspaNetwork, origin);
+    const fresh = await loadState();
+    if (fresh.permissions[origin]?.accounts !== true)
+      throw rpc(4100, "This dApp was disconnected while approval was pending.");
+    await convertNetwork(fresh, network as KaspaNetwork, origin);
     return network;
   }
   const connectedNetworks = permissionNetworks(permission, state.network);
@@ -2104,7 +2693,21 @@ async function handle(
     }
     return broadcast(transaction, kaspaNetwork);
   }
-  if (!sessionVault) throw rpc(4100, "Unlock Kaspire before signing.");
+  if (!sessionVault) {
+    if (
+      !(await approve({
+        origin,
+        title: "Unlock Kaspire",
+        description:
+          "This dApp is requesting a wallet operation. Unlock Kaspire before the transaction is prepared and reviewed.",
+        details: [`Requested method: ${method}`],
+        unlockOnly: true,
+      }))
+    )
+      throw rpc(4001, "Wallet unlock cancelled.");
+    await hydrateSession();
+    if (!sessionVault) throw rpc(4100, "Unlock Kaspire before signing.");
+  }
   if (method === "eth_sendTransaction") {
     const rows = Array.isArray(params) ? params : [];
     const raw = rows.length === 1 ? rows[0] : null;
@@ -2131,7 +2734,7 @@ async function handle(
     );
     if (!permissionNetworks(permission, state.network).includes(network))
       throw rpc(4100, "This Layer 2 network is not connected.");
-    const { address, secret } = await evmContext(state);
+    const { address } = await evmContext(state);
     const from = String(tx.from ?? "");
     const to = String(tx.to ?? "");
     if (
@@ -2198,9 +2801,25 @@ async function handle(
       }))
     )
       throw rpc(4001, "Layer 2 transaction rejected.");
+    await hydrateSession();
+    const freshState = await loadState();
+    const freshPermission = freshState.permissions[origin];
+    if (
+      !sessionVault ||
+      freshState.selectedAddress !== state.selectedAddress ||
+      freshPermission?.accounts !== true ||
+      !permissionNetworks(freshPermission, freshState.network).includes(network)
+    )
+      throw rpc(
+        4100,
+        "Wallet account, network or permission changed during approval. Build a fresh request.",
+      );
+    const freshContext = await evmContext(freshState);
+    if (freshContext.address.toLowerCase() !== address.toLowerCase())
+      throw rpc(4100, "Signing account changed during approval. Build a fresh request.");
     const signed = JSON.parse(
       wasm.signEvmTransaction(
-        secret,
+        freshContext.secret,
         JSON.stringify(request),
         review.reviewHash,
       ),
@@ -3354,6 +3973,12 @@ async function confirmPreparedAsset(
 }
 
 async function inscriptionTransfer(
+  ...args: Parameters<typeof inscriptionTransferUnsafe>
+) {
+  return runExclusiveInscription(() => inscriptionTransferUnsafe(...args));
+}
+
+async function inscriptionTransferUnsafe(
   origin: string,
   method: ProviderMethod,
   params: unknown,
@@ -3770,6 +4395,10 @@ async function finishPendingInscription(
 }
 
 async function approve(input: Omit<ApprovalView, "id">) {
+  if (approvals.size >= 4)
+    throw new Error("Too many wallet approvals are already pending.");
+  if ([...approvals.values()].some((item) => item.view.origin === input.origin))
+    throw new Error("An approval for this site is already pending.");
   const id = crypto.randomUUID();
   const view = { id, ...input };
   return new Promise<boolean>(async (resolve) => {
@@ -3777,7 +4406,12 @@ async function approve(input: Omit<ApprovalView, "id">) {
       approvals.delete(id);
       resolve(false);
     }, 600_000) as unknown as number;
-    approvals.set(id, { view, resolve, timer });
+    approvals.set(id, {
+      view,
+      resolve,
+      timer,
+      generation: sessionVault ? sessionGeneration : null,
+    });
     if (input.origin === "Kaspire Wallet") return;
     try {
       await chrome.windows.create({
@@ -3806,6 +4440,10 @@ function formatSompi(value: unknown) {
   const whole = digits.slice(0, -8);
   const fraction = digits.slice(-8).replace(/0+$/g, "");
   return fraction ? `${whole}.${fraction}` : whole;
+}
+function formatSignedSompi(value: unknown) {
+  const raw = BigInt(String(value));
+  return `${raw < 0n ? "-" : ""}${formatSompi(raw < 0n ? -raw : raw)}`;
 }
 function kcc20ReviewDetails(operation: any, review: any) {
   return [

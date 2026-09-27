@@ -246,10 +246,17 @@ pub fn prepare_kron_transfer(request: &KronTransferRequest) -> Result<PreparedKr
     let raw = safe_json(&transaction, &all_entries);
     let pskt_request = crate::PsktRequest {
         sender: request.sender.clone(),
+        profile: None,
+        token_id: None,
+        lp_covenant_id: None,
+        ticker: None,
+        side: None,
+        trade_summary: None,
         tx_json_string: raw.to_string(),
         sign_inputs: vec![crate::PsktSignInput {
             index: request.cells.len(),
             sighash_type: 1,
+            expected_sighash: None,
         }],
         scripts: vec![],
     };
@@ -257,7 +264,9 @@ pub fn prepare_kron_transfer(request: &KronTransferRequest) -> Result<PreparedKr
     Ok(PreparedKronTransfer {
         pskt_request,
         transaction_id: reviewed.transaction_id,
-        fee_sompi: reviewed.fee_sompi.ok_or_else(|| CoreError::InvalidRequest("KRON transfer is not fully funded".into()))?,
+        fee_sompi: reviewed
+            .fee_sompi
+            .ok_or_else(|| CoreError::InvalidRequest("KRON transfer is not fully funded".into()))?,
         input_total_sompi: reviewed.input_total_sompi,
         output_total_sompi: reviewed.output_total_sompi,
         token_change,

@@ -645,7 +645,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     final signed = await _security.signEvmTransaction(
         requestMap, '${prepared['reviewHash']}');
     final hash = await api.broadcast('${signed['rawTransaction']}');
-    await _dapps.respondResult(request, hash);
+    final expectedHash = '${signed['transactionHash']}';
+    if (hash.toLowerCase() != expectedHash.toLowerCase()) {
+      throw StateError('L2 broadcaster returned a mismatching transaction ID.');
+    }
+    await _dapps.respondResult(request, expectedHash);
   }
 
   Map<String, Object?> _paramsMap(dynamic params) {

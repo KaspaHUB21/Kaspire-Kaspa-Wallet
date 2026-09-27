@@ -181,11 +181,12 @@ class NativeSecurity {
   Future<String> _authorizeOperation({
     required String operation,
     required String binding,
+    bool fresh = false,
   }) async {
     final token = await _channel.invokeMethod<String>('authorizeOperation', {
       'operation': operation,
       'binding': binding,
-      'sessionMinutes': AppSettings.lockMinutes.value,
+      'sessionMinutes': fresh ? 0 : AppSettings.lockMinutes.value,
     });
     if (token == null) throw StateError('Authorization cancelled.');
     return token;
@@ -196,6 +197,7 @@ class NativeSecurity {
     final token = await _authorizeOperation(
       operation: 'exportPrivateKey',
       binding: address,
+      fresh: true,
     );
     await _channel.invokeMethod<void>(
       'exportPrivateKey',
@@ -206,16 +208,14 @@ class NativeSecurity {
     );
   }
 
-  Future<Map<String, String>> exportPrivateKeys(String address) async {
+  Future<void> exportPrivateKeys(String address) async {
     address = NetworkSettings.storageAddress(address);
     final token = await _authorizeOperation(
-        operation: 'exportPrivateKey', binding: address);
-    final raw = await _channel.invokeMethod<String>('exportPrivateKeys', {
+        operation: 'exportPrivateKey', binding: address, fresh: true);
+    await _channel.invokeMethod<void>('exportPrivateKeys', {
       'address': address,
       'authorizationToken': token,
     });
-    return (jsonDecode(raw ?? '{}') as Map)
-        .map((key, value) => MapEntry(key.toString(), value.toString()));
   }
 
   Future<void> exportRecoveryPhrase() async {
@@ -223,6 +223,7 @@ class NativeSecurity {
     final token = await _authorizeOperation(
       operation: 'exportRecoveryPhrase',
       binding: binding,
+      fresh: true,
     );
     await _channel.invokeMethod<void>(
       'exportRecoveryPhrase',

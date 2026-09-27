@@ -16,6 +16,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import android.text.InputType
+import android.text.InputFilter
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Base64
@@ -302,10 +303,7 @@ class MainActivity : FlutterFragmentActivity() {
                         val id = activeWalletId() ?: error("No active signing wallet")
                         check(controlsAddress(id, address)) { "The active wallet does not control the requested export address" }
                         requireAuthorization(call, "exportPrivateKey", address)
-                        val secret = decryptSecret(address)
-                        val kaspa = parseCore(SecureCore.exportPrivateKey(secret)).getString("privateKey")
-                        val evm = parseCore(SecureCore.exportEvmPrivateKey(secret)).getString("privateKey")
-                        result.success(JSONObject().put("kaspaPrivateKey", kaspa).put("evmPrivateKey", evm).toString())
+                        exportPrivateKeys(address, result)
                     }
                     "exportRecoveryPhrase" -> {
                         requireAuthorization(call, "exportRecoveryPhrase", activeWalletAddress() ?: "")
@@ -1473,6 +1471,18 @@ class MainActivity : FlutterFragmentActivity() {
         showSecret("Private key", json.getString("privateKey"), result)
     }
 
+    private fun exportPrivateKeys(address: String, result: MethodChannel.Result) {
+        val secret = decryptSecret(address)
+        val kaspa = parseCore(SecureCore.exportPrivateKey(secret)).getString("privateKey")
+        val evm = parseCore(SecureCore.exportEvmPrivateKey(secret)).getString("privateKey")
+        showSecret(
+            "Wallet private keys",
+            "Kaspa private key:\n$kaspa\n\nEVM private key · Kasplex & Igra:\n$evm",
+            result,
+            "Keep both keys offline. Anyone with either key can spend assets controlled by that account.",
+        )
+    }
+
     private fun exportRecoveryPhrase(result: MethodChannel.Result) {
         val secret = decryptSecret()
         check(secret.startsWith("mnemonic:") || secret.startsWith("mnemonic-passphrase:")) {
@@ -1620,6 +1630,7 @@ class MainActivity : FlutterFragmentActivity() {
             minLines = 4
             maxLines = 8
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            filters = arrayOf(InputFilter.LengthFilter(2 * 1024 * 1024))
         }
         val password = EditText(this).apply {
             hint = "Backup password"
@@ -1644,15 +1655,24 @@ class MainActivity : FlutterFragmentActivity() {
             dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 try {
-                    val backup = JSONObject(backupInput.text.toString().trim())
+                    val backupText = backupInput.text.toString().trim()
+                    check(backupText.toByteArray(Charsets.UTF_8).size <= 2 * 1024 * 1024) {
+                        "Backup is too large"
+                    }
+                    val backup = JSONObject(backupText)
                     val format = backup.getString("format")
                     check(format == "kaspire-backup-v1" || format == "kaspire-backup-v2") {
                         "Unsupported backup format"
                     }
-                    val salt = Base64.decode(backup.getString("salt"), Base64.NO_WRAP)
+                    val saltText = backup.getString("salt")
+                    val ivText = backup.getString("iv")
+                    val ciphertextText = backup.getString("ciphertext")
+                    check(saltText.length <= 128 && ivText.length <= 128 &&
+                        ciphertextText.length <= 3 * 1024 * 1024) { "Backup is too large" }
+                    val salt = Base64.decode(saltText, Base64.NO_WRAP)
                     check(salt.size == 32) { "Invalid backup salt" }
-                    val iv = Base64.decode(backup.getString("iv"), Base64.NO_WRAP)
-                    val encrypted = Base64.decode(backup.getString("ciphertext"), Base64.NO_WRAP)
+                    val iv = Base64.decode(ivText, Base64.NO_WRAP)
+                    val encrypted = Base64.decode(ciphertextText, Base64.NO_WRAP)
                     val key = when (format) {
                         "kaspire-backup-v1" -> {
                             check(backup.optString("kdf") == "pbkdf2-sha256" &&
@@ -1744,7 +1764,21 @@ class MainActivity : FlutterFragmentActivity() {
                     "${json.getLong("vaultAmountSompi")} sompi governed by covenant · " +
                     "Fee ${json.getLong("feeSompi")} sompi"
             "signPskt" ->
-                "PSKT ${json.getString("transactionId").take(16)}…\n" +
+                if (json.optString("profile") == "kasparocket-testnet-v1")
+                    "KaspaRocket TN10 · ${json.optString("side").uppercase()}\n" +
+                        "${json.optString("ticker")} · token ${json.optString("tokenId")}\n" +
+                        "Pool covenant ${json.optString("lpCovenantId")}\n" +
+                        "Transaction-derived wallet input ${json.optString("walletInputSompi")} sompi\n" +
+                        "Transaction-derived wallet output ${json.optString("walletOutputSompi")} sompi\n" +
+                        "Transaction-derived wallet net ${json.optString("walletNetSompi")} sompi\n" +
+                        "Network fee ${json.optString("feeSompi")} sompi\n" +
+                        "Transaction ${json.getString("transactionId")}\n" +
+                        (0 until json.getJSONArray("outputs").length()).joinToString("\n") { index ->
+                            val output = json.getJSONArray("outputs").getJSONObject(index)
+                            "Output $index: ${output.getLong("amountSompi")} sompi · " +
+                                (output.optString("address").ifEmpty { "covenant / non-standard script" })
+                        }
+                else "PSKT ${json.getString("transactionId").take(16)}…\n" +
                     "${json.getInt("selectedInputCount")} of ${json.getInt("inputCount")} inputs · " +
                     "${json.getInt("outputCount")} outputs · " +
                     (if (json.optBoolean("finalFeeKnown") && !json.isNull("feeSompi"))
@@ -1881,7 +1915,9 @@ class MainActivity : FlutterFragmentActivity() {
         if (stored == null || !isKaspaAccountAddress(stored) || !isKaspaAccountAddress(requested)) {
             return false
         }
-        return stored.substringAfter(':') == requested.substringAfter(':')
+        val canonicalStored = SecureCore.addressWithPrefix(stored, false)
+        val canonicalRequested = SecureCore.addressWithPrefix(requested, false)
+        return isKaspaAccountAddress(canonicalStored) && canonicalStored == canonicalRequested
     }
 
     private fun hdPath(id: String, address: String): String? {
@@ -2510,9 +2546,10 @@ class MainActivity : FlutterFragmentActivity() {
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setRandomizedEncryptionRequired(true)
             .setKeySize(256)
-        // Authentication is enforced immediately before import, export and signing by
-        // AndroidX Biometric. Avoiding auth-bound Cipher.init fixes incompatible OEM
-        // Keystore implementations while the secret remains hardware-encrypted at rest.
+        // Operation authorization is enforced immediately before import, export and signing.
+        // Android 15+ additionally prevents vault-key use while the device is locked.
+        // Android documents unlock-required Keystore bugs on Android 12 through 14.
+        if (Build.VERSION.SDK_INT >= 35) builder.setUnlockedDeviceRequired(true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) builder.setIsStrongBoxBacked(strongBox)
         return builder.build()
     }

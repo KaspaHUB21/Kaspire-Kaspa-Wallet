@@ -1,6 +1,6 @@
 use crate::{
-    derive_address_range, derive_backup_key, derive_evm_address, export_evm_private_key,
-    export_private_key, finalize_tangem_commit, finalize_tangem_reveal,
+    address_with_prefix, derive_address_range, derive_backup_key, derive_evm_address,
+    export_evm_private_key, export_private_key, finalize_tangem_commit, finalize_tangem_reveal,
     generate_wallet_with_passphrase, import_private_key, import_wallet_with_passphrase,
     prepare_evm_transaction, prepare_inscription, prepare_kcc20_transfer, prepare_kron_transfer,
     prepare_policy_transaction, prepare_pskt, prepare_reveal, prepare_tangem_commit,
@@ -12,11 +12,29 @@ use crate::{
 };
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_addressWithPrefix(
+    mut env: JNIEnv,
+    _class: JClass,
+    address: JString,
+    testnet: jni::sys::jboolean,
+) -> jstring {
+    let result = read(&mut env, &address).and_then(|address| {
+        address_with_prefix(&address, testnet != 0).map_err(|error| error.to_string())
+    });
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_describeDotkMarket(
-    mut env: JNIEnv, _class: JClass, request_json: JString,
+    mut env: JNIEnv,
+    _class: JClass,
+    request_json: JString,
 ) -> jstring {
     let result = read(&mut env, &request_json)
-        .and_then(|raw| serde_json::from_str::<crate::dotk_market::DescribeRequest>(&raw).map_err(|e| e.to_string()))
+        .and_then(|raw| {
+            serde_json::from_str::<crate::dotk_market::DescribeRequest>(&raw)
+                .map_err(|e| e.to_string())
+        })
         .and_then(|r| crate::dotk_market::describe(&r).map_err(|e| e.to_string()))
         .map(|r| r.to_string());
     output(&mut env, result.unwrap_or_else(error_json))
@@ -24,10 +42,14 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_describeDotkMarket(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareDotkMarket(
-    mut env: JNIEnv, _class: JClass, request_json: JString,
+    mut env: JNIEnv,
+    _class: JClass,
+    request_json: JString,
 ) -> jstring {
     let result = read(&mut env, &request_json)
-        .and_then(|raw| serde_json::from_str::<crate::dotk_market::Request>(&raw).map_err(|e| e.to_string()))
+        .and_then(|raw| {
+            serde_json::from_str::<crate::dotk_market::Request>(&raw).map_err(|e| e.to_string())
+        })
         .and_then(|r| crate::dotk_market::prepare(&r).map_err(|e| e.to_string()))
         .and_then(|r| serde_json::to_string(&r).map_err(|e| e.to_string()));
     output(&mut env, result.unwrap_or_else(error_json))
@@ -35,14 +57,20 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareDotkMarket(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signDotkMarket(
-    mut env: JNIEnv, _class: JClass, secret: JString, request_json: JString, review_hash: JString,
+    mut env: JNIEnv,
+    _class: JClass,
+    secret: JString,
+    request_json: JString,
+    review_hash: JString,
 ) -> jstring {
     let result = (|| {
         let secret = zeroize::Zeroizing::new(read(&mut env, &secret)?);
         let raw = read(&mut env, &request_json)?;
         let hash = read(&mut env, &review_hash)?;
-        let request: crate::dotk_market::Request = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        let signed = crate::dotk_market::sign(&secret, &request, &hash).map_err(|e| e.to_string())?;
+        let request: crate::dotk_market::Request =
+            serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+        let signed =
+            crate::dotk_market::sign(&secret, &request, &hash).map_err(|e| e.to_string())?;
         serde_json::to_string(&signed).map_err(|e| e.to_string())
     })();
     output(&mut env, result.unwrap_or_else(error_json))
@@ -55,8 +83,10 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveDotkDeed(
     request_json: JString,
 ) -> jstring {
     let result = read(&mut env, &request_json)
-        .and_then(|raw| serde_json::from_str::<crate::dotk::Request>(&raw)
-            .map_err(|_| "invalid dot.k request".to_string()))
+        .and_then(|raw| {
+            serde_json::from_str::<crate::dotk::Request>(&raw)
+                .map_err(|_| "invalid dot.k request".to_string())
+        })
         .and_then(|r| crate::dotk::derive(&r).map_err(|e| e.to_string()))
         .and_then(|r| serde_json::to_string(&r).map_err(|e| e.to_string()));
     output(&mut env, result.unwrap_or_else(error_json))

@@ -1,9 +1,14 @@
 #[cfg(test)]
 use crate::derive_address;
 use crate::{controls_address, derive_key, CoreError, Result};
-use kaspa_addresses::{Address, Prefix};
+use kaspa_addresses::Address;
+#[cfg(test)]
+use kaspa_addresses::Prefix;
 use kaspa_consensus_core::{
-    hashing::sighash_type::{SigHashType, SIG_HASH_ALL},
+    hashing::{
+        sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
+        sighash_type::{SigHashType, SIG_HASH_ALL},
+    },
     sign::sign_input,
     subnets::SUBNETWORK_ID_NATIVE,
     tx::{
@@ -38,6 +43,8 @@ pub struct PsktSignInput {
     pub index: usize,
     #[serde(default = "default_sighash")]
     pub sighash_type: u8,
+    #[serde(default)]
+    pub expected_sighash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -83,6 +90,12 @@ pub struct PsktScriptInput {
     pub sign_type: Option<u8>,
     #[serde(default)]
     pub signature_script: Option<PsktSignatureScriptTemplate>,
+    #[serde(default)]
+    pub prebuilt_signature_script: Option<String>,
+    #[serde(default)]
+    pub signature_offsets: Vec<usize>,
+    #[serde(default)]
+    pub expected_sighash: Option<String>,
 }
 
 fn default_sighash() -> u8 {
@@ -93,6 +106,18 @@ fn default_sighash() -> u8 {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PsktRequest {
     pub sender: String,
+    #[serde(default)]
+    pub profile: Option<String>,
+    #[serde(default)]
+    pub token_id: Option<String>,
+    #[serde(default)]
+    pub lp_covenant_id: Option<String>,
+    #[serde(default)]
+    pub ticker: Option<String>,
+    #[serde(default)]
+    pub side: Option<String>,
+    #[serde(default)]
+    pub trade_summary: Option<Value>,
     #[serde(alias = "psktTransactionJson")]
     pub tx_json_string: String,
     #[serde(default)]
@@ -134,6 +159,16 @@ pub struct PsktOutputReview {
 #[serde(rename_all = "camelCase")]
 pub struct PreparedPskt {
     pub profile: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lp_covenant_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ticker: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub side: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trade_summary: Option<Value>,
     pub sender: String,
     pub transaction_id: String,
     pub version: u16,
@@ -198,7 +233,11 @@ pub fn sign_pskt(
     for (index, sighash) in &built.sighashes {
         let pushed_signature = sign_input(&populated.as_verifiable(), *index, &*key, *sighash);
         let signature_script = if let Some(script) = built.scripts.get(index) {
-            assemble_p2sh_signature_script(script, &pushed_signature)?
+            if script.prebuilt_signature_script.is_some() {
+                assemble_prebuilt_signature_script(script, &pushed_signature)?
+            } else {
+                assemble_p2sh_signature_script(script, &pushed_signature)?
+            }
         } else {
             pushed_signature
         };
@@ -336,7 +375,9 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         let script_sighash = SigHashType::from_u8(requested_script_sighash)
             .map_err(|_| CoreError::InvalidRequest("unsupported script sighash type".into()))?;
         if script_sighash.is_sighash_single() && script.input_index >= outputs_json.len() {
-            return Err(CoreError::InvalidRequest("SIGHASH_SINGLE input has no matching output".into()));
+            return Err(CoreError::InvalidRequest(
+                "SIGHASH_SINGLE input has no matching output".into(),
+            ));
         }
         if let Some(selected_sighash) = sighashes_by_index.get(&script.input_index) {
             if selected_sighash.to_u8() != script_sighash.to_u8() {
@@ -382,7 +423,13 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
             .unwrap_or("");
         let signature_script = hex::decode(signature_hex)
             .map_err(|_| CoreError::InvalidRequest("invalid signature script".into()))?;
-        if selected.contains(&index) && !signature_script.is_empty() {
+        let expected_prebuilt = scripts
+            .get(&index)
+            .and_then(|script| script.prebuilt_signature_script.as_deref());
+        if selected.contains(&index)
+            && !signature_script.is_empty()
+            && expected_prebuilt != Some(signature_hex)
+        {
             return Err(CoreError::InvalidRequest(
                 "selected input is already signed".into(),
             ));
@@ -406,11 +453,19 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
             .ok_or_else(|| CoreError::UntrustedUtxo("missing UTXO script".into()))?;
         let script = script_public_key(script_hex)?;
         if let Some(script_request) = scripts.get(&index) {
-            let redeem_script = decode_redeem_script(&script_request.script_hex)?;
-            if pay_to_script_hash_script(&redeem_script) != script {
-                return Err(CoreError::UntrustedUtxo(format!(
-                    "script for input {index} does not match its P2SH UTXO"
-                )));
+            if script_request.prebuilt_signature_script.is_none() {
+                let redeem_script = decode_redeem_script(&script_request.script_hex)?;
+                if pay_to_script_hash_script(&redeem_script) != script {
+                    return Err(CoreError::UntrustedUtxo(format!(
+                        "script for input {index} does not match its P2SH UTXO"
+                    )));
+                }
+            } else if request.profile.as_deref() != Some("kasparocket-testnet-v1")
+                || covenant_id_from_utxo(utxo)?.is_none()
+            {
+                return Err(CoreError::InvalidRequest(
+                    "prebuilt scripts are restricted to KaspaRocket covenant inputs".into(),
+                ));
             }
         }
         let controlled = script == sender_script;
@@ -533,8 +588,8 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
     let funding_deficit = output_total.saturating_sub(input_total);
     // A marketplace seller commits their input and same-index payout while
     // the buyer supplies funding later. Never relax this for other sighashes.
-    let seller_offer = !sighashes.is_empty()
-        && sighashes.iter().all(|(_, hash)| hash.to_u8() == 132);
+    let seller_offer =
+        !sighashes.is_empty() && sighashes.iter().all(|(_, hash)| hash.to_u8() == 132);
     if funding_deficit > 0 && !seller_offer {
         return Err(CoreError::InvalidRequest(
             "outputs exceed embedded UTXO value".into(),
@@ -582,6 +637,14 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
             ));
         }
     }
+    if request.profile.as_deref() == Some("kasparocket-testnet-v1") {
+        validate_kasparocket_request(request, &tx, &entries, &sighashes, &scripts)?;
+        warnings
+            .push("TESTNET ONLY — KaspaRocket uses version-1 covenant transaction plans.".into());
+        warnings.push("Ticker symbols are not unique; verify token and pool covenant IDs.".into());
+    } else if request.profile.is_some() {
+        return Err(CoreError::InvalidRequest("unsupported PSKT profile".into()));
+    }
     let payload_utf8 = std::str::from_utf8(&payload)
         .ok()
         .filter(|text| {
@@ -591,7 +654,12 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         })
         .map(ToOwned::to_owned);
     let review_data = json!({
-        "profile": "generic-pskt-v2",
+        "profile": request.profile.as_deref().unwrap_or("generic-pskt-v2"),
+        "tokenId": request.token_id,
+        "lpCovenantId": request.lp_covenant_id,
+        "ticker": request.ticker,
+        "side": request.side,
+        "tradeSummary": request.trade_summary,
         "sender": request.sender,
         "transactionId": tx.id().to_string(),
         "version": version,
@@ -620,7 +688,15 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         sighashes,
         scripts,
         review: PreparedPskt {
-            profile: "generic-pskt-v2".into(),
+            profile: request
+                .profile
+                .clone()
+                .unwrap_or_else(|| "generic-pskt-v2".into()),
+            token_id: request.token_id.clone(),
+            lp_covenant_id: request.lp_covenant_id.clone(),
+            ticker: request.ticker.as_ref().map(|value| value.to_uppercase()),
+            side: request.side.clone(),
+            trade_summary: request.trade_summary.clone(),
             sender: request.sender.clone(),
             transaction_id: review_data["transactionId"]
                 .as_str()
@@ -646,6 +722,127 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
             review_hash,
         },
     })
+}
+
+fn covenant_id_from_utxo(value: &Value) -> Result<Option<Hash>> {
+    value
+        .get("covenantId")
+        .and_then(Value::as_str)
+        .map(Hash::from_str)
+        .transpose()
+        .map_err(|_| CoreError::UntrustedUtxo("invalid covenant id".into()))
+}
+
+fn validate_kasparocket_request(
+    request: &PsktRequest,
+    tx: &Transaction,
+    entries: &[UtxoEntry],
+    sighashes: &[(usize, SigHashType)],
+    scripts: &HashMap<usize, PsktScriptInput>,
+) -> Result<()> {
+    if tx.version != 1
+        || !request.sender.starts_with("kaspatest:")
+        || !tx.payload.is_empty()
+        || request
+            .side
+            .as_deref()
+            .is_none_or(|side| !matches!(side, "buy" | "sell"))
+    {
+        return Err(CoreError::InvalidRequest(
+            "KaspaRocket integration is restricted to TN10 version-1 trade plans".into(),
+        ));
+    }
+    let token = Hash::from_str(
+        request
+            .token_id
+            .as_deref()
+            .ok_or_else(|| CoreError::InvalidRequest("missing token covenant id".into()))?,
+    )
+    .map_err(|_| CoreError::InvalidRequest("invalid token covenant id".into()))?;
+    let pool = Hash::from_str(
+        request
+            .lp_covenant_id
+            .as_deref()
+            .ok_or_else(|| CoreError::InvalidRequest("missing pool covenant id".into()))?,
+    )
+    .map_err(|_| CoreError::InvalidRequest("invalid pool covenant id".into()))?;
+    if token == pool
+        || request.ticker.as_deref().is_none_or(str::is_empty)
+        || request.trade_summary.is_none()
+    {
+        return Err(CoreError::InvalidRequest(
+            "invalid KaspaRocket token metadata".into(),
+        ));
+    }
+    let covenant_ids = entries
+        .iter()
+        .filter_map(|entry| entry.covenant_id)
+        .chain(
+            tx.outputs
+                .iter()
+                .filter_map(|output| output.covenant.map(|binding| binding.covenant_id)),
+        )
+        .collect::<HashSet<_>>();
+    if !covenant_ids.contains(&token) || !covenant_ids.contains(&pool) {
+        return Err(CoreError::InvalidRequest(
+            "trade is not bound to the selected token and pool covenants".into(),
+        ));
+    }
+    if sighashes
+        .iter()
+        .any(|(_, hash)| hash.to_u8() != SIG_HASH_ALL.to_u8())
+    {
+        return Err(CoreError::InvalidRequest(
+            "KaspaRocket trades require SIGHASH_ALL".into(),
+        ));
+    }
+    let expected_by_index = request
+        .sign_inputs
+        .iter()
+        .map(|input| (input.index, input.expected_sighash.as_deref()))
+        .chain(
+            scripts
+                .iter()
+                .map(|(index, script)| (*index, script.expected_sighash.as_deref())),
+        )
+        .collect::<HashMap<_, _>>();
+    let populated = SignableTransaction::with_entries(tx.clone(), entries.to_vec());
+    let reused = SigHashReusedValuesUnsync::new();
+    for (index, hash_type) in sighashes {
+        let expected = expected_by_index
+            .get(index)
+            .and_then(|value| *value)
+            .ok_or_else(|| {
+                CoreError::InvalidRequest("missing KaspaRocket expected sighash".into())
+            })?;
+        let expected = Hash::from_str(expected).map_err(|_| {
+            CoreError::InvalidRequest("invalid KaspaRocket expected sighash".into())
+        })?;
+        let actual =
+            calc_schnorr_signature_hash(&populated.as_verifiable(), *index, *hash_type, &reused);
+        if actual != expected {
+            return Err(CoreError::InvalidRequest(
+                "KaspaRocket supplied sighash does not match the transaction".into(),
+            ));
+        }
+    }
+    let summary = request.trade_summary.as_ref().unwrap();
+    if summary.get("direction").and_then(Value::as_str) != request.side.as_deref() {
+        return Err(CoreError::InvalidRequest(
+            "KaspaRocket direction mismatch".into(),
+        ));
+    }
+    let platform = u64_value(summary.get("platformFeeSompi"))?;
+    let partner = u64_value(summary.get("partnerFeeSompi"))?;
+    let total = u64_value(summary.get("totalPlatformFeeSompi"))?;
+    let _ = u64_value(summary.get("amountTokens"))?;
+    let _ = u64_value(summary.get("kasFlowSompi"))?;
+    if platform.checked_add(partner) != Some(total) {
+        return Err(CoreError::InvalidRequest(
+            "KaspaRocket fee summary mismatch".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn parse_covenant(value: Option<&Value>, input_count: usize) -> Result<Option<CovenantBinding>> {
@@ -678,6 +875,37 @@ fn validate_script_request(script: &PsktScriptInput, input_count: usize) -> Resu
     if script.input_index >= input_count {
         return Err(CoreError::InvalidRequest(
             "script-aware input is out of range".into(),
+        ));
+    }
+    if let Some(raw) = &script.prebuilt_signature_script {
+        if !script.script_hex.is_empty() || script.signature_script.is_some() {
+            return Err(CoreError::InvalidRequest(
+                "prebuilt signature scripts cannot include a redeem script template".into(),
+            ));
+        }
+        let bytes = hex::decode(raw)
+            .map_err(|_| CoreError::InvalidRequest("invalid prebuilt signature script".into()))?;
+        if bytes.is_empty() || bytes.len() > MAX_SCRIPT_REQUEST_BYTES {
+            return Err(CoreError::InvalidRequest(
+                "invalid prebuilt signature script size".into(),
+            ));
+        }
+        if script.signature_offsets.is_empty()
+            || script.signature_offsets.iter().any(|offset| {
+                offset.checked_add(65).is_none_or(|end| end > bytes.len())
+                    || bytes[*offset..*offset + 65].iter().any(|byte| *byte != 0)
+            })
+            || script.expected_sighash.is_none()
+        {
+            return Err(CoreError::InvalidRequest(
+                "invalid prebuilt signature placeholders".into(),
+            ));
+        }
+        return Ok(());
+    }
+    if !script.signature_offsets.is_empty() || script.expected_sighash.is_some() {
+        return Err(CoreError::InvalidRequest(
+            "signature offsets require a prebuilt signature script".into(),
         ));
     }
     let _ = decode_redeem_script(&script.script_hex)?;
@@ -774,6 +1002,22 @@ fn raw_signature(pushed_signature: &[u8]) -> Result<&[u8]> {
         ));
     }
     Ok(&pushed_signature[1..])
+}
+
+fn assemble_prebuilt_signature_script(
+    script: &PsktScriptInput,
+    pushed_signature: &[u8],
+) -> Result<Vec<u8>> {
+    let signature = raw_signature(pushed_signature)?;
+    let mut result =
+        hex::decode(script.prebuilt_signature_script.as_deref().ok_or_else(|| {
+            CoreError::InvalidRequest("missing prebuilt signature script".into())
+        })?)
+        .map_err(|_| CoreError::InvalidRequest("invalid prebuilt signature script".into()))?;
+    for offset in &script.signature_offsets {
+        result[*offset..*offset + 65].copy_from_slice(signature);
+    }
+    Ok(result)
 }
 
 fn assemble_p2sh_signature_script(
@@ -961,10 +1205,17 @@ mod tests {
         });
         PsktRequest {
             sender: sender.to_string(),
+            profile: None,
+            token_id: None,
+            lp_covenant_id: None,
+            ticker: None,
+            side: None,
+            trade_summary: None,
             tx_json_string: safe.to_string(),
             sign_inputs: vec![PsktSignInput {
                 index: 0,
                 sighash_type: 1,
+                expected_sighash: None,
             }],
             scripts: vec![],
         }
@@ -972,10 +1223,24 @@ mod tests {
 
     #[test]
     fn prepares_exact_kaspacom_testnet_seller_fixture() {
-        let fixture: Value = serde_json::from_str(include_str!("../../../apps/browser_extension/tests/fixtures/kaspacom-seller-offer.json")).unwrap();
-        let sender = Address::new(Prefix::Testnet, kaspa_addresses::Version::PubKey, &hex::decode("5a2410e8675943ad1277cc3f42474b74739c67f962b60276b3ad1ddc870dd0da").unwrap());
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../apps/browser_extension/tests/fixtures/kaspacom-seller-offer.json"
+        ))
+        .unwrap();
+        let sender = Address::new(
+            Prefix::Testnet,
+            kaspa_addresses::Version::PubKey,
+            &hex::decode("5a2410e8675943ad1277cc3f42474b74739c67f962b60276b3ad1ddc870dd0da")
+                .unwrap(),
+        );
         let request = PsktRequest {
             sender: sender.to_string(),
+            profile: None,
+            token_id: None,
+            lp_covenant_id: None,
+            ticker: None,
+            side: None,
+            trade_summary: None,
             tx_json_string: fixture["psktTransactionJson"].as_str().unwrap().into(),
             sign_inputs: serde_json::from_value(fixture["signInputs"].clone()).unwrap(),
             scripts: serde_json::from_value(fixture["scripts"].clone()).unwrap(),
@@ -983,26 +1248,44 @@ mod tests {
         let review = prepare_pskt(&request).unwrap();
         assert_eq!(review.funding_deficit_sompi, 200_000_000);
         assert_eq!(review.fee_sompi, None);
-        assert_eq!(review.outputs[0].address.as_deref(), Some(request.sender.as_str()));
-        assert_eq!(review.inputs[0].signature_script_mode.as_deref(), Some("wrap-signature"));
+        assert_eq!(
+            review.outputs[0].address.as_deref(),
+            Some(request.sender.as_str())
+        );
+        assert_eq!(
+            review.inputs[0].signature_script_mode.as_deref(),
+            Some("wrap-signature")
+        );
         assert!(review.outputs[0].signature_bound);
     }
 
     #[test]
     fn seller_offer_allows_buyer_funding_but_binds_payout() {
-        use kaspa_consensus_core::hashing::sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync};
+        use kaspa_consensus_core::hashing::sighash::{
+            calc_schnorr_signature_hash, SigHashReusedValuesUnsync,
+        };
         let mut request = request();
         request.sign_inputs[0].sighash_type = 132;
         let mut json: Value = serde_json::from_str(&request.tx_json_string).unwrap();
         let key = derive_key(SECRET).unwrap();
-        let pair = secp256k1::Keypair::from_seckey_slice(&secp256k1::Secp256k1::new(), &*key).unwrap();
+        let pair =
+            secp256k1::Keypair::from_seckey_slice(&secp256k1::Secp256k1::new(), &*key).unwrap();
         let pubkey = pair.x_only_public_key().0;
         let redeem = hex::decode(format!("20{}ac", hex::encode(pubkey.serialize()))).unwrap();
-        json["inputs"][0]["utxo"]["scriptPublicKey"] = json!(script_json(&pay_to_script_hash_script(&redeem)));
+        json["inputs"][0]["utxo"]["scriptPublicKey"] =
+            json!(script_json(&pay_to_script_hash_script(&redeem)));
         json["inputs"][0]["utxo"]["amount"] = json!("105000000");
         json["outputs"][0]["value"] = json!("305000000");
         json["marketplaceMetadata"] = json!({"seller": "preserved"});
-        request.scripts = vec![PsktScriptInput {input_index: 0, script_hex: hex::encode(&redeem), sign_type: Some(132), signature_script: None}];
+        request.scripts = vec![PsktScriptInput {
+            input_index: 0,
+            script_hex: hex::encode(&redeem),
+            sign_type: Some(132),
+            signature_script: None,
+            prebuilt_signature_script: None,
+            signature_offsets: vec![],
+            expected_sighash: None,
+        }];
         request.tx_json_string = json.to_string();
         let built = build_pskt(&request).unwrap();
         assert_eq!(built.review.funding_deficit_sompi, 200_000_000);
@@ -1012,14 +1295,27 @@ mod tests {
         let signed = sign_pskt(SECRET, &request, &built.review.review_hash).unwrap();
         assert!(signed.submit_json.is_none());
         let signed_json: Value = serde_json::from_str(&signed.signed_tx_json).unwrap();
-        assert_eq!(signed_json["marketplaceMetadata"], json["marketplaceMetadata"]);
-        let script = hex::decode(signed_json["inputs"][0]["signatureScript"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            signed_json["marketplaceMetadata"],
+            json["marketplaceMetadata"]
+        );
+        let script = hex::decode(
+            signed_json["inputs"][0]["signatureScript"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
         let signature = secp256k1::schnorr::Signature::from_slice(&script[1..65]).unwrap();
         assert_eq!(script[65], 132);
         let sighash = SigHashType::from_u8(132).unwrap();
         let hash = |tx: Transaction, entries: Vec<UtxoEntry>| {
             let populated = SignableTransaction::with_entries(tx, entries);
-            let digest = calc_schnorr_signature_hash(&populated.as_verifiable(), 0, sighash, &SigHashReusedValuesUnsync::new());
+            let digest = calc_schnorr_signature_hash(
+                &populated.as_verifiable(),
+                0,
+                sighash,
+                &SigHashReusedValuesUnsync::new(),
+            );
             digest
         };
         let original_hash = hash(built.tx.clone(), built.entries.clone());
@@ -1037,10 +1333,21 @@ mod tests {
         let completed_hash = hash(completed.clone(), entries.clone());
         assert_eq!(original_hash, completed_hash);
         let secp = secp256k1::Secp256k1::verification_only();
-        secp.verify_schnorr(&signature, &secp256k1::Message::from_digest_slice(&completed_hash.as_bytes()).unwrap(), &pubkey).unwrap();
+        secp.verify_schnorr(
+            &signature,
+            &secp256k1::Message::from_digest_slice(&completed_hash.as_bytes()).unwrap(),
+            &pubkey,
+        )
+        .unwrap();
         completed.outputs[0].value -= 1;
         let tampered = hash(completed, entries);
-        assert!(secp.verify_schnorr(&signature, &secp256k1::Message::from_digest_slice(&tampered.as_bytes()).unwrap(), &pubkey).is_err());
+        assert!(secp
+            .verify_schnorr(
+                &signature,
+                &secp256k1::Message::from_digest_slice(&tampered.as_bytes()).unwrap(),
+                &pubkey
+            )
+            .is_err());
         for disallowed in [1, 2, 4, 129, 130] {
             request.sign_inputs[0].sighash_type = disallowed;
             request.scripts[0].sign_type = Some(disallowed);
@@ -1077,10 +1384,12 @@ mod tests {
             PsktSignInput {
                 index: 0,
                 sighash_type: 1,
+                expected_sighash: None,
             },
             PsktSignInput {
                 index: 1,
                 sighash_type: 1,
+                expected_sighash: None,
             },
         ];
         duplicate_request.tx_json_string = value.to_string();
@@ -1171,6 +1480,12 @@ mod tests {
         });
         let request = PsktRequest {
             sender: sender.to_string(),
+            profile: None,
+            token_id: None,
+            lp_covenant_id: None,
+            ticker: None,
+            side: None,
+            trade_summary: None,
             tx_json_string: safe.to_string(),
             sign_inputs: vec![],
             scripts: vec![PsktScriptInput {
@@ -1187,6 +1502,9 @@ mod tests {
                         },
                     ],
                 }),
+                prebuilt_signature_script: None,
+                signature_offsets: vec![],
+                expected_sighash: None,
             }],
         };
         let prepared = prepare_pskt(&request).unwrap();
@@ -1276,16 +1594,26 @@ mod tests {
         for template in templates {
             let request = PsktRequest {
                 sender: sender.to_string(),
+                profile: None,
+                token_id: None,
+                lp_covenant_id: None,
+                ticker: None,
+                side: None,
+                trade_summary: None,
                 tx_json_string: safe.to_string(),
                 sign_inputs: vec![PsktSignInput {
                     index: 0,
                     sighash_type: 132,
+                    expected_sighash: None,
                 }],
                 scripts: vec![PsktScriptInput {
                     input_index: 0,
                     script_hex: hex::encode(&redeem_script),
                     sign_type: None,
                     signature_script: Some(template),
+                    prebuilt_signature_script: None,
+                    signature_offsets: vec![],
+                    expected_sighash: None,
                 }],
             };
             let prepared = prepare_pskt(&request).unwrap();
@@ -1319,6 +1647,9 @@ mod tests {
             script_hex: "51".into(),
             sign_type: Some(1),
             signature_script: None,
+            prebuilt_signature_script: None,
+            signature_offsets: vec![],
+            expected_sighash: None,
         }];
         assert!(matches!(
             prepare_pskt(&request),

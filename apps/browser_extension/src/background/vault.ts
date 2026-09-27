@@ -3,6 +3,7 @@ import { core } from "./core";
 export interface EncryptedVault { version: 2; salt: string; iv: string; ciphertext: string }
 export interface PortableBackup {format:"kaspire-backup-v2";kdf:"argon2id-v19";memoryKiB:32768;iterations:3;parallelism:1;salt:string;iv:string;ciphertext:string}
 const encoder = new TextEncoder(); const decoder = new TextDecoder();
+const MAX_BACKUP_BASE64_BYTES = 3 * 1024 * 1024;
 
 function hex(bytes: Uint8Array) { return [...bytes].map(value => value.toString(16).padStart(2, "0")).join(""); }
 function bytes(value: string) { const result = new Uint8Array(value.length / 2); for (let i=0;i<result.length;i++) result[i]=Number.parseInt(value.slice(i*2,i*2+2),16); return result; }
@@ -31,6 +32,7 @@ export async function unlockVault(password: string): Promise<Record<string, unkn
 export async function decryptVault(vault: EncryptedVault|undefined, password: string): Promise<Record<string, unknown>> {
   if (!vault || vault.version!==2) throw new Error("No encrypted Kaspire vault exists.");
   if (![vault.salt,vault.iv,vault.ciphertext].every(value=>typeof value==="string"&&value.length>0)) throw new Error("Damaged Kaspire backup.");
+  if (vault.salt.length > 128 || vault.iv.length > 128 || vault.ciphertext.length > MAX_BACKUP_BASE64_BYTES) throw new Error("Backup is too large.");
   try { const plaintext=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(vault.iv),additionalData:encoder.encode("kaspire-extension-v2")},await key(password,unb64(vault.salt)),unb64(vault.ciphertext)); return JSON.parse(decoder.decode(plaintext)); }
   catch { throw new Error("Incorrect password or damaged vault."); }
 }
@@ -44,6 +46,7 @@ export async function createPortableBackup(password:string,payload:unknown):Prom
 
 export async function decryptPortableBackup(backup:PortableBackup,password:string):Promise<Record<string,unknown>>{
   if(backup?.format!=="kaspire-backup-v2"||backup?.kdf!=="argon2id-v19"||backup?.memoryKiB!==32768||backup?.iterations!==3||backup?.parallelism!==1)throw new Error("Unsupported Argon2id backup parameters.");
+  if(typeof backup.salt!=="string"||typeof backup.iv!=="string"||typeof backup.ciphertext!=="string"||backup.salt.length>128||backup.iv.length>128||backup.ciphertext.length>MAX_BACKUP_BASE64_BYTES)throw new Error("Backup is too large.");
   const salt=unb64(backup.salt),iv=unb64(backup.iv),ciphertext=unb64(backup.ciphertext);if(salt.length!==32||iv.length!==12||ciphertext.length<16)throw new Error("Damaged Kaspire backup.");
   try{const plaintext=await crypto.subtle.decrypt({name:"AES-GCM",iv},await key(password,salt),ciphertext);return JSON.parse(decoder.decode(plaintext))}
   catch{throw new Error("Incorrect password or damaged backup.")}

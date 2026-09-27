@@ -18,6 +18,7 @@ import '../services/network_settings.dart';
 import 'asset_send_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'address_book_screen.dart';
+import 'kasparocket_screen.dart';
 
 class SendScreen extends StatefulWidget {
   const SendScreen({
@@ -52,7 +53,7 @@ class _SendScreenState extends State<SendScreen> {
                 children: [
                   _KasSendPanel(address: widget.address, onDone: widget.onDone),
                   NetworkSettings.isTestnet
-                      ? const _TestnetAssetsUnavailable()
+                      ? _TestnetAssetsUnavailable(address: widget.address)
                       : AssetSendScreen(
                           address: widget.address,
                           onDone: widget.onDone,
@@ -446,18 +447,29 @@ class _KasSendPanelState extends State<_KasSendPanel> {
 }
 
 class _TestnetAssetsUnavailable extends StatelessWidget {
-  const _TestnetAssetsUnavailable();
+  const _TestnetAssetsUnavailable({required this.address});
+  final String address;
 
   @override
-  Widget build(BuildContext context) => const Center(
+  Widget build(BuildContext context) => Center(
         child: Padding(
-          padding: EdgeInsets.all(28),
-          child: Text(
-            'TN10 currently supports native test KAS only. Mainnet assets '
-            'remain unchanged and become available again after switching '
-            'back to Mainnet.',
-            textAlign: TextAlign.center,
-          ),
+          padding: const EdgeInsets.all(28),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text(
+              'TN10 KCC20 covenant tokens are available through KaspaRocket in K-Agora. Mainnet assets remain unchanged.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) => KaspaRocketScreen(
+                              address: NetworkSettings.addressForNetwork(
+                                  address))),
+                    ),
+                icon: const Icon(Icons.rocket_launch_rounded),
+                label: const Text('Open K-Agora'))
+          ]),
         ),
       );
 }
