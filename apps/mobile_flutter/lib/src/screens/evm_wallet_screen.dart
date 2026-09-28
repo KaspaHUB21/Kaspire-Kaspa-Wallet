@@ -114,8 +114,8 @@ class _EvmWalletScreenState extends State<EvmWalletScreen> {
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 10, vertical: 7),
-                                    decoration: KasVaultTheme.isHub21
-                                        ? const Hub21MetalDecoration(
+                                    decoration: KasVaultTheme.isDecorative
+                                        ? kaspireDecorativeDecoration(
                                             radius: 20, rim: 2, gold: true)
                                         : BoxDecoration(
                                             color: Theme.of(context)
@@ -145,7 +145,8 @@ class _EvmWalletScreenState extends State<EvmWalletScreen> {
                                 ),
                               ),
                             ]),
-                            SizedBox(height: KasVaultTheme.isHub21 ? 50 : 28),
+                            SizedBox(
+                                height: KasVaultTheme.isDecorative ? 50 : 28),
                             FutureBuilder<String>(
                                 future: _walletName,
                                 builder: (context, name) => _EvmBalanceCard(
@@ -335,7 +336,7 @@ class _EvmBalanceCard extends StatelessWidget {
   final bool hideAmounts;
   final VoidCallback onTogglePrivacy;
   @override
-  Widget build(BuildContext context) => KasVaultTheme.isHub21
+  Widget build(BuildContext context) => KasVaultTheme.isDecorative
       ? Hub21BalanceCard(
           walletName: walletName,
           amount: balance == null ? '—' : formatUnits(balance!, 18),
@@ -397,7 +398,7 @@ class _EvmAction extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => KasVaultTheme.isHub21
+  Widget build(BuildContext context) => KasVaultTheme.isDecorative
       ? Hub21Action(icon: icon, label: label, onTap: onTap)
       : InkWell(
           onTap: onTap,

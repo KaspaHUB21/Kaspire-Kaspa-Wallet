@@ -58,7 +58,14 @@ class HdDiscoveryService {
             (item) => item.used || item.index == 0,
           )
           .toList();
-      await security.registerHdAddresses(registered);
+      final wallets = await security.listWallets();
+      final activeWallets = wallets.where((wallet) => wallet.active);
+      final existing = activeWallets.isEmpty
+          ? const <NativeHdAddress>[]
+          : activeWallets.first.addresses;
+      await security.registerHdAddresses(
+        mergeRegisteredAddresses(registered, existing),
+      );
       final usedReceive = discovered.where(
         (item) => item.used && item.change == 0,
       );
@@ -68,6 +75,42 @@ class HdDiscoveryService {
       // temporarily unavailable. It can be run again from wallet management.
       return fallbackAddress;
     }
+  }
+
+  static List<NativeHdAddress> mergeRegisteredAddresses(
+    Iterable<NativeHdAddress> discovered,
+    Iterable<NativeHdAddress> existing,
+  ) {
+    final merged = <String, NativeHdAddress>{};
+    for (final item in discovered) {
+      merged[item.derivationPath] = item;
+    }
+    for (final item in existing) {
+      final scanned = merged[item.derivationPath];
+      if (scanned != null) {
+        merged[item.derivationPath] = scanned.copyWith(
+          used: scanned.used || item.used,
+          explicit: scanned.explicit || item.explicit,
+          receiveRotation: scanned.receiveRotation || item.receiveRotation,
+        );
+      } else if (item.explicit || item.receiveRotation) {
+        // Manually exposed addresses must survive later discovery scans even
+        // before they have activity. Native registration re-derives every
+        // path and rejects mismatched address metadata.
+        merged[item.derivationPath] = item;
+      }
+    }
+    final result = merged.values.toList()
+      ..sort((left, right) {
+        final coin = left.coinType.compareTo(right.coinType);
+        if (coin != 0) return coin;
+        final account = left.account.compareTo(right.account);
+        if (account != 0) return account;
+        final change = left.change.compareTo(right.change);
+        if (change != 0) return change;
+        return left.index.compareTo(right.index);
+      });
+    return result;
   }
 
   Future<List<NativeHdAddress>> _scanBranch({

@@ -9,6 +9,7 @@ NativeHdAddress address({
   int change = 0,
   bool used = false,
   bool explicit = false,
+  bool receiveRotation = false,
 }) =>
     NativeHdAddress(
       address: 'kaspa:$coinType-$account-$change-$index',
@@ -19,6 +20,7 @@ NativeHdAddress address({
       index: index,
       used: used,
       explicit: explicit,
+      receiveRotation: receiveRotation,
     );
 
 void main() {
@@ -79,6 +81,32 @@ void main() {
     );
   });
 
+  test('keeps rotated receive addresses active and preserves metadata', () {
+    final rotated = address(
+      account: 0,
+      index: 3,
+      explicit: true,
+      receiveRotation: true,
+    );
+
+    final decoded = NativeHdAddress.fromJson(rotated.toJson());
+    final group = HdWalletStructure.receiveGroups([
+      address(account: 0, index: 0),
+      decoded,
+    ]).single;
+
+    expect(decoded.receiveRotation, isTrue);
+    expect(group.addresses.map((item) => item.index), [0]);
+    expect(
+      HdWalletStructure.nextSubwalletIndex(
+        [address(account: 0, index: 0), decoded],
+        coinType: 111111,
+        account: 0,
+      ),
+      4,
+    );
+  });
+
   test('hides the unused terminal account scanned by an older release', () {
     final source = [
       address(account: 0, index: 0),
@@ -97,5 +125,47 @@ void main() {
     ]);
 
     expect(groups.map((item) => item.account), [0, 1]);
+  });
+  test("keeps newly exposed addresses inside the recovery gap", () {
+    final source = [
+      address(account: 0, index: 0),
+      address(account: 0, index: 1, explicit: true),
+    ];
+
+    expect(
+      HdWalletStructure.isWithinDiscoveryGap(
+        source,
+        coinType: 111111,
+        account: 0,
+        nextIndex: 19,
+      ),
+      isTrue,
+    );
+    expect(
+      HdWalletStructure.isWithinDiscoveryGap(
+        source,
+        coinType: 111111,
+        account: 0,
+        nextIndex: 20,
+      ),
+      isFalse,
+    );
+  });
+
+  test("moves the recovery gap forward after address activity", () {
+    final source = [
+      address(account: 0, index: 0),
+      address(account: 0, index: 19, used: true),
+    ];
+
+    expect(
+      HdWalletStructure.isWithinDiscoveryGap(
+        source,
+        coinType: 111111,
+        account: 0,
+        nextIndex: 38,
+      ),
+      isTrue,
+    );
   });
 }

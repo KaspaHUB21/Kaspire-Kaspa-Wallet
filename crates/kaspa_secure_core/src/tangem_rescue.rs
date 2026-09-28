@@ -158,6 +158,7 @@ fn checked_commit(
         amount_sompi: plan.commit_amount_sompi,
         fee_rate: request.fee_rate,
         utxos_json: request.utxos_json.clone(),
+        signers: vec![],
         send_all: false,
     };
     Ok((plan, send, public_key))

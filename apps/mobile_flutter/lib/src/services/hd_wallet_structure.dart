@@ -29,6 +29,7 @@ class HdWalletStructure {
       final key = (item.coinType, item.account);
       return activeGroups.contains(key) &&
           item.change == 0 &&
+          !item.receiveRotation &&
           (item.index == 0 || item.used || item.explicit);
     })) {
       grouped.putIfAbsent(
@@ -48,6 +49,26 @@ class HdWalletStructure {
         addresses: addresses,
       );
     }).toList();
+  }
+
+  static bool isWithinDiscoveryGap(
+    Iterable<NativeHdAddress> source, {
+    required int coinType,
+    required int account,
+    required int nextIndex,
+    int gapLimit = 20,
+  }) {
+    var lastDiscoverable = 0;
+    for (final item in source) {
+      if (item.coinType == coinType &&
+          item.account == account &&
+          item.change == 0 &&
+          (item.index == 0 || item.used) &&
+          item.index > lastDiscoverable) {
+        lastDiscoverable = item.index;
+      }
+    }
+    return nextIndex - lastDiscoverable < gapLimit;
   }
 
   static int nextSubwalletIndex(

@@ -22,14 +22,17 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["storage", "alarms", "offscreen"],
+  "permissions": [
+    "storage",
+    "alarms",
+    "offscreen"
+  ],
   "host_permissions": [
     "https://api.dotk.name/*",
     "https://kaspire.kaslab.space/*",
     "https://api.kaspa.org/*",
     "https://kaspatoken.kaslab.space/*",
     "https://api.kasplex.org/*",
-    "https://kcc.kaslab.space/*",
     "https://kcc20.info/*",
     "https://kascov.io/*",
     "https://krc721-indexer.kaspa.com/*",
@@ -46,16 +49,26 @@
   ],
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_start",
       "all_frames": false
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["inpage.js"],
-      "matches": ["http://*/*", "https://*/*"]
+      "resources": [
+        "inpage.js"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
     }
   ],
   "content_security_policy": {

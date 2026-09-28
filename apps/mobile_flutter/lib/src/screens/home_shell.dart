@@ -229,7 +229,13 @@ class _HomeShellState extends State<HomeShell> {
           _index = 0;
         }),
       ),
-      ReceiveScreen(address: activeAddress),
+      ReceiveScreen(
+        address: activeAddress,
+        onAccountChanged: () => setState(() {
+          _walletRevision++;
+          _sendRevision++;
+        }),
+      ),
       SettingsScreen(
         address: activeAddress,
         onManageWallets: _openWalletManager,

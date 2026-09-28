@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import os
 import threading
 import time
 import urllib.error
@@ -16,6 +18,12 @@ LOCAL = "http://127.0.0.1:8000"
 PUBLIC = "https://api.kaspa.org"
 HISTORY_SUFFIX = "/full-transactions"
 LOCAL_NODE_PREFIX = "/local-node"
+KRC20_FALLBACK_PREFIX = "/krc20-fallback"
+KRC20_FALLBACK_BASE = os.environ.get(
+    "KRC20_FALLBACK_BASE", "https://kcc.kaslab.space/api/krc20"
+).rstrip("/")
+KRC20_FALLBACK_USER = os.environ.get("KRC20_FALLBACK_USER", "")
+KRC20_FALLBACK_PASSWORD = os.environ.get("KRC20_FALLBACK_PASSWORD", "")
 MAX_BODY = 16 * 1024 * 1024
 MAX_HISTORY_FETCH = 100
 LOG = logging.getLogger("kaspa-gateway")
@@ -32,6 +40,7 @@ def _request(
     body: bytes | None = None,
     content_type: str | None = None,
     timeout: float = 15,
+    extra_headers: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
     headers = {
         "accept": "application/json",
@@ -39,6 +48,8 @@ def _request(
     }
     if content_type:
         headers["content-type"] = content_type
+    if extra_headers:
+        headers.update(extra_headers)
     request = urllib.request.Request(
         base + path,
         data=body,
@@ -157,7 +168,13 @@ class GatewayHandler(BaseHTTPRequestHandler):
     server_version = "KaspireKaspaGateway/1"
 
     def do_GET(self) -> None:
-        if urllib.parse.urlsplit(self.path).path.startswith(LOCAL_NODE_PREFIX + "/"):
+        request_path = urllib.parse.urlsplit(self.path).path
+        if request_path == KRC20_FALLBACK_PREFIX or request_path.startswith(
+            KRC20_FALLBACK_PREFIX + "/"
+        ):
+            self._proxy_krc20_fallback()
+            return
+        if request_path.startswith(LOCAL_NODE_PREFIX + "/"):
             self._proxy_local_node_read()
             return
         if HISTORY_SUFFIX in urllib.parse.urlsplit(self.path).path:
@@ -167,6 +184,36 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 self._error(502, f"Kaspa history backends unavailable: {error}")
             return
         self._proxy_read()
+
+    def _proxy_krc20_fallback(self) -> None:
+        if not KRC20_FALLBACK_USER or not KRC20_FALLBACK_PASSWORD:
+            self._error(503, "KRC20 fallback is not configured")
+            return
+        parsed = urllib.parse.urlsplit(self.path)
+        relative_path = parsed.path[len(KRC20_FALLBACK_PREFIX) :] or "/"
+        if not (relative_path == "/oplist" or (
+            relative_path.startswith("/address/")
+            and relative_path.endswith("/tokenlist")
+        )):
+            self._error(404, "Unsupported KRC20 fallback route")
+            return
+        upstream_path = urllib.parse.urlunsplit(
+            ("", "", relative_path, parsed.query, "")
+        )
+        credentials = base64.b64encode(
+            f"{KRC20_FALLBACK_USER}:{KRC20_FALLBACK_PASSWORD}".encode()
+        ).decode("ascii")
+        try:
+            response = _request(
+                KRC20_FALLBACK_BASE,
+                "GET",
+                upstream_path,
+                timeout=15,
+                extra_headers={"authorization": f"Basic {credentials}"},
+            )
+            self._respond(*response)
+        except OSError as error:
+            self._error(502, f"KRC20 fallback unavailable: {error}")
 
     def _proxy_local_node_read(self) -> None:
         if not _is_local_healthy():

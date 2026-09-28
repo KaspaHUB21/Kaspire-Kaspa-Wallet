@@ -254,7 +254,8 @@ class _EvmSendPanelState extends State<_EvmSendPanel> {
       final txid = await _api.broadcast('${signed['rawTransaction']}');
       final expectedTxid = '${signed['transactionHash']}';
       if (txid.toLowerCase() != expectedTxid.toLowerCase()) {
-        throw StateError('L2 broadcaster returned a mismatching transaction ID.');
+        throw StateError(
+            'L2 broadcaster returned a mismatching transaction ID.');
       }
       final receipt = await _api.waitForReceipt(expectedTxid);
       if (!mounted) return;
@@ -320,8 +321,8 @@ class _EvmSendPanelState extends State<_EvmSendPanel> {
         const SizedBox(height: 20),
         Container(
             padding: const EdgeInsets.all(18),
-            decoration: KasVaultTheme.isHub21
-                ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+            decoration: KasVaultTheme.isDecorative
+                ? kaspireDecorativeDecoration(radius: 18, rim: 2.5)
                 : BoxDecoration(
                     color: KasVaultTheme.panel,
                     borderRadius: BorderRadius.circular(18),
@@ -389,8 +390,8 @@ class _ReceiptCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.all(18),
-      decoration: KasVaultTheme.isHub21
-          ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+      decoration: KasVaultTheme.isDecorative
+          ? kaspireDecorativeDecoration(radius: 18, rim: 2.5)
           : BoxDecoration(
               color: KasVaultTheme.panel,
               borderRadius: BorderRadius.circular(18),

@@ -42,7 +42,7 @@ class KaspaApi {
     String? baseUrl,
     this.tokenExplorerBaseUrl = 'https://kaspatoken.kaslab.space/api',
     this.kasplexBaseUrl = 'https://api.kasplex.org/v1',
-    this.kccKrc20BaseUrl = 'https://kcc.kaslab.space/api/krc20',
+    this.kccKrc20BaseUrl = 'https://kaspire.kaslab.space/api/krc20-fallback',
     this.knsIndexerBaseUrl = 'https://api.knsdomains.org/mainnet',
     this.krc721IndexerBaseUrl =
         'https://krc721-indexer.kaspa.com/api/v1/krc721/mainnet',
@@ -315,6 +315,64 @@ class KaspaApi {
       );
     }
     return balance;
+  }
+
+  Future<int> loadBalanceSompiForAddresses(
+    Iterable<String> addresses,
+  ) async {
+    final unique = addresses.map((item) => item.toLowerCase()).toSet();
+    final balances = await Future.wait(unique.map(loadBalanceSompi));
+    var total = 0;
+    for (final balance in balances) {
+      total = total + balance;
+      if (total < 0) {
+        throw KaspaApiException("The aggregated Kaspa balance overflowed.");
+      }
+    }
+    return total;
+  }
+
+  Future<String> loadUtxosForAddresses(Iterable<String> addresses) async {
+    final unique = addresses.map((item) => item.toLowerCase()).toSet();
+    final responses = await Future.wait(unique.map(loadUtxos));
+    final merged = <String, Map<String, Object?>>{};
+    for (final response in responses) {
+      for (final raw in (jsonDecode(response) as List).whereType<Map>()) {
+        final item = raw.cast<String, Object?>();
+        final outpoint = _map(item["outpoint"]);
+        final key = "${outpoint["transactionId"]}:${outpoint["index"]}";
+        if (key != "null:null") merged[key] = item;
+      }
+    }
+    return jsonEncode(merged.values.toList());
+  }
+
+  Future<List<WalletTransaction>> loadNativeTransactionsForAddresses(
+    Iterable<String> addresses, {
+    int limit = 20,
+  }) async {
+    final unique = addresses.map((item) => item.toLowerCase()).toSet();
+    final responses = await Future.wait(unique.map(
+      (address) => _getReadOnlyWithFallback(
+        "/addresses/${Uri.encodeComponent(address)}/full-transactions?limit=$limit&offset=0&resolve_previous_outpoints=light",
+      ),
+    ));
+    final merged = <String, Map<String, Object?>>{};
+    for (final response in responses) {
+      final rows = response is List
+          ? response
+          : (_map(response)["transactions"] as List? ?? const []);
+      for (final raw in rows.whereType<Map>()) {
+        final item = raw.cast<String, Object?>();
+        final id = (item["transaction_id"] ?? item["id"] ?? "").toString();
+        if (id.isNotEmpty) merged[id] = item;
+      }
+    }
+    final transactions = parseTransactionsForAddresses(
+      merged.values.toList(),
+      unique,
+    )..sort((left, right) => right.timestamp.compareTo(left.timestamp));
+    return transactions.take(limit).toList();
   }
 
   Future<List<WalletTransaction>> loadNativeTransactions(
@@ -2368,13 +2426,20 @@ class KaspaApi {
   static List<WalletTransaction> parseTransactions(
     Object? raw,
     String address,
+  ) =>
+      parseTransactionsForAddresses(raw, [address]);
+
+  static List<WalletTransaction> parseTransactionsForAddresses(
+    Object? raw,
+    Iterable<String> addresses,
   ) {
+    final controlled = addresses.map((item) => item.toLowerCase()).toSet();
     final list =
-        raw is List ? raw : (_map(raw)['transactions'] as List? ?? const []);
+        raw is List ? raw : (_map(raw)["transactions"] as List? ?? const []);
     return list.whereType<Map>().map((item) {
       final map = item.cast<String, Object?>();
-      final outputs = (map['outputs'] as List? ?? const []).whereType<Map>();
-      final inputs = (map['inputs'] as List? ?? const []).whereType<Map>();
+      final outputs = (map["outputs"] as List? ?? const []).whereType<Map>();
+      final inputs = (map["inputs"] as List? ?? const []).whereType<Map>();
       var received = 0;
       var spent = 0;
       var totalInput = 0;
@@ -2382,49 +2447,40 @@ class KaspaApi {
       final from = <TransactionParty>[];
       final to = <TransactionParty>[];
       for (final output in outputs) {
-        final amount = _asInt(output['amount']);
+        final amount = _asInt(output["amount"]);
         if (amount < 0) {
           throw KaspaApiException(
-            'Transaction history contains a negative output.',
+            "Transaction history contains a negative output.",
           );
         }
         totalOutput += amount;
-        final outputAddress = output['script_public_key_address']?.toString();
+        final outputAddress = output["script_public_key_address"]?.toString();
         if (outputAddress != null && outputAddress.isNotEmpty) {
           to.add(TransactionParty(
             address: outputAddress,
             amountSompi: amount,
           ));
-        }
-        if (output['script_public_key_address'] == address) {
-          received += amount;
+          if (controlled.contains(outputAddress.toLowerCase())) {
+            received += amount;
+          }
         }
       }
       for (final input in inputs) {
         final previous =
-            input['previous_outpoint_resolved'] ?? input['previous_outpoint'];
+            input["previous_outpoint_resolved"] ?? input["previous_outpoint"];
         String? inputAddress;
         var inputAmount = 0;
-        if (previous is Map &&
-            previous['script_public_key_address'] == address) {
-          inputAddress = previous['script_public_key_address']?.toString();
-          inputAmount = _asInt(previous['amount']);
-          spent += inputAmount;
-        } else if (input['previous_outpoint_address'] == address) {
-          inputAddress = input['previous_outpoint_address']?.toString();
-          inputAmount = _asInt(input['previous_outpoint_amount']);
-          spent += inputAmount;
-        } else if (previous is Map) {
-          inputAddress = previous['script_public_key_address']?.toString();
-          inputAmount = _asInt(previous['amount']);
+        if (previous is Map) {
+          inputAddress = previous["script_public_key_address"]?.toString();
+          inputAmount = _asInt(previous["amount"]);
         } else {
-          inputAddress = input['previous_outpoint_address']?.toString();
-          inputAmount = _asInt(input['previous_outpoint_amount']);
+          inputAddress = input["previous_outpoint_address"]?.toString();
+          inputAmount = _asInt(input["previous_outpoint_amount"]);
         }
         totalInput += inputAmount;
         if (inputAmount < 0) {
           throw KaspaApiException(
-            'Transaction history contains a negative input.',
+            "Transaction history contains a negative input.",
           );
         }
         if (inputAddress != null && inputAddress.isNotEmpty) {
@@ -2432,14 +2488,17 @@ class KaspaApi {
             address: inputAddress,
             amountSompi: inputAmount,
           ));
+          if (controlled.contains(inputAddress.toLowerCase())) {
+            spent += inputAmount;
+          }
         }
       }
       final net = received - spent;
       final timestamp = _asInt(
-        map['block_time'] ?? map['accepting_block_time'],
+        map["block_time"] ?? map["accepting_block_time"],
       );
       return WalletTransaction(
-        id: (map['transaction_id'] ?? map['id'] ?? 'unknown').toString(),
+        id: (map["transaction_id"] ?? map["id"] ?? "unknown").toString(),
         timestamp: timestamp > 0
             ? DateTime.fromMillisecondsSinceEpoch(timestamp)
             : DateTime.now(),
@@ -2455,10 +2514,10 @@ class KaspaApi {
         inputCount: inputs.length,
         outputCount: outputs.length,
         blockDaaScore: _nullableInt(
-          map['accepting_block_daa_score'] ?? map['block_daa_score'],
+          map["accepting_block_daa_score"] ?? map["block_daa_score"],
         ),
-        mass: _nullableInt(map['mass']),
-        isCoinbase: map['is_coinbase'] == true,
+        mass: _nullableInt(map["mass"]),
+        isCoinbase: map["is_coinbase"] == true,
         status: TransactionStatus.confirmed,
       );
     }).toList();

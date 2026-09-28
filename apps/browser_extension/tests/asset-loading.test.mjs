@@ -8,7 +8,7 @@ test('KRC20 uses the healthy direct mirror, sorts A-Z and does not query unrelat
   globalThis.fetch = async url => {
     calls.push(String(url));
     if (String(url).includes('api.kasplex.org')) throw new Error('Kasplex offline');
-    assert.match(String(url), /kcc\.kaslab\.space.*tokenlist/);
+    assert.match(String(url), /kaspire\.kaslab\.space.*tokenlist/);
     return new Response(JSON.stringify({result:[{tick:'ZZZ',balance:'100',dec:0},{tick:'AAA',balance:'200',dec:0}]}));
   };
   try {
@@ -20,7 +20,7 @@ test('KRC20 uses the healthy direct mirror, sorts A-Z and does not query unrelat
 
 test('invalid fast mirror cannot hide tokens from a slower valid response', async () => {
   const previous=globalThis.fetch;
-  globalThis.fetch=async url=>new Response(JSON.stringify(String(url).includes('kcc.kaslab.space')?{}:{result:[{tick:'TEST',dec:8,balance:'100000000'}]}));
+  globalThis.fetch=async url=>new Response(JSON.stringify(String(url).includes('kaspire.kaslab.space')?{}:{result:[{tick:'TEST',dec:8,balance:'100000000'}]}));
   try {assert.equal((await walletAssetCategory('kaspa:test-invalid', 'mainnet', 'tokens'))[0].symbol,'TEST');}
   finally {globalThis.fetch=previous;}
 });

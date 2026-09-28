@@ -8,6 +8,7 @@ import '../number_format.dart';
 import '../services/kaspa_api.dart';
 import '../services/activity_store.dart';
 import '../services/native_security.dart';
+import "../services/hd_account_service.dart";
 import '../services/privacy_settings.dart';
 import '../services/app_settings.dart';
 import '../services/preferences_service.dart';
@@ -47,6 +48,7 @@ class WalletScreen extends StatefulWidget {
 
 class _WalletScreenState extends State<WalletScreen> {
   final KaspaApi _api = KaspaApi();
+  late Future<HdAccountScope> _account;
   late Future<WalletSnapshot> _snapshot;
   WalletSnapshot? _progress;
   int _loadGeneration = 0;
@@ -61,17 +63,33 @@ class _WalletScreenState extends State<WalletScreen> {
   @override
   void initState() {
     super.initState();
-    _kasBalance = _api.loadBalanceSompi(widget.address);
-    _balance =
-        _api.loadWalletBalance(widget.address, balanceSompi: _kasBalance);
+    _account = HdAccountService().resolve(widget.address);
+    _kasBalance = _loadAccountBalance();
+    _balance = _loadAccountBalanceSnapshot();
     _snapshot = _loadSnapshot();
     _activity = Future<void>.delayed(const Duration(milliseconds: 500))
         .then<List<WalletTransaction>>((_) => _loadActivity());
     _walletName = _loadWalletName();
   }
 
+  Future<int> _loadAccountBalance() async {
+    final account = await _account;
+    return _api.loadBalanceSompiForAddresses(account.networkAddresses);
+  }
+
+  Future<WalletSnapshot> _loadAccountBalanceSnapshot() async {
+    final account = await _account;
+    final balance = _api.loadBalanceSompiForAddresses(account.networkAddresses);
+    return _api.loadWalletBalance(
+      account.primaryAddress,
+      balanceSompi: balance,
+    );
+  }
+
   Future<String> _loadWalletName() async {
-    final storedAddress = NetworkSettings.storageAddress(widget.address);
+    final account = await _account;
+    final storedAddress =
+        NetworkSettings.storageAddress(account.primaryAddress);
     final addressNames = await PreferencesService().getSubwalletNames();
     final addressName = addressNames[storedAddress.toLowerCase()];
     if (addressName != null && addressName.trim().isNotEmpty) {
@@ -93,6 +111,7 @@ class _WalletScreenState extends State<WalletScreen> {
   Future<WalletSnapshot> _loadSnapshot() async {
     final generation = ++_loadGeneration;
     _progress = null;
+    final account = await _account;
     final results = await Future.wait([
       _api.loadWallet(
         widget.address,
@@ -105,26 +124,40 @@ class _WalletScreenState extends State<WalletScreen> {
         },
       ),
       ActivityStore().load(widget.address),
+      _api.loadBalanceSompiForAddresses(account.networkAddresses),
+      _api.loadUtxosForAddresses(account.networkAddresses),
     ]);
     final snapshot = results[0] as WalletSnapshot;
     final local = results[1] as List<WalletTransaction>;
+    final balance = results[2] as int;
+    final utxoCount = (jsonDecode(results[3] as String) as List).length;
     final transactions = mergeWalletActivity(local, snapshot.transactions);
-    return snapshot.withTransactions(transactions);
+    return snapshot.withAccountData(
+      balanceSompi: balance,
+      utxoCount: utxoCount,
+      transactions: transactions,
+    );
   }
 
   void _refresh() => setState(() {
-        _kasBalance = _api.loadBalanceSompi(widget.address);
-        _balance =
-            _api.loadWalletBalance(widget.address, balanceSompi: _kasBalance);
+        _account = HdAccountService().resolve(widget.address);
+        _kasBalance = _loadAccountBalance();
+        _balance = _loadAccountBalanceSnapshot();
         _snapshot = _loadSnapshot();
         if (_activityExpanded) _activity = _loadActivity();
       });
 
   Future<List<WalletTransaction>> _loadActivity() async {
+    final account = await _account;
     final results = await Future.wait([
       _snapshot,
-      _api.loadNativeTransactions(widget.address, limit: _historyLimit),
-      ActivityStore().load(widget.address),
+      _api.loadNativeTransactionsForAddresses(
+        account.networkAddresses,
+        limit: _historyLimit,
+      ),
+      Future.wait(
+        {widget.address, account.primaryAddress}.map(ActivityStore().load),
+      ).then((lists) => lists.expand((items) => items).toList()),
     ]);
     final snapshot = results[0] as WalletSnapshot;
     final native = results[1] as List<WalletTransaction>;
@@ -196,14 +229,15 @@ class _WalletScreenState extends State<WalletScreen> {
     setState(() => _compounding = true);
     try {
       final security = NativeSecurity();
-      if (!await security.hasNativeWalletFor(widget.address)) {
+      final account = await _account;
+      if (!await security.hasNativeWalletFor(account.primaryAddress)) {
         throw StateError(
           'This watch-only wallet cannot authorize UTXO compound.',
         );
       }
       final api = KaspaApi();
       final results = await Future.wait([
-        api.loadUtxos(widget.address),
+        api.loadUtxosForAddresses(account.networkAddresses),
         api.loadFeeRate(),
       ]);
       final all =
@@ -221,11 +255,13 @@ class _WalletScreenState extends State<WalletScreen> {
       final selected =
           all.length <= 80 ? all : <Map>[...all.take(79), all.last];
       final payment = await SignerService().prepare(
-        sender: widget.address,
-        recipient: widget.address,
+        sender: account.primaryAddress,
+        recipient: account.primaryAddress,
         amountSompi: 0,
         feeRate: results[1] as double,
         utxosJson: jsonEncode(selected),
+        walletAddress: account.primaryAddress,
+        signers: account.transactionSigners,
         sendAll: true,
       );
       if (!mounted) return;
@@ -303,8 +339,8 @@ class _WalletScreenState extends State<WalletScreen> {
                             horizontal: 10,
                             vertical: 7,
                           ),
-                          decoration: KasVaultTheme.isHub21
-                              ? const Hub21MetalDecoration(
+                          decoration: KasVaultTheme.isDecorative
+                              ? kaspireDecorativeDecoration(
                                   radius: 20, rim: 2, gold: true)
                               : BoxDecoration(
                                   color: Theme.of(context)
@@ -336,7 +372,7 @@ class _WalletScreenState extends State<WalletScreen> {
                     ),
                   ],
                 ),
-                SizedBox(height: KasVaultTheme.isHub21 ? 50 : 28),
+                SizedBox(height: KasVaultTheme.isDecorative ? 50 : 28),
                 FutureBuilder<int>(
                   future: _kasBalance,
                   builder: (context, kasBalance) =>
@@ -547,8 +583,8 @@ class _AssetOverview extends StatelessWidget {
         data.dotkNames.isEmpty;
     return Container(
       padding: const EdgeInsets.all(17),
-      decoration: KasVaultTheme.isHub21
-          ? const Hub21MetalDecoration()
+      decoration: KasVaultTheme.isDecorative
+          ? kaspireDecorativeDecoration()
           : BoxDecoration(
               color: KasVaultTheme.panel,
               borderRadius: BorderRadius.circular(20),
@@ -601,9 +637,8 @@ class _AssetOverview extends StatelessWidget {
                           ? () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(
                                   builder: (_) => KaspaRocketScreen(
-                                    address:
-                                        NetworkSettings.addressForNetwork(
-                                            address),
+                                    address: NetworkSettings.addressForNetwork(
+                                        address),
                                     initialTokenId:
                                         asset.covenantId ?? asset.id,
                                   ),
@@ -881,7 +916,7 @@ class _BalanceCard extends StatelessWidget {
         : data?.fiatValue == null
             ? 'Live balance'
             : '${data!.fiatSymbol}${formatEnglishNumber(data.fiatValue!, decimals: 2)} ${data.fiatCode}';
-    if (KasVaultTheme.isHub21) {
+    if (KasVaultTheme.isDecorative) {
       return Hub21BalanceCard(
           walletName: walletName,
           amount: kas,
@@ -985,7 +1020,7 @@ class _Action extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => KasVaultTheme.isHub21
+  Widget build(BuildContext context) => KasVaultTheme.isDecorative
       ? Hub21Action(icon: icon, label: label, onTap: onTap)
       : InkWell(
           onTap: onTap,
@@ -1029,8 +1064,8 @@ class _UtxoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(17),
-        decoration: KasVaultTheme.isHub21
-            ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+        decoration: KasVaultTheme.isDecorative
+            ? kaspireDecorativeDecoration(radius: 18, rim: 2.5)
             : BoxDecoration(
                 color: KasVaultTheme.panel,
                 borderRadius: BorderRadius.circular(18),

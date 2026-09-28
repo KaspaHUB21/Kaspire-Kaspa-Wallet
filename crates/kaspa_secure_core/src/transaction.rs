@@ -15,10 +15,18 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::str::FromStr;
+use zeroize::Zeroize;
 
 const MAX_INPUTS: usize = 80;
 const DUST_LIMIT_SOMPI: u64 = 10_000;
 const SIGNATURE_SCRIPT_SIZE: usize = 66;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendSigner {
+    pub address: String,
+    pub derivation_path: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +36,8 @@ pub struct SendRequest {
     pub amount_sompi: u64,
     pub fee_rate: f64,
     pub utxos_json: String,
+    #[serde(default)]
+    pub signers: Vec<SendSigner>,
     #[serde(default)]
     pub send_all: bool,
 }
@@ -79,22 +89,49 @@ pub fn sign_transaction(
 ) -> Result<SignedTransaction> {
     let sender =
         Address::try_from(request.sender.as_str()).map_err(|_| CoreError::InvalidAddress)?;
-    let mut derived = derive_address(phrase)?;
-    derived.prefix = sender.prefix;
-    let derived = derived.to_string();
-    if derived != request.sender {
-        return Err(CoreError::InvalidRequest(
-            "seed does not control sender".into(),
-        ));
+    let controlled = controlled_addresses(request, &sender)?;
+    let mut keys = Vec::<[u8; 32]>::with_capacity(controlled.len());
+    if request.signers.is_empty() {
+        let mut derived = derive_address(phrase)?;
+        derived.prefix = sender.prefix;
+        if derived != sender {
+            return Err(CoreError::InvalidRequest(
+                "seed does not control sender".into(),
+            ));
+        }
+        keys.push(*derive_key(phrase)?);
+    } else {
+        for signer in &request.signers {
+            let mut selected = format!("hd-path:{}:{}", signer.derivation_path, phrase);
+            let mut derived = match derive_address(&selected) {
+                Ok(address) => address,
+                Err(error) => {
+                    selected.zeroize();
+                    keys.zeroize();
+                    return Err(error);
+                }
+            };
+            derived.prefix = sender.prefix;
+            if derived.to_string() != signer.address {
+                selected.zeroize();
+                keys.zeroize();
+                return Err(CoreError::InvalidRequest(
+                    "seed does not control an account signer".into(),
+                ));
+            }
+            let key_result = derive_key(&selected);
+            selected.zeroize();
+            keys.push(*key_result?);
+        }
     }
     let built = build(request)?;
     if built.review.review_hash != approved_review_hash {
+        keys.zeroize();
         return Err(CoreError::ReviewMismatch);
     }
-    let key = derive_key(phrase)?;
-    let signed = sign_with_multiple_v2(built.signable, &[*key])
-        .fully_signed()
-        .map_err(|e| CoreError::Transaction(e.to_string()))?;
+    let signed_result = sign_with_multiple_v2(built.signable, &keys).fully_signed();
+    keys.zeroize();
+    let signed = signed_result.map_err(|e| CoreError::Transaction(e.to_string()))?;
     let txid = signed.tx.id().to_string();
     let submit_json = submit_json(&signed.tx)?;
     Ok(SignedTransaction {
@@ -104,6 +141,40 @@ pub fn sign_transaction(
         submit_json,
         review_hash: built.review.review_hash,
     })
+}
+
+fn controlled_addresses(request: &SendRequest, sender: &Address) -> Result<Vec<Address>> {
+    if request.signers.is_empty() {
+        return Ok(vec![sender.clone()]);
+    }
+    if request.signers.len() > 100 {
+        return Err(CoreError::InvalidRequest(
+            "account signer set exceeds safety limit".into(),
+        ));
+    }
+    let mut seen = HashSet::with_capacity(request.signers.len());
+    let mut controlled = Vec::with_capacity(request.signers.len());
+    for signer in &request.signers {
+        if signer.derivation_path.len() > 80 || !signer.derivation_path.starts_with("m/44") {
+            return Err(CoreError::InvalidRequest(
+                "invalid account signer path".into(),
+            ));
+        }
+        let address =
+            Address::try_from(signer.address.as_str()).map_err(|_| CoreError::InvalidAddress)?;
+        if address.prefix != sender.prefix || !seen.insert(address.to_string()) {
+            return Err(CoreError::InvalidRequest(
+                "invalid or duplicate account signer".into(),
+            ));
+        }
+        controlled.push(address);
+    }
+    if !controlled.iter().any(|address| address == sender) {
+        return Err(CoreError::InvalidRequest(
+            "primary sender is missing from account signers".into(),
+        ));
+    }
+    Ok(controlled)
 }
 
 pub(crate) fn build(request: &SendRequest) -> Result<Built> {
@@ -130,10 +201,11 @@ pub(crate) fn build(request: &SendRequest) -> Result<Built> {
     } else {
         &MAINNET_PARAMS
     };
-    let mut available = parse_utxos(&request.utxos_json, &sender)?;
+    let controlled = controlled_addresses(request, &sender)?;
+    let mut available = parse_utxos_for_addresses(&request.utxos_json, &controlled)?;
     available.sort_by(|a, b| b.entry.amount.cmp(&a.entry.amount));
     if request.send_all {
-        return build_send_all(request, &sender, &recipient, available);
+        return build_send_all(request, &sender, &recipient, &controlled, available);
     }
     let mut selected = Vec::new();
     let mut total_input = 0u64;
@@ -217,6 +289,7 @@ pub(crate) fn build(request: &SendRequest) -> Result<Built> {
         "network": if sender.prefix == Prefix::Testnet { "kaspa:testnet-10" } else { "kaspa:mainnet" },
         "version": unsigned_tx.version,
         "sender": sender.to_string(),
+        "controlledAddresses": controlled.iter().map(Address::to_string).collect::<Vec<_>>(),
         "recipient": recipient.to_string(),
         "amountSompi": request.amount_sompi,
         "totalInputSompi": total_input,
@@ -248,6 +321,7 @@ fn build_send_all(
     request: &SendRequest,
     sender: &Address,
     recipient: &Address,
+    controlled: &[Address],
     available: Vec<Spendable>,
 ) -> Result<Built> {
     if available.is_empty() || available.len() > MAX_INPUTS {
@@ -308,7 +382,8 @@ fn build_send_all(
     let signable = SignableTransaction::with_entries(unsigned_tx.clone(), entries);
     let review_without_hash = json!({
         "network": if sender.prefix == Prefix::Testnet { "kaspa:testnet-10" } else { "kaspa:mainnet" }, "version": unsigned_tx.version,
-        "sender": sender.to_string(), "recipient": recipient.to_string(),
+        "sender": sender.to_string(), "controlledAddresses": controlled.iter().map(Address::to_string).collect::<Vec<_>>(),
+        "recipient": recipient.to_string(),
         "amountSompi": amount, "totalInputSompi": total_input,
         "changeSompi": 0, "feeSompi": fee, "mass": mass,
         "inputs": unsigned_tx.inputs.iter().map(|i| json!({"transactionId": i.previous_outpoint.transaction_id.to_string(), "index": i.previous_outpoint.index})).collect::<Vec<_>>(),
@@ -363,6 +438,10 @@ fn make_transaction(
 }
 
 pub(crate) fn parse_utxos(raw: &str, sender: &Address) -> Result<Vec<Spendable>> {
+    parse_utxos_for_addresses(raw, std::slice::from_ref(sender))
+}
+
+fn parse_utxos_for_addresses(raw: &str, controlled: &[Address]) -> Result<Vec<Spendable>> {
     let value: Value =
         serde_json::from_str(raw).map_err(|_| CoreError::UntrustedUtxo("invalid JSON".into()))?;
     let list = value
@@ -373,17 +452,18 @@ pub(crate) fn parse_utxos(raw: &str, sender: &Address) -> Result<Vec<Spendable>>
             "UTXO set exceeds mobile safety limit".into(),
         ));
     }
-    let expected_script = kaspa_txscript::pay_to_address_script(sender);
     let mut result = Vec::with_capacity(list.len());
     let mut seen = HashSet::with_capacity(list.len());
     for item in list {
-        let address = item
+        let address_text = item
             .get("address")
             .and_then(Value::as_str)
             .ok_or_else(|| CoreError::UntrustedUtxo("missing address".into()))?;
-        if address != sender.to_string() {
+        let address = Address::try_from(address_text).map_err(|_| CoreError::InvalidAddress)?;
+        if !controlled.iter().any(|candidate| candidate == &address) {
             return Err(CoreError::UntrustedUtxo("address mismatch".into()));
         }
+        let expected_script = kaspa_txscript::pay_to_address_script(&address);
         let outpoint = item
             .get("outpoint")
             .ok_or_else(|| CoreError::UntrustedUtxo("missing outpoint".into()))?;
@@ -422,18 +502,12 @@ pub(crate) fn parse_utxos(raw: &str, sender: &Address) -> Result<Vec<Spendable>>
             .map_err(|_| CoreError::UntrustedUtxo("invalid script".into()))?;
         if script.as_slice() != expected_script.script() {
             return Err(CoreError::UntrustedUtxo(
-                "script does not pay sender".into(),
+                "script does not pay declared account address".into(),
             ));
         }
         result.push(Spendable {
             outpoint: TransactionOutpoint::new(transaction_id, index),
-            entry: UtxoEntry::new(
-                amount,
-                expected_script.clone(),
-                block_daa_score,
-                false,
-                None,
-            ),
+            entry: UtxoEntry::new(amount, expected_script, block_daa_score, false, None),
         });
     }
     Ok(result)

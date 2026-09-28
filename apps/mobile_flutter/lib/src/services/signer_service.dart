@@ -44,11 +44,14 @@ class SignerService {
     required int amountSompi,
     required double feeRate,
     required String utxosJson,
+    String? walletAddress,
+    List<Map<String, Object?>> signers = const [],
     bool sendAll = false,
   }) async {
     final request = <String, Object?>{
       'sender': sender,
-      'walletAddress': NetworkSettings.storageAddress(sender),
+      'walletAddress': NetworkSettings.storageAddress(walletAddress ?? sender),
+      if (signers.isNotEmpty) 'signers': signers,
       'recipient': recipient,
       'amountSompi': amountSompi,
       'feeRate': feeRate,

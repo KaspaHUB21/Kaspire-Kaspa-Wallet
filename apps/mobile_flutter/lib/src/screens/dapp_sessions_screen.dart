@@ -173,8 +173,8 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
           const SizedBox(height: 24),
           Container(
             padding: const EdgeInsets.all(22),
-            decoration: KasVaultTheme.isHub21
-                ? const Hub21MetalDecoration(radius: 22, rim: 2.5)
+            decoration: KasVaultTheme.isDecorative
+                ? kaspireDecorativeDecoration(radius: 22, rim: 2.5)
                 : BoxDecoration(
                     gradient: LinearGradient(
                       colors: [

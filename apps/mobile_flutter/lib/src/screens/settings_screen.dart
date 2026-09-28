@@ -1155,8 +1155,8 @@ class _SettingsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         margin: const EdgeInsets.only(bottom: 10),
-        decoration: KasVaultTheme.isHub21
-            ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+        decoration: KasVaultTheme.isDecorative
+            ? kaspireDecorativeDecoration(radius: 18, rim: 2.5)
             : BoxDecoration(
                 color: KasVaultTheme.panel,
                 borderRadius: BorderRadius.circular(18),
@@ -1195,8 +1195,8 @@ class _NavigationSetting extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         margin: const EdgeInsets.only(bottom: 10),
-        decoration: KasVaultTheme.isHub21
-            ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+        decoration: KasVaultTheme.isDecorative
+            ? kaspireDecorativeDecoration(radius: 18, rim: 2.5)
             : BoxDecoration(
                 color: KasVaultTheme.panel,
                 borderRadius: BorderRadius.circular(18),
@@ -1329,8 +1329,8 @@ class _SettingTile extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(16),
-        decoration: KasVaultTheme.isHub21
-            ? const Hub21MetalDecoration(radius: 18, rim: 1.5)
+        decoration: KasVaultTheme.isDecorative
+            ? kaspireDecorativeDecoration(radius: 18, rim: 1.5)
             : BoxDecoration(
                 color: KasVaultTheme.panel,
                 borderRadius: BorderRadius.circular(18),

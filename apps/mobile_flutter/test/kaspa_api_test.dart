@@ -96,7 +96,7 @@ void main() {
     var globalCatalogueRead = false;
     final client = MockClient((request) async {
       if (request.url.path.endsWith('/tokens.json')) globalCatalogueRead = true;
-      if (request.url.host == 'kcc.kaslab.space' &&
+      if (request.url.host == 'kaspire.kaslab.space' &&
           request.url.path.endsWith('/tokenlist')) {
         return http.Response(
             '{"result":[{"tick":"ZZZ","balance":"1","dec":0},{"tick":"AAA","balance":"2","dec":0}]}',
@@ -437,17 +437,18 @@ void main() {
     expect(snapshot.knsDomains.single.name, 'fallback.kas');
   });
 
-  test('uses the direct KasLab KRC20 indexer when Kasplex is unavailable',
+  test(
+      'uses the authenticated Kaspire KRC20 fallback when Kasplex is unavailable',
       () async {
     final client = MockClient((request) async {
-      if (request.url.host == 'kcc.kaslab.space' &&
+      if (request.url.host == 'kaspire.kaslab.space' &&
           request.url.path.endsWith('/tokenlist')) {
         return http.Response(
           '{"message":"successful","result":[{"tick":"NACHO","balance":"1250000000","dec":"8"}]}',
           200,
         );
       }
-      if (request.url.host == 'kcc.kaslab.space' &&
+      if (request.url.host == 'kaspire.kaslab.space' &&
           request.url.path.endsWith('/oplist')) {
         return http.Response(
           '{"message":"successful","result":[{"op":"transfer","tick":"NACHO","amt":"250000000","from":"$otherAddress","to":"$address","opScore":"123","hashRev":"${'1' * 64}","mtsAdd":"1787879867505"}]}',
@@ -968,5 +969,54 @@ void main() {
       ),
       throwsA(isA<KaspaApiException>()),
     );
+  });
+  test("aggregates balances across rotated receive addresses", () async {
+    final client = MockClient((request) async {
+      if (request.url.path.contains(Uri.encodeComponent(address))) {
+        return http.Response("{\"balance\":100000000}", 200);
+      }
+      if (request.url.path.contains(Uri.encodeComponent(otherAddress))) {
+        return http.Response("{\"balance\":150000000}", 200);
+      }
+      return http.Response("{}", 404);
+    });
+
+    final balance = await KaspaApi(client: client)
+        .loadBalanceSompiForAddresses([address, otherAddress]);
+
+    expect(balance, 250000000);
+  });
+
+  test("parses account activity against every rotated address", () {
+    Map<String, Object?> transaction(
+      String id,
+      String recipient,
+      int amount,
+      int timestamp,
+    ) =>
+        {
+          "transaction_id": id,
+          "block_time": timestamp,
+          "inputs": const [],
+          "outputs": [
+            {
+              "amount": amount,
+              "script_public_key_address": recipient,
+            }
+          ],
+        };
+
+    final activity = KaspaApi.parseTransactionsForAddresses(
+      [
+        transaction("one", address, 100000000, 1000),
+        transaction("two", otherAddress, 150000000, 2000),
+      ],
+      [address, otherAddress],
+    );
+
+    expect(activity, hasLength(2));
+    expect(activity.every((item) => item.incoming), isTrue);
+    expect(activity.fold<int>(0, (sum, item) => sum + item.amountSompi),
+        250000000);
   });
 }

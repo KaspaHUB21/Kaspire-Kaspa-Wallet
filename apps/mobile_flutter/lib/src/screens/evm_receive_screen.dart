@@ -55,15 +55,15 @@ class EvmReceiveScreen extends StatelessWidget {
                         size: 238,
                         eyeStyle: QrEyeStyle(
                             eyeShape: QrEyeShape.square,
-                            color: KasVaultTheme.ink),
+                            color: KasVaultTheme.qrInk),
                         dataModuleStyle: QrDataModuleStyle(
                             dataModuleShape: QrDataModuleShape.square,
-                            color: KasVaultTheme.ink)))),
+                            color: KasVaultTheme.qrInk)))),
             const SizedBox(height: 30),
             Container(
                 padding: const EdgeInsets.all(17),
-                decoration: KasVaultTheme.isHub21
-                    ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+                decoration: KasVaultTheme.isDecorative
+                    ? kaspireDecorativeDecoration(radius: 18, rim: 2.5)
                     : BoxDecoration(
                         color: KasVaultTheme.panel,
                         borderRadius: BorderRadius.circular(18),

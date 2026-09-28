@@ -11,6 +11,7 @@ import 'package:kasvault_wallet/src/theme.dart';
 import 'package:kasvault_wallet/src/widgets/hub21_material.dart';
 import 'package:kasvault_wallet/src/widgets/kaspire_brand.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -36,12 +37,19 @@ void main() {
     expect(find.byType(ShaderMask), findsNothing);
   });
 
-  testWidgets('reading surface only appears in HUB21', (tester) async {
+  testWidgets('reading surface appears in decorative themes', (tester) async {
     Widget screen() => MaterialApp(
         theme: KasVaultTheme.forTheme(AppSettings.theme.value),
         home: const Scaffold(
             body: Hub21Readable(child: Text('Important information'))));
     await tester.pumpWidget(screen());
+    expect(
+        find.descendant(
+            of: find.byType(Hub21Readable), matching: find.byType(Container)),
+        findsOneWidget);
+    AppSettings.theme.value = KaspireTheme.glacier;
+    await tester.pumpWidget(screen());
+    await tester.pumpAndSettle();
     expect(
         find.descendant(
             of: find.byType(Hub21Readable), matching: find.byType(Container)),
@@ -98,6 +106,66 @@ void main() {
       });
     }
   }
+
+  testWidgets('Glacier uses its own background, glass UI and Kaspire mark',
+      (tester) async {
+    AppSettings.theme.value = KaspireTheme.glacier;
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+        const _ThemeFixture(theme: KaspireTheme.glacier, scale: 1.4));
+    await tester.pumpAndSettle();
+    final images = tester.widgetList<Image>(find.byType(Image));
+    expect(
+        images.where((image) =>
+            image.image is AssetImage &&
+            (image.image as AssetImage).assetName ==
+                'assets/themes/glacier/aurora-glacier.png'),
+        isNotEmpty);
+    expect(find.byType(Hub21BalanceCard), findsOneWidget);
+    expect(find.byType(ShaderMask), findsWidgets);
+    expect(find.byType(BackdropFilter), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Glacier QR modules use a dark scanner-safe ink', (tester) async {
+    AppSettings.theme.value = KaspireTheme.glacier;
+    await tester.pumpWidget(MaterialApp(
+        theme: KasVaultTheme.forTheme(KaspireTheme.glacier),
+        builder: (context, child) => Hub21Backdrop(child: child!),
+        home: const Scaffold(
+            body: ReceiveScreen(
+                address:
+                    'kaspa:qp0mtdvzscrkfft702j85s8yzdl8a87n5d6pgtm8vrxg6hqu0wywzvwkevdk3'))));
+    await tester.pumpAndSettle();
+    final qr = tester.widget<QrImageView>(find.byType(QrImageView));
+    expect(qr.eyeStyle.color, const Color(0xFF071E2B));
+    expect(qr.dataModuleStyle.color, const Color(0xFF071E2B));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('HUB21 receive actions do not overflow narrow screens',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp(
+        theme: KasVaultTheme.forTheme(KaspireTheme.hub21),
+        builder: (context, child) => Hub21Backdrop(child: child!),
+        home: const Scaffold(
+            body: ReceiveScreen(
+                address:
+                    'kaspa:qp0mtdvzscrkfft702j85s8yzdl8a87n5d6pgtm8vrxg6hqu0wywzvwkevdk3'))));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, -520));
+    await tester.pumpAndSettle();
+    expect(find.text('COPY'), findsOneWidget);
+    expect(find.text('SHARE'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('metal action remains accessible and tappable', (tester) async {
     var taps = 0;
@@ -211,8 +279,9 @@ void main() {
 }
 
 class _ThemeFixture extends StatefulWidget {
-  const _ThemeFixture({this.scale = 1});
+  const _ThemeFixture({this.scale = 1, this.theme = KaspireTheme.hub21});
   final double scale;
+  final KaspireTheme theme;
   @override
   State<_ThemeFixture> createState() => _ThemeFixtureState();
 }
@@ -222,7 +291,7 @@ class _ThemeFixtureState extends State<_ThemeFixture> {
   @override
   Widget build(BuildContext context) => MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: KasVaultTheme.forTheme(KaspireTheme.hub21),
+        theme: KasVaultTheme.forTheme(widget.theme),
         builder: (context, child) => MediaQuery(
             data: MediaQuery.of(context)
                 .copyWith(textScaler: TextScaler.linear(widget.scale)),

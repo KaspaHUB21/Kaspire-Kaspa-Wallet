@@ -444,12 +444,28 @@ class MainActivity : FlutterFragmentActivity() {
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
                         requireAuthorization(call, "signTransaction", reviewHash)
                         val requestObject = JSONObject(request)
-                        val secret = decryptSecret(
-                            requestObject.optString(
-                                "walletAddress",
-                                requestObject.getString("sender"),
-                            ),
+                        val walletAddress = requestObject.optString(
+                            "walletAddress",
+                            requestObject.getString("sender"),
                         )
+                        val signers = requestObject.optJSONArray("signers")
+                        val secret = if (signers != null && signers.length() > 0) {
+                            val activeId = activeWalletId() ?: error("No active signing wallet")
+                            check(controlsAddress(activeId, walletAddress)) {
+                                "The active wallet does not control this HD account"
+                            }
+                            for (index in 0 until signers.length()) {
+                                val signer = signers.getJSONObject(index)
+                                val address = signer.getString("address")
+                                val path = signer.getString("derivationPath")
+                                check(controlsAddress(activeId, address) && hdPath(activeId, address) == path) {
+                                    "HD account signer metadata does not match the encrypted wallet"
+                                }
+                            }
+                            decryptSecret()
+                        } else {
+                            decryptSecret(walletAddress)
+                        }
                         try {
                             resultFromCore(SecureCore.signTransaction(secret, request, reviewHash), result)
                         } finally {
@@ -2044,6 +2060,7 @@ class MainActivity : FlutterFragmentActivity() {
             }
             derived.put("used", candidate.optBoolean("used", false))
             derived.put("explicit", candidate.optBoolean("explicit", false))
+            derived.put("receiveRotation", candidate.optBoolean("receiveRotation", false))
             verified.put(derived)
         }
         preferences().edit().putString(walletKey(id, "addresses"), verified.toString()).commit()

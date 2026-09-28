@@ -55,7 +55,8 @@ pub use tangem_rescue::{
     TangemRevealRequest,
 };
 pub use transaction::{
-    prepare_transaction, sign_transaction, PreparedTransaction, SendRequest, SignedTransaction,
+    prepare_transaction, sign_transaction, PreparedTransaction, SendRequest, SendSigner,
+    SignedTransaction,
 };
 
 pub const REQUIRED_RUSTY_KASPA_RELEASE: &str = "v2.0.1";
@@ -615,6 +616,49 @@ mod tests {
     }
 
     #[test]
+    fn signs_one_payment_from_two_hd_receive_addresses() {
+        let wallet = import_wallet(VECTOR).unwrap();
+        let derived = derive_address_range(VECTOR, MODERN_COIN_TYPE, 0, 0, 0, 2).unwrap();
+        let utxos = derived
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let address = Address::try_from(item.address.as_str()).unwrap();
+                let script = hex::encode(kaspa_txscript::pay_to_address_script(&address).script());
+                serde_json::json!({
+                    "address": item.address,
+                    "outpoint": {"transactionId": if index == 0 { "11".repeat(32) } else { "22".repeat(32) }, "index": 0},
+                    "utxoEntry": {"amount": "100000000", "scriptPublicKey": {"scriptPublicKey": script}, "blockDaaScore": "100", "isCoinbase": false}
+                })
+            })
+            .collect::<Vec<_>>();
+        let request = SendRequest {
+            sender: wallet.address.clone(),
+            recipient: wallet.address.clone(),
+            amount_sompi: 150_000_000,
+            fee_rate: 1.0,
+            utxos_json: serde_json::to_string(&utxos).unwrap(),
+            signers: derived
+                .iter()
+                .map(|item| SendSigner {
+                    address: item.address.clone(),
+                    derivation_path: item.derivation_path.clone(),
+                })
+                .collect(),
+            send_all: false,
+        };
+        let prepared = prepare_transaction(&request).unwrap();
+        assert_eq!(prepared.input_count, 2);
+        let signed = sign_transaction(VECTOR, &request, &prepared.review_hash).unwrap();
+        let submit: serde_json::Value = serde_json::from_str(&signed.submit_json).unwrap();
+        let inputs = submit["transaction"]["inputs"].as_array().unwrap();
+        assert_eq!(inputs.len(), 2);
+        assert!(inputs
+            .iter()
+            .all(|input| input["signatureScript"].as_str().unwrap().len() == 132));
+    }
+
+    #[test]
     fn prepares_signs_and_binds_review() {
         let wallet = import_wallet(VECTOR).unwrap();
         let address = Address::try_from(wallet.address.as_str()).unwrap();
@@ -630,6 +674,7 @@ mod tests {
             amount_sompi: 10_000_000,
             fee_rate: 1.0,
             utxos_json: utxos,
+            signers: vec![],
             send_all: false,
         };
         let prepared = prepare_transaction(&request).unwrap();

@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 DynamicUser=true
+EnvironmentFile=-/etc/kaspire/krc20-fallback.env
 ExecStart=/usr/local/lib/kaspire-kaspa-gateway/gateway.py
 Restart=on-failure
 RestartSec=5s

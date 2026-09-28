@@ -610,6 +610,7 @@ class NativeHdAddress {
     required this.index,
     this.used = false,
     this.explicit = false,
+    this.receiveRotation = false,
   });
 
   factory NativeHdAddress.fromJson(Map<String, Object?> json) =>
@@ -622,6 +623,7 @@ class NativeHdAddress {
         index: (json['index'] as num).toInt(),
         used: json['used'] == true,
         explicit: json['explicit'] == true,
+        receiveRotation: json['receiveRotation'] == true,
       );
 
   final String address;
@@ -632,8 +634,14 @@ class NativeHdAddress {
   final int index;
   final bool used;
   final bool explicit;
+  final bool receiveRotation;
 
-  NativeHdAddress copyWith({bool? used, bool? explicit}) => NativeHdAddress(
+  NativeHdAddress copyWith({
+    bool? used,
+    bool? explicit,
+    bool? receiveRotation,
+  }) =>
+      NativeHdAddress(
         address: address,
         derivationPath: derivationPath,
         coinType: coinType,
@@ -642,6 +650,7 @@ class NativeHdAddress {
         index: index,
         used: used ?? this.used,
         explicit: explicit ?? this.explicit,
+        receiveRotation: receiveRotation ?? this.receiveRotation,
       );
 
   Map<String, Object?> toJson() => {
@@ -653,5 +662,6 @@ class NativeHdAddress {
         'index': index,
         'used': used,
         'explicit': explicit,
+        'receiveRotation': receiveRotation,
       };
 }

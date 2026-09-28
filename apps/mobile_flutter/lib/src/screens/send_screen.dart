@@ -9,6 +9,7 @@ import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
 import '../services/kaspa_api.dart';
 import '../services/native_security.dart';
+import "../services/hd_account_service.dart";
 import '../services/signer_service.dart';
 import '../services/activity_store.dart';
 import '../theme.dart';
@@ -86,7 +87,13 @@ class _KasSendPanelState extends State<_KasSendPanel> {
   _PaymentReceipt? _receipt;
   bool _working = false;
   bool _sendAll = false;
-  late final Future<WalletSnapshot> _wallet = _api.loadWallet(widget.address);
+  late final Future<HdAccountScope> _account =
+      HdAccountService().resolve(widget.address);
+  late final Future<WalletSnapshot> _wallet = _account.then((account) {
+    final balance = _api.loadBalanceSompiForAddresses(account.networkAddresses);
+    return _api.loadWalletBalance(account.primaryAddress,
+        balanceSompi: balance);
+  });
 
   @override
   void dispose() {
@@ -168,7 +175,8 @@ class _KasSendPanelState extends State<_KasSendPanel> {
       }
       return;
     }
-    if (!await _security.hasNativeWalletFor(widget.address)) {
+    final account = await _account;
+    if (!await _security.hasNativeWalletFor(account.primaryAddress)) {
       setState(
         () {
           _working = false;
@@ -181,15 +189,17 @@ class _KasSendPanelState extends State<_KasSendPanel> {
     String? trackedTransactionId;
     try {
       final results = await Future.wait([
-        _api.loadUtxos(widget.address),
+        _api.loadUtxosForAddresses(account.networkAddresses),
         _api.loadFeeRate(),
       ]);
       final prepared = await _signer.prepare(
-        sender: widget.address,
+        sender: account.primaryAddress,
         recipient: recipient,
         amountSompi: amountSompi!,
         feeRate: results[1] as double,
         utxosJson: results[0] as String,
+        walletAddress: account.primaryAddress,
+        signers: account.transactionSigners,
         sendAll: _sendAll,
       );
       if (!mounted) return;
@@ -204,7 +214,7 @@ class _KasSendPanelState extends State<_KasSendPanel> {
       final signed = await _signer.sign(prepared);
       trackedTransactionId = signed.transactionId;
       await ActivityStore().recordKasTransfer(
-        wallet: widget.address,
+        wallet: account.primaryAddress,
         recipient: recipient,
         transactionId: signed.transactionId,
         amountSompi: prepared.amountSompi,
@@ -223,7 +233,7 @@ class _KasSendPanelState extends State<_KasSendPanel> {
         setState(
           () => _receipt = _PaymentReceipt(
             transactionId: signed.transactionId,
-            sender: widget.address,
+            sender: account.primaryAddress,
             recipient: recipient,
             amountSompi: prepared.amountSompi,
             feeSompi: prepared.feeSompi,
@@ -386,8 +396,8 @@ class _KasSendPanelState extends State<_KasSendPanel> {
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(17),
-            decoration: KasVaultTheme.isHub21
-                ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+            decoration: KasVaultTheme.isDecorative
+                ? kaspireDecorativeDecoration(radius: 18, rim: 2.5)
                 : BoxDecoration(
                     color: KasVaultTheme.panel,
                     borderRadius: BorderRadius.circular(18),
@@ -464,8 +474,8 @@ class _TestnetAssetsUnavailable extends StatelessWidget {
                 onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                           builder: (_) => KaspaRocketScreen(
-                              address: NetworkSettings.addressForNetwork(
-                                  address))),
+                              address:
+                                  NetworkSettings.addressForNetwork(address))),
                     ),
                 icon: const Icon(Icons.rocket_launch_rounded),
                 label: const Text('Open K-Agora'))
@@ -538,8 +548,8 @@ class _PaymentSuccess extends StatelessWidget {
             const SizedBox(height: 26),
             Container(
               padding: const EdgeInsets.all(18),
-              decoration: KasVaultTheme.isHub21
-                  ? const Hub21MetalDecoration(radius: 18, rim: 2.5)
+              decoration: KasVaultTheme.isDecorative
+                  ? kaspireDecorativeDecoration(radius: 18, rim: 2.5)
                   : BoxDecoration(
                       color: KasVaultTheme.panel,
                       borderRadius: BorderRadius.circular(20),

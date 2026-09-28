@@ -545,8 +545,8 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
                           child: Container(
                             margin: const EdgeInsets.all(28),
                             padding: const EdgeInsets.all(24),
-                            decoration: KasVaultTheme.isHub21
-                                ? const Hub21MetalDecoration(
+                            decoration: KasVaultTheme.isDecorative
+                                ? kaspireDecorativeDecoration(
                                     radius: 18, rim: 2.5)
                                 : BoxDecoration(
                                     color: KasVaultTheme.panel,
@@ -601,17 +601,21 @@ class _WalletManagerScreenState extends State<WalletManagerScreen> {
             selected: selected,
             selectedColor: KasVaultTheme.mint,
             leading: Icon(
-              address.index == 0
-                  ? Icons.account_tree_outlined
-                  : Icons.account_balance_wallet_outlined,
+              address.receiveRotation
+                  ? Icons.autorenew_rounded
+                  : address.index == 0
+                      ? Icons.account_tree_outlined
+                      : Icons.account_balance_wallet_outlined,
               size: 20,
             ),
             title: Text(
               _subwalletNames[address.address.toLowerCase()] ??
-                  (address.index == 0
-                      ? '${legacy ? 'Legacy account' : 'Account'} '
-                          '${group.account} · Subwallet 0'
-                      : 'Subwallet ${address.index}'),
+                  (address.receiveRotation
+                      ? 'Receive address ${address.index}'
+                      : address.index == 0
+                          ? '${legacy ? 'Legacy account' : 'Account'} '
+                              '${group.account} · Subwallet 0'
+                          : 'Subwallet ${address.index}'),
             ),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

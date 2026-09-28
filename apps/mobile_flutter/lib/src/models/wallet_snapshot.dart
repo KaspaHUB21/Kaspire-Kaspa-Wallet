@@ -51,6 +51,28 @@ class WalletSnapshot {
       ? null
       : balanceKas * kasUsd! * usdToFiat;
 
+  WalletSnapshot withAccountData({
+    required int balanceSompi,
+    required int utxoCount,
+    List<WalletTransaction>? transactions,
+  }) =>
+      WalletSnapshot(
+        balanceSompi: balanceSompi,
+        kasUsd: kasUsd,
+        usdToFiat: usdToFiat,
+        fiatCode: fiatCode,
+        fiatSymbol: fiatSymbol,
+        transactions: transactions ?? this.transactions,
+        krc20Tokens: krc20Tokens,
+        kcc20Tokens: kcc20Tokens,
+        krc721Collections: krc721Collections,
+        knsDomains: knsDomains,
+        dotkNames: dotkNames,
+        assetWarning: assetWarning,
+        hasMoreTransactions: hasMoreTransactions,
+        utxoCount: utxoCount,
+      );
+
   WalletSnapshot withTransactions(List<WalletTransaction> value) =>
       WalletSnapshot(
         balanceSompi: balanceSompi,

@@ -18,12 +18,25 @@ class KasVaultTheme {
   static Color get mint => _current.accent;
   static Color get cyan => _current.secondary;
   static Color get ink => _current.background;
+  // QR modules must retain scanner-grade contrast on Glacier's light canvas.
+  static Color get qrInk =>
+      isGlacier ? const Color(0xFF071E2B) : _current.background;
   static Color get panel => _current.panel;
   static Color get line => _current.line;
   static const muted = Color(0xFF82949C);
-  static Color get detailText => isHub21 ? const Color(0xFFE0DACB) : muted;
-  static Color get filledButtonText => isHub21 ? const Color(0xFFFFEDC7) : ink;
   static bool get isHub21 => AppSettings.theme.value == KaspireTheme.hub21;
+  static bool get isGlacier => AppSettings.theme.value == KaspireTheme.glacier;
+  static bool get isDecorative => isHub21 || isGlacier;
+  static Color get detailText => isHub21
+      ? const Color(0xFFE0DACB)
+      : isGlacier
+          ? const Color(0xFF344E5C)
+          : muted;
+  static Color get filledButtonText => isHub21
+      ? const Color(0xFFFFEDC7)
+      : isGlacier
+          ? const Color(0xFF173A47)
+          : ink;
 
   static _KaspirePalette _palette(KaspireTheme theme) => switch (theme) {
         KaspireTheme.midnight => _midnight,
@@ -34,6 +47,14 @@ class KasVaultTheme {
             panel: Color(0xFF252520),
             line: Color(0xFF8D7749),
             muted: Color(0xFFC4BEAC),
+          ),
+        KaspireTheme.glacier => const _KaspirePalette(
+            accent: Color(0xFF087F86),
+            secondary: Color(0xFF506B91),
+            background: Color(0xFFE7F2F7),
+            panel: Color(0xE8F4FBFD),
+            line: Color(0xFF83B5C1),
+            muted: Color(0xFF526D7A),
           ),
         KaspireTheme.emerald => const _KaspirePalette(
             accent: Color(0xFF35F2A0),
@@ -87,17 +108,19 @@ class KasVaultTheme {
 
   static ThemeData forTheme(KaspireTheme theme) {
     final hub21 = theme == KaspireTheme.hub21;
+    final glacier = theme == KaspireTheme.glacier;
+    final decorative = hub21 || glacier;
     final palette = _palette(theme);
     final accent = palette.accent;
     final scheme = ColorScheme.fromSeed(
       seedColor: accent,
-      brightness: Brightness.dark,
+      brightness: glacier ? Brightness.light : Brightness.dark,
       primary: accent,
       secondary: palette.secondary,
       surface: palette.panel,
     );
-    final shape = hub21
-        ? const Hub21CardShape()
+    final shape = decorative
+        ? Hub21CardShape(glacier: glacier)
         : RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
             side: BorderSide(color: palette.line),
@@ -107,9 +130,10 @@ class KasVaultTheme {
       borderSide: BorderSide(color: palette.line),
     );
     return ThemeData(
-      brightness: Brightness.dark,
+      brightness: glacier ? Brightness.light : Brightness.dark,
       colorScheme: scheme,
-      scaffoldBackgroundColor: hub21 ? Colors.transparent : palette.background,
+      scaffoldBackgroundColor:
+          decorative ? Colors.transparent : palette.background,
       canvasColor: palette.background,
       cardColor: palette.panel,
       dividerColor: palette.line,
@@ -121,7 +145,7 @@ class KasVaultTheme {
       useMaterial3: true,
       fontFamily: 'sans-serif',
       appBarTheme: AppBarTheme(
-        backgroundColor: palette.background,
+        backgroundColor: glacier ? const Color(0xE8EAF4F8) : palette.background,
         foregroundColor: scheme.onSurface,
         elevation: 0,
       ),
@@ -131,7 +155,7 @@ class KasVaultTheme {
         shape: shape,
       ),
       dialogTheme: DialogThemeData(
-        shape: hub21 ? const Hub21CardShape() : null,
+        shape: decorative ? Hub21CardShape(glacier: glacier) : null,
         backgroundColor: palette.panel,
         surfaceTintColor: accent.withValues(alpha: 0.08),
       ),
@@ -158,16 +182,27 @@ class KasVaultTheme {
           backgroundColor: accent,
           foregroundColor: palette.background,
         ).copyWith(
-          foregroundColor:
-              hub21 ? const WidgetStatePropertyAll(Color(0xFFFFEDC7)) : null,
-          backgroundBuilder: hub21
-              ? (context, states, child) => Hub21Panel(
-                  gold: true,
-                  radius: 16,
-                  rim: 2.5,
-                  child: Opacity(
-                      opacity: states.contains(WidgetState.disabled) ? .4 : 1,
-                      child: child))
+          shape: decorative
+              ? const WidgetStatePropertyAll(RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(16))))
+              : null,
+          foregroundColor: decorative
+              ? WidgetStatePropertyAll(
+                  hub21 ? const Color(0xFFFFEDC7) : const Color(0xFF173A47))
+              : null,
+          backgroundBuilder: decorative
+              ? (context, states, child) => Padding(
+                    padding: const EdgeInsets.all(2),
+                    child: Hub21Panel(
+                      gold: true,
+                      radius: 14,
+                      rim: 2.5,
+                      child: Opacity(
+                          opacity:
+                              states.contains(WidgetState.disabled) ? .4 : 1,
+                          child: child),
+                    ),
+                  )
               : null,
         ),
       ),
@@ -176,30 +211,43 @@ class KasVaultTheme {
           foregroundColor: accent,
           side: BorderSide(color: accent),
         ).copyWith(
-          backgroundBuilder: hub21
-              ? (context, states, child) => Hub21Panel(
-                  radius: 16,
-                  rim: 2,
-                  child: Opacity(
-                      opacity: states.contains(WidgetState.disabled) ? .4 : 1,
-                      child: child))
+          shape: decorative
+              ? const WidgetStatePropertyAll(RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(16))))
+              : null,
+          side:
+              decorative ? const WidgetStatePropertyAll(BorderSide.none) : null,
+          backgroundBuilder: decorative
+              ? (context, states, child) => Padding(
+                    padding: const EdgeInsets.all(2),
+                    child: Hub21Panel(
+                      radius: 14,
+                      rim: 2,
+                      child: Opacity(
+                          opacity:
+                              states.contains(WidgetState.disabled) ? .4 : 1,
+                          child: child),
+                    ),
+                  )
               : null,
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
             foregroundColor: accent,
-            backgroundColor: hub21 ? palette.panel : null),
+            backgroundColor: decorative ? palette.panel : null),
       ),
-      segmentedButtonTheme: hub21
+      segmentedButtonTheme: decorative
           ? SegmentedButtonThemeData(
               style: ButtonStyle(
                 backgroundColor: WidgetStateProperty.resolveWith((states) =>
                     states.contains(WidgetState.selected)
-                        ? const Color(0xFF6C5120)
+                        ? (hub21
+                            ? const Color(0xFF6C5120)
+                            : const Color(0xB8C7F4F1))
                         : palette.background),
-                foregroundColor:
-                    const WidgetStatePropertyAll(Color(0xFFF4E8CD)),
+                foregroundColor: WidgetStatePropertyAll(
+                    hub21 ? const Color(0xFFF4E8CD) : const Color(0xFF173A47)),
               ),
             )
           : const SegmentedButtonThemeData(),
@@ -219,9 +267,9 @@ class KasVaultTheme {
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(color: accent),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: hub21 ? Colors.transparent : palette.panel,
-        surfaceTintColor: hub21 ? Colors.transparent : null,
-        indicatorColor: accent.withValues(alpha: hub21 ? 0.42 : 0.24),
+        backgroundColor: decorative ? Colors.transparent : palette.panel,
+        surfaceTintColor: decorative ? Colors.transparent : null,
+        indicatorColor: accent.withValues(alpha: decorative ? 0.34 : 0.24),
         iconTheme: WidgetStateProperty.resolveWith(
           (states) => IconThemeData(
             color:
