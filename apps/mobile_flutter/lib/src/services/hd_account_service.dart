@@ -14,12 +14,18 @@ class HdAccountScope {
       .map((item) => NetworkSettings.addressForNetwork(item.address))
       .toList(growable: false);
 
-  List<Map<String, Object?>> get transactionSigners => addresses
-      .map((item) => <String, Object?>{
-            "address": NetworkSettings.addressForNetwork(item.address),
-            "derivationPath": item.derivationPath,
-          })
-      .toList(growable: false);
+  // Preserve the established single-wallet signing flow. Explicit signer
+  // metadata is needed only when one payment spends UTXOs controlled by more
+  // than one derived receive address. In particular, imported private-key
+  // wallets use the sentinel path "private-key", not a BIP-44 path.
+  List<Map<String, Object?>> get transactionSigners => addresses.length < 2
+      ? const []
+      : addresses
+          .map((item) => <String, Object?>{
+                "address": NetworkSettings.addressForNetwork(item.address),
+                "derivationPath": item.derivationPath,
+              })
+          .toList(growable: false);
 
   bool get rotates => addresses.length > 1;
 }

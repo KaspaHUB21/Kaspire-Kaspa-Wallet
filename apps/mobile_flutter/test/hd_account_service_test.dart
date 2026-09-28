@@ -43,6 +43,29 @@ class FakeNativeSecurity extends NativeSecurity {
       ];
 }
 
+class FakePrivateKeySecurity extends NativeSecurity {
+  @override
+  Future<List<NativeWalletInfo>> listWallets() async => [
+        NativeWalletInfo(
+          id: "private",
+          address: primary,
+          name: "Imported key",
+          kind: "private-key",
+          active: true,
+          addresses: [
+            NativeHdAddress(
+              address: primary,
+              derivationPath: "private-key",
+              coinType: 111111,
+              account: 0,
+              change: 0,
+              index: 0,
+            ),
+          ],
+        ),
+      ];
+}
+
 void main() {
   test("primary and rotated addresses resolve to one KAS account", () async {
     final service = HdAccountService(security: FakeNativeSecurity());
@@ -54,6 +77,19 @@ void main() {
     expect(fromPrimary.networkAddresses, [primary, rotated]);
     expect(fromRotated.primaryAddress, primary);
     expect(fromRotated.networkAddresses, [primary, rotated]);
+    expect(fromPrimary.transactionSigners, [
+      {"address": primary, "derivationPath": "path-0"},
+      {"address": rotated, "derivationPath": "path-1"},
+    ]);
+  });
+
+  test("private-key wallets keep the established single-signer flow", () async {
+    final account = await HdAccountService(security: FakePrivateKeySecurity())
+        .resolve(primary);
+
+    expect(account.primaryAddress, primary);
+    expect(account.networkAddresses, [primary]);
+    expect(account.transactionSigners, isEmpty);
   });
 
   test("ordinary address-index subwallet remains separate", () async {
@@ -62,5 +98,6 @@ void main() {
 
     expect(account.primaryAddress, subwallet);
     expect(account.networkAddresses, [subwallet]);
+    expect(account.transactionSigners, isEmpty);
   });
 }

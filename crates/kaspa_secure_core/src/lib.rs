@@ -659,6 +659,32 @@ mod tests {
     }
 
     #[test]
+    fn imported_private_key_keeps_single_wallet_kas_signing() {
+        let private_key = "0000000000000000000000000000000000000000000000000000000000000003";
+        let secret = format!("private:{private_key}");
+        let wallet = import_private_key(private_key).unwrap();
+        let address = Address::try_from(wallet.address.as_str()).unwrap();
+        let script = hex::encode(kaspa_txscript::pay_to_address_script(&address).script());
+        let utxos = serde_json::json!([{
+            "address": wallet.address,
+            "outpoint": {"transactionId": "33".repeat(32), "index": 0},
+            "utxoEntry": {"amount": "100000000", "scriptPublicKey": {"scriptPublicKey": script}, "blockDaaScore": "100", "isCoinbase": false}
+        }])
+        .to_string();
+        let request = SendRequest {
+            sender: wallet.address.clone(),
+            recipient: wallet.address.clone(),
+            amount_sompi: 10_000_000,
+            fee_rate: 1.0,
+            utxos_json: utxos,
+            signers: vec![],
+            send_all: false,
+        };
+        let prepared = prepare_transaction(&request).unwrap();
+        assert!(sign_transaction(&secret, &request, &prepared.review_hash).is_ok());
+    }
+
+    #[test]
     fn prepares_signs_and_binds_review() {
         let wallet = import_wallet(VECTOR).unwrap();
         let address = Address::try_from(wallet.address.as_str()).unwrap();
