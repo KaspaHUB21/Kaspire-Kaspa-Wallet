@@ -146,6 +146,17 @@ class MainActivity : FlutterFragmentActivity() {
     private var tangemPolicyFailure: String? = null
     private val operationAuthorizations = mutableMapOf<String, OperationAuthorization>()
     private val nativeReviewSummaries = mutableMapOf<String, NativeReviewSummary>()
+    private val nativeReviewOperations = setOf(
+        "signTransaction",
+        "signEvmTransaction",
+        "signWyrmGenesis",
+        "signWyrmTransition",
+        "signKcc20Transfer",
+        "signReveal",
+        "signPolicyTransaction",
+        "signPskt",
+        "signDotkMarket",
+    )
     private val authorizationLifetimeMs = 20_000L
     private val deviceCredentialRequestCode = 7109
     private var pendingDeviceCredentialAuthorization:
@@ -2417,7 +2428,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun authorizationPrompt(operation: String, binding: String): String? = when (operation) {
-        "signTransaction", "signEvmTransaction", "signKcc20Transfer", "signReveal", "signPolicyTransaction", "signPskt", "signDotkMarket" ->
+        in nativeReviewOperations ->
             synchronized(authorizationLock) {
                 nativeReviewSummaries[binding]
                     ?.takeIf {
@@ -2510,7 +2521,7 @@ class MainActivity : FlutterFragmentActivity() {
         ) {
             error("Operation authorization does not match this request")
         }
-        if (operation in setOf("signTransaction", "signKcc20Transfer", "signReveal", "signDotkMarket")) {
+        if (operation in nativeReviewOperations) {
             synchronized(authorizationLock) {
                 nativeReviewSummaries.remove(binding)
             }
