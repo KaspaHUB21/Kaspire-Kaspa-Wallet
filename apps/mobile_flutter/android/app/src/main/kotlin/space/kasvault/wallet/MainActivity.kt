@@ -1795,6 +1795,19 @@ class MainActivity : FlutterFragmentActivity() {
                     "Recipient ${json.getString("recipient")}\n" +
                     "${json.getString("displayAmount")} ${json.getString("tokenSymbol")} · " +
                     "Gas limit ${json.getLong("gasLimit")}"
+            "signWyrmGenesis" ->
+                "Covenant Wyrm genesis #${json.getInt("serial")}\n" +
+                    "Element ${json.getInt("element")}\n" +
+                    "Covenant ${json.getString("covenantId")}\n" +
+                    "Permanent template ${json.getString("templateHash")}\n" +
+                    "State reserve ${json.getLong("reserveSompi")} sompi · " +
+                    "Fee ${json.getLong("feeSompi")} sompi"
+            "signWyrmTransition" ->
+                "Covenant Wyrm #${json.getInt("serial")} · ${json.getString("action")}\n" +
+                    "Covenant ${json.getString("covenantId")}\n" +
+                    "Action DAA ${json.getLong("actionDaaScore")}\n" +
+                    "Permanent template ${json.getString("templateHash")}\n" +
+                    "Fee ${json.getLong("feeSompi")} sompi"
             "signKcc20Transfer" ->
                 "Recipient ${json.getString("recipient")}\n" +
                     "${json.getLong("amount")} raw ${json.getString("ticker")} · " +
