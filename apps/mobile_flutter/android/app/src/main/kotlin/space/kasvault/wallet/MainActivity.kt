@@ -368,7 +368,8 @@ class MainActivity : FlutterFragmentActivity() {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
                         requireAuthorization(call, "signWyrmGenesis", reviewHash)
-                        resultFromCore(SecureCore.signWyrmGenesis(decryptSecret(), request, reviewHash), result)
+                        val secret = decryptSecret(JSONObject(request).getString("sender"))
+                        resultFromCore(SecureCore.signWyrmGenesis(secret, request, reviewHash), result)
                     }
                     "prepareWyrmTransition" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
@@ -382,7 +383,8 @@ class MainActivity : FlutterFragmentActivity() {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
                         requireAuthorization(call, "signWyrmTransition", reviewHash)
-                        resultFromCore(SecureCore.signWyrmTransition(decryptSecret(), request, reviewHash), result)
+                        val secret = decryptSecret(JSONObject(request).getString("sender"))
+                        resultFromCore(SecureCore.signWyrmTransition(secret, request, reviewHash), result)
                     }
                     "prepareKcc20Transfer" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")

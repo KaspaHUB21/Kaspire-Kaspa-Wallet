@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:reown_walletkit/reown_walletkit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -505,9 +506,12 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
           await _handleVaultTransaction(request, address);
       }
     } catch (error) {
-      final message = error is FormatException
-          ? error.message
-          : 'Request failed safely inside Kaspire.';
+      final message = switch (error) {
+        FormatException() => error.message,
+        PlatformException() => _safeNativeDappError(error),
+        KaspaApiException() => error.message,
+        _ => 'Request failed safely inside Kaspire.',
+      };
       await _dapps.respondError(request, message, code: -32000);
       final context = await _contextWhenReady();
       if (context != null && context.mounted) {
@@ -516,6 +520,12 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         );
       }
     }
+  }
+
+  String _safeNativeDappError(PlatformException error) {
+    final message = (error.message ?? '').replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+    if (message.isEmpty) return 'Native signing failed safely inside Kaspire.';
+    return message.length <= 240 ? message : '${message.substring(0, 237)}...';
   }
 
   Future<void> _handleKaspaNetworkSwitch(SessionRequestEvent request) async {
