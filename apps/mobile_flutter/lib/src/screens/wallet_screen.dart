@@ -63,6 +63,7 @@ class _WalletScreenState extends State<WalletScreen> {
   @override
   void initState() {
     super.initState();
+    ActivityStore.changes.addListener(_reloadLocalActivity);
     _account = HdAccountService().resolve(widget.address);
     _kasBalance = _loadAccountBalance();
     _balance = _loadAccountBalanceSnapshot();
@@ -70,6 +71,17 @@ class _WalletScreenState extends State<WalletScreen> {
     _activity = Future<void>.delayed(const Duration(milliseconds: 500))
         .then<List<WalletTransaction>>((_) => _loadActivity());
     _walletName = _loadWalletName();
+  }
+
+  void _reloadLocalActivity() {
+    if (!mounted) return;
+    setState(() => _activity = _loadActivity());
+  }
+
+  @override
+  void dispose() {
+    ActivityStore.changes.removeListener(_reloadLocalActivity);
+    super.dispose();
   }
 
   Future<int> _loadAccountBalance() async {

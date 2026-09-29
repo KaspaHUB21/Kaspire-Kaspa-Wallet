@@ -83,6 +83,26 @@ void main() {
       1200,
     );
   });
+
+  test('persists covenant wyrm lifecycle transactions with readable labels',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = ActivityStore(encryptedStore: _MemoryEncryptedStore());
+    await store.recordCovenantWyrmTransaction(
+      wallet: 'kaspa:qwallet',
+      transactionId: 'wyrm-transition',
+      operationLabel: 'Covenant Wyrm Incubation Started',
+      stateLabel: 'Covenant Wyrm #1',
+      timestamp: DateTime.utc(2026, 9, 29),
+    );
+
+    final stored = await store.load('kaspa:qwallet');
+    expect(stored, hasLength(1));
+    expect(stored.single.assetKind, 'COVENANT');
+    expect(stored.single.operationLabel, 'Covenant Wyrm Incubation Started');
+    expect(stored.single.amountLabel, 'Covenant Wyrm #1');
+    expect(stored.single.status, TransactionStatus.accepted);
+  });
 }
 
 class _MemoryEncryptedStore implements EncryptedStore {

@@ -523,7 +523,8 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   }
 
   String _safeNativeDappError(PlatformException error) {
-    final message = (error.message ?? '').replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+    final message =
+        (error.message ?? '').replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
     if (message.isEmpty) return 'Native signing failed safely inside Kaspire.';
     return message.length <= 240 ? message : '${message.substring(0, 237)}...';
   }
@@ -1836,6 +1837,22 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     final transactionId = signed["transactionId"] as String;
     await api.broadcastKcc20(signed["wrpcJson"] as String,
         expectedTransactionId: transactionId);
+    await ActivityStore().recordCovenantWyrmTransaction(
+      wallet: address,
+      transactionId: transactionId,
+      operationLabel: "Covenant Egg Minted",
+      stateLabel: "Covenant Wyrm #$serial · Genesis Egg",
+      timestamp: DateTime.now(),
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Covenant egg broadcast successfully. Return to GothDAG while Mainnet confirmation completes.",
+          ),
+        ),
+      );
+    }
     await _dapps.respondResult(request, <String, Object?>{
       "transactionId": transactionId,
       "covenantId": signed["covenantId"],
@@ -1931,6 +1948,13 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       throw const FormatException(
           "Node returned a mismatching Wyrm commit ID.");
     }
+    await ActivityStore().recordCovenantWyrmTransaction(
+      wallet: address,
+      transactionId: commitTransactionId,
+      operationLabel: "Covenant Wyrm Action Commit",
+      stateLabel: "${_wyrmActionLabel(action)} · DAA clock commit",
+      timestamp: DateTime.now(),
+    );
     final actionUtxosJson =
         await api.waitForTransactionUtxos(address, commitTransactionId);
     final transition = <String, Object?>{
@@ -1956,7 +1980,8 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         "Confirmed action DAA: ${review["actionDaaScore"]}",
         if (action == "specialFeed")
           "Special feed kind: ${params["specialFeedKind"]}",
-        if (action == "grow" && (params["specialization"] as num?)?.toInt() != 0)
+        if (action == "grow" &&
+            (params["specialization"] as num?)?.toInt() != 0)
           "Chosen specialization: ${params["specialization"]}",
         "Transition fee: ${formatSompi((review["feeSompi"] as num).toInt())} KAS",
       ],
@@ -1972,6 +1997,22 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     final transactionId = signed["transactionId"] as String;
     await api.broadcastKcc20(signed["wrpcJson"] as String,
         expectedTransactionId: transactionId);
+    await ActivityStore().recordCovenantWyrmTransaction(
+      wallet: address,
+      transactionId: transactionId,
+      operationLabel: _wyrmActionLabel(action),
+      stateLabel: "Covenant Wyrm #${review["serial"]}",
+      timestamp: DateTime.now(),
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "${_wyrmActionLabel(action)} broadcast successfully. Return to GothDAG while Mainnet confirmation completes.",
+          ),
+        ),
+      );
+    }
     await _dapps.respondResult(request, <String, Object?>{
       "commitTransactionId": commitTransactionId,
       "transactionId": transactionId,
@@ -1991,6 +2032,21 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       },
     });
   }
+
+  String _wyrmActionLabel(String action) => switch (action) {
+        "incubate" => "Covenant Wyrm Incubation Started",
+        "warm" => "Covenant Wyrm Warmed",
+        "hatch" => "Covenant Wyrm Hatched",
+        "feed" => "Covenant Wyrm Fed",
+        "transfer" => "Covenant Wyrm Transferred",
+        "grow" => "Covenant Wyrm Growth Advanced",
+        "die" => "Covenant Wyrm Life Ended",
+        "name" => "Covenant Wyrm Named",
+        "sleep" => "Covenant Wyrm Put to Sleep",
+        "wake" => "Covenant Wyrm Awakened",
+        "specialFeed" => "Covenant Wyrm Special Feed Applied",
+        _ => "Covenant Wyrm Action",
+      };
 
   Future<void> _handleDappKcc20(
     SessionRequestEvent request,

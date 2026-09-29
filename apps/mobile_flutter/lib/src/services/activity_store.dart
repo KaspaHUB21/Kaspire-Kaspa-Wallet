@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/wallet_snapshot.dart';
 import 'encrypted_store.dart';
 
@@ -10,6 +12,9 @@ class ActivityStore {
   final EncryptedStore _encryptedStore;
   static const _key = 'kaspire_asset_activity_v1';
   static const _maxEntries = 200;
+  static final ValueNotifier<int> changes = ValueNotifier<int>(0);
+
+  static void _notifyChanged() => changes.value++;
 
   Future<List<WalletTransaction>> load(String address) async {
     final raw = await readWithPlaintextMigration(_encryptedStore, _key);
@@ -70,6 +75,7 @@ class ActivityStore {
       _key,
       jsonEncode(entries.take(_maxEntries).toList()),
     );
+    _notifyChanged();
   }
 
   Future<void> recordKasTransfer({
@@ -93,6 +99,26 @@ class ActivityStore {
     });
   }
 
+  Future<void> recordCovenantWyrmTransaction({
+    required String wallet,
+    required String transactionId,
+    required String operationLabel,
+    required String stateLabel,
+    required DateTime timestamp,
+  }) async {
+    await _upsert(<String, Object?>{
+      'wallet': wallet,
+      'transactionId': transactionId,
+      'timestamp': timestamp.toIso8601String(),
+      'assetKind': 'COVENANT',
+      'assetSymbol': 'WYRM',
+      'operationLabel': operationLabel,
+      'amountLabelOverride': stateLabel,
+      'incoming': false,
+      'status': TransactionStatus.accepted.name,
+    });
+  }
+
   Future<void> updateStatus(
     String transactionId,
     TransactionStatus status,
@@ -113,7 +139,10 @@ class ActivityStore {
         changed = true;
       }
     }
-    if (changed) await _encryptedStore.write(_key, jsonEncode(entries));
+    if (changed) {
+      await _encryptedStore.write(_key, jsonEncode(entries));
+      _notifyChanged();
+    }
   }
 
   Future<void> _upsert(Map<String, Object?> value) async {
@@ -132,6 +161,7 @@ class ActivityStore {
       _key,
       jsonEncode(entries.take(_maxEntries).toList()),
     );
+    _notifyChanged();
   }
 
   bool _sameEntry(Map item, Map value) =>
