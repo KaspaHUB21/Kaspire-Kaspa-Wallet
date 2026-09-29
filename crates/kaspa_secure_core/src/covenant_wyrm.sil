@@ -1,0 +1,296 @@
+// Covenant Wyrms v1 lifecycle policy.
+contract CovenantWyrm(byte[32] genesisOwner, int genesisSerial, byte genesisElement,
+                      byte genesisPhase, bool genesisWarmed, int genesisCarePoints,
+                      int genesisActiveDays, byte genesisGrowthStage,
+                      byte genesisSpecialization, byte[32] genesisNameHash,
+                      int genesisAnchorDaa, int genesisSleepStartedDaa,
+                      int genesisBoneFeeds, int genesisBloodFeeds,
+                      int genesisMoonFeeds, int genesisTealFeeds,
+                      int genesisNightFeeds) {
+    byte constant PHASE_EGG = 0x00;
+    byte constant PHASE_INCUBATING = 0x01;
+    byte constant PHASE_ALIVE = 0x02;
+    byte constant PHASE_SLEEP = 0x03;
+    byte constant PHASE_DEAD = 0x04;
+    byte constant ACTION_INCUBATE = 0x01;
+    byte constant ACTION_WARM = 0x02;
+    byte constant ACTION_HATCH = 0x03;
+    byte constant ACTION_FEED = 0x04;
+    byte constant ACTION_TRANSFER = 0x05;
+    byte constant ACTION_GROW = 0x06;
+    byte constant ACTION_DIE = 0x07;
+    byte constant ACTION_NAME = 0x08;
+    byte constant ACTION_SLEEP = 0x09;
+    byte constant ACTION_WAKE = 0x0a;
+    byte constant ACTION_SPECIAL_FEED = 0x0b;
+    // Kaspa Mainnet Toccata runs at 10 DAA units per wall-clock second.
+    int constant TWELVE_HOURS_DAA = 432000;
+    int constant DAY_DAA = 864000;
+    int constant THREE_DAYS_DAA = 2592000;
+
+    byte[32] owner = genesisOwner;
+    int serial = genesisSerial;
+    byte element = genesisElement;
+    byte phase = genesisPhase;
+    bool warmed = genesisWarmed;
+    int carePoints = genesisCarePoints;
+    int activeDays = genesisActiveDays;
+    byte growthStage = genesisGrowthStage;
+    byte specialization = genesisSpecialization;
+    byte[32] nameHash = genesisNameHash;
+    int anchorDaa = genesisAnchorDaa;
+    int sleepStartedDaa = genesisSleepStartedDaa;
+    int boneFeeds = genesisBoneFeeds;
+    int bloodFeeds = genesisBloodFeeds;
+    int moonFeeds = genesisMoonFeeds;
+    int tealFeeds = genesisTealFeeds;
+    int nightFeeds = genesisNightFeeds;
+
+    function unchangedIdentity(State previous, State next) {
+        require(next.serial == previous.serial);
+        require(next.element == previous.element);
+    }
+    function unchangedDevelopment(State previous, State next) {
+        require(next.specialization == previous.specialization);
+        require(next.boneFeeds == previous.boneFeeds);
+        require(next.bloodFeeds == previous.bloodFeeds);
+        require(next.moonFeeds == previous.moonFeeds);
+        require(next.tealFeeds == previous.tealFeeds);
+        require(next.nightFeeds == previous.nightFeeds);
+    }
+    function unchangedProgress(State previous, State next) {
+        require(next.carePoints == previous.carePoints);
+        require(next.activeDays == previous.activeDays);
+        require(next.growthStage == previous.growthStage);
+        require(next.nameHash == previous.nameHash);
+        unchangedDevelopment(previous, next);
+    }
+
+    #[covenant.singleton(termination = disallowed)]
+    function transition(State previous, State next, byte action, byte specialFeedKind,
+                        int actionInputIndex, sig ownerApproval) {
+        unchangedIdentity(previous, next);
+        require(actionInputIndex != this.activeInputIndex);
+        int actionDaa = OpTxInputDaaScore(actionInputIndex);
+        require(actionDaa >= previous.anchorDaa);
+        if(action == ACTION_DIE) {
+            require(specialFeedKind == 0x00);
+            require(previous.phase == PHASE_ALIVE);
+            require(actionDaa - previous.anchorDaa >= THREE_DAYS_DAA);
+            require(next.owner == previous.owner);
+            require(next.phase == PHASE_DEAD);
+            require(next.warmed == previous.warmed);
+            require(next.anchorDaa == previous.anchorDaa);
+            require(next.sleepStartedDaa == previous.sleepStartedDaa);
+            unchangedProgress(previous, next);
+        } else {
+            require(ownerApproval.length == 65);
+            require(ownerApproval.slice(64, 65) == [0x01]);
+            require(checkSig(ownerApproval, previous.owner));
+            require(tx.inputs[actionInputIndex].scriptPubKey == new ScriptPubKeyP2PK(previous.owner));
+            if(action == ACTION_INCUBATE) {
+                require(specialFeedKind == 0x00);
+                require(previous.phase == PHASE_EGG);
+                require(next.phase == PHASE_INCUBATING);
+                require(!next.warmed);
+                require(next.owner == previous.owner);
+                require(next.anchorDaa == actionDaa);
+                require(next.sleepStartedDaa == 0);
+                unchangedProgress(previous, next);
+            } else if(action == ACTION_WARM) {
+                require(specialFeedKind == 0x00);
+                require(previous.phase == PHASE_INCUBATING);
+                require(!previous.warmed);
+                require(actionDaa - previous.anchorDaa >= TWELVE_HOURS_DAA);
+                require(next.phase == PHASE_INCUBATING);
+                require(next.warmed);
+                require(next.owner == previous.owner);
+                require(next.anchorDaa == actionDaa);
+                require(next.sleepStartedDaa == 0);
+                unchangedProgress(previous, next);
+            } else if(action == ACTION_HATCH) {
+                require(specialFeedKind == 0x00);
+                require(previous.phase == PHASE_INCUBATING);
+                require(previous.warmed);
+                require(actionDaa - previous.anchorDaa >= TWELVE_HOURS_DAA);
+                require(next.phase == PHASE_ALIVE);
+                require(next.warmed);
+                require(next.owner == previous.owner);
+                require(next.anchorDaa == actionDaa);
+                require(next.sleepStartedDaa == 0);
+                unchangedProgress(previous, next);
+            } else if(action == ACTION_FEED) {
+                require(specialFeedKind == 0x00);
+                require(previous.phase == PHASE_ALIVE);
+                require(actionDaa - previous.anchorDaa >= DAY_DAA);
+                require(actionDaa - previous.anchorDaa < THREE_DAYS_DAA);
+                require(next.phase == PHASE_ALIVE);
+                require(next.warmed == previous.warmed);
+                require(next.owner == previous.owner);
+                require(next.carePoints == previous.carePoints + 1);
+                require(next.activeDays == previous.activeDays + 1);
+                require(next.growthStage == previous.growthStage);
+                require(next.nameHash == previous.nameHash);
+                require(next.anchorDaa == actionDaa);
+                require(next.sleepStartedDaa == 0);
+                unchangedDevelopment(previous, next);
+            } else if(action == ACTION_SPECIAL_FEED) {
+                require(specialFeedKind >= 0x01 && specialFeedKind <= 0x05);
+                require(previous.phase == PHASE_ALIVE);
+                require(actionDaa - previous.anchorDaa >= DAY_DAA);
+                require(actionDaa - previous.anchorDaa < THREE_DAYS_DAA);
+                require(next.phase == PHASE_ALIVE);
+                require(next.warmed == previous.warmed);
+                require(next.owner == previous.owner);
+                require(next.carePoints == previous.carePoints + 1);
+                require(next.activeDays == previous.activeDays + 1);
+                require(next.growthStage == previous.growthStage);
+                require(next.specialization == previous.specialization);
+                require(next.nameHash == previous.nameHash);
+                require(next.anchorDaa == actionDaa);
+                require(next.sleepStartedDaa == 0);
+                if(specialFeedKind == 0x01) {
+                    require(next.boneFeeds == previous.boneFeeds + 1);
+                    require(next.bloodFeeds == previous.bloodFeeds);
+                    require(next.moonFeeds == previous.moonFeeds);
+                    require(next.tealFeeds == previous.tealFeeds);
+                    require(next.nightFeeds == previous.nightFeeds);
+                } else if(specialFeedKind == 0x02) {
+                    require(next.boneFeeds == previous.boneFeeds);
+                    require(next.bloodFeeds == previous.bloodFeeds + 1);
+                    require(next.moonFeeds == previous.moonFeeds);
+                    require(next.tealFeeds == previous.tealFeeds);
+                    require(next.nightFeeds == previous.nightFeeds);
+                } else if(specialFeedKind == 0x03) {
+                    require(next.boneFeeds == previous.boneFeeds);
+                    require(next.bloodFeeds == previous.bloodFeeds);
+                    require(next.moonFeeds == previous.moonFeeds + 1);
+                    require(next.tealFeeds == previous.tealFeeds);
+                    require(next.nightFeeds == previous.nightFeeds);
+                } else if(specialFeedKind == 0x04) {
+                    require(next.boneFeeds == previous.boneFeeds);
+                    require(next.bloodFeeds == previous.bloodFeeds);
+                    require(next.moonFeeds == previous.moonFeeds);
+                    require(next.tealFeeds == previous.tealFeeds + 1);
+                    require(next.nightFeeds == previous.nightFeeds);
+                } else {
+                    require(next.boneFeeds == previous.boneFeeds);
+                    require(next.bloodFeeds == previous.bloodFeeds);
+                    require(next.moonFeeds == previous.moonFeeds);
+                    require(next.tealFeeds == previous.tealFeeds);
+                    require(next.nightFeeds == previous.nightFeeds + 1);
+                }
+            } else if(action == ACTION_TRANSFER) {
+                require(specialFeedKind == 0x00);
+                require(previous.phase == PHASE_EGG || previous.phase == PHASE_SLEEP);
+                require(next.owner != previous.owner);
+                require(next.phase == previous.phase);
+                require(next.warmed == previous.warmed);
+                require(next.anchorDaa == previous.anchorDaa);
+                require(next.sleepStartedDaa == previous.sleepStartedDaa);
+                unchangedProgress(previous, next);
+            } else if(action == ACTION_GROW) {
+                require(specialFeedKind == 0x00);
+                require(previous.phase == PHASE_ALIVE);
+                require(next.owner == previous.owner);
+                require(next.phase == PHASE_ALIVE);
+                require(next.warmed == previous.warmed);
+                require(next.carePoints == previous.carePoints);
+                require(next.activeDays == previous.activeDays);
+                require(next.nameHash == previous.nameHash);
+                require(next.anchorDaa == previous.anchorDaa);
+                require(next.sleepStartedDaa == previous.sleepStartedDaa);
+                require(next.boneFeeds == previous.boneFeeds);
+                require(next.bloodFeeds == previous.bloodFeeds);
+                require(next.moonFeeds == previous.moonFeeds);
+                require(next.tealFeeds == previous.tealFeeds);
+                require(next.nightFeeds == previous.nightFeeds);
+                require(int(next.growthStage) == int(previous.growthStage) + 1);
+                if(next.growthStage == 0x01) {
+                    require(previous.carePoints >= 7);
+                    require(previous.activeDays >= 7);
+                    require(next.specialization == previous.specialization);
+                } else if(next.growthStage == 0x02) {
+                    require(previous.carePoints >= 21);
+                    require(previous.activeDays >= 21);
+                    if(previous.boneFeeds == 0 && previous.bloodFeeds == 0 &&
+                       previous.moonFeeds == 0 && previous.tealFeeds == 0 &&
+                       previous.nightFeeds == 0) {
+                        require(next.specialization == 0x00);
+                    } else if(next.specialization == 0x01) {
+                        require(previous.boneFeeds >= previous.bloodFeeds);
+                        require(previous.boneFeeds >= previous.moonFeeds);
+                        require(previous.boneFeeds >= previous.tealFeeds);
+                        require(previous.boneFeeds >= previous.nightFeeds);
+                    } else if(next.specialization == 0x02) {
+                        require(previous.bloodFeeds >= previous.boneFeeds);
+                        require(previous.bloodFeeds >= previous.moonFeeds);
+                        require(previous.bloodFeeds >= previous.tealFeeds);
+                        require(previous.bloodFeeds >= previous.nightFeeds);
+                    } else if(next.specialization == 0x03) {
+                        require(previous.moonFeeds >= previous.boneFeeds);
+                        require(previous.moonFeeds >= previous.bloodFeeds);
+                        require(previous.moonFeeds >= previous.tealFeeds);
+                        require(previous.moonFeeds >= previous.nightFeeds);
+                    } else if(next.specialization == 0x04) {
+                        require(previous.tealFeeds >= previous.boneFeeds);
+                        require(previous.tealFeeds >= previous.bloodFeeds);
+                        require(previous.tealFeeds >= previous.moonFeeds);
+                        require(previous.tealFeeds >= previous.nightFeeds);
+                    } else {
+                        require(next.specialization == 0x05);
+                        require(previous.nightFeeds >= previous.boneFeeds);
+                        require(previous.nightFeeds >= previous.bloodFeeds);
+                        require(previous.nightFeeds >= previous.moonFeeds);
+                        require(previous.nightFeeds >= previous.tealFeeds);
+                    }
+                } else {
+                    require(next.growthStage == 0x03);
+                    require(previous.carePoints >= 69);
+                    require(previous.activeDays >= 69);
+                    require(next.specialization == previous.specialization);
+                }
+            } else if(action == ACTION_NAME) {
+                require(specialFeedKind == 0x00);
+                require(previous.phase == PHASE_ALIVE);
+                require(next.owner == previous.owner);
+                require(next.phase == previous.phase);
+                require(next.warmed == previous.warmed);
+                require(next.nameHash != previous.nameHash);
+                require(next.carePoints == previous.carePoints);
+                require(next.activeDays == previous.activeDays);
+                require(next.growthStage == previous.growthStage);
+                require(next.specialization == previous.specialization);
+                require(next.anchorDaa == previous.anchorDaa);
+                require(next.sleepStartedDaa == previous.sleepStartedDaa);
+                require(next.boneFeeds == previous.boneFeeds);
+                require(next.bloodFeeds == previous.bloodFeeds);
+                require(next.moonFeeds == previous.moonFeeds);
+                require(next.tealFeeds == previous.tealFeeds);
+                require(next.nightFeeds == previous.nightFeeds);
+            } else if(action == ACTION_SLEEP) {
+                require(specialFeedKind == 0x00);
+                require(previous.phase == PHASE_ALIVE);
+                require(actionDaa - previous.anchorDaa < THREE_DAYS_DAA);
+                require(next.owner == previous.owner);
+                require(next.phase == PHASE_SLEEP);
+                require(next.warmed == previous.warmed);
+                require(next.anchorDaa == previous.anchorDaa);
+                require(next.sleepStartedDaa == actionDaa);
+                unchangedProgress(previous, next);
+            } else {
+                require(specialFeedKind == 0x00);
+                require(action == ACTION_WAKE);
+                require(previous.phase == PHASE_SLEEP);
+                require(previous.sleepStartedDaa >= previous.anchorDaa);
+                require(actionDaa - previous.sleepStartedDaa >= DAY_DAA);
+                require(next.owner == previous.owner);
+                require(next.phase == PHASE_ALIVE);
+                require(next.warmed == previous.warmed);
+                require(next.anchorDaa == actionDaa - (previous.sleepStartedDaa - previous.anchorDaa));
+                require(next.sleepStartedDaa == 0);
+                unchangedProgress(previous, next);
+            }
+        }
+    }
+}

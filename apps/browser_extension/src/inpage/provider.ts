@@ -107,6 +107,8 @@ class KaspireProvider {
   sendKaspa(params: unknown) { return this.request({ method: "sendKaspa", params }); }
   sendKRC20(params: unknown) { return this.request({ method: "sendKRC20", params }); }
   sendKCC20(params: unknown) { return this.request({ method: "sendKCC20", params }); }
+  mintCovenantWyrm(params: unknown) { return this.request({ method: "mintCovenantWyrm", params }); }
+  actCovenantWyrm(params: unknown) { return this.request({ method: "actCovenantWyrm", params }); }
   signPskt(first: unknown, options?: unknown) { return this.request({ method: "signPskt", params: typeof first === "string" ? { txJsonString: first, options } : first }); }
   pushTx(transaction: string) { return this.request({ method: "pushTx", params: transaction }); }
   signPolicyTransaction(params: unknown) { return this.request({ method: "signPolicyTransaction", params }); }

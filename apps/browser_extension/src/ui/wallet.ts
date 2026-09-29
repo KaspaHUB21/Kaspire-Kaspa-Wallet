@@ -829,7 +829,7 @@ function legacySend(asset: any) {
 }
 function recipients() {
   const items = [
-    ...status.addresses.map((item: any) => ({
+    ...status.addresses.filter((item: any) => item.receiveRotation !== true).map((item: any) => ({
       name: `My wallet · ${item.name}`,
       address: item.address,
     })),
@@ -844,7 +844,7 @@ function walletCard(item: any) {
 function wallets() {
   const signing = status.addresses.filter(
     (item: any) =>
-      !item.watchOnly && (status.settings.showSubwallets || item.index === 0),
+      !item.watchOnly && item.receiveRotation !== true && (status.settings.showSubwallets || item.index === 0),
   );
   const watches = status.addresses.filter((item: any) => item.watchOnly);
   shell(
@@ -1078,7 +1078,7 @@ function settingsDetail() {
     );
   else if (view === "display")
     shell(
-      `<section class="form-page"><h1>Wallet display</h1><div class="form"><label>Currency<select id="currency">${["USD", "EUR", "GBP", "AUD", "CAD", "JPY", "CNY", "CHF", "INR", "BRL", "KRW"].map((code) => `<option ${status.settings.currency === code ? "selected" : ""}>${code}</option>`).join("")}</select></label><label>Kaspire design<select id="theme">${["midnight", "emerald", "amethyst", "sakura", "crimson", "phoenix", "cypherpunk", "hub21"].map((theme) => `<option ${status.settings.theme === theme ? "selected" : ""} value="${theme}">${theme === "hub21" ? "HUB21" : theme}</option>`).join("")}</select></label>${toggle("show-subwallets", "Show subwallets", status.settings.showSubwallets)}${toggle("hide", "Privacy: hide wallet amounts", status.settings.hideBalances)}</div></section>`,
+      `<section class="form-page"><h1>Wallet display</h1><div class="form"><label>Currency<select id="currency">${["USD", "EUR", "GBP", "AUD", "CAD", "JPY", "CNY", "CHF", "INR", "BRL", "KRW"].map((code) => `<option ${status.settings.currency === code ? "selected" : ""}>${code}</option>`).join("")}</select></label><label>Kaspire design<select id="theme">${["midnight", "emerald", "amethyst", "sakura", "crimson", "phoenix", "cypherpunk", "hub21", "glacier"].map((theme) => `<option ${status.settings.theme === theme ? "selected" : ""} value="${theme}">${theme === "hub21" ? "HUB21" : theme === "glacier" ? "Glacier" : theme}</option>`).join("")}</select></label>${toggle("show-subwallets", "Show subwallets", status.settings.showSubwallets)}${toggle("hide", "Privacy: hide wallet amounts", status.settings.hideBalances)}</div></section>`,
       "WALLET DISPLAY",
       true,
     );
@@ -1323,7 +1323,7 @@ function contactForm() {
 }
 function myWallets() {
   shell(
-    `<section class="wallets-screen"><p class="eyebrow">ADDRESS BOOK</p><h1>My wallets</h1><div class="wallet-list">${status.addresses.map((item: any) => `<article class="my-wallet"><span class="wallet-symbol">${item.watchOnly ? "◎" : "▣"}</span><span><b>${esc(item.name)}</b><small>${esc(item.watchOnly ? "Watch wallet" : item.path)}</small><code>${esc(item.address)}</code></span><button class="mini own-copy" data-address="${esc(item.address)}">COPY</button></article>`).join("")}</div></section>`,
+    `<section class="wallets-screen"><p class="eyebrow">ADDRESS BOOK</p><h1>My wallets</h1><div class="wallet-list">${status.addresses.filter((item: any) => item.receiveRotation !== true).map((item: any) => `<article class="my-wallet"><span class="wallet-symbol">${item.watchOnly ? "◎" : "▣"}</span><span><b>${esc(item.name)}</b><small>${esc(item.watchOnly ? "Watch wallet" : item.path)}</small><code>${esc(item.address)}</code></span><button class="mini own-copy" data-address="${esc(item.address)}">COPY</button></article>`).join("")}</div></section>`,
     "MY WALLETS",
     true,
   );
@@ -1339,14 +1339,76 @@ async function receive() {
   const current = status.addresses.find(
     (item: any) => item.address === status.selectedAddress,
   );
-  const address = isL2() ? await command("evmAddress") : status.selectedAddress;
-  shell(
-    `<section class="receive"><div class="receive-icon">↓</div><p class="eyebrow">RECEIVE ${networkLabel()}</p><h1>${esc(current?.name ?? "Wallet")}</h1><div class="receive-qr"><img id="receive-qr" alt="QR code for the receive address"></div><div class="address-full">${esc(address)}</div><button id="copy">COPY ADDRESS</button><p>${isL2() ? "Share this address only for L2 payments and assets." : "Only send assets for the selected Kaspa network."}</p></section>`,
-    "RECEIVE",
-    true,
-  );
+  const l2 = isL2();
+  const account = l2 ? null : await command("receiveAccount");
+  const available = account?.addresses ?? [];
+  const requested = String(context.receiveAddress ?? "");
+  const selectedAddress = available.some((item: any) => item.address === requested)
+    ? requested
+    : account?.primaryAddress ?? status.selectedAddress;
+  const address = l2 ? await command("evmAddress") : selectedAddress;
+  const selectedMeta = available.find((item: any) => item.address === address);
+  const addressLabel = selectedMeta
+    ? (selectedMeta.index === 0 ? "Primary receive address" : "Receive address " + selectedMeta.index) +
+      " · " + esc(selectedMeta.path)
+    : "";
+  const html =
+    '<section class="receive"><div class="receive-icon">↓</div><p class="eyebrow">RECEIVE ' +
+    networkLabel() + '</p><h1>' + esc(current?.name ?? "Wallet") +
+    '</h1><div class="receive-qr"><img id="receive-qr" alt="QR code for the receive address"></div>' +
+    '<div class="address-full">' + esc(address) + '</div><div class="receive-actions">' +
+    '<button id="copy">COPY ADDRESS</button>' +
+    (!l2 && available.length > 1 ? '<button id="choose-receive" class="outline">RECEIVE ADDRESSES</button>' : "") +
+    '</div>' +
+    (!l2 && account?.canRotate ? '<button id="rotate-receive" class="outline rotate-receive">GENERATE NEW RECEIVE ADDRESS</button>' : "") +
+    '<p>' + (l2
+      ? "Share this address only for L2 payments and assets."
+      : "Rotated addresses are combined into one KAS account balance and activity history. Use the primary address for KRC20, KRC721, KNS and KCC20 assets.") +
+    '</p>' + (addressLabel ? '<small class="receive-index">' + addressLabel + '</small>' : "") +
+    '<p id="receive-error" class="error"></p></section>';
+  shell(html, "RECEIVE", true);
   document.querySelector<HTMLButtonElement>("#copy")!.onclick = () =>
     copy(address, "Address copied");
+  document.querySelector<HTMLButtonElement>("#choose-receive")?.addEventListener("click", () => {
+    const overlay = document.createElement("div");
+    overlay.className = "kaspire-modal";
+    const rows = [...available].reverse().map((item: any) =>
+      '<button class="recipient-row" data-receive-address="' + esc(item.address) + '"><span>↻</span><span><b>' +
+      (item.index === 0 ? "Primary receive address" : "Receive address " + item.index) +
+      '</b><small>' + esc(item.path) + " · " + short(item.address) + "</small></span></button>"
+    ).join("");
+    overlay.innerHTML =
+      '<section class="recipient-sheet"><div class="sheet-title"><h2>Receive addresses</h2>' +
+      '<button id="close-receive-list" class="icon">×</button></div>' +
+      '<p class="muted">All addresses belong to the same recovery phrase and KAS account.</p>' +
+      rows + "</section>";
+    document.body.append(overlay);
+    overlay.querySelector<HTMLButtonElement>("#close-receive-list")!.onclick = () => overlay.remove();
+    overlay.querySelectorAll<HTMLButtonElement>("[data-receive-address]").forEach((button) => {
+      button.onclick = async () => {
+        context.receiveAddress = button.dataset.receiveAddress;
+        overlay.remove();
+        await render();
+      };
+    });
+  });
+  document.querySelector<HTMLButtonElement>("#rotate-receive")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    const error = document.querySelector<HTMLElement>("#receive-error")!;
+    button.disabled = true;
+    button.textContent = "GENERATING…";
+    error.textContent = "";
+    try {
+      const result = await persistentCommand("rotateReceiveAddress");
+      context.receiveAddress = result.address;
+      toast("Receive address " + result.index + " is ready.");
+      await render();
+    } catch (caught) {
+      error.textContent = (caught as Error).message;
+      button.disabled = false;
+      button.textContent = "GENERATE NEW RECEIVE ADDRESS";
+    }
+  });
   document.querySelector<HTMLImageElement>("#receive-qr")!.src = await QRCode.toDataURL(address, {
     width: 260,
     margin: 2,
@@ -1815,7 +1877,7 @@ function assetTransferReview(prepared: any) {
 function recipientPicker() {
   const overlay = document.createElement("div");
   overlay.className = "kaspire-modal";
-  const own = status.addresses.map((item: any) => ({
+  const own = status.addresses.filter((item: any) => item.receiveRotation !== true).map((item: any) => ({
     ...item,
     detail: item.watchOnly ? "Watch wallet" : item.path,
   }));

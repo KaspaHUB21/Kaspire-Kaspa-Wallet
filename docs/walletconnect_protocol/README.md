@@ -17,6 +17,8 @@ methods: kaspa_getAccounts
          kaspa_sendKrc20
          kaspa_sendKrc721
          kaspa_sendKcc20
+         kaspa_mintCovenantWyrm
+         kaspa_actCovenantWyrm
          kaspa_signPskt
          kaspa_signVaultTransaction
 events:  accountsChanged
@@ -141,6 +143,21 @@ KCC20 requests identify the token by its 64-hex covenant ID and use an exact raw
 Kaspire uses `kcc20.info` as its primary owner-balance, history and signing-data indexer. Kascov is used only when the primary service fails or explicitly reports an incomplete historical cell mapping. Kaspire accepts only indexer-verified tokens with a complete live-cell mapping. The native core recompiles each current and future KCC20 state from the vendored SilverScript source, compares the current state hashes, enforces token and transaction-value conservation, applies Toccata compute budgets and exactly 100 sompi/g, signs a typed version-1 transaction, and executes every input locally using its exact Mainnet script-unit allowance. Kascov's optional preflight is retained as advisory diagnostics; its fee field is never used. The signed transaction is broadcast through a compute-budget-preserving Toccata wRPC node, whose verdict is authoritative, and the returned transaction ID must match the locally signed ID.
 
 The wallet fetches untrusted UTXOs itself, then the native Rust core reconstructs the transaction and derives the confirmation screen from the canonical result. Human-readable dApp metadata is never accepted as proof of transaction contents. Every payment, KRC-20/KRC-721 transfer and personal signature receives fresh explicit confirmation and biometric or PIN approval.
+
+## Covenant Wyrms / Dragons
+
+Android exposes `kaspa_mintCovenantWyrm` and `kaspa_actCovenantWyrm` for the
+current private Mainnet prototype. Mint requests bind `serial`, `element` and
+the approved owner; action requests bind the live Wyrm outpoint, action and
+next state. Both flows are constructed, simulated and reviewed by the native
+Rust core. Kaspire independently checks the accepted creating transaction,
+output index, covenant ID, value, script, owner and current live UTXO before
+signing.
+
+The current rollout is deliberately restricted to GothDAG, the configured
+test owner and the reserved prototype serial/element set. Requests outside
+that boundary fail closed. These methods are not a general public mint API;
+unrelated covenant applications should use the reviewed PSKT interface.
 
 ## Generic PSKT signing
 

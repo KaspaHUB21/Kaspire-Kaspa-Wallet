@@ -32,6 +32,8 @@ class DappSessionService {
     'kaspa_sendKrc20',
     'kaspa_sendKrc721',
     'kaspa_sendKcc20',
+    'kaspa_mintCovenantWyrm',
+    'kaspa_actCovenantWyrm',
     'kaspa_signPskt',
     'kaspa_signVaultTransaction',
   };
@@ -435,6 +437,9 @@ class DappSessionService {
 
   String dappName(String topic) =>
       activeSessions()[topic]?.peer.metadata.name ?? 'Unknown dApp';
+
+  String dappUrl(String topic) =>
+      activeSessions()[topic]?.peer.metadata.url ?? '';
 
   Future<void> respondResult(SessionRequestEvent request, Object? result) =>
       _walletKit!.respondSessionRequest(

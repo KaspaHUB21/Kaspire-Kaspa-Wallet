@@ -2194,6 +2194,105 @@ class KaspaApi {
     }
   }
 
+  Future<void> verifyWyrmCell(Map<String, Object?> cell) async {
+    final transactionId = cell["transactionId"]?.toString().toLowerCase() ?? "";
+    final covenantId = cell["covenantId"]?.toString().toLowerCase() ?? "";
+    final outputAddress = cell["outputAddress"]?.toString() ?? "";
+    final index = _nullableInt(cell["index"]);
+    final valueSompi = _nullableInt(cell["valueSompi"]);
+    final expectedScript = _normalizeScriptPublicKey(cell["scriptPublicKey"]);
+    if (!RegExp(r"^[0-9a-f]{64}$").hasMatch(transactionId) ||
+        !RegExp(r"^[0-9a-f]{64}$").hasMatch(covenantId) ||
+        !RegExp(r"^kaspa:[a-z0-9]{61,63}$").hasMatch(outputAddress) ||
+        index == null ||
+        index < 0 ||
+        valueSompi == null ||
+        valueSompi <= 0 ||
+        expectedScript.isEmpty) {
+      throw KaspaApiException("Invalid Covenant Wyrm cell descriptor.");
+    }
+    final transaction = _map(await _get(
+      "/local-node/transactions/${Uri.encodeComponent(transactionId)}",
+    ));
+    if (transaction["transaction_id"]?.toString().toLowerCase() !=
+            transactionId ||
+        transaction["is_accepted"] != true) {
+      throw KaspaApiException(
+          "The local Kaspa node did not confirm the Covenant Wyrm transaction.");
+    }
+    final outputs =
+        (transaction["outputs"] as List? ?? const []).whereType<Map>();
+    Map<Object?, Object?>? output;
+    for (final candidate in outputs) {
+      if (_nullableInt(candidate["index"]) == index) {
+        output = candidate;
+        break;
+      }
+    }
+    final nodeScript = _normalizeScriptPublicKey(
+        output?["script_public_key"] ?? output?["scriptPublicKey"]);
+    final nodeAddress =
+        (output?["script_public_key_address"] ?? output?["address"])
+            ?.toString();
+    if (output == null ||
+        output["covenant_id"]?.toString().toLowerCase() != covenantId ||
+        _nullableInt(output["amount"]) != valueSompi ||
+        nodeScript != expectedScript ||
+        nodeAddress != outputAddress) {
+      throw KaspaApiException(
+          "Covenant Wyrm data conflicts with the local Kaspa node.");
+    }
+    final live = await _get(
+      "/local-node/addresses/${Uri.encodeComponent(outputAddress)}/utxos",
+    );
+    if (live is! List ||
+        !live.whereType<Map>().any((raw) {
+          final outpoint = raw["outpoint"];
+          final entry = raw["utxoEntry"];
+          if (outpoint is! Map || entry is! Map) return false;
+          final script = entry["scriptPublicKey"];
+          return (outpoint["transactionId"] ?? outpoint["transaction_id"])
+                      ?.toString()
+                      .toLowerCase() ==
+                  transactionId &&
+              _nullableInt(outpoint["index"]) == index &&
+              _nullableInt(entry["amount"]) == valueSompi &&
+              _normalizeScriptPublicKey(script is Map
+                      ? (script["scriptPublicKey"] ??
+                          script["script_public_key"])
+                      : script) ==
+                  expectedScript &&
+              entry["isCoinbase"] != true;
+        })) {
+      throw KaspaApiException(
+          "The local Kaspa node reports that this Covenant Wyrm cell is no longer spendable.");
+    }
+  }
+
+  Future<String> waitForTransactionUtxos(
+      String address, String transactionId) async {
+    for (var attempt = 0; attempt < 45; attempt += 1) {
+      final raw = await loadUtxos(address);
+      final decoded = jsonDecode(raw);
+      final selected = decoded is List
+          ? decoded
+              .where((item) =>
+                  item is Map &&
+                  item["outpoint"] is Map &&
+                  (item["outpoint"]["transactionId"] ??
+                              item["outpoint"]["transaction_id"])
+                          ?.toString()
+                          .toLowerCase() ==
+                      transactionId.toLowerCase())
+              .toList()
+          : const [];
+      if (selected.isNotEmpty) return jsonEncode(selected);
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
+    throw KaspaApiException(
+        "The Wyrm action commit was not confirmed in time.");
+  }
+
   static void validateUtxos(List<Object?> decoded, String address) {
     final seen = <String>{};
     for (final raw in decoded) {

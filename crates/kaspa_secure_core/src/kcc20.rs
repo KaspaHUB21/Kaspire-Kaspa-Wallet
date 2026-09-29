@@ -958,7 +958,7 @@ pub(crate) fn simulate_all(transaction: &Transaction, entries: &[UtxoEntry]) -> 
     Ok(())
 }
 
-fn submit_json_v1(transaction: &Transaction) -> Result<String> {
+pub(crate) fn submit_json_v1(transaction: &Transaction) -> Result<String> {
     let value = transaction_json(transaction, false);
     serde_json::to_string(&json!({"transaction": value, "allowOrphan": false}))
         .map_err(|_| CoreError::Serialization)

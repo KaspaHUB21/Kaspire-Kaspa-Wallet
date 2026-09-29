@@ -53,14 +53,19 @@ import {
   nftRarity,
   resolveWalletInput,
   spendingData,
+  spendingDataForAddresses,
   tokenMarket,
   verifyKrc721Ownership,
+  verifyWyrmCell,
   waitForUtxo,
   walletAssets,
   walletAssetCategory,
   walletBalance,
+  walletBalanceForAddresses,
   walletCoreSnapshot,
+  walletCoreSnapshotForAddresses,
   walletHistory,
+  walletHistoryForAddresses,
   walletSnapshot,
 } from "./api";
 import {
@@ -97,6 +102,8 @@ const l1ProviderMethods = new Set<ProviderMethod>([
   "sendKaspa",
   "sendKRC20",
   "sendKCC20",
+  "mintCovenantWyrm",
+  "actCovenantWyrm",
   "signPskt",
   "pushTx",
   "signPolicyTransaction",
@@ -110,6 +117,8 @@ const unlockProviderMethods = new Set<ProviderMethod>([
   "sendKaspa",
   "sendKRC20",
   "sendKCC20",
+  "mintCovenantWyrm",
+  "actCovenantWyrm",
   "signPskt",
   "signPolicyTransaction",
   "transferKRC721",
@@ -132,6 +141,34 @@ let sessionVault: VaultPayload | null = null;
 let sessionPassword: string | null = null;
 let lastActivity = 0;
 let sessionGeneration = 0;
+
+function kasAccountEntries(state: Awaited<ReturnType<typeof loadState>>, requested?: string | null) {
+  const selected = state.addresses.find((item) => item.address === (requested ?? state.selectedAddress));
+  if (!selected) return [];
+  if (selected.watchOnly || selected.path === "private-key" || selected.change !== 0 ||
+      (selected.index !== 0 && selected.receiveRotation !== true)) return [selected];
+  const members = state.addresses
+    .filter((item) => !item.watchOnly && item.walletId === selected.walletId &&
+      item.coinType === selected.coinType && item.account === selected.account &&
+      item.change === 0 && (item.index === 0 || item.receiveRotation === true))
+    .sort((left, right) => left.index - right.index);
+  return members.some((item) => item.index === 0) ? members : [selected];
+}
+
+function kasAccountPrimary(state: Awaited<ReturnType<typeof loadState>>, requested?: string | null) {
+  const entries = kasAccountEntries(state, requested);
+  return entries.find((item) => item.index === 0) ?? entries[0];
+}
+
+function isProviderNetwork(network: KaspaNetwork) { return network === "kasplex" || network === "igra"; }
+
+function kasAccountSigners(state: Awaited<ReturnType<typeof loadState>>, requested?: string | null) {
+  const entries = kasAccountEntries(state, requested);
+  return entries.length < 2 ? [] : entries.map((item) => ({
+    address: item.address,
+    derivationPath: item.path,
+  }));
+}
 let offscreenCreation: Promise<void> | null = null;
 // Secrets exist only in volatile extension memory while unlocked. Chrome
 // session storage contains only the activity timestamp and an unguessable
@@ -332,19 +369,91 @@ async function walletCommand(
     return JSON.parse(
       (await core()).mnemonicWordStatus(String(message.phrase ?? "")),
     );
+  if (message.command === "receiveAccount") {
+    if (!state.selectedAddress) throw new Error("No wallet is selected.");
+    const entries = kasAccountEntries(state);
+    const primary = kasAccountPrimary(state);
+    if (!primary) throw new Error("No wallet is selected.");
+    const wallet = sessionVault?.wallets.find((item) => item.id === primary.walletId);
+    return {
+      primaryAddress: primary.address,
+      addresses: entries.map((item) => ({
+        address: item.address,
+        path: item.path,
+        index: item.index,
+        receiveRotation: item.receiveRotation === true,
+      })),
+      canRotate: !primary.watchOnly && wallet?.type === "mnemonic" && !isProviderNetwork(state.network),
+    };
+  }
+  if (message.command === "rotateReceiveAddress") {
+    if (!sessionVault || !state.selectedAddress) throw new Error("Unlock a signing wallet first.");
+    if (state.network === "kasplex" || state.network === "igra")
+      throw new Error("Receive-address rotation is available for Kaspa Layer 1 and TN10 only.");
+    const primary = kasAccountPrimary(state);
+    const wallet = sessionVault.wallets.find((item) => item.id === primary?.walletId);
+    if (!primary || primary.watchOnly || wallet?.type !== "mnemonic" || primary.index !== 0 || primary.change !== 0)
+      throw new Error("Select an HD wallet primary address to rotate receive addresses.");
+    const accountRows = state.addresses
+      .filter((item) => item.walletId === primary.walletId && item.coinType === primary.coinType &&
+        item.account === primary.account && item.change === 0)
+      .sort((left, right) => right.index - left.index);
+    let trailingUnused = 0;
+    for (const item of accountRows.slice(0, 20)) {
+      const history = await walletHistory(item.address, state.network);
+      if (history.length) break;
+      trailingUnused += 1;
+    }
+    if (trailingUnused >= 20)
+      throw new Error("The safe unused-address limit has been reached. Receive funds on an existing address before rotating again.");
+    const nextIndex = Math.max(-1, ...accountRows.map((item) => item.index)) + 1;
+    if (!Number.isSafeInteger(nextIndex) || nextIndex < 1 || nextIndex > 0x7fffffff)
+      throw new Error("The next receive-address index is invalid.");
+    if (!(await approve({
+      origin: "Kaspire Wallet",
+      title: "Generate a new receive address?",
+      description: "The new address remains part of this KAS account. Balances, activity and spendable UTXOs stay combined.",
+      details: [primary.name, `Address index: ${nextIndex}`, "KRC20, KRC721, KNS and KCC20 ownership remains address-specific."],
+    }))) throw rpc(4001, "Receive-address rotation rejected.");
+    const wasm = await core();
+    const derived = JSON.parse(wasm.deriveAddressRange(
+      wallet.secret, primary.coinType, primary.account, 0, nextIndex, 1,
+    ))[0];
+    if (!derived || typeof derived.address !== "string" || typeof derived.derivationPath !== "string")
+      throw new Error("Address derivation returned no receive address.");
+    const address = wasm.addressWithPrefix(derived.address, state.network === "testnet-10");
+    if (state.addresses.some((item) => item.address.toLowerCase() === address.toLowerCase()))
+      throw new Error("The derived receive address already exists.");
+    state.addresses.push({
+      address, name: primary.name, path: derived.derivationPath, watchOnly: false,
+      walletId: primary.walletId, coinType: primary.coinType, account: primary.account,
+      change: 0, index: nextIndex, receiveRotation: true,
+    });
+    await saveState(state);
+    return { address, path: derived.derivationPath, index: nextIndex };
+  }
   if (message.command === "snapshot") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
     if (state.network === "kasplex" || state.network === "igra") return evmWalletSnapshot(state);
-    return walletSnapshot(state.selectedAddress, state.network);
+    const entries = kasAccountEntries(state);
+    const primary = kasAccountPrimary(state);
+    if (!primary) throw new Error("No wallet is selected.");
+    const [coreSnapshot, assets] = await Promise.all([
+      walletCoreSnapshotForAddresses(entries.map((item) => item.address), state.network),
+      walletAssets(primary.address, state.network),
+    ]);
+    return { ...coreSnapshot, assets, transactions: assets.transactions };
   }
   if (message.command === "coreSnapshot") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
-    return walletCoreSnapshot(state.selectedAddress, state.network);
+    const entries = kasAccountEntries(state);
+    return walletCoreSnapshotForAddresses(entries.map((item) => item.address), state.network);
   }
   if (message.command === "balanceSnapshot") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
     if (state.network === "kasplex" || state.network === "igra") return evmWalletSnapshot(state);
-    return walletBalance(state.selectedAddress, state.network);
+    const entries = kasAccountEntries(state);
+    return walletBalanceForAddresses(entries.map((item) => item.address), state.network);
   }
   if (message.command === "assetCategory") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
@@ -489,7 +598,10 @@ async function walletCommand(
       const { address } = await evmContext(state);
       return evmHistory(state.network, address);
     }
-    return activityHistory(state.selectedAddress, state.network);
+    const primary = kasAccountPrimary(state);
+    const entries = kasAccountEntries(state);
+    if (!primary) throw new Error("No wallet is selected.");
+    return activityHistory(primary.address, state.network, entries.map((item) => item.address));
   }
   if (message.command === "market") {
     return state.network === "mainnet"
@@ -1397,6 +1509,7 @@ async function walletCommand(
         "phoenix",
         "cypherpunk",
         "hub21",
+        "glacier",
       ].includes(next?.theme)
     )
       state.settings.theme = next.theme;
@@ -1517,13 +1630,17 @@ async function walletCommand(
     );
     if (!entry || entry.watchOnly || !wallet)
       throw new Error("Selected wallet cannot sign.");
-    const spend = await spendingData(entry.address, state.network);
+    const account = kasAccountEntries(state, entry.address);
+    const primary = kasAccountPrimary(state, entry.address) ?? entry;
+    const signers = kasAccountSigners(state, entry.address);
+    const spend = await spendingDataForAddresses(account.map((item) => item.address), state.network);
     const request = {
-      sender: entry.address,
+      sender: primary.address,
       recipient,
       amountSompi: amount,
       feeRate: spend.feeRate,
       utxosJson: spend.utxosJson,
+      signers,
       sendAll,
     };
     const wasm = await core();
@@ -1546,7 +1663,7 @@ async function walletCommand(
       throw rpc(4001, "Payment rejected.");
     const signed = JSON.parse(
       wasm.signTransaction(
-        signingSecret(wallet, entry),
+        kasTransactionSecret(wallet, primary, signers),
         JSON.stringify(request),
         review.reviewHash,
       ),
@@ -1567,7 +1684,10 @@ async function walletCommand(
     );
     if (!entry || entry.watchOnly || !wallet)
       throw new Error("Selected wallet cannot sign.");
-    const spend = await spendingData(entry.address, state.network);
+    const account = kasAccountEntries(state, entry.address);
+    const primary = kasAccountPrimary(state, entry.address) ?? entry;
+    const signers = kasAccountSigners(state, entry.address);
+    const spend = await spendingDataForAddresses(account.map((item) => item.address), state.network);
     const allUtxos = JSON.parse(spend.utxosJson) as Array<{
       utxoEntry?: { amount?: string | number };
     }>;
@@ -1585,11 +1705,12 @@ async function walletCommand(
       })
       .slice(0, 80);
     const request = {
-      sender: entry.address,
-      recipient: entry.address,
+      sender: primary.address,
+      recipient: primary.address,
       amountSompi: 0,
       feeRate: spend.feeRate,
       utxosJson: JSON.stringify(selectedUtxos),
+      signers,
       sendAll: true,
     };
     const wasm = await core();
@@ -1610,7 +1731,7 @@ async function walletCommand(
       throw rpc(4001, "UTXO compound rejected.");
     const signed = JSON.parse(
       wasm.signTransaction(
-        signingSecret(wallet, entry),
+        kasTransactionSecret(wallet, primary, signers),
         JSON.stringify(request),
         review.reviewHash,
       ),
@@ -1731,6 +1852,7 @@ async function walletCommand(
         index: item.index,
         used: true,
         explicit: true,
+        receiveRotation: item.receiveRotation === true,
       }));
     const backup = await createPortableBackup(password, {
       secret: wallet.secret,
@@ -1912,6 +2034,7 @@ async function walletCommand(
           account,
           change,
           index,
+          receiveRotation: item?.receiveRotation === true,
         });
       }
     if (!addresses.length)
@@ -2163,6 +2286,13 @@ function signingSecret(wallet: VaultWallet, entry: { path: string }) {
     ? `hd-path:${entry.path}:${wallet.secret}`
     : wallet.secret;
 }
+function kasTransactionSecret(
+  wallet: VaultWallet,
+  entry: { path: string },
+  signers: Array<{ address: string; derivationPath: string }>,
+) {
+  return signers.length ? wallet.secret : signingSecret(wallet, entry);
+}
 async function convertNetwork(
   state: Awaited<ReturnType<typeof loadState>>,
   network: KaspaNetwork,
@@ -2211,9 +2341,13 @@ async function convertNetwork(
   await saveState(state);
   return { network, selectedAddress: state.selectedAddress };
 }
-async function activityHistory(address: string, network: KaspaNetwork) {
+async function activityHistory(
+  address: string,
+  network: KaspaNetwork,
+  accountAddresses: string[] = [address],
+) {
   const [node, assets, kcc, stored] = await Promise.all([
-    walletHistory(address, network),
+    walletHistoryForAddresses(accountAddresses, network),
     network === "mainnet"
       ? inscriptionAssets(address).catch(() => ({ transactions: [] }))
       : Promise.resolve({ transactions: [] }),
@@ -2270,10 +2404,11 @@ async function activityHistory(address: string, network: KaspaNetwork) {
       type: String(item?.type ?? "transfer"),
     };
   });
+  const ownedAddresses = new Set(accountAddresses.map((item) => item.toLowerCase()));
   const local = (
     Array.isArray(stored.walletActivity) ? stored.walletActivity : []
   )
-    .filter((item: any) => item?.wallet === address)
+    .filter((item: any) => ownedAddresses.has(String(item?.wallet ?? "").toLowerCase()))
     .map((item: any) => item.transaction);
   const merged = new Map<string, any>();
   for (const item of [...local, ...node, ...token, ...kcc]) {
@@ -2673,7 +2808,7 @@ async function handle(
     throw rpc(4100, "The active Kaspa network is not connected for this site.");
   if (
     kaspaNetwork === "testnet-10" &&
-    ["sendKRC20", "sendKCC20", "transferKRC721", "transferKNS", "signPolicyTransaction"].includes(method)
+    ["sendKRC20", "sendKCC20", "mintCovenantWyrm", "actCovenantWyrm", "transferKRC721", "transferKNS", "signPolicyTransaction"].includes(method)
   )
     throw rpc(4200, "This asset method is available on Kaspa Mainnet only.");
   const providerState = l1ProviderMethods.has(method)
@@ -2931,13 +3066,17 @@ async function handle(
     );
     if (!entry || entry.watchOnly || !wallet)
       throw rpc(4100, "Selected wallet cannot sign.");
-    const spend = await spendingData(senderAddress, providerState.network);
+    const account = kasAccountEntries(providerState, senderAddress);
+    const primary = kasAccountPrimary(providerState, senderAddress) ?? entry;
+    const signers = kasAccountSigners(providerState, senderAddress);
+    const spend = await spendingDataForAddresses(account.map((item) => item.address), providerState.network);
     let request = {
-      sender: senderAddress,
+      sender: primary.address,
       recipient,
       amountSompi: amount,
       feeRate: spend.feeRate,
       utxosJson: spend.utxosJson,
+      signers,
       sendAll: false,
     };
     const wasm = await core();
@@ -2977,7 +3116,7 @@ async function handle(
     );
     const signed = JSON.parse(
       wasm.signTransaction(
-        signingSecret(wallet, entry),
+        kasTransactionSecret(wallet, primary, signers),
         JSON.stringify(request),
         review.reviewHash,
       ),
@@ -3137,6 +3276,10 @@ async function handle(
       reviewHash: review.reviewHash,
     };
   }
+  if (method === "mintCovenantWyrm")
+    return mintCovenantWyrm(origin, params, providerState, sessionVault);
+  if (method === "actCovenantWyrm")
+    return actCovenantWyrm(origin, params, providerState, sessionVault);
   if (method === "sendKCC20")
     return kcc20Transfer(origin, params, providerState, sessionVault);
   if (
@@ -4202,6 +4345,282 @@ async function inscriptionTransferUnsafe(
     revealTransactionId: signedReveal.transactionId,
     commitFeeSompi: commit.feeSompi,
     revealFeeSompi: reveal.feeSompi,
+  };
+}
+
+const GOTHDAG_WYRM_ORIGIN = "https://gothdag.kaslab.space";
+const GOTHDAG_WYRM_TEST_WALLET =
+  "kaspa:qp0mtdvzscrkfft702j85s8yzdl8a87n5d6pgtm8vrxg6hqu0wywzvwkevdk3";
+const WYRM_ELEMENTS = [
+  "Fire",
+  "Ice",
+  "Wind",
+  "Earth",
+  "Shadow",
+  "Light",
+  "Steel",
+  "Lightning",
+] as const;
+
+async function mintCovenantWyrm(
+  origin: string,
+  params: unknown,
+  state: Awaited<ReturnType<typeof loadState>>,
+  vault: VaultPayload,
+) {
+  if (state.network !== "mainnet")
+    throw rpc(4200, "Covenant Wyrms are available on Mainnet only.");
+  if (origin !== GOTHDAG_WYRM_ORIGIN)
+    throw rpc(4100, "Covenant Wyrm genesis is restricted to GothDAG.");
+  const input = params as any;
+  const sender = String(input?.from ?? state.selectedAddress ?? "");
+  const serial = Number(input?.serial);
+  const element = Number(input?.element);
+  if (
+    sender !== state.selectedAddress ||
+    sender !== GOTHDAG_WYRM_TEST_WALLET ||
+    !Number.isSafeInteger(serial) ||
+    serial < 1 ||
+    serial > 8 ||
+    !Number.isSafeInteger(element) ||
+    element < 0 ||
+    element >= WYRM_ELEMENTS.length ||
+    serial !== element + 1
+  )
+    throw rpc(-32602, "Invalid or unauthorized Covenant Wyrm genesis request.");
+  const entry = state.addresses.find((item) => item.address === sender);
+  const wallet = vault.wallets.find((item) => item.id === entry?.walletId);
+  if (!entry || entry.watchOnly || !wallet)
+    throw rpc(4100, "Selected wallet cannot sign.");
+
+  const funding = await spendingData(sender, state.network);
+  const request = {
+    sender,
+    serial,
+    element,
+    feeRate: funding.feeRate,
+    fundingUtxosJson: funding.utxosJson,
+  };
+  const wasm = await core();
+  const review = JSON.parse(wasm.prepareWyrmGenesis(JSON.stringify(request)));
+  if (
+    !(await approve({
+      origin,
+      title: "Mint Covenant Wyrm Genesis Egg?",
+      description:
+        "This creates a permanent Mainnet Covenant asset. The 1 KAS reserve remains locked inside the living Wyrm cell.",
+      details: [
+        "Element: " + WYRM_ELEMENTS[element],
+        "Genesis serial: " + serial + " / 287",
+        "Covenant ID: " + review.covenantId,
+        "Permanent template: " + review.templateHash,
+        "Locked reserve: " + (Number(review.reserveSompi) / 100_000_000).toFixed(8) + " KAS",
+        "Network fee: " + (Number(review.feeSompi) / 100_000_000).toFixed(8) + " KAS",
+      ],
+      rawJson: { request, review },
+    }))
+  )
+    throw rpc(4001, "Covenant Wyrm mint rejected.");
+
+  const signed = JSON.parse(
+    wasm.signWyrmGenesis(
+      signingSecret(wallet, entry),
+      JSON.stringify(request),
+      review.reviewHash,
+    ),
+  );
+  await broadcastKcc20(signed.wrpcJson, signed.transactionId);
+  await recordWalletActivity(sender, {
+    transactionId: signed.transactionId,
+    blockTime: Date.now(),
+    isAccepted: true,
+    incoming: false,
+    assetKind: "COVENANT-WYRM",
+    assetSymbol: WYRM_ELEMENTS[element],
+    displayAmount: "1 Genesis Egg",
+    tokenId: String(serial),
+    covenantId: signed.covenantId,
+    templateHash: review.templateHash,
+    counterparty: signed.covenantId,
+    from: [{ address: sender }],
+    to: [{ address: sender }],
+    feeSompi: review.feeSompi,
+    mass: review.mass,
+    storageMass: review.storageMass,
+    lockedKasSompi: review.reserveSompi,
+    type: "covenant-genesis",
+  });
+  lastActivity = Date.now();
+  return {
+    transactionId: signed.transactionId,
+    covenantId: signed.covenantId,
+    serial,
+    element,
+    templateHash: review.templateHash,
+    reserveSompi: review.reserveSompi,
+    feeSompi: review.feeSompi,
+    cell: {
+      covenantId: signed.covenantId,
+      transactionId: signed.transactionId,
+      index: 0,
+      valueSompi: signed.valueSompi,
+      outputAddress: signed.outputAddress,
+      scriptPublicKey: signed.scriptPublicKey,
+      state: signed.state,
+    },
+  };
+}
+
+async function actCovenantWyrm(
+  origin: string,
+  params: unknown,
+  state: Awaited<ReturnType<typeof loadState>>,
+  vault: VaultPayload,
+) {
+  if (state.network !== "mainnet")
+    throw rpc(4200, "Covenant Wyrms are available on Mainnet only.");
+  if (origin !== GOTHDAG_WYRM_ORIGIN)
+    throw rpc(4100, "Covenant Wyrm actions are restricted to GothDAG.");
+  const input = params as any;
+  const sender = String(input?.from ?? state.selectedAddress ?? "");
+  const action = String(input?.action ?? "");
+  const allowedActions = new Set(["incubate", "warm", "hatch", "feed", "transfer", "grow", "die", "name", "sleep", "wake", "specialFeed"]);
+  if (sender !== state.selectedAddress || !allowedActions.has(action))
+    throw rpc(-32602, "Invalid Covenant Wyrm action request.");
+  const entry = state.addresses.find((item) => item.address === sender);
+  const wallet = vault.wallets.find((item) => item.id === entry?.walletId);
+  if (!entry || entry.watchOnly || !wallet)
+    throw rpc(4100, "Selected wallet cannot sign.");
+  const cell = { ...input?.cell };
+  await verifyWyrmCell(cell);
+
+  const wasm = await core();
+  const initialFunding = await spendingData(sender, state.network);
+  const commitRequest = {
+    sender,
+    recipient: sender,
+    amountSompi: 100_000_000,
+    feeRate: initialFunding.feeRate,
+    utxosJson: initialFunding.utxosJson,
+    sendAll: false,
+  };
+  const commitReview = JSON.parse(wasm.prepareTransaction(JSON.stringify(commitRequest)));
+  if (
+    !(await approve({
+      origin,
+      title: "Commit Covenant Wyrm action?",
+      description:
+        "Step 1 of 2 creates a fresh self-owned action UTXO. Its confirmed DAA score provides the non-forgeable time used by the Wyrm covenant.",
+      details: [
+        "Action: " + action,
+        "Wyrm: #" + String(cell?.state?.serial ?? "?"),
+        "Temporary self-output: 1 KAS (returned by step 2, minus fees)",
+        "Commit fee: " + formatSompi(commitReview.feeSompi) + " KAS",
+      ],
+      rawJson: { commitRequest, commitReview, cell },
+    }))
+  )
+    throw rpc(4001, "Covenant Wyrm action rejected.");
+  const signedCommit = JSON.parse(
+    wasm.signTransaction(
+      signingSecret(wallet, entry),
+      JSON.stringify(commitRequest),
+      commitReview.reviewHash,
+    ),
+  );
+  const commitId = await broadcast(signedCommit.submitJson, state.network);
+  if (commitId && commitId !== signedCommit.transactionId)
+    throw rpc(-32000, "Node returned a mismatching Wyrm action commit ID.");
+  const allCommitUtxos = JSON.parse(
+    await waitForUtxo(sender, signedCommit.transactionId, state.network),
+  );
+  const committed = Array.isArray(allCommitUtxos)
+    ? allCommitUtxos.filter(
+        (item: any) =>
+          String(item?.outpoint?.transactionId ?? "").toLowerCase() ===
+          signedCommit.transactionId.toLowerCase(),
+      )
+    : [];
+  if (!committed.length)
+    throw rpc(-32000, "The confirmed Wyrm action UTXO could not be isolated.");
+  const transitionRequest = {
+    sender,
+    action,
+    cell,
+    recipient: String(input?.recipient ?? ""),
+    name: String(input?.name ?? ""),
+    specialFeedKind: Number(input?.specialFeedKind ?? 0),
+    specialization: Number(input?.specialization ?? 0),
+    feeRate: (await spendingData(sender, state.network)).feeRate,
+    actionUtxosJson: JSON.stringify(committed),
+  };
+  const review = JSON.parse(
+    wasm.prepareWyrmTransition(JSON.stringify(transitionRequest)),
+  );
+  if (
+    !(await approve({
+      origin,
+      title: "Apply Covenant Wyrm action?",
+      description:
+        "Step 2 consumes the current Wyrm state and creates its covenant-authorized successor.",
+      details: [
+        "Action: " + action,
+        "Wyrm: #" + review.serial + " · " + WYRM_ELEMENTS[review.element],
+        "Covenant ID: " + review.covenantId,
+        "Confirmed action DAA: " + review.actionDaaScore,
+        ...(action === "specialFeed" ? ["Special feed kind: " + String(input?.specialFeedKind ?? "?")] : []),
+        ...(action === "grow" && Number(input?.specialization ?? 0) > 0 ? ["Chosen specialization: " + String(input.specialization)] : []),
+        "Transition fee: " + formatSompi(review.feeSompi) + " KAS",
+      ],
+      rawJson: { transitionRequest, review },
+    }))
+  )
+    throw rpc(4001, "Covenant Wyrm transition rejected. The self-output remains ordinary spendable KAS.");
+  const signed = JSON.parse(
+    wasm.signWyrmTransition(
+      signingSecret(wallet, entry),
+      JSON.stringify(transitionRequest),
+      review.reviewHash,
+    ),
+  );
+  await broadcastKcc20(signed.wrpcJson, signed.transactionId);
+  await recordWalletActivity(sender, {
+    transactionId: signed.transactionId,
+    commitTransactionId: signedCommit.transactionId,
+    blockTime: Date.now(),
+    isAccepted: true,
+    incoming: false,
+    assetKind: "COVENANT-WYRM",
+    assetSymbol: WYRM_ELEMENTS[review.element],
+    displayAmount: action,
+    tokenId: String(review.serial),
+    covenantId: review.covenantId,
+    templateHash: review.templateHash,
+    counterparty: action === "transfer" ? String(input?.recipient ?? "") : review.covenantId,
+    from: [{ address: sender }],
+    to: [{ address: action === "transfer" ? String(input?.recipient ?? "") : sender }],
+    feeSompi: Number(commitReview.feeSompi) + Number(review.feeSompi),
+    mass: review.mass,
+    storageMass: review.storageMass,
+    type: "covenant-transition",
+  });
+  lastActivity = Date.now();
+  return {
+    commitTransactionId: signedCommit.transactionId,
+    transactionId: signed.transactionId,
+    covenantId: signed.covenantId,
+    action,
+    nextState: signed.nextState,
+    feeSompi: Number(commitReview.feeSompi) + Number(review.feeSompi),
+    cell: {
+      covenantId: signed.covenantId,
+      transactionId: signed.transactionId,
+      index: 0,
+      valueSompi: signed.valueSompi,
+      outputAddress: signed.outputAddress,
+      scriptPublicKey: signed.scriptPublicKey,
+      state: signed.nextState,
+    },
   };
 }
 

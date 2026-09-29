@@ -1,5 +1,5 @@
 export const PROVIDER_CHANNEL="kaspire:provider:v1";
-export const providerMethods=["requestAccounts","requestNetworkAccounts","getAccounts","getNetworkAccounts","getNetwork","switchNetwork","getPublicKey","getBalance","getUtxoEntries","disconnect","signMessage","sendKaspa","sendKRC20","sendKCC20","signPskt","pushTx","signPolicyTransaction","transferKRC721","transferKNS","eth_accounts","eth_requestAccounts","eth_chainId","wallet_switchEthereumChain","eth_sendTransaction"] as const;
+export const providerMethods=["requestAccounts","requestNetworkAccounts","getAccounts","getNetworkAccounts","getNetwork","switchNetwork","getPublicKey","getBalance","getUtxoEntries","disconnect","signMessage","sendKaspa","sendKRC20","sendKCC20","mintCovenantWyrm","actCovenantWyrm","signPskt","pushTx","signPolicyTransaction","transferKRC721","transferKNS","eth_accounts","eth_requestAccounts","eth_chainId","wallet_switchEthereumChain","eth_sendTransaction"] as const;
 export type ProviderMethod=typeof providerMethods[number]; export type KaspaNetwork="mainnet"|"testnet-10"|"kasplex"|"igra";
 export interface ProviderRequest{channel:typeof PROVIDER_CHANNEL;direction:"request";id:string;method:ProviderMethod;params?:unknown}
 export interface ProviderResponse{channel:typeof PROVIDER_CHANNEL;direction:"response";id:string;result?:unknown;error?:{code:number;message:string}}

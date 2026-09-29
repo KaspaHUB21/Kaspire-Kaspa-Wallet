@@ -9,6 +9,7 @@ export interface WalletAddress {
   account: number;
   change: number;
   index: number;
+  receiveRotation?: boolean;
 }
 export interface Contact {
   id: string;
@@ -69,7 +70,12 @@ function sanitized(raw: any): WalletState {
       : defaults.network,
     selectedAddress:
       typeof raw?.selectedAddress === "string" ? raw.selectedAddress : null,
-    addresses: Array.isArray(raw?.addresses) ? raw.addresses : [],
+    addresses: Array.isArray(raw?.addresses)
+      ? raw.addresses.map((item: any) => ({
+          ...item,
+          receiveRotation: item?.receiveRotation === true,
+        }))
+      : [],
     permissions:
       raw?.permissions && typeof raw.permissions === "object"
         ? raw.permissions

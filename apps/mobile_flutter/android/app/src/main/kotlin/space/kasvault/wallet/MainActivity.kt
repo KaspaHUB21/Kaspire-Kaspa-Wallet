@@ -345,6 +345,34 @@ class MainActivity : FlutterFragmentActivity() {
                             result,
                         )
                     }
+                    "prepareWyrmGenesis" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        resultPreparedFromCore(
+                            SecureCore.prepareWyrmGenesis(request),
+                            "signWyrmGenesis",
+                            result,
+                        )
+                    }
+                    "signWyrmGenesis" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
+                        requireAuthorization(call, "signWyrmGenesis", reviewHash)
+                        resultFromCore(SecureCore.signWyrmGenesis(decryptSecret(), request, reviewHash), result)
+                    }
+                    "prepareWyrmTransition" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        resultPreparedFromCore(
+                            SecureCore.prepareWyrmTransition(request),
+                            "signWyrmTransition",
+                            result,
+                        )
+                    }
+                    "signWyrmTransition" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
+                        requireAuthorization(call, "signWyrmTransition", reviewHash)
+                        resultFromCore(SecureCore.signWyrmTransition(decryptSecret(), request, reviewHash), result)
+                    }
                     "prepareKcc20Transfer" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         resultPreparedFromCore(

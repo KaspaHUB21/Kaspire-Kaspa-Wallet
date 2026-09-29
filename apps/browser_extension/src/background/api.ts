@@ -169,6 +169,67 @@ export async function walletHistory(
       };
     });
 }
+export async function spendingDataForAddresses(
+  addresses: string[],
+  network: KaspaNetwork,
+) {
+  const unique = [...new Set(addresses.map((item) => item.toLowerCase()))];
+  if (!unique.length) throw new Error("No account address is available.");
+  const results = await Promise.all(unique.map((address) => spendingData(address, network)));
+  const merged = new Map<string, any>();
+  for (const result of results) {
+    const rows = JSON.parse(result.utxosJson);
+    if (!Array.isArray(rows)) throw new Error("Node returned invalid account UTXOs.");
+    for (const item of rows) {
+      const id = String(item?.outpoint?.transactionId ?? "");
+      const index = Number(item?.outpoint?.index);
+      const key = id + ":" + index;
+      if (!/^[0-9a-f]{64}$/.test(id) || !Number.isSafeInteger(index) || merged.has(key))
+        throw new Error("Node returned an invalid or duplicate account UTXO.");
+      merged.set(key, item);
+    }
+  }
+  return {
+    utxosJson: JSON.stringify([...merged.values()]),
+    feeRate: Math.max(...results.map((item) => item.feeRate)),
+  };
+}
+
+export async function walletHistoryForAddresses(
+  addresses: string[],
+  network: KaspaNetwork,
+) {
+  const unique = [...new Set(addresses.map((item) => item.toLowerCase()))];
+  const owned = new Set(unique);
+  const pages = await Promise.all(unique.map((address) => walletHistory(address, network)));
+  const merged = new Map<string, any>();
+  for (const item of pages.flat()) {
+    if (!merged.has(item.transactionId)) merged.set(item.transactionId, item);
+  }
+  return [...merged.values()].map((item) => {
+    const from = Array.isArray(item.from) ? item.from : [];
+    const to = Array.isArray(item.to) ? item.to : [];
+    const ownedInput = from.filter((row: any) => owned.has(String(row.address).toLowerCase()))
+      .reduce((sum: number, row: any) => sum + Number(row.amountSompi ?? 0), 0);
+    const ownedOutput = to.filter((row: any) => owned.has(String(row.address).toLowerCase()))
+      .reduce((sum: number, row: any) => sum + Number(row.amountSompi ?? 0), 0);
+    const external = to.filter((row: any) => !owned.has(String(row.address).toLowerCase()));
+    const incoming = ownedInput === 0 && ownedOutput > 0;
+    const amountSompi = incoming
+      ? ownedOutput
+      : external.reduce((sum: number, row: any) => sum + Number(row.amountSompi ?? 0), 0);
+    return {
+      ...item,
+      incoming,
+      amountSompi,
+      displayAmount: String(amountSompi / 100_000_000),
+      counterparty: incoming
+        ? String(from.find((row: any) => row?.address)?.address ?? "")
+        : String(external.find((row: any) => row?.address)?.address ?? ""),
+    };
+  });
+}
+
 export async function marketPrice(currency: string) {
   const price = await get(`${MAINNET}/info/price`);
   const kasUsd = Number(price?.price);
@@ -799,6 +860,68 @@ export async function kcc20TransferData(
     rawBalance,
   };
 }
+export async function verifyWyrmCell(cell: any) {
+  const outputAddress = String(cell?.outputAddress ?? "");
+  const transactionId = String(cell?.transactionId ?? "").toLowerCase();
+  const covenantId = String(cell?.covenantId ?? "").toLowerCase();
+  const index = Number(cell?.index);
+  const valueSompi = Number(cell?.valueSompi);
+  const scriptPublicKey = normalizeKcc20Script(cell?.scriptPublicKey);
+  if (
+    !/^kaspa:[a-z0-9]{61,63}$/.test(outputAddress) ||
+    !/^[0-9a-f]{64}$/.test(transactionId) ||
+    !/^[0-9a-f]{64}$/.test(covenantId) ||
+    !Number.isSafeInteger(index) ||
+    index < 0 ||
+    !Number.isSafeInteger(valueSompi) ||
+    valueSompi <= 0 ||
+    !/^[0-9a-f]+$/.test(scriptPublicKey)
+  )
+    throw new Error("Invalid Covenant Wyrm cell descriptor.");
+  const transaction = await get(
+    MAINNET + "/local-node/transactions/" + encodeURIComponent(transactionId),
+  );
+  const output = (Array.isArray(transaction?.outputs) ? transaction.outputs : [])
+    .find((item: any) => Number(item?.index) === index);
+  const nodeScript = normalizeKcc20Script(
+    output?.script_public_key ?? output?.scriptPublicKey,
+  );
+  const nodeAddress = String(
+    output?.script_public_key_address ?? output?.address ?? "",
+  );
+  if (
+    String(transaction?.transaction_id ?? "").toLowerCase() !== transactionId ||
+    transaction?.is_accepted !== true ||
+    String(output?.covenant_id ?? "").toLowerCase() !== covenantId ||
+    Number(output?.amount) !== valueSompi ||
+    nodeScript !== scriptPublicKey ||
+    nodeAddress !== outputAddress
+  )
+    throw new Error("Covenant Wyrm data conflicts with the verified transaction.");
+  const live = await get(
+    MAINNET + "/local-node/addresses/" + encodeURIComponent(outputAddress) + "/utxos",
+  );
+  const match = Array.isArray(live) && live.find((item: any) => {
+    const outpoint = item?.outpoint ?? {};
+    const entry = item?.utxoEntry ?? {};
+    return (
+      String(outpoint?.transactionId ?? outpoint?.transaction_id ?? "").toLowerCase() === transactionId &&
+      Number(outpoint?.index) === index &&
+      Number(entry?.amount) === valueSompi &&
+      normalizeKcc20Script(
+        typeof entry?.scriptPublicKey === "object"
+          ? (entry.scriptPublicKey?.scriptPublicKey ??
+             entry.scriptPublicKey?.script_public_key)
+          : entry?.scriptPublicKey,
+      ) === scriptPublicKey &&
+      entry?.isCoinbase !== true
+    );
+  });
+  if (!match)
+    throw new Error("The local Kaspa node reports that this Covenant Wyrm cell is no longer spendable.");
+  return match;
+}
+
 export async function kronTransferData(
   address: string,
   covenantId: string,
@@ -1187,6 +1310,26 @@ export async function walletCoreSnapshot(
     utxos,
   };
 }
+export async function walletCoreSnapshotForAddresses(
+  addresses: string[],
+  network: KaspaNetwork,
+) {
+  const unique = [...new Set(addresses.map((item) => item.toLowerCase()))];
+  const rows = await Promise.all(unique.map((address) => walletCoreSnapshot(address, network)));
+  let balanceSompi = 0;
+  const utxos = new Map<string, any>();
+  for (const row of rows) {
+    balanceSompi += row.balanceSompi;
+    if (!Number.isSafeInteger(balanceSompi)) throw new Error("Aggregated account balance overflowed.");
+    for (const item of row.utxos) {
+      const key = String(item?.outpoint?.transactionId ?? "") + ":" + Number(item?.outpoint?.index);
+      if (utxos.has(key)) throw new Error("Node returned a duplicate account UTXO.");
+      utxos.set(key, item);
+    }
+  }
+  return { balanceSompi, balanceKas: balanceSompi / 100_000_000, utxoCount: utxos.size, utxos: [...utxos.values()] };
+}
+
 export async function walletBalance(
   address: string,
   network: KaspaNetwork,
@@ -1199,6 +1342,14 @@ export async function walletBalance(
     throw new Error("Node returned an invalid balance.");
   return { balanceSompi: sompi, balanceKas: sompi / 100_000_000 };
 }
+export async function walletBalanceForAddresses(
+  addresses: string[],
+  network: KaspaNetwork,
+) {
+  const core = await walletCoreSnapshotForAddresses(addresses, network);
+  return { balanceSompi: core.balanceSompi, balanceKas: core.balanceKas };
+}
+
 const assetCache = new Map<string, { at: number; value: any }>();
 const inscriptionCache = new Map<string, { at: number; value: any }>();
 export async function inscriptionAssets(address: string) {
@@ -1328,8 +1479,8 @@ export async function networkDiagnostics(
             url: `https://kaspatoken.kaslab.space/api/wallet/krc20/${encodeURIComponent(address)}`,
           },
           {
-            name: "KRC-20 fallback",
-            url: `https://api.kasplex.org/v1/krc20/address/${encodeURIComponent(address)}/tokenlist`,
+            name: "KRC-20 fallback · Kaspire gateway",
+            url: `https://kaspire.kaslab.space/api/krc20-fallback/address/${encodeURIComponent(address)}/tokenlist`,
           },
           {
             name: "KNS fallback",

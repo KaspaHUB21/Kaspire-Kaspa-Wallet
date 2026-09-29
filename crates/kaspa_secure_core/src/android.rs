@@ -4,11 +4,13 @@ use crate::{
     generate_wallet_with_passphrase, import_private_key, import_wallet_with_passphrase,
     prepare_evm_transaction, prepare_inscription, prepare_kcc20_transfer, prepare_kron_transfer,
     prepare_policy_transaction, prepare_pskt, prepare_reveal, prepare_tangem_commit,
-    prepare_tangem_reveal, prepare_transaction, public_key, sign_evm_transaction,
-    sign_kcc20_transfer, sign_personal_message, sign_policy_transaction, sign_pskt, sign_reveal,
-    sign_transaction, tangem_address, EvmTransactionRequest, InscriptionRequest,
+    prepare_tangem_reveal, prepare_transaction, prepare_wyrm_genesis, prepare_wyrm_transition,
+    public_key, sign_evm_transaction, sign_kcc20_transfer, sign_personal_message,
+    sign_policy_transaction, sign_pskt, sign_reveal, sign_transaction, sign_wyrm_genesis,
+    sign_wyrm_transition, tangem_address, EvmTransactionRequest, InscriptionRequest,
     Kcc20TransferRequest, KronTransferRequest, PolicyTransactionRequest, PsktRequest,
-    RevealRequest, SendRequest, TangemCommitRequest, TangemRevealRequest,
+    RevealRequest, SendRequest, TangemCommitRequest, TangemRevealRequest, WyrmGenesisRequest,
+    WyrmTransitionRequest,
 };
 
 #[unsafe(no_mangle)]
@@ -592,6 +594,84 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signTransaction(
             serde_json::from_str(&request_json).map_err(|_| "invalid request".to_string())?;
         let signed =
             sign_transaction(&phrase, &request, &review_hash).map_err(|e| e.to_string())?;
+        serde_json::to_string(&signed).map_err(|_| "serialization failed".to_string())
+    })();
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareWyrmGenesis(
+    mut env: JNIEnv,
+    _class: JClass,
+    request_json: JString,
+) -> jstring {
+    let result = read(&mut env, &request_json)
+        .and_then(|raw| {
+            serde_json::from_str::<WyrmGenesisRequest>(&raw)
+                .map_err(|_| "invalid Covenant Wyrm genesis request".to_string())
+        })
+        .and_then(|request| prepare_wyrm_genesis(&request).map_err(|error| error.to_string()))
+        .and_then(|prepared| {
+            serde_json::to_string(&prepared).map_err(|_| "serialization failed".to_string())
+        });
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signWyrmGenesis(
+    mut env: JNIEnv,
+    _class: JClass,
+    secret: JString,
+    request_json: JString,
+    review_hash: JString,
+) -> jstring {
+    let result = (|| {
+        let secret = zeroize::Zeroizing::new(read(&mut env, &secret)?);
+        let raw = read(&mut env, &request_json)?;
+        let review_hash = read(&mut env, &review_hash)?;
+        let request: WyrmGenesisRequest = serde_json::from_str(&raw)
+            .map_err(|_| "invalid Covenant Wyrm genesis request".to_string())?;
+        let signed = sign_wyrm_genesis(&secret, &request, &review_hash)
+            .map_err(|error| error.to_string())?;
+        serde_json::to_string(&signed).map_err(|_| "serialization failed".to_string())
+    })();
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareWyrmTransition(
+    mut env: JNIEnv,
+    _class: JClass,
+    request_json: JString,
+) -> jstring {
+    let result = read(&mut env, &request_json)
+        .and_then(|raw| {
+            serde_json::from_str::<WyrmTransitionRequest>(&raw)
+                .map_err(|_| "invalid Covenant Wyrm transition request".to_string())
+        })
+        .and_then(|request| prepare_wyrm_transition(&request).map_err(|error| error.to_string()))
+        .and_then(|prepared| {
+            serde_json::to_string(&prepared).map_err(|_| "serialization failed".to_string())
+        });
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signWyrmTransition(
+    mut env: JNIEnv,
+    _class: JClass,
+    secret: JString,
+    request_json: JString,
+    review_hash: JString,
+) -> jstring {
+    let result = (|| {
+        let secret = zeroize::Zeroizing::new(read(&mut env, &secret)?);
+        let raw = read(&mut env, &request_json)?;
+        let review_hash = read(&mut env, &review_hash)?;
+        let request: WyrmTransitionRequest = serde_json::from_str(&raw)
+            .map_err(|_| "invalid Covenant Wyrm transition request".to_string())?;
+        let signed = sign_wyrm_transition(&secret, &request, &review_hash)
+            .map_err(|error| error.to_string())?;
         serde_json::to_string(&signed).map_err(|_| "serialization failed".to_string())
     })();
     output(&mut env, result.unwrap_or_else(error_json))

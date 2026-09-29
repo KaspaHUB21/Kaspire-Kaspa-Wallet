@@ -1,3 +1,10 @@
+mod covenant_wyrm;
+mod covenant_wyrm_transition;
+#[cfg(test)]
+mod covenant_wyrm_transition_tests;
+mod covenant_wyrm_tx;
+#[cfg(test)]
+mod covenant_wyrm_tx_tests;
 pub mod dotk;
 mod dotk_market;
 mod dotk_sale;
@@ -27,6 +34,18 @@ use std::str::FromStr;
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
+pub use covenant_wyrm::{
+    inspect_state as inspect_covenant_wyrm_state, template_hash as covenant_wyrm_template_hash,
+    WyrmState, WyrmStateInspection, GENESIS_SUPPLY_CAP as COVENANT_WYRM_GENESIS_SUPPLY_CAP,
+};
+pub use covenant_wyrm_transition::{
+    prepare as prepare_wyrm_transition, sign as sign_wyrm_transition, PreparedWyrmTransition,
+    SignedWyrmTransition, WyrmAction, WyrmCell, WyrmTransitionRequest,
+};
+pub use covenant_wyrm_tx::{
+    prepare as prepare_wyrm_genesis, sign as sign_wyrm_genesis, PreparedWyrmGenesis,
+    SignedWyrmGenesis, WyrmGenesisRequest,
+};
 pub use evm::{
     derive_evm_address, export_evm_private_key, prepare_evm_transaction, sign_evm_transaction,
     EvmTransactionRequest, PreparedEvmTransaction, SignedEvmTransaction,

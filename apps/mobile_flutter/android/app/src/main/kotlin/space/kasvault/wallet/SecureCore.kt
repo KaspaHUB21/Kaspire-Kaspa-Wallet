@@ -21,6 +21,10 @@ object SecureCore {
     external fun deriveBackupKey(password: String, saltHex: String): String
     external fun prepareTransaction(requestJson: String): String
     external fun signTransaction(phrase: String, requestJson: String, reviewHash: String): String
+    external fun prepareWyrmGenesis(requestJson: String): String
+    external fun signWyrmGenesis(secret: String, requestJson: String, reviewHash: String): String
+    external fun prepareWyrmTransition(requestJson: String): String
+    external fun signWyrmTransition(secret: String, requestJson: String, reviewHash: String): String
     external fun prepareKcc20Transfer(requestJson: String): String
     external fun prepareKronTransfer(requestJson: String): String
     external fun signKcc20Transfer(secret: String, requestJson: String, reviewHash: String): String

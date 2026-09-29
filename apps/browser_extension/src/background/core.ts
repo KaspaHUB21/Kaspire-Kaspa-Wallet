@@ -32,6 +32,10 @@ type CoreModule = {
   signKcc20Transfer(secret: string, request: string, reviewHash: string): string;
   preparePolicyTransaction(request: string): string;
   signPolicyTransaction(secret: string, request: string, reviewHash: string): string;
+  prepareWyrmGenesis(request: string): string;
+  signWyrmGenesis(secret: string, request: string, reviewHash: string): string;
+  prepareWyrmTransition(request: string): string;
+  signWyrmTransition(secret: string, request: string, reviewHash: string): string;
 };
 
 let loading: Promise<CoreModule> | null = null;

@@ -181,6 +181,19 @@ const kcc20Code = `const transactionId = await kaspire.request<string>({
 // Kaspire discovers the standard from the covenant ID; never trust a ticker
 // supplied by the dApp as the asset identity.`;
 
+const wyrmCode = `const minted = await kaspire.request({
+  method: "mintCovenantWyrm",
+  params: { serial: 1, element: 0 }
+});
+
+const transitioned = await kaspire.request({
+  method: "actCovenantWyrm",
+  params: {
+    cell: minted.cell,
+    action: "feed"
+  }
+});`;
+
 const psktCode = `const signedTxJson = await kaspire.request<string>({
   method: "signPskt",
   params: {
@@ -395,6 +408,8 @@ export default function ExtensionDevelopersPage() {
                 <div><code>transferKRC721</code><p>Transfers an exactly identified NFT owned by the selected wallet.</p></div>
                 <div><code>transferKNS</code><p>Transfers an exactly identified KNS asset owned by the selected wallet.</p></div>
                 <div><code>sendKCC20</code><p>Transfers verified legacy KCC20 or KRON-native covenant tokens.</p></div>
+                <div><code>mintCovenantWyrm</code><p>Mints a reviewed Covenant Wyrm within the restricted GothDAG prototype.</p></div>
+                <div><code>actCovenantWyrm</code><p>Performs a reviewed state transition for a live owned Covenant Wyrm.</p></div>
                 <div><code>signPskt</code><p>Reviews SafeJSON and signs only the explicitly selected inputs.</p></div>
                 <div><code>signPolicyTransaction</code><p>Uses the stricter native KasCoven create/heartbeat policy.</p></div>
                 <div><code>pushTx</code><p>Broadcasts a complete signed SafeJSON transaction deliberately supplied by the dApp.</p></div>
@@ -447,6 +462,17 @@ export default function ExtensionDevelopersPage() {
               <CodeBlock>{nftCode}</CodeBlock>
               <h3>Legacy KCC20 and KRON</h3>
               <CodeBlock>{kcc20Code}</CodeBlock>
+              <h3>Covenant Wyrms / Dragons</h3>
+              <CodeBlock>{wyrmCode}</CodeBlock>
+              <p>
+                These two native methods are currently restricted to the
+                GothDAG Mainnet prototype, its configured test owner and the
+                reserved serial/element set. Kaspire verifies the accepted
+                creating transaction, covenant ID, output, script, owner and
+                live UTXO before its Rust/WASM core simulates and reviews the
+                transition. Other covenant applications should use
+                <code> signPskt</code>.
+              </p>
               <ul>
                 <li>Use base-10 integer strings representing raw token units.</li>
                 <li>Use uppercase tickers where a ticker is required.</li>

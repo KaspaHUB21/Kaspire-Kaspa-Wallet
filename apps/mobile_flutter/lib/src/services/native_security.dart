@@ -369,6 +369,56 @@ class NativeSecurity {
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
+  Future<Map<String, Object?>> prepareWyrmGenesis(
+    Map<String, Object?> request,
+  ) async {
+    final raw = await _channel.invokeMethod<String>("prepareWyrmGenesis", {
+      "request": jsonEncode(request),
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> signWyrmGenesis(
+    Map<String, Object?> request,
+    String reviewHash,
+  ) async {
+    final token = await _authorizeOperation(
+      operation: "signWyrmGenesis",
+      binding: reviewHash,
+    );
+    final raw = await _channel.invokeMethod<String>("signWyrmGenesis", {
+      "request": jsonEncode(request),
+      "reviewHash": reviewHash,
+      "authorizationToken": token,
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> prepareWyrmTransition(
+    Map<String, Object?> request,
+  ) async {
+    final raw = await _channel.invokeMethod<String>("prepareWyrmTransition", {
+      "request": jsonEncode(request),
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> signWyrmTransition(
+    Map<String, Object?> request,
+    String reviewHash,
+  ) async {
+    final token = await _authorizeOperation(
+      operation: "signWyrmTransition",
+      binding: reviewHash,
+    );
+    final raw = await _channel.invokeMethod<String>("signWyrmTransition", {
+      "request": jsonEncode(request),
+      "reviewHash": reviewHash,
+      "authorizationToken": token,
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
   Future<Map<String, Object?>> prepareKcc20Transfer(
     Map<String, Object?> request,
   ) async {

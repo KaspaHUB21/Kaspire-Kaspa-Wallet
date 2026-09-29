@@ -102,6 +102,42 @@ pub fn import_private_key_js(value: &str) -> std::result::Result<String, JsError
     json(import_private_key(value))
 }
 
+#[wasm_bindgen(js_name = prepareWyrmGenesis)]
+pub fn prepare_wyrm_genesis_js(request: &str) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_str::<WyrmGenesisRequest>(request)
+        .map_err(|_| JsError::new("invalid Covenant Wyrm genesis request"))?;
+    json(prepare_wyrm_genesis(&request))
+}
+
+#[wasm_bindgen(js_name = signWyrmGenesis)]
+pub fn sign_wyrm_genesis_js(
+    secret: &str,
+    request: &str,
+    review_hash: &str,
+) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_str::<WyrmGenesisRequest>(request)
+        .map_err(|_| JsError::new("invalid Covenant Wyrm genesis request"))?;
+    json(sign_wyrm_genesis(secret, &request, review_hash))
+}
+
+#[wasm_bindgen(js_name = prepareWyrmTransition)]
+pub fn prepare_wyrm_transition_js(request: &str) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_str::<WyrmTransitionRequest>(request)
+        .map_err(|_| JsError::new("invalid Covenant Wyrm transition request"))?;
+    json(prepare_wyrm_transition(&request))
+}
+
+#[wasm_bindgen(js_name = signWyrmTransition)]
+pub fn sign_wyrm_transition_js(
+    secret: &str,
+    request: &str,
+    review_hash: &str,
+) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_str::<WyrmTransitionRequest>(request)
+        .map_err(|_| JsError::new("invalid Covenant Wyrm transition request"))?;
+    json(sign_wyrm_transition(secret, &request, review_hash))
+}
+
 #[wasm_bindgen(js_name = deriveBackupKey)]
 pub fn derive_backup_key_js(
     password: &str,
