@@ -1,5 +1,5 @@
 use crate::covenant_wyrm::{compile_genesis, WyrmGenesisState, WyrmState};
-use crate::kcc20::{submit_json_v1, wrpc_safe_json};
+use crate::kcc20::{simulate_all, submit_json_v1, wrpc_safe_json};
 use crate::transaction::{parse_utxos, Spendable};
 use crate::{controls_address, derive_key, CoreError, Result};
 use kaspa_addresses::{Address, Prefix, Version as AddressVersion};
@@ -100,11 +100,12 @@ pub fn sign(
         &*derive_key(secret)?,
         SIG_HASH_ALL,
     );
-    built.tx.inputs[0].signature_script = ScriptBuilder::new()
-        .add_data(&signature)
-        .map_err(|e| CoreError::Transaction(e.to_string()))?
-        .drain();
+    // `sign_input` already returns the complete P2PK signature script
+    // (`OP_DATA_65 <64-byte Schnorr signature> <sighash type>`). Wrapping it
+    // in another data push produces a malformed signature at consensus.
+    built.tx.inputs[0].signature_script = signature;
     built.tx.finalize();
+    simulate_all(&built.tx, &[built.funding.entry.clone()])?;
     let output = &built.tx.outputs[0];
     let output_address = extract_script_pub_key_address(&output.script_public_key, Prefix::Mainnet)
         .map_err(|_| CoreError::InvalidAddress)?

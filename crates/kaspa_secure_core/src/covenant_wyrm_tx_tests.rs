@@ -35,6 +35,12 @@ fn builds_and_signs_real_genesis_covenant() {
     let signed = sign_wyrm_genesis(&secret, &request, &prepared.review_hash).unwrap();
     assert_eq!(signed.covenant_id, prepared.covenant_id);
     assert!(signed.submit_json.contains("covenantId"));
+    let submit: serde_json::Value = serde_json::from_str(&signed.submit_json).unwrap();
+    let signature_script = submit["transaction"]["inputs"][0]["signatureScript"]
+        .as_str()
+        .unwrap();
+    assert_eq!(signature_script.len(), 132);
+    assert!(signature_script.starts_with("41"));
 }
 
 #[test]
