@@ -179,3 +179,20 @@ fn transition_review_rejects_mutation() {
     assert!(sign_wyrm_transition(&secret, &changed, &prepared.review_hash).is_err());
     assert!(sign_wyrm_transition(&secret, &request, "00").is_err());
 }
+
+#[test]
+fn all_thirteen_elements_survive_repeated_real_vm_signing() {
+    for element in 0u8..13 {
+        let (secret, mut request) = fixture(WyrmAction::Incubate, 100 + u64::from(element));
+        request.cell.state.element = element;
+        request.cell.state.serial = u16::from(element) + 1;
+        request.cell.script_public_key = hex::encode(
+            pay_to_script_hash_script(&compile_state(request.cell.state).unwrap().script).script(),
+        );
+        let prepared = prepare_wyrm_transition(&request).unwrap();
+        assert_eq!(prepared.element, element);
+        let signed = sign_wyrm_transition(&secret, &request, &prepared.review_hash).unwrap();
+        assert_eq!(signed.next_state.element, element);
+        assert_eq!(signed.next_state.serial, u16::from(element) + 1);
+    }
+}

@@ -280,7 +280,7 @@ fn build(request: &WyrmTransitionRequest) -> Result<Built> {
     );
     let entries = vec![cell_entry, action_funding.entry.clone()];
     let calculator = MassCalculator::new_with_consensus_params(&MAINNET_PARAMS);
-    let limits = MAINNET_PARAMS.mempool_block_mass_limits().after();
+    let limits = MAINNET_PARAMS.block_mass_limits;
     let storage_target = limits.storage.saturating_mul(STORAGE_LIMIT_PERCENT) / 100;
     let mut fee = 0u64;
     for _ in 0..12 {
@@ -329,7 +329,7 @@ fn build(request: &WyrmTransitionRequest) -> Result<Built> {
             .ok_or_else(|| {
                 CoreError::Transaction("Wyrm storage mass cannot be calculated".into())
             })?;
-        let cofactors = MAINNET_PARAMS.mempool_block_mass_cofactors().after();
+        let cofactors = MAINNET_PARAMS.block_mass_cofactors();
         let transient = (non_contextual.transient_mass as f64 * cofactors.transient).ceil() as u64;
         let mass = Mass::new(
             non_contextual,
@@ -632,13 +632,10 @@ fn transition_sigscript(
             CovenantDeclCallOptions { is_leader: true },
         )
         .map_err(|error| CoreError::Transaction(format!("Wyrm witness failed: {error}")))?;
-    let redeem = ScriptBuilder::with_flags(EngineFlags {
-        covenants_enabled: true,
-        ..Default::default()
-    })
-    .add_data(&compiled.script)
-    .map_err(|error| CoreError::Transaction(error.to_string()))?
-    .drain();
+    let redeem = ScriptBuilder::with_flags(EngineFlags::default())
+        .add_data(&compiled.script)
+        .map_err(|error| CoreError::Transaction(error.to_string()))?
+        .drain();
     script.extend_from_slice(&redeem);
     Ok(script)
 }

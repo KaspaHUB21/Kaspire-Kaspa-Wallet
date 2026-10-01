@@ -92,6 +92,9 @@ pub const LEGACY_COIN_TYPE: u32 = 972;
 pub const BACKUP_ARGON2_MEMORY_KIB: u32 = 32_768;
 pub const BACKUP_ARGON2_ITERATIONS: u32 = 3;
 pub const BACKUP_ARGON2_PARALLELISM: u32 = 1;
+pub const BACKUP_V3_ARGON2_MEMORY_KIB: u32 = 65_536;
+pub const BACKUP_V3_ARGON2_ITERATIONS: u32 = 4;
+pub const BACKUP_V3_ARGON2_PARALLELISM: u32 = 1;
 
 #[derive(Debug, Error)]
 pub enum CoreError {
@@ -232,18 +235,39 @@ pub fn generate_wallet_with_word_count(
 }
 
 pub fn derive_backup_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; 32]>> {
+    derive_backup_key_with_params(
+        password,
+        salt,
+        BACKUP_ARGON2_MEMORY_KIB,
+        BACKUP_ARGON2_ITERATIONS,
+        BACKUP_ARGON2_PARALLELISM,
+    )
+}
+
+pub fn derive_backup_key_v3(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; 32]>> {
+    derive_backup_key_with_params(
+        password,
+        salt,
+        BACKUP_V3_ARGON2_MEMORY_KIB,
+        BACKUP_V3_ARGON2_ITERATIONS,
+        BACKUP_V3_ARGON2_PARALLELISM,
+    )
+}
+
+fn derive_backup_key_with_params(
+    password: &str,
+    salt: &[u8],
+    memory_kib: u32,
+    iterations: u32,
+    parallelism: u32,
+) -> Result<Zeroizing<[u8; 32]>> {
     if password.len() < 12 || salt.len() != 32 {
         return Err(CoreError::InvalidRequest(
             "backup password or salt is invalid".into(),
         ));
     }
-    let params = Params::new(
-        BACKUP_ARGON2_MEMORY_KIB,
-        BACKUP_ARGON2_ITERATIONS,
-        BACKUP_ARGON2_PARALLELISM,
-        Some(32),
-    )
-    .map_err(|_| CoreError::Derivation)?;
+    let params = Params::new(memory_kib, iterations, parallelism, Some(32))
+        .map_err(|_| CoreError::Derivation)?;
     let argon = Argon2::new(Algorithm::Argon2id, ArgonVersion::V0x13, params);
     let mut key = Zeroizing::new([0u8; 32]);
     argon
@@ -473,8 +497,10 @@ mod tests {
         let first = derive_backup_key("correct horse battery staple", &salt).unwrap();
         let second = derive_backup_key("correct horse battery staple", &salt).unwrap();
         let different = derive_backup_key("correct horse battery staples", &salt).unwrap();
+        let hardened = derive_backup_key_v3("correct horse battery staple", &salt).unwrap();
         assert_eq!(first.as_slice(), second.as_slice());
         assert_ne!(first.as_slice(), different.as_slice());
+        assert_ne!(first.as_slice(), hardened.as_slice());
     }
 
     #[test]

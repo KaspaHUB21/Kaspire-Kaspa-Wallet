@@ -1,13 +1,13 @@
 #[cfg(test)]
 use crate::derive_address;
-use crate::{controls_address, derive_key, CoreError, Result};
+use crate::{CoreError, Result, controls_address, derive_key};
 use kaspa_addresses::Address;
 #[cfg(test)]
 use kaspa_addresses::Prefix;
 use kaspa_consensus_core::{
     hashing::{
-        sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
-        sighash_type::{SigHashType, SIG_HASH_ALL},
+        sighash::{SigHashReusedValuesUnsync, calc_schnorr_signature_hash},
+        sighash_type::{SIG_HASH_ALL, SigHashType},
     },
     sign::sign_input,
     subnets::SUBNETWORK_ID_NATIVE,
@@ -19,7 +19,7 @@ use kaspa_consensus_core::{
 use kaspa_hashes::Hash;
 use kaspa_txscript::{extract_script_pub_key_address, pay_to_address_script};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
@@ -27,8 +27,8 @@ use std::{
 };
 
 use kaspa_txscript::{
-    pay_to_script_hash_script, pay_to_script_hash_signature_script_with_flags,
-    script_builder::ScriptBuilder, EngineFlags,
+    EngineFlags, pay_to_script_hash_script, pay_to_script_hash_signature_script_with_flags,
+    script_builder::ScriptBuilder,
 };
 
 const MAX_PSKT_BYTES: usize = 512 * 1024;
@@ -134,6 +134,7 @@ pub struct PsktInputReview {
     pub amount_sompi: u64,
     pub address: Option<String>,
     pub script_public_key: String,
+    pub covenant_id: Option<String>,
     pub selected: bool,
     pub controlled_by_wallet: bool,
     pub already_signed: bool,
@@ -460,12 +461,10 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
                         "script for input {index} does not match its P2SH UTXO"
                     )));
                 }
-            } else if request.profile.as_deref() != Some("kasparocket-testnet-v1")
-                || covenant_id_from_utxo(utxo)?.is_none()
-            {
-                return Err(CoreError::InvalidRequest(
-                    "prebuilt scripts are restricted to KaspaRocket covenant inputs".into(),
-                ));
+            } else if covenant_id_from_utxo(utxo)?.is_none() {
+                return Err(CoreError::InvalidRequest(format!(
+                    "prebuilt signature script for input {index} requires a covenant UTXO"
+                )));
             }
         }
         let controlled = script == sender_script;
@@ -476,6 +475,15 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         } else if selected.contains(&index) {
             warnings.push(format!(
                 "Input {index} is a covenant or non-standard script; Kaspire cannot verify its dApp business rules."
+            ));
+        }
+        if request.profile.is_none()
+            && scripts
+                .get(&index)
+                .is_some_and(|script| script.prebuilt_signature_script.is_some())
+        {
+            warnings.push(format!(
+                "Input {index} uses an unknown covenant. Kaspire verified the exact transaction sighash and signature placement, but cannot verify the covenant's intended business rules."
             ));
         }
         let covenant_id = utxo
@@ -525,6 +533,7 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
             amount_sompi: amount,
             address,
             script_public_key: script_hex.to_owned(),
+            covenant_id: covenant_id.map(|value| value.to_string()),
             selected: selection.is_some(),
             controlled_by_wallet: controlled,
             already_signed: !signature_script.is_empty(),
@@ -630,6 +639,7 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         payload.clone(),
         storage_mass,
     );
+    validate_expected_sighashes(request, &tx, &entries, &sighashes)?;
     if let Some(id) = object.get("id").and_then(Value::as_str) {
         if !id.is_empty() && id != tx.id().to_string() {
             return Err(CoreError::InvalidRequest(
@@ -731,6 +741,61 @@ fn covenant_id_from_utxo(value: &Value) -> Result<Option<Hash>> {
         .map(Hash::from_str)
         .transpose()
         .map_err(|_| CoreError::UntrustedUtxo("invalid covenant id".into()))
+}
+
+fn validate_expected_sighashes(
+    request: &PsktRequest,
+    tx: &Transaction,
+    entries: &[UtxoEntry],
+    sighashes: &[(usize, SigHashType)],
+) -> Result<()> {
+    let mut expected_by_index = HashMap::<usize, &str>::new();
+    for selection in &request.sign_inputs {
+        if let Some(expected) = selection.expected_sighash.as_deref() {
+            if expected_by_index
+                .insert(selection.index, expected)
+                .is_some()
+            {
+                return Err(CoreError::InvalidRequest(format!(
+                    "more than one expected sighash was supplied for input {}",
+                    selection.index
+                )));
+            }
+        }
+    }
+    for script in &request.scripts {
+        if let Some(expected) = script.expected_sighash.as_deref() {
+            if let Some(previous) = expected_by_index.insert(script.input_index, expected) {
+                if previous != expected {
+                    return Err(CoreError::InvalidRequest(format!(
+                        "conflicting expected sighashes for input {}",
+                        script.input_index
+                    )));
+                }
+            }
+        }
+    }
+    if expected_by_index.is_empty() {
+        return Ok(());
+    }
+    let populated = SignableTransaction::with_entries(tx.clone(), entries.to_vec());
+    let reused = SigHashReusedValuesUnsync::new();
+    for (index, hash_type) in sighashes {
+        let Some(expected) = expected_by_index.get(index) else {
+            continue;
+        };
+        let expected = Hash::from_str(expected).map_err(|_| {
+            CoreError::InvalidRequest(format!("invalid expected sighash for input {index}"))
+        })?;
+        let actual =
+            calc_schnorr_signature_hash(&populated.as_verifiable(), *index, *hash_type, &reused);
+        if actual != expected {
+            return Err(CoreError::InvalidRequest(format!(
+                "expected sighash for input {index} does not match the reviewed transaction"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn validate_kasparocket_request(
@@ -1026,10 +1091,7 @@ fn assemble_p2sh_signature_script(
 ) -> Result<Vec<u8>> {
     let signature = raw_signature(pushed_signature)?;
     let redeem_script = decode_redeem_script(&script.script_hex)?;
-    let flags = EngineFlags {
-        covenants_enabled: true,
-        ..Default::default()
-    };
+    let flags = EngineFlags::default();
     let mut arguments = ScriptBuilder::with_flags(flags);
     match script.signature_script.as_ref() {
         None => {
@@ -1262,7 +1324,7 @@ mod tests {
     #[test]
     fn seller_offer_allows_buyer_funding_but_binds_payout() {
         use kaspa_consensus_core::hashing::sighash::{
-            calc_schnorr_signature_hash, SigHashReusedValuesUnsync,
+            SigHashReusedValuesUnsync, calc_schnorr_signature_hash,
         };
         let mut request = request();
         request.sign_inputs[0].sighash_type = 132;
@@ -1341,13 +1403,14 @@ mod tests {
         .unwrap();
         completed.outputs[0].value -= 1;
         let tampered = hash(completed, entries);
-        assert!(secp
-            .verify_schnorr(
+        assert!(
+            secp.verify_schnorr(
                 &signature,
                 &secp256k1::Message::from_digest_slice(&tampered.as_bytes()).unwrap(),
                 &pubkey
             )
-            .is_err());
+            .is_err()
+        );
         for disallowed in [1, 2, 4, 129, 130] {
             request.sign_inputs[0].sighash_type = disallowed;
             request.scripts[0].sign_type = Some(disallowed);
@@ -1368,10 +1431,12 @@ mod tests {
         ));
         let signed = sign_pskt(SECRET, &request, &prepared.review_hash).unwrap();
         let value: Value = serde_json::from_str(&signed.signed_tx_json).unwrap();
-        assert!(!value["inputs"][0]["signatureScript"]
-            .as_str()
-            .unwrap()
-            .is_empty());
+        assert!(
+            !value["inputs"][0]["signatureScript"]
+                .as_str()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1413,14 +1478,18 @@ mod tests {
         request.sign_inputs[0].sighash_type = 129;
         request.tx_json_string = value.to_string();
         let prepared = prepare_pskt(&request).unwrap();
-        assert!(prepared
-            .warnings
-            .iter()
-            .any(|item| item.contains("partial")));
-        assert!(prepared
-            .warnings
-            .iter()
-            .any(|item| item.contains("ANYONECANPAY")));
+        assert!(
+            prepared
+                .warnings
+                .iter()
+                .any(|item| item.contains("partial"))
+        );
+        assert!(
+            prepared
+                .warnings
+                .iter()
+                .any(|item| item.contains("ANYONECANPAY"))
+        );
     }
 
     #[test]
@@ -1445,13 +1514,10 @@ mod tests {
     fn assembles_script_templates_and_supports_script_only_selection() {
         let sender = derive_address(SECRET).unwrap();
         let sender_script = pay_to_address_script(&sender);
-        let redeem_script = ScriptBuilder::with_flags(EngineFlags {
-            covenants_enabled: true,
-            ..Default::default()
-        })
-        .add_data(sender.payload.as_slice())
-        .unwrap()
-        .drain();
+        let redeem_script = ScriptBuilder::with_flags(EngineFlags::default())
+            .add_data(sender.payload.as_slice())
+            .unwrap()
+            .drain();
         let p2sh = pay_to_script_hash_script(&redeem_script);
         let safe = json!({
             "version": 0,
@@ -1526,13 +1592,10 @@ mod tests {
     fn assembles_every_kaspacom_signature_template_and_argument_type() {
         let sender = derive_address(SECRET).unwrap();
         let sender_script = pay_to_address_script(&sender);
-        let redeem_script = ScriptBuilder::with_flags(EngineFlags {
-            covenants_enabled: true,
-            ..Default::default()
-        })
-        .add_data(sender.payload.as_slice())
-        .unwrap()
-        .drain();
+        let redeem_script = ScriptBuilder::with_flags(EngineFlags::default())
+            .add_data(sender.payload.as_slice())
+            .unwrap()
+            .drain();
         let p2sh = pay_to_script_hash_script(&redeem_script);
         let safe = json!({
             "version": 0,
@@ -1654,6 +1717,61 @@ mod tests {
         assert!(matches!(
             prepare_pskt(&request),
             Err(CoreError::UntrustedUtxo(_))
+        ));
+    }
+
+    #[test]
+    fn signs_unknown_covenant_prebuilt_script_only_after_sighash_verification() {
+        let mut request = request();
+        let mut value: Value = serde_json::from_str(&request.tx_json_string).unwrap();
+        value["inputs"][0]["utxo"]["covenantId"] = json!("77".repeat(32));
+        request.tx_json_string = value.to_string();
+
+        let unsigned = build_pskt(&request).unwrap();
+        let populated =
+            SignableTransaction::with_entries(unsigned.tx.clone(), unsigned.entries.clone());
+        let expected = calc_schnorr_signature_hash(
+            &populated.as_verifiable(),
+            0,
+            SigHashType::from_u8(1).unwrap(),
+            &SigHashReusedValuesUnsync::new(),
+        );
+        request.scripts = vec![PsktScriptInput {
+            input_index: 0,
+            script_hex: String::new(),
+            sign_type: Some(1),
+            signature_script: None,
+            prebuilt_signature_script: Some("00".repeat(65)),
+            signature_offsets: vec![0],
+            expected_sighash: Some(expected.to_string()),
+        }];
+
+        let prepared = prepare_pskt(&request).unwrap();
+        assert_eq!(
+            prepared.inputs[0].covenant_id.as_deref(),
+            Some("7777777777777777777777777777777777777777777777777777777777777777")
+        );
+        assert!(
+            prepared
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("unknown covenant"))
+        );
+        let signed = sign_pskt(SECRET, &request, &prepared.review_hash).unwrap();
+        let signed_json: Value = serde_json::from_str(&signed.signed_tx_json).unwrap();
+        assert_eq!(
+            signed_json["inputs"][0]["signatureScript"]
+                .as_str()
+                .unwrap()
+                .len(),
+            130
+        );
+
+        request.scripts[0].expected_sighash = Some("00".repeat(32));
+        assert!(matches!(
+            prepare_pskt(&request),
+            Err(CoreError::InvalidRequest(message))
+                if message.contains("does not match the reviewed transaction")
         ));
     }
 }

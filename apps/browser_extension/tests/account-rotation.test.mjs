@@ -17,6 +17,8 @@ test("rotated receive addresses aggregate KAS while single wallets retain the le
 
 test("protected KRC20 fallback is accessed only through the credential-free Kaspire gateway", () => {
   assert.match(api, /https:\/\/kaspire\.kaslab\.space\/api\/krc20-fallback/);
+  assert.match(api, /loadKasplexTokens\(address\)\.catch\(/);
+  assert.doesNotMatch(api, /Promise\.any\(\[\s*loadKasplexTokens/);
   assert.doesNotMatch(api + background, /authorization\s*:/i);
   assert.doesNotMatch(api + background, /basic\s+[a-z0-9+/=]+/i);
 });

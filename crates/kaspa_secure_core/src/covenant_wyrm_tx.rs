@@ -165,7 +165,7 @@ fn build(request: &WyrmGenesisRequest) -> Result<Built> {
     let mut funding = parse_utxos(&request.funding_utxos_json, &sender)?;
     funding.sort_by_key(|item| item.entry.amount);
     let calculator = MassCalculator::new_with_consensus_params(&MAINNET_PARAMS);
-    let limits = MAINNET_PARAMS.mempool_block_mass_limits().after();
+    let limits = MAINNET_PARAMS.block_mass_limits;
     let storage_target = limits.storage.saturating_mul(STORAGE_LIMIT_PERCENT) / 100;
     for selected in funding {
         let mut fee = 0u64;
@@ -202,7 +202,7 @@ fn build(request: &WyrmGenesisRequest) -> Result<Built> {
                 .ok_or_else(|| {
                     CoreError::Transaction("Wyrm storage mass cannot be calculated".into())
                 })?;
-            let cofactors = MAINNET_PARAMS.mempool_block_mass_cofactors().after();
+            let cofactors = MAINNET_PARAMS.block_mass_cofactors();
             let transient =
                 (non_contextual.transient_mass as f64 * cofactors.transient).ceil() as u64;
             let mass = Mass::new(

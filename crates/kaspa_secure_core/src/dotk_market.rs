@@ -139,10 +139,7 @@ fn invalid(message: &str) -> CoreError {
     CoreError::InvalidRequest(message.into())
 }
 fn flags() -> EngineFlags {
-    EngineFlags {
-        covenants_enabled: true,
-        ..Default::default()
-    }
+    EngineFlags::default()
 }
 
 fn cell(input: &Cell, script: &[u8], id: Hash, amount: u64) -> Result<Spendable> {
@@ -469,7 +466,7 @@ fn build(r: &Request) -> Result<Built> {
         built.entries = inputs.iter().map(|i| i.entry.clone()).collect();
         assemble_scripts(&mut built, r.action, None)?;
         let non = calculator.calc_non_contextual_masses(&built.tx);
-        let cofactors = MAINNET_PARAMS.mempool_block_mass_cofactors().after();
+        let cofactors = MAINNET_PARAMS.block_mass_cofactors();
         let fee_mass = non
             .compute_mass
             .max((non.transient_mass as f64 * cofactors.transient).ceil() as u64);
@@ -489,12 +486,7 @@ fn build(r: &Request) -> Result<Built> {
             .ok_or_else(|| invalid("invalid storage mass"))?;
         let storage = contextual.storage_mass;
         let mass = Mass::new(non, contextual).normalized_max(&cofactors);
-        if mass
-            > MAINNET_PARAMS
-                .mempool_block_mass_limits()
-                .after()
-                .reference()
-        {
+        if mass > MAINNET_PARAMS.block_mass_limits.reference() {
             continue;
         }
         built.tx.set_storage_mass(storage);

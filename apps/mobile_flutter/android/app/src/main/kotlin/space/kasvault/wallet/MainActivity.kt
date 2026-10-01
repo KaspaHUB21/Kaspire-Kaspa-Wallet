@@ -4,6 +4,11 @@ import android.app.AlertDialog
 import android.app.Dialog
 import android.app.KeyguardManager
 import android.content.Context
+import android.content.ContentUris
+import android.content.ContentValues
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -11,7 +16,11 @@ import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Process
+import android.os.PersistableBundle
+import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
@@ -26,18 +35,21 @@ import android.widget.ArrayAdapter
 import android.widget.ScrollView
 import android.widget.TextView
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.GridLayout
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.Toast
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.tangem.Message
 import com.tangem.SessionViewDelegate
@@ -74,6 +86,7 @@ import java.security.SecureRandom
 import java.security.Signature
 import java.security.spec.X509EncodedKeySpec
 import java.util.UUID
+import java.time.LocalDate
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -106,6 +119,11 @@ class MainActivity : FlutterFragmentActivity() {
         val operation: String,
         val text: String,
         val expiresAt: Long,
+    )
+    private data class SavedBackup(
+        val uri: android.net.Uri,
+        val fileName: String,
+        val address: String,
     )
 
     private val authorizationLock = Any()
@@ -161,6 +179,29 @@ class MainActivity : FlutterFragmentActivity() {
     private val deviceCredentialRequestCode = 7109
     private var pendingDeviceCredentialAuthorization:
         Triple<String, String, MethodChannel.Result>? = null
+    private var selectedRestoreBackupUri: android.net.Uri? = null
+    private var restoreBackupSelector: AutoCompleteTextView? = null
+    private var restoreBackupStatus: TextView? = null
+    private val backupPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        } catch (_: Exception) {
+            // The one-time read grant remains valid for the active restore dialog.
+        }
+        selectedRestoreBackupUri = uri
+        val fileName = backupDisplayName(uri)
+        restoreBackupSelector?.setText(fileName, false)
+        restoreBackupStatus?.apply {
+            setTextColor(Color.rgb(87, 220, 190))
+            text = "Backup selected: $fileName\nEnter its password and tap RESTORE."
+        }
+    }
     private var lastSessionAuthenticationAtMs = 0L
     private val channelName = "space.kasvault/security"
     private val vaultAlias = "kaspire_secret_wrap_v4"
@@ -174,6 +215,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val pinHashKey = "pin_hash_v1"
     private val pinFailuresKey = "pin_failures_v1"
     private val pinLockedUntilKey = "pin_locked_until_v1"
+    private val backupRelativePath = "${Environment.DIRECTORY_DOWNLOADS}/Kaspire-Backup/"
     private val bip39Words: List<String> by lazy {
         assets.open("bip39_english.txt").bufferedReader().use { reader ->
             reader.readText().split(Regex("\\s+")).filter { it.isNotEmpty() }
@@ -236,8 +278,9 @@ class MainActivity : FlutterFragmentActivity() {
                                     try {
                                         check(activeWalletId() == walletId) { "Wallet changed; review again" }
                                         if (signing) {
-                                            val secret = decryptSecret(JSONObject(request).getString("sender"))
-                                            resultFromCore(SecureCore.signDotkMarket(secret, request, approved), result)
+                                            withDecryptedSecret(JSONObject(request).getString("sender")) { secret ->
+                                                resultFromCore(SecureCore.signDotkMarket(secret, request, approved), result)
+                                            }
                                         } else resultPreparedFromCore(raw, "signDotkMarket", result)
                                     } catch (error: Exception) {
                                         result.error("MARKETPLACE_ERROR", error.message, null)
@@ -249,19 +292,20 @@ class MainActivity : FlutterFragmentActivity() {
                         }.start()
                     }
                     "deriveAddresses" -> {
-                        val secret = decryptSecret()
-                        val raw = SecureCore.deriveAddresses(
-                            secret,
-                            call.argument<Int>("coinType") ?: error("Missing coin type"),
-                            call.argument<Int>("account") ?: 0,
-                            call.argument<Int>("change") ?: error("Missing change branch"),
-                            call.argument<Int>("start") ?: error("Missing start index"),
-                            call.argument<Int>("count") ?: error("Missing address count")
-                        )
+                        val raw = withDecryptedSecret { secret ->
+                            SecureCore.deriveAddresses(
+                                secret,
+                                call.argument<Int>("coinType") ?: error("Missing coin type"),
+                                call.argument<Int>("account") ?: 0,
+                                call.argument<Int>("change") ?: error("Missing change branch"),
+                                call.argument<Int>("start") ?: error("Missing start index"),
+                                call.argument<Int>("count") ?: error("Missing address count")
+                            )
+                        }
                         resultFromCoreArray(raw, result)
                     }
                     "deriveEvmAddress" -> resultFromCore(
-                        SecureCore.deriveEvmAddress(decryptSecret()),
+                        withDecryptedSecret { SecureCore.deriveEvmAddress(it) },
                         result,
                     )
                     "registerHdAddresses" -> {
@@ -307,7 +351,10 @@ class MainActivity : FlutterFragmentActivity() {
                         check(controlsAddress(id, address)) {
                             "The active wallet does not control the requested public key"
                         }
-                        resultFromCore(SecureCore.publicKey(decryptSecret(address)), result)
+                        resultFromCore(
+                            withDecryptedSecret(address) { SecureCore.publicKey(it) },
+                            result,
+                        )
                     }
                     "exportPrivateKeys" -> {
                         val address = call.argument<String>("address") ?: error("Missing export address")
@@ -352,7 +399,9 @@ class MainActivity : FlutterFragmentActivity() {
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
                         requireAuthorization(call, "signEvmTransaction", reviewHash)
                         resultFromCore(
-                            SecureCore.signEvmTransaction(decryptSecret(), request, reviewHash),
+                            withDecryptedSecret {
+                                SecureCore.signEvmTransaction(it, request, reviewHash)
+                            },
                             result,
                         )
                     }
@@ -368,8 +417,9 @@ class MainActivity : FlutterFragmentActivity() {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
                         requireAuthorization(call, "signWyrmGenesis", reviewHash)
-                        val secret = decryptSecret(JSONObject(request).getString("sender"))
-                        resultFromCore(SecureCore.signWyrmGenesis(secret, request, reviewHash), result)
+                        resultFromCore(withDecryptedSecret(JSONObject(request).getString("sender")) {
+                            SecureCore.signWyrmGenesis(it, request, reviewHash)
+                        }, result)
                     }
                     "prepareWyrmTransition" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
@@ -383,8 +433,9 @@ class MainActivity : FlutterFragmentActivity() {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
                         requireAuthorization(call, "signWyrmTransition", reviewHash)
-                        val secret = decryptSecret(JSONObject(request).getString("sender"))
-                        resultFromCore(SecureCore.signWyrmTransition(secret, request, reviewHash), result)
+                        resultFromCore(withDecryptedSecret(JSONObject(request).getString("sender")) {
+                            SecureCore.signWyrmTransition(it, request, reviewHash)
+                        }, result)
                     }
                     "prepareKcc20Transfer" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
@@ -456,9 +507,10 @@ class MainActivity : FlutterFragmentActivity() {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
                         requireAuthorization(call, "signPskt", reviewHash)
-                        val secret = decryptSecret(JSONObject(request).getString("sender"))
                         resultFromCore(
-                            SecureCore.signPskt(secret, request, reviewHash),
+                            withDecryptedSecret(JSONObject(request).getString("sender")) {
+                                SecureCore.signPskt(it, request, reviewHash)
+                            },
                             result,
                         )
                     }
@@ -466,9 +518,10 @@ class MainActivity : FlutterFragmentActivity() {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
                         requireAuthorization(call, "signPolicyTransaction", reviewHash)
-                        val secret = decryptSecret(JSONObject(request).getString("sender"))
                         resultFromCore(
-                            SecureCore.signPolicyTransaction(secret, request, reviewHash),
+                            withDecryptedSecret(JSONObject(request).getString("sender")) {
+                                SecureCore.signPolicyTransaction(it, request, reviewHash)
+                            },
                             result,
                         )
                     }
@@ -477,8 +530,9 @@ class MainActivity : FlutterFragmentActivity() {
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
                         requireAuthorization(call, "signReveal", reviewHash)
                         val sender = JSONObject(request).getJSONObject("operation").getString("sender")
-                        val secret = decryptSecret(sender)
-                        resultFromCore(SecureCore.signReveal(secret, request, reviewHash), result)
+                        resultFromCore(withDecryptedSecret(sender) {
+                            SecureCore.signReveal(it, request, reviewHash)
+                        }, result)
                     }
                     "signTransaction" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
@@ -490,7 +544,7 @@ class MainActivity : FlutterFragmentActivity() {
                             requestObject.getString("sender"),
                         )
                         val signers = requestObject.optJSONArray("signers")
-                        val secret = if (signers != null && signers.length() > 0) {
+                        val secretAddress = if (signers != null && signers.length() > 0) {
                             val activeId = activeWalletId() ?: error("No active signing wallet")
                             check(controlsAddress(activeId, walletAddress)) {
                                 "The active wallet does not control this HD account"
@@ -503,30 +557,32 @@ class MainActivity : FlutterFragmentActivity() {
                                     "HD account signer metadata does not match the encrypted wallet"
                                 }
                             }
-                            decryptSecret()
+                            null
                         } else {
-                            decryptSecret(walletAddress)
+                            walletAddress
                         }
-                        try {
-                            resultFromCore(SecureCore.signTransaction(secret, request, reviewHash), result)
-                        } finally {
-                            // The Rust key and seed buffers are zeroized. Java strings cannot be
-                            // reliably wiped, so this reference is scoped to this native call only.
+                        withDecryptedSecret(secretAddress) { secret ->
+                            resultFromCore(
+                                SecureCore.signTransaction(secret, request, reviewHash),
+                                result,
+                            )
                         }
                     }
                     "signKcc20Transfer" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
                         requireAuthorization(call, "signKcc20Transfer", reviewHash)
-                        val secret = decryptSecret(JSONObject(request).getString("sender"))
-                        resultFromCore(SecureCore.signKcc20Transfer(secret, request, reviewHash), result)
+                        resultFromCore(withDecryptedSecret(JSONObject(request).getString("sender")) {
+                            SecureCore.signKcc20Transfer(it, request, reviewHash)
+                        }, result)
                     }
                     "signPersonalMessage" -> {
                         val address = call.argument<String>("address") ?: error("Missing address")
                         val message = call.argument<String>("message") ?: error("Missing message")
                         requireAuthorization(call, "signPersonalMessage", "$address\u0000$message")
-                        val secret = decryptSecret(address)
-                        resultFromCore(SecureCore.signPersonalMessage(secret, address, message), result)
+                        resultFromCore(withDecryptedSecret(address) {
+                            SecureCore.signPersonalMessage(it, address, message)
+                        }, result)
                     }
                     else -> result.notImplemented()
                 }
@@ -1523,25 +1579,87 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun exportPrivateKey(address: String, result: MethodChannel.Result) {
-        val secret = decryptSecret(address)
-        val json = parseCore(SecureCore.exportPrivateKey(secret))
+        val json = parseCore(withDecryptedSecret(address) {
+            SecureCore.exportPrivateKey(it)
+        })
         showSecret("Private key", json.getString("privateKey"), result)
     }
 
     private fun exportPrivateKeys(address: String, result: MethodChannel.Result) {
-        val secret = decryptSecret(address)
-        val kaspa = parseCore(SecureCore.exportPrivateKey(secret)).getString("privateKey")
-        val evm = parseCore(SecureCore.exportEvmPrivateKey(secret)).getString("privateKey")
-        showSecret(
-            "Wallet private keys",
-            "Kaspa private key:\n$kaspa\n\nEVM private key · Kasplex & Igra:\n$evm",
-            result,
-            "Keep both keys offline. Anyone with either key can spend assets controlled by that account.",
-        )
+        val keys = withDecryptedSecret(address) { secret ->
+            Pair(
+                parseCore(SecureCore.exportPrivateKey(secret.copyOf())).getString("privateKey"),
+                parseCore(SecureCore.exportEvmPrivateKey(secret)).getString("privateKey"),
+            )
+        }
+        val kaspa = keys.first
+        val evm = keys.second
+        showPrivateKeys(kaspa, evm, result)
+    }
+
+    private fun showPrivateKeys(
+        kaspa: String,
+        evm: String,
+        result: MethodChannel.Result,
+    ) {
+        fun keyRow(label: String, value: String): View = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(12), 0, dp(8))
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                textSize = 13f
+            })
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(this@MainActivity).apply {
+                    text = value
+                    textSize = 15f
+                    setTextIsSelectable(true)
+                    setPadding(0, dp(8), dp(8), dp(8))
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(ImageButton(this@MainActivity).apply {
+                    setImageResource(android.R.drawable.ic_menu_set_as)
+                    contentDescription = "Copy $label"
+                    setBackgroundColor(Color.TRANSPARENT)
+                    setOnClickListener {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = ClipData.newPlainText(label, value)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            clip.description.extras = PersistableBundle().apply {
+                                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                            }
+                        }
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(this@MainActivity, "$label copied", Toast.LENGTH_SHORT).show()
+                    }
+                }, LinearLayout.LayoutParams(dp(48), dp(48)))
+            })
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(8), dp(24), dp(8))
+            addView(TextView(this@MainActivity).apply {
+                text = "Keep both keys offline. Anyone with either key can spend assets controlled by that account."
+                textSize = 14f
+            })
+            addView(keyRow("Kaspa private key", kaspa))
+            addView(keyRow("EVM private key · Kasplex & Igra", evm))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Wallet private keys")
+            .setView(ScrollView(this).apply { addView(content) })
+            .setPositiveButton("Done") { _, _ -> result.success(null) }
+            .setCancelable(false)
+            .create()
+            .apply {
+                setOnShowListener { window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+                show()
+            }
     }
 
     private fun exportRecoveryPhrase(result: MethodChannel.Result) {
-        val secret = decryptSecret()
+        val secret = decryptedSecretForExplicitUse()
         check(secret.startsWith("mnemonic:") || secret.startsWith("mnemonic-passphrase:")) {
             "This wallet was imported from a private key and has no recovery phrase"
         }
@@ -1583,14 +1701,32 @@ class MainActivity : FlutterFragmentActivity() {
         dialog.show()
     }
 
-    private fun backupPasswordFields(): Triple<EditText, EditText, LinearLayout> {
-        fun field(label: String) = EditText(this).apply {
+    private fun passwordField(label: String): EditText = EditText(this).apply {
             hint = label
             isSingleLine = true
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setCompoundDrawablesWithIntrinsicBounds(0, 0, android.R.drawable.ic_menu_view, 0)
+            compoundDrawablePadding = dp(10)
+            var revealed = false
+            setOnTouchListener { _, event ->
+                val drawable = compoundDrawables[2]
+                if (event.action == MotionEvent.ACTION_UP && drawable != null &&
+                    event.x >= width - paddingRight - drawable.bounds.width()) {
+                    revealed = !revealed
+                    inputType = InputType.TYPE_CLASS_TEXT or if (revealed) {
+                        InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                    } else {
+                        InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    }
+                    setSelection(text.length)
+                    true
+                } else false
+            }
         }
-        val first = field("Backup password (12+ characters)")
-        val second = field("Confirm backup password")
+
+    private fun backupPasswordFields(): Triple<EditText, EditText, LinearLayout> {
+        val first = passwordField("Backup password (12+ characters)")
+        val second = passwordField("Confirm backup password")
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(8), dp(24), 0)
@@ -1610,11 +1746,15 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun argon2BackupKey(password: CharArray, salt: ByteArray): ByteArray {
+    private fun argon2BackupKey(password: CharArray, salt: ByteArray, version: Int = 2): ByteArray {
         val passwordText = String(password)
         return try {
             val saltHex = salt.joinToString("") { "%02x".format(it.toInt() and 0xff) }
-            val raw = SecureCore.deriveBackupKey(passwordText, saltHex)
+            val raw = if (version == 3) {
+                SecureCore.deriveBackupKeyV3(passwordText, saltHex)
+            } else {
+                SecureCore.deriveBackupKey(passwordText, saltHex)
+            }
             if (raw.trimStart().startsWith("{")) parseCore(raw)
             check(raw.length == 64) { "Argon2id key derivation failed" }
             ByteArray(32) { index ->
@@ -1625,14 +1765,120 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    private fun readBackup(uri: android.net.Uri): String {
+        val limit = 2 * 1024 * 1024
+        val output = java.io.ByteArrayOutputStream()
+        contentResolver.openInputStream(uri).use { input ->
+            check(input != null) { "Backup file is unavailable" }
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                check(total <= limit) { "Backup is too large" }
+                output.write(buffer, 0, count)
+            }
+            buffer.fill(0)
+        }
+        val bytes = output.toByteArray()
+        return try { bytes.toString(Charsets.UTF_8) } finally { bytes.fill(0) }
+    }
+
+    private fun savedBackups(): List<SavedBackup> {
+        val projection = arrayOf(
+            MediaStore.Downloads._ID,
+            MediaStore.Downloads.DISPLAY_NAME,
+        )
+        val result = mutableListOf<SavedBackup>()
+        contentResolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            projection,
+            "${MediaStore.Downloads.RELATIVE_PATH}=?",
+            arrayOf(backupRelativePath),
+            "${MediaStore.Downloads.DATE_MODIFIED} DESC",
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
+            val nameIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
+            while (cursor.moveToNext()) {
+                val fileName = cursor.getString(nameIndex) ?: continue
+                if (!fileName.endsWith(".json", true)) continue
+                val uri = ContentUris.withAppendedId(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    cursor.getLong(idIndex),
+                )
+                val address = try {
+                    JSONObject(readBackup(uri)).optString(
+                        "address",
+                        "Address stored inside encrypted backup",
+                    )
+                } catch (_: Exception) {
+                    "Unreadable or unsupported backup"
+                }
+                result += SavedBackup(uri, fileName, address)
+            }
+        }
+        return result
+    }
+
+    private fun backupDisplayName(uri: android.net.Uri): String = try {
+        contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+            } else null
+        } ?: uri.lastPathSegment ?: "Selected backup"
+    } catch (_: Exception) {
+        uri.lastPathSegment ?: "Selected backup"
+    }
+
+    private fun saveBackup(fileName: String, backup: String): android.net.Uri {
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+            put(MediaStore.Downloads.MIME_TYPE, "application/json")
+            put(MediaStore.Downloads.RELATIVE_PATH, backupRelativePath)
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: error("Android could not create the backup file")
+        try {
+            contentResolver.openOutputStream(uri, "w").use { output ->
+                check(output != null) { "Android could not open the backup file" }
+                val bytes = backup.toByteArray(Charsets.UTF_8)
+                try {
+                    output.write(bytes)
+                    output.flush()
+                } finally {
+                    bytes.fill(0)
+                }
+            }
+            contentResolver.update(uri, ContentValues().apply {
+                put(MediaStore.Downloads.IS_PENDING, 0)
+            }, null, null)
+            return uri
+        } catch (error: Exception) {
+            contentResolver.delete(uri, null, null)
+            throw error
+        }
+    }
+
     private fun exportEncryptedBackup(result: MethodChannel.Result) {
         val (first, second, content) = backupPasswordFields()
         val dialog = AlertDialog.Builder(this)
             .setTitle("Encrypted portable backup")
-            .setMessage("Choose a unique password. Kaspire cannot recover either this password or a lost BIP-39 passphrase.")
+            .setMessage(
+                "This exports only the currently selected seed or private-key wallet, not every wallet connected to Kaspire. " +
+                    "Choose a unique password. Kaspire cannot recover it or a lost BIP-39 passphrase. " +
+                    "After seed-only recovery, automatic discovery finds only addresses with KAS or transaction history."
+            )
             .setView(content)
             .setNegativeButton("Cancel") { _, _ -> result.error("CANCELLED", "Backup cancelled", null) }
-            .setPositiveButton("ENCRYPT & SHARE", null)
+            .setPositiveButton("ENCRYPT & SAVE", null)
             .setCancelable(false)
             .create()
         dialog.setOnShowListener {
@@ -1643,10 +1889,10 @@ class MainActivity : FlutterFragmentActivity() {
                     check(one.length >= 12) { "Use at least 12 characters" }
                     check(one == second.text.toString()) { "Backup passwords do not match" }
                     val salt = ByteArray(32).also { SecureRandom().nextBytes(it) }
-                    val key = argon2BackupKey(one.toCharArray(), salt)
+                    val key = argon2BackupKey(one.toCharArray(), salt, 3)
                     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                     cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"))
-                    val secret = decryptSecret()
+                    val secret = decryptedSecretForExplicitUse()
                     val walletId = activeWalletId() ?: error("No active signing wallet")
                     val plaintext = JSONObject().apply {
                         put("secret", secret)
@@ -1656,23 +1902,23 @@ class MainActivity : FlutterFragmentActivity() {
                     }.toString().toByteArray(Charsets.UTF_8)
                     val encrypted = try { cipher.doFinal(plaintext) } finally { plaintext.fill(0) }
                     val backup = JSONObject().apply {
-                        put("format", "kaspire-backup-v2")
+                        put("format", "kaspire-backup-v3")
                         put("kdf", "argon2id-v19")
-                        put("memoryKiB", 32768)
-                        put("iterations", 3)
+                        put("memoryKiB", 65536)
+                        put("iterations", 4)
                         put("parallelism", 1)
+                        put("address", activeWalletAddress())
                         put("salt", Base64.encodeToString(salt, Base64.NO_WRAP))
                         put("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
                         put("ciphertext", Base64.encodeToString(encrypted, Base64.NO_WRAP))
                     }.toString()
                     key.fill(0); salt.fill(0); encrypted.fill(0)
+                    val address = activeWalletAddress() ?: error("No active signing wallet")
+                    val safeAddress = address.replace(Regex("[^A-Za-z0-9_-]"), "_")
+                    val fileName = "Kaspire-Backup_${LocalDate.now()}_${safeAddress}.json"
+                    saveBackup(fileName, backup)
                     first.text.clear(); second.text.clear(); dialog.dismiss()
-                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                        type = "application/json"
-                        putExtra(Intent.EXTRA_TEXT, backup)
-                        putExtra(Intent.EXTRA_TITLE, "Kaspire encrypted wallet backup")
-                    }, "Save encrypted Kaspire backup"))
-                    result.success(null)
+                    result.success("Downloads/Kaspire-Backup/$fileName")
                 } catch (error: Exception) {
                     first.error = error.message ?: "Backup encryption failed"
                 }
@@ -1682,43 +1928,164 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun restoreEncryptedBackup(result: MethodChannel.Result) {
+        val saved = savedBackups()
+        selectedRestoreBackupUri = null
+        val backupSelector = AutoCompleteTextView(this).apply {
+            hint = "Tap here to pick backup"
+            isSingleLine = true
+            inputType = InputType.TYPE_NULL
+            val labels = saved.map { "${it.fileName}\n${it.address}" }
+            setAdapter(ArrayAdapter(this@MainActivity, android.R.layout.simple_dropdown_item_1line, labels))
+            setOnClickListener { showDropDown() }
+            setOnFocusChangeListener { _, focused -> if (focused) showDropDown() }
+            setOnItemClickListener { _, _, position, _ ->
+                selectedRestoreBackupUri = saved[position].uri
+                restoreBackupStatus?.apply {
+                    setTextColor(Color.rgb(87, 220, 190))
+                    text = "Backup selected: ${saved[position].fileName}\n" +
+                        "Enter its password and tap RESTORE."
+                }
+            }
+        }
         val backupInput = EditText(this).apply {
-            hint = "Paste the complete kaspire-backup-v1 or v2 JSON"
-            minLines = 4
-            maxLines = 8
+            hint = "Paste the complete Kaspire backup v1, v2 or v3 JSON"
+            minLines = 2
+            maxLines = 4
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             filters = arrayOf(InputFilter.LengthFilter(2 * 1024 * 1024))
+            isLongClickable = true
         }
-        val password = EditText(this).apply {
-            hint = "Backup password"
-            isSingleLine = true
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        val restoreError = TextView(this).apply {
+            setTextColor(Color.rgb(255, 125, 125))
+            setPadding(0, dp(8), 0, 0)
         }
+        val chooseFile = Button(this).apply {
+            text = "CHOOSE BACKUP FILE"
+            setOnClickListener {
+                try {
+                    restoreError.text = ""
+                    backupPicker.launch(
+                        arrayOf(
+                            "application/json",
+                            "text/json",
+                            "text/plain",
+                            "application/octet-stream",
+                        ),
+                    )
+                } catch (error: Exception) {
+                    restoreError.text =
+                        error.message ?: "Android could not open the file picker."
+                }
+            }
+        }
+        val pasteBackup = Button(this).apply {
+            text = "PASTE FROM CLIPBOARD"
+            setOnClickListener {
+                try {
+                    val clipboard =
+                        getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = clipboard.primaryClip
+                    check(clip != null && clip.itemCount > 0) {
+                        "The clipboard does not contain backup text."
+                    }
+                    val pasted = clip.getItemAt(0).coerceToText(this@MainActivity)
+                        ?.toString()?.trim().orEmpty()
+                    check(pasted.isNotEmpty()) {
+                        "The clipboard does not contain backup text."
+                    }
+                    check(pasted.toByteArray(Charsets.UTF_8).size <= 2 * 1024 * 1024) {
+                        "Backup is too large."
+                    }
+                    backupInput.setText(pasted)
+                    backupInput.setSelection(backupInput.text.length)
+                    restoreError.setTextColor(Color.rgb(87, 220, 190))
+                    restoreError.text =
+                        "Backup text pasted. Enter its password and tap RESTORE."
+                } catch (error: Exception) {
+                    restoreError.setTextColor(Color.rgb(255, 125, 125))
+                    restoreError.text = error.message ?: "Could not paste the backup."
+                }
+            }
+        }
+        val password = passwordField("Backup password")
+        restoreBackupSelector = backupSelector
+        restoreBackupStatus = restoreError
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            isFocusableInTouchMode = true
             setPadding(dp(24), dp(8), dp(24), 0)
+            addView(TextView(this@MainActivity).apply {
+                text = "Choose or paste a backup, enter its password, then tap RESTORE."
+                setPadding(0, 0, 0, dp(10))
+            })
+            if (saved.isNotEmpty()) {
+                addView(TextView(this@MainActivity).apply {
+                    text = "Backups in Downloads/Kaspire-Backup"
+                    setPadding(0, 0, 0, dp(6))
+                })
+                addView(backupSelector)
+            } else {
+                addView(TextView(this@MainActivity).apply {
+                    text = "No backup was found in Downloads/Kaspire-Backup."
+                    setPadding(0, 0, 0, dp(12))
+                })
+            }
+            addView(chooseFile)
+            addView(TextView(this@MainActivity).apply {
+                text = "OR PASTE BACKUP JSON"
+                gravity = Gravity.CENTER
+                setPadding(0, dp(10), 0, dp(6))
+            })
             addView(backupInput)
+            addView(pasteBackup)
             addView(password)
+            addView(restoreError)
+        }
+        val scrollContent = ScrollView(this).apply {
+            isFillViewport = true
+            addView(content)
         }
         val dialog = AlertDialog.Builder(this)
             .setTitle("Restore encrypted backup")
-            .setMessage("The backup is decrypted only inside Kaspire's native Android boundary.")
-            .setView(ScrollView(this).apply { addView(content) })
-            .setNegativeButton("Cancel") { _, _ -> result.error("CANCELLED", "Restore cancelled", null) }
+            .setView(scrollContent)
+            .setNegativeButton("Cancel") { _, _ ->
+                clearRestorePickerState()
+                result.error("CANCELLED", "Restore cancelled", null)
+            }
             .setPositiveButton("RESTORE", null)
             .setCancelable(false)
             .create()
         dialog.setOnShowListener {
             dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            dialog.window?.apply {
+                setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
+                )
+                setLayout(
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    (resources.displayMetrics.heightPixels * 0.82).toInt(),
+                )
+            }
+            content.requestFocus()
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 try {
-                    val backupText = backupInput.text.toString().trim()
+                    restoreError.text = ""
+                    val pasted = backupInput.text.toString().trim()
+                    val backupText = if (pasted.isNotEmpty()) {
+                        pasted
+                    } else {
+                        readBackup(selectedRestoreBackupUri ?: error(
+                            "Choose a backup file or paste a complete Kaspire backup JSON."
+                        )).trim()
+                    }
                     check(backupText.toByteArray(Charsets.UTF_8).size <= 2 * 1024 * 1024) {
                         "Backup is too large"
                     }
                     val backup = JSONObject(backupText)
                     val format = backup.getString("format")
-                    check(format == "kaspire-backup-v1" || format == "kaspire-backup-v2") {
+                    check(format == "kaspire-backup-v1" || format == "kaspire-backup-v2" ||
+                        format == "kaspire-backup-v3") {
                         "Unsupported backup format"
                     }
                     val saltText = backup.getString("salt")
@@ -1738,7 +2105,7 @@ class MainActivity : FlutterFragmentActivity() {
                             }
                             backupKey(password.text.toString().toCharArray(), salt)
                         }
-                        else -> {
+                        "kaspire-backup-v2" -> {
                             check(backup.optString("kdf") == "argon2id-v19" &&
                                 backup.getInt("memoryKiB") == 32768 &&
                                 backup.getInt("iterations") == 3 &&
@@ -1746,6 +2113,15 @@ class MainActivity : FlutterFragmentActivity() {
                                 "Unsupported Argon2id parameters"
                             }
                             argon2BackupKey(password.text.toString().toCharArray(), salt)
+                        }
+                        else -> {
+                            check(backup.optString("kdf") == "argon2id-v19" &&
+                                backup.getInt("memoryKiB") == 65536 &&
+                                backup.getInt("iterations") == 4 &&
+                                backup.getInt("parallelism") == 1) {
+                                "Unsupported Argon2id v3 parameters"
+                            }
+                            argon2BackupKey(password.text.toString().toCharArray(), salt, 3)
                         }
                     }
                     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -1765,14 +2141,22 @@ class MainActivity : FlutterFragmentActivity() {
                     check(address == decoded.getString("address")) { "Backup address verification failed" }
                     storeWallet(secret, address)
                     decoded.optJSONArray("addresses")?.let { registerHdAddresses(it.toString()) }
+                    clearRestorePickerState()
                     backupInput.text.clear(); password.text.clear(); dialog.dismiss()
                     result.success(address)
                 } catch (error: Exception) {
-                    password.error = error.message ?: "Wrong password or damaged backup"
+                    restoreError.setTextColor(Color.rgb(255, 125, 125))
+                    restoreError.text = error.message ?: "Wrong password or damaged backup"
                 }
             }
         }
         dialog.show()
+    }
+
+    private fun clearRestorePickerState() {
+        selectedRestoreBackupUri = null
+        restoreBackupSelector = null
+        restoreBackupStatus = null
     }
 
     private fun resultFromCore(raw: String, result: MethodChannel.Result) {
@@ -2077,7 +2461,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun decryptSecret(address: String? = null): String {
+    private fun decryptSecretBytes(address: String? = null): ByteArray {
         val prefs = preferences()
         val id = if (address == null) activeWalletId() else walletIds().firstOrNull {
             controlsAddress(it, address)
@@ -2088,34 +2472,55 @@ class MainActivity : FlutterFragmentActivity() {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, ensureVaultKey(), GCMParameterSpec(128, iv))
         val plaintext = try { cipher.doFinal(encrypted) } finally { encrypted.fill(0); iv.fill(0) }
+        val path = address?.let { hdPath(id, it) }
+        if (path == null || path == "m/44'/111111'/0'/0/0") return plaintext
+        val prefix = "hd-path:$path:".toByteArray(Charsets.UTF_8)
         return try {
-            val secret = plaintext.toString(Charsets.UTF_8)
-            val path = address?.let { hdPath(id, it) }
-            if (path != null && path != "m/44'/111111'/0'/0/0") "hd-path:$path:$secret" else secret
-        } finally { plaintext.fill(0) }
+            ByteArray(prefix.size + plaintext.size).also { combined ->
+                prefix.copyInto(combined)
+                plaintext.copyInto(combined, prefix.size)
+            }
+        } finally {
+            prefix.fill(0)
+            plaintext.fill(0)
+        }
     }
+
+    private inline fun <T> withDecryptedSecret(
+        address: String? = null,
+        block: (ByteArray) -> T,
+    ): T {
+        val secret = decryptSecretBytes(address)
+        return try { block(secret) } finally { secret.fill(0) }
+    }
+
+    /** Explicit reveal/import paths must render text; routine signing never calls this. */
+    private fun decryptedSecretForExplicitUse(address: String? = null): String =
+        withDecryptedSecret(address) { it.toString(Charsets.UTF_8) }
 
     private fun registerHdAddresses(raw: String) {
         val id = activeWalletId() ?: error("No active signing wallet")
         val source = JSONArray(raw)
         check(source.length() in 1..2000) { "Invalid HD address list" }
-        val secret = decryptSecret()
         val verified = JSONArray()
-        for (index in 0 until source.length()) {
-            val candidate = source.getJSONObject(index)
-            val coinType = candidate.getInt("coinType")
-            val account = candidate.optInt("account", 0)
-            val change = candidate.getInt("change")
-            val addressIndex = candidate.getInt("index")
-            val derived = JSONArray(SecureCore.deriveAddresses(secret, coinType, account, change, addressIndex, 1))
-                .getJSONObject(0)
-            check(derived.getString("address") == candidate.getString("address")) {
-                "HD address verification failed"
+        withDecryptedSecret { secret ->
+            for (index in 0 until source.length()) {
+                val candidate = source.getJSONObject(index)
+                val coinType = candidate.getInt("coinType")
+                val account = candidate.optInt("account", 0)
+                val change = candidate.getInt("change")
+                val addressIndex = candidate.getInt("index")
+                val derived = JSONArray(SecureCore.deriveAddresses(
+                    secret.copyOf(), coinType, account, change, addressIndex, 1,
+                )).getJSONObject(0)
+                check(derived.getString("address") == candidate.getString("address")) {
+                    "HD address verification failed"
+                }
+                derived.put("used", candidate.optBoolean("used", false))
+                derived.put("explicit", candidate.optBoolean("explicit", false))
+                derived.put("receiveRotation", candidate.optBoolean("receiveRotation", false))
+                verified.put(derived)
             }
-            derived.put("used", candidate.optBoolean("used", false))
-            derived.put("explicit", candidate.optBoolean("explicit", false))
-            derived.put("receiveRotation", candidate.optBoolean("receiveRotation", false))
-            verified.put(derived)
         }
         preferences().edit().putString(walletKey(id, "addresses"), verified.toString()).commit()
     }

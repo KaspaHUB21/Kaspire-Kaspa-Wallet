@@ -242,23 +242,20 @@ mod tests {
         ));
         let mut tx = Transaction::new(1, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
         // dot.k ABI: newOwnerType, newOwner, sig[], witness, dispatch tag, redeem.
-        tx.inputs[0].signature_script = ScriptBuilder::with_flags(EngineFlags {
-            covenants_enabled: true,
-            ..Default::default()
-        })
-        .add_data(&[0])
-        .unwrap()
-        .add_data(&recipient.payload)
-        .unwrap()
-        .add_data(&[])
-        .unwrap()
-        .add_i64(1)
-        .unwrap()
-        .add_data(&hex::decode("b54f0d61").unwrap())
-        .unwrap()
-        .add_data(&old_deed)
-        .unwrap()
-        .drain();
+        tx.inputs[0].signature_script = ScriptBuilder::with_flags(EngineFlags::default())
+            .add_data(&[0])
+            .unwrap()
+            .add_data(&recipient.payload)
+            .unwrap()
+            .add_data(&[])
+            .unwrap()
+            .add_i64(1)
+            .unwrap()
+            .add_data(&hex::decode("b54f0d61").unwrap())
+            .unwrap()
+            .add_data(&old_deed)
+            .unwrap()
+            .drain();
         sign_fixture(&mut tx, &entries, &sale, cancel);
         (tx, entries, sale)
     }
@@ -305,13 +302,10 @@ mod tests {
                     .build_sig_script(if cancel { "cancel" } else { "buy" }, args)
                     .unwrap();
                 script.extend(
-                    ScriptBuilder::with_flags(EngineFlags {
-                        covenants_enabled: true,
-                        ..Default::default()
-                    })
-                    .add_data(&sale.script)
-                    .unwrap()
-                    .drain(),
+                    ScriptBuilder::with_flags(EngineFlags::default())
+                        .add_data(&sale.script)
+                        .unwrap()
+                        .drain(),
                 );
                 script
             } else {
@@ -337,7 +331,6 @@ mod tests {
                     .with_reused(&reused)
                     .with_covenants_ctx(&covenants),
                 EngineFlags {
-                    covenants_enabled: true,
                     sigop_script_units: kaspa_consensus_core::mass::units::Gram(
                         kaspa_consensus_core::config::params::MAINNET_PARAMS.mass_per_sig_op,
                     )
@@ -421,10 +414,7 @@ mod tests {
                 .as_ref()
                 .to_vec();
             sig.push(1);
-            let mut builder = ScriptBuilder::with_flags(EngineFlags {
-                covenants_enabled: true,
-                ..Default::default()
-            });
+            let mut builder = ScriptBuilder::with_flags(EngineFlags::default());
             if index == 0 {
                 builder
                     .add_data(&[4])
@@ -499,12 +489,12 @@ mod tests {
                 .unwrap();
             let mass = kaspa_consensus_core::mass::Mass::new(non_contextual, contextual);
             let params = &kaspa_consensus_core::config::params::MAINNET_PARAMS;
-            let effective = mass.normalized_max(&params.mempool_block_mass_cofactors().after());
+            let effective = mass.normalized_max(&params.block_mass_cofactors());
             eprintln!(
                 "cancel={cancel}: effective mass={effective}, limit={}",
-                params.mempool_block_mass_limits().after().reference()
+                params.block_mass_limits.reference()
             );
-            assert!(effective <= params.mempool_block_mass_limits().after().reference());
+            assert!(effective <= params.block_mass_limits.reference());
         }
     }
 

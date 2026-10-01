@@ -1165,10 +1165,19 @@ function secretAction(action: string) {
   const backup = action === "backup",
     restore = action === "restore";
   shell(
-    `<section class="form-page"><p class="eyebrow">SECURE ACTION</p><h1>${backup ? "Encrypted portable backup" : restore ? "Restore encrypted backup" : "Confirm vault password"}</h1>${backup ? '<p class="info-box">Choose a unique password. Kaspire cannot recover this password or a lost BIP-39 passphrase.</p>' : restore ? '<p class="info-box">Paste the complete kaspire-backup-v1 or v2 JSON. It is decrypted only inside Kaspire.</p>' : ""}<div class="form">${restore ? '<label>Encrypted Kaspire backup<textarea id="backup-code" rows="7" placeholder="Paste the complete backup text"></textarea></label>' : ""}<label>${backup ? "Backup password (12+ characters)" : "Vault password"}<input id="secret-password" type="password"></label>${backup ? '<label>Confirm backup password<input id="confirm-password" type="password"></label>' : ""}<button id="continue">${backup ? "ENCRYPT BACKUP" : restore ? "RESTORE" : "CONTINUE"}</button><p id="error" class="error"></p><pre id="secret" hidden></pre><div id="backup-actions" hidden><button id="copy-backup" class="outline">COPY BACKUP TEXT</button><button id="save-backup" class="outline">SAVE JSON FILE</button></div></div></section>`,
+    `<section class="form-page"><p class="eyebrow">SECURE ACTION</p><h1>${backup ? "Encrypted portable backup" : restore ? "Restore encrypted backup" : "Confirm vault password"}</h1>${backup ? '<p class="info-box">This export contains only the currently selected seed or private-key wallet, not every wallet connected to Kaspire. Choose a unique password; Kaspire cannot recover it or a lost BIP-39 passphrase. Seed-only discovery can automatically recover only addresses with KAS or transaction history.</p>' : restore ? '<p class="info-box">Select or paste a complete Kaspire backup v1, v2 or v3 JSON. It is decrypted only inside Kaspire.</p>' : ""}<div class="form">${restore ? '<label>Encrypted Kaspire backup<textarea id="backup-code" rows="7" placeholder="Paste the complete backup JSON"></textarea></label><label class="file">Or select JSON file<input id="backup-file" type="file" accept="application/json,.json"></label>' : ""}<label>${backup ? "Backup password (12+ characters)" : "Vault password"}<input id="secret-password" type="password"></label>${backup ? '<label>Confirm backup password<input id="confirm-password" type="password"></label>' : ""}<button id="continue">${backup ? "ENCRYPT BACKUP" : restore ? "RESTORE" : "CONTINUE"}</button><p id="error" class="error"></p><pre id="secret" hidden></pre><div id="backup-actions" hidden><button id="copy-backup" class="outline">COPY BACKUP TEXT</button><button id="save-backup" class="outline">SAVE JSON FILE</button></div></div></section>`,
     "AUTHORIZE",
     true,
   );
+  document.querySelector<HTMLInputElement>("#backup-file")?.addEventListener("change", async (event) => {
+    const file = (event.currentTarget as HTMLInputElement).files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      document.querySelector("#error")!.textContent = "Backup is too large.";
+      return;
+    }
+    document.querySelector<HTMLTextAreaElement>("#backup-code")!.value = await file.text();
+  });
   document.querySelector<HTMLButtonElement>("#continue")!.onclick =
     async () => {
       try {
@@ -1188,7 +1197,11 @@ function secretAction(action: string) {
           document.querySelector<HTMLButtonElement>("#copy-backup")!.onclick =
             () => copy(secret, "Encrypted backup copied");
           document.querySelector<HTMLButtonElement>("#save-backup")!.onclick =
-            () => download(secret, "kaspire-backup-v2.json");
+            () => {
+              const date = new Date().toISOString().slice(0, 10);
+              const address = String(status.selectedAddress ?? "wallet").replace(/[^a-z0-9_-]/gi, "_");
+              download(secret, `Kaspire-Backup_${date}_${address}.json`);
+            };
           document.querySelector<HTMLInputElement>("#secret-password")!.value =
             "";
           document.querySelector<HTMLInputElement>("#confirm-password")!.value =
@@ -1349,7 +1362,7 @@ async function receive() {
   const address = l2 ? await command("evmAddress") : selectedAddress;
   const selectedMeta = available.find((item: any) => item.address === address);
   const addressLabel = selectedMeta
-    ? (selectedMeta.index === 0 ? "Primary receive address" : "Receive address " + selectedMeta.index) +
+    ? (selectedMeta.name || (selectedMeta.index === 0 ? "Primary receive address" : "Receive address " + selectedMeta.index)) +
       " · " + esc(selectedMeta.path)
     : "";
   const html =
@@ -1373,9 +1386,10 @@ async function receive() {
     const overlay = document.createElement("div");
     overlay.className = "kaspire-modal";
     const rows = [...available].reverse().map((item: any) =>
-      '<button class="recipient-row" data-receive-address="' + esc(item.address) + '"><span>↻</span><span><b>' +
-      (item.index === 0 ? "Primary receive address" : "Receive address " + item.index) +
-      '</b><small>' + esc(item.path) + " · " + short(item.address) + "</small></span></button>"
+      '<div class="receive-address-row"><button class="recipient-row" data-receive-address="' + esc(item.address) + '"><span>↻</span><span><b>' +
+      esc(item.name || (item.index === 0 ? "Primary receive address" : "Receive address " + item.index)) +
+      '</b><small>' + esc(item.path) + '</small><code>' + esc(item.address) + '</code><em>' + (item.used ? "Used" : item.usageKnown === false ? "Not checked" : "Unused") + '</em></span></button>' +
+      (item.index > 0 ? '<button class="icon rename-receive" data-rename-receive="' + esc(item.address) + '" title="Rename receive address">✎</button>' : '') + '</div>'
     ).join("");
     overlay.innerHTML =
       '<section class="recipient-sheet"><div class="sheet-title"><h2>Receive addresses</h2>' +
@@ -1389,6 +1403,26 @@ async function receive() {
         context.receiveAddress = button.dataset.receiveAddress;
         overlay.remove();
         await render();
+      };
+    });
+    overlay.querySelectorAll<HTMLButtonElement>("[data-rename-receive]").forEach((button) => {
+      button.onclick = () => {
+        const entry = available.find((item: any) => item.address === button.dataset.renameReceive);
+        const renameOverlay = document.createElement("div");
+        renameOverlay.className = "kaspire-modal";
+        renameOverlay.innerHTML = '<section class="approval-sheet"><p class="eyebrow">RECEIVE ADDRESS</p><h2>Rename address</h2><label>Address name<input id="receive-address-name" maxlength="40" value="' + esc(entry?.name || `Receive address ${entry?.index ?? ""}`) + '"></label><p id="receive-rename-error" class="error"></p><div class="approval-actions"><button id="receive-rename-cancel" class="outline">Cancel</button><button id="receive-rename-save">Save</button></div></section>';
+        document.body.append(renameOverlay);
+        const input = renameOverlay.querySelector<HTMLInputElement>("#receive-address-name")!;
+        input.focus(); input.select();
+        renameOverlay.querySelector<HTMLButtonElement>("#receive-rename-cancel")!.onclick = () => renameOverlay.remove();
+        renameOverlay.querySelector<HTMLButtonElement>("#receive-rename-save")!.onclick = async () => {
+          try {
+            await command("renameReceiveAddress", { address: entry.address, name: input.value });
+            renameOverlay.remove(); overlay.remove(); await render();
+          } catch (error) {
+            renameOverlay.querySelector<HTMLElement>("#receive-rename-error")!.textContent = (error as Error).message;
+          }
+        };
       };
     });
   });

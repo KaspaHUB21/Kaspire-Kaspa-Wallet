@@ -149,6 +149,17 @@ pub fn derive_backup_key_js(
         .map_err(|error| JsError::new(&error.to_string()))
 }
 
+#[wasm_bindgen(js_name = deriveBackupKeyV3)]
+pub fn derive_backup_key_v3_js(
+    password: &str,
+    salt_hex: &str,
+) -> std::result::Result<String, JsError> {
+    let salt = hex::decode(salt_hex).map_err(|_| JsError::new("invalid backup salt"))?;
+    derive_backup_key_v3(password, &salt)
+        .map(|key| hex::encode(key.as_ref()))
+        .map_err(|error| JsError::new(&error.to_string()))
+}
+
 #[wasm_bindgen(js_name = deriveAddressRange)]
 pub fn derive_address_range_js(
     secret: &str,

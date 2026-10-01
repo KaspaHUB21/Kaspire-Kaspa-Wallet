@@ -260,7 +260,7 @@ pub(crate) fn build(request: &SendRequest) -> Result<Built> {
             non_contextual,
             ContextualMasses::new(contextual.storage_mass),
         )
-        .normalized_max(&params.mempool_block_mass_cofactors().after());
+        .normalized_max(&params.block_mass_cofactors());
         let required_fee = (request.fee_rate * mass as f64).ceil() as u64;
         if actual_fee >= required_fee {
             let unsigned = make_transaction(
@@ -362,7 +362,7 @@ fn build_send_all(
             non_contextual,
             ContextualMasses::new(contextual.storage_mass),
         )
-        .normalized_max(&params.mempool_block_mass_cofactors().after());
+        .normalized_max(&params.block_mass_cofactors());
         let required_fee = (request.fee_rate * mass as f64).ceil() as u64;
         if fee >= required_fee {
             break (

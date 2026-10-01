@@ -20,6 +20,7 @@ type CoreModule = {
   prepareDotkMarket(request: string): string;
   signDotkMarket(secret: string, request: string, reviewHash: string): string;
   deriveBackupKey(password: string, saltHex: string): string;
+  deriveBackupKeyV3(password: string, saltHex: string): string;
   prepareTransaction(request: string): string;
   signTransaction(secret: string, request: string, reviewHash: string): string;
   signPersonalMessage(secret: string, address: string, message: string): string;

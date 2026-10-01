@@ -94,13 +94,19 @@ void main() {
     final stalled = Completer<http.Response>();
     final visible = Completer<WalletSnapshot>();
     var globalCatalogueRead = false;
+    var fallbackRead = false;
     final client = MockClient((request) async {
       if (request.url.path.endsWith('/tokens.json')) globalCatalogueRead = true;
-      if (request.url.host == 'kaspire.kaslab.space' &&
+      if (request.url.host == 'api.kasplex.org' &&
           request.url.path.endsWith('/tokenlist')) {
         return http.Response(
             '{"result":[{"tick":"ZZZ","balance":"1","dec":0},{"tick":"AAA","balance":"2","dec":0}]}',
             200);
+      }
+      if (request.url.host == 'kaspire.kaslab.space' &&
+          request.url.path.endsWith('/tokenlist')) {
+        fallbackRead = true;
+        return http.Response('{}', 401);
       }
       if (request.url.path.endsWith('/balance')) {
         return http.Response('{"balance":0}', 200);
@@ -121,6 +127,42 @@ void main() {
       await loading;
     } catch (_) {/* market price is deliberately offline */}
     expect(globalCatalogueRead, isFalse);
+    expect(fallbackRead, isFalse);
+  });
+
+  test('contacts the protected KRC20 mirror only after Kasplex fails',
+      () async {
+    var primaryReads = 0;
+    var fallbackReads = 0;
+    final api = KaspaApi(client: MockClient((request) async {
+      if (request.url.path.endsWith('/tokenlist')) {
+        if (request.url.host == 'api.kasplex.org') {
+          primaryReads += 1;
+          return http.Response('{}', 503);
+        }
+        if (request.url.host == 'kaspire.kaslab.space') {
+          fallbackReads += 1;
+          return http.Response(
+            '{"result":[{"tick":"FALLBACK","balance":"7","dec":0}]}',
+            200,
+          );
+        }
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":0}', 200);
+      }
+      if (request.url.path.endsWith('/info/price')) {
+        return http.Response('{"price":0}', 200);
+      }
+      if (request.url.path.endsWith('/utxos')) return http.Response('[]', 200);
+      return http.Response('{}', 503);
+    }));
+
+    final snapshot =
+        await api.loadWallet(address, includeNativeTransactions: false);
+    expect(primaryReads, 1);
+    expect(fallbackReads, 1);
+    expect(snapshot.krc20Tokens.map((token) => token.symbol), ['FALLBACK']);
   });
 
   test('parses an incoming transaction from decoded outputs', () {
@@ -818,6 +860,33 @@ void main() {
       expectedTransactionId: transactionId,
     );
     expect(result, transactionId);
+  });
+
+  test('accepts an uncertain KCC20 response only after own-node verification',
+      () async {
+    const transactionId =
+        '5555555555555555555555555555555555555555555555555555555555555555';
+    var nodeChecks = 0;
+    final client = MockClient((request) async {
+      if (request.method == 'POST') {
+        return http.Response(
+          '{"error":"remote response was lost after submission"}',
+          500,
+        );
+      }
+      nodeChecks += 1;
+      return http.Response(
+        '{"transaction_id":"$transactionId","is_accepted":true}',
+        200,
+      );
+    });
+
+    final result = await KaspaApi(client: client).broadcastKcc20(
+      '{"version":1}',
+      expectedTransactionId: transactionId,
+    );
+    expect(result, transactionId);
+    expect(nodeChecks, 1);
   });
 
   test('loads individual NFTs for an owned KRC-721 collection', () async {

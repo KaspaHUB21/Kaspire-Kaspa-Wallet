@@ -3,7 +3,7 @@
 These requirements are release blockers, not recommendations.
 
 1. Mnemonics and derived private keys never enter Dart, JavaScript, WebViews, logs, crash reports, clipboard, analytics or backups.
-2. Android Keystore/StrongBox protects the AES-256-GCM wrapping key. The Kaspa seed exists decrypted only in zeroizing Rust memory during an authorized operation.
+2. Android Keystore/StrongBox protects the AES-256-GCM wrapping key. Routine authorized operations transfer the decrypted Kaspa secret through short-lived mutable JNI byte buffers that are wiped on both the Android and Rust sides; Rust signing material is additionally held in zeroizing memory. Explicit recovery and backup exports necessarily render the user-approved secret.
 3. Every sign, secret export and wallet deletion requires fresh native biometric/device-credential or Kaspire PIN approval on supported Android 11–16 devices. Kotlin, not Dart, supplies fixed prompt language; value-moving prompts use fields cached from the Rust-prepared review, while KIP-5 signing first displays the exact address and message in a native review dialog. Kotlin binds the resulting random, one-use, 20-second capability to the exact operation and review hash/message/wallet and atomically consumes it before the operation. Session connection approval never authorizes a later transaction.
 4. The signer accepts only a fully decoded transaction whose network, inputs, outputs, change, fee, payload, scripts and Toccata fields were rendered for confirmation.
 5. Unknown covenants, payloads, scripts, unresolved inputs, wrong network, stale requests and replayed requests are rejected.

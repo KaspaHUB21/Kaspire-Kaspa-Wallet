@@ -11,6 +11,8 @@ import '../services/hd_wallet_structure.dart';
 import "../services/hd_discovery_service.dart";
 import '../services/native_security.dart';
 import '../models/kaspa_payment_request.dart';
+import '../services/kaspa_api.dart';
+import '../services/preferences_service.dart';
 
 class ReceiveScreen extends StatefulWidget {
   const ReceiveScreen({
@@ -29,12 +31,16 @@ class ReceiveScreen extends StatefulWidget {
 class _ReceiveScreenState extends State<ReceiveScreen> {
   final _amount = TextEditingController();
   final _security = NativeSecurity();
+  final _api = KaspaApi();
+  final _preferences = PreferencesService();
   NativeWalletInfo? _wallet;
   NativeHdAddress? _selected;
   List<NativeHdAddress> _receiveAddresses = const [];
   bool _loadingAddresses = true;
   bool _rotating = false;
   String? _rotationError;
+  Map<String, String> _receiveAddressNames = const {};
+  Map<String, bool> _receiveAddressUsageKnown = const {};
 
   String get _selectedAddress => _selected == null
       ? widget.address
@@ -109,7 +115,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
         throw StateError(
             "Select the account primary address to rotate KAS receive addresses.");
       }
-      final addresses = wallet.addresses
+      var addresses = wallet.addresses
           .where((item) =>
               item.coinType == current.coinType &&
               item.account == current.account &&
@@ -117,11 +123,38 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
               (item.index == 0 || item.receiveRotation))
           .toList()
         ..sort((left, right) => left.index.compareTo(right.index));
+      final names = await _preferences.getSubwalletNames();
+      final activity = await Future.wait<bool?>(
+        addresses.map(
+          (item) async {
+            if (item.used) return true;
+            try {
+              return await _api
+                  .addressHasActivity(item.address)
+                  .timeout(const Duration(seconds: 8));
+            } catch (_) {
+              return null;
+            }
+          },
+        ),
+      );
+      addresses = List<NativeHdAddress>.generate(
+        addresses.length,
+        (index) => addresses[index].copyWith(
+          used: addresses[index].used || activity[index] == true,
+        ),
+      );
       if (mounted) {
         setState(() {
           _wallet = wallet;
           _selected = current;
           _receiveAddresses = addresses;
+          _receiveAddressNames = names;
+          _receiveAddressUsageKnown = {
+            for (var index = 0; index < addresses.length; index++)
+              addresses[index].address.toLowerCase():
+                  addresses[index].used || activity[index] != null,
+          };
           _loadingAddresses = false;
           _rotationError = null;
         });
@@ -132,6 +165,51 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
           _loadingAddresses = false;
           _rotationError = error.toString().replaceFirst('Bad state: ', '');
         });
+      }
+    }
+  }
+
+  String _addressLabel(NativeHdAddress address) =>
+      _receiveAddressNames[address.address.toLowerCase()] ??
+      (address.index == 0
+          ? 'Primary receive address'
+          : 'Receive address ${address.index}');
+
+  Future<void> _renameReceiveAddress(NativeHdAddress address) async {
+    if (address.index == 0) return;
+    final controller = TextEditingController(text: _addressLabel(address));
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename receive address'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 40,
+          decoration: const InputDecoration(labelText: 'Address name'),
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(buttonLabel('CANCEL')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: Text(buttonLabel('SAVE')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || name.trim().isEmpty) return;
+    try {
+      await _preferences.renameSubwallet(address.address, name);
+      await _loadReceiveAddresses(selectAddress: _selectedAddress);
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _rotationError = error.toString().replaceFirst('Bad state: ', ''));
       }
     }
   }
@@ -215,6 +293,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
     final chosen = await showModalBottomSheet<NativeHdAddress>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (context) => SafeArea(
         child: ListView(
           shrinkWrap: true,
@@ -235,19 +314,61 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                       ? Icons.autorenew_rounded
                       : Icons.account_balance_wallet_outlined,
                 ),
-                title: Text(
-                  address.index == 0
-                      ? 'Primary receive address'
-                      : 'Receive address ${address.index}',
+                title: Row(
+                  children: [
+                    Expanded(child: Text(_addressLabel(address))),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 96,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Chip(
+                          visualDensity: VisualDensity.compact,
+                          label: Text(
+                            address.used
+                                ? 'Used'
+                                : (_receiveAddressUsageKnown[
+                                            address.address.toLowerCase()] ??
+                                        false)
+                                    ? 'Unused'
+                                    : 'Not checked',
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                subtitle: Text(
-                  '${address.derivationPath}\n${NetworkSettings.addressForNetwork(address.address)}',
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(address.derivationPath),
+                    const SizedBox(height: 3),
+                    SelectableText(
+                      NetworkSettings.addressForNetwork(address.address),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                 ),
-                trailing: _selected?.derivationPath == address.derivationPath
-                    ? const Icon(Icons.check_circle_rounded)
-                    : null,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (address.index > 0)
+                      IconButton(
+                        tooltip: 'Rename receive address',
+                        onPressed: () async {
+                          Navigator.pop(context);
+                          await _renameReceiveAddress(address);
+                        },
+                        icon: const Icon(Icons.edit_outlined),
+                      ),
+                    if (_selected?.derivationPath == address.derivationPath)
+                      const Icon(Icons.check_circle_rounded),
+                  ],
+                ),
                 onTap: () => Navigator.pop(context, address),
               ),
             ),
@@ -319,9 +440,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _selected!.index == 0
-                                  ? 'Primary receive address'
-                                  : 'Receive address ${_selected!.index}',
+                              _addressLabel(_selected!),
                               style:
                                   const TextStyle(fontWeight: FontWeight.w900),
                             ),
@@ -391,12 +510,14 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: KasVaultTheme.line),
                     ),
-              child: Text(
+              child: SelectableText(
                 _selectedAddress,
                 textAlign: TextAlign.center,
+                textWidthBasis: TextWidthBasis.longestLine,
                 style: TextStyle(
                   fontFamily: 'monospace',
                   color: KasVaultTheme.mint,
+                  fontSize: 13,
                   height: 1.45,
                 ),
               ),

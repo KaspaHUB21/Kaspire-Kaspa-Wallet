@@ -109,7 +109,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
           );
         }
       } else {
-        await _security.exportEncryptedBackup();
+        final location = await _security.exportEncryptedBackup();
+        if (location != null && mounted) {
+          await showDialog<void>(
+            context: context,
+            builder: (context) => AlertDialog(
+              icon: const Icon(Icons.verified_rounded, size: 44),
+              title: const Text('Encrypted backup saved'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Your Argon2id-encrypted wallet backup was saved successfully.',
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Location',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 4),
+                  SelectableText(location),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Keep the backup and its password in separate, safe places.',
+                  ),
+                ],
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(buttonLabel('DONE')),
+                ),
+              ],
+            ),
+          );
+        }
       }
     } on PlatformException catch (error) {
       if (mounted) {

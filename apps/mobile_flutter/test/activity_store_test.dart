@@ -103,6 +103,24 @@ void main() {
     expect(stored.single.amountLabel, 'Covenant Wyrm #1');
     expect(stored.single.status, TransactionStatus.accepted);
   });
+
+  test('falls back when Android encrypted activity storage is unavailable',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = ActivityStore(encryptedStore: _FailingEncryptedStore());
+    await store.recordCovenantWyrmTransaction(
+      wallet: 'kaspa:qwallet',
+      transactionId: 'wyrm-genesis',
+      operationLabel: 'Covenant Egg Minted',
+      stateLabel: 'Covenant Wyrm #2 · Genesis Egg',
+      timestamp: DateTime.utc(2026, 9, 29),
+    );
+
+    final stored = await store.load('kaspa:qwallet');
+    expect(stored, hasLength(1));
+    expect(stored.single.id, 'wyrm-genesis');
+    expect(stored.single.operationLabel, 'Covenant Egg Minted');
+  });
 }
 
 class _MemoryEncryptedStore implements EncryptedStore {
@@ -113,4 +131,14 @@ class _MemoryEncryptedStore implements EncryptedStore {
   Future<String?> read(String key) async => values[key];
   @override
   Future<void> write(String key, String value) async => values[key] = value;
+}
+
+class _FailingEncryptedStore implements EncryptedStore {
+  @override
+  Future<void> delete(String key) => throw StateError('keystore unavailable');
+  @override
+  Future<String?> read(String key) => throw StateError('keystore unavailable');
+  @override
+  Future<void> write(String key, String value) =>
+      throw StateError('keystore unavailable');
 }

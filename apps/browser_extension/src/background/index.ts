@@ -375,12 +375,34 @@ async function walletCommand(
     const primary = kasAccountPrimary(state);
     if (!primary) throw new Error("No wallet is selected.");
     const wallet = sessionVault?.wallets.find((item) => item.id === primary.walletId);
+    const activity = await Promise.all(entries.map(async (item) => {
+      if (item.used === true) return { used: true, known: true };
+      try {
+        return {
+          used: (await walletHistory(item.address, state.network)).length > 0,
+          known: true,
+        };
+      } catch {
+        return { used: false, known: false };
+      }
+    }));
+    let changed = false;
+    entries.forEach((item, index) => {
+      if (activity[index]?.used && item.used !== true) {
+        item.used = true;
+        changed = true;
+      }
+    });
+    if (changed) await saveState(state);
     return {
       primaryAddress: primary.address,
-      addresses: entries.map((item) => ({
+      addresses: entries.map((item, index) => ({
         address: item.address,
+        name: item.name,
         path: item.path,
         index: item.index,
+        used: item.used === true,
+        usageKnown: activity[index]?.known === true,
         receiveRotation: item.receiveRotation === true,
       })),
       canRotate: !primary.watchOnly && wallet?.type === "mnemonic" && !isProviderNetwork(state.network),
@@ -427,7 +449,7 @@ async function walletCommand(
     state.addresses.push({
       address, name: primary.name, path: derived.derivationPath, watchOnly: false,
       walletId: primary.walletId, coinType: primary.coinType, account: primary.account,
-      change: 0, index: nextIndex, receiveRotation: true,
+      change: 0, index: nextIndex, receiveRotation: true, used: false,
     });
     await saveState(state);
     return { address, path: derived.derivationPath, index: nextIndex };
@@ -1425,6 +1447,18 @@ async function walletCommand(
     const name = String(message.name ?? "").trim();
     if (!entry || !name || name.length > 64)
       throw new Error("Invalid wallet name.");
+    entry.name = name;
+    await saveState(state);
+    return true;
+  }
+  if (message.command === "renameReceiveAddress") {
+    const entry = state.addresses.find(
+      (item) => item.receiveRotation === true &&
+        item.address === String(message.address ?? ""),
+    );
+    const name = String(message.name ?? "").trim();
+    if (!entry || !name || name.length > 40 || /[\u0000-\u001f\u007f]/.test(name))
+      throw new Error("Address name must contain 1 to 40 visible characters.");
     entry.name = name;
     await saveState(state);
     return true;
@@ -4360,6 +4394,11 @@ const WYRM_ELEMENTS = [
   "Light",
   "Steel",
   "Lightning",
+  "Rock",
+  "Cosmos",
+  "Crystal",
+  "Cyber",
+  "Nuclear",
 ] as const;
 
 async function mintCovenantWyrm(
@@ -4381,7 +4420,7 @@ async function mintCovenantWyrm(
     sender !== GOTHDAG_WYRM_TEST_WALLET ||
     !Number.isSafeInteger(serial) ||
     serial < 1 ||
-    serial > 8 ||
+    serial > WYRM_ELEMENTS.length ||
     !Number.isSafeInteger(element) ||
     element < 0 ||
     element >= WYRM_ELEMENTS.length ||

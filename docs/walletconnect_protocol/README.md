@@ -196,6 +196,14 @@ selected P2SH UTXO before signing. The normalized response is
 `submitTransaction: true` is rejected; the dApp backend broadcasts the returned
 PSKT. See [the complete provider profile](../KASPACOM_PROVIDER.md).
 
+Unknown covenant protocols are accepted through this generic PSKT interface,
+not through a known protocol's stricter method. A prebuilt signature-script
+skeleton additionally requires zeroed 65-byte `signatureOffsets`, a covenant
+ID on the embedded UTXO and an `expectedSighash` that exactly matches Kaspire's
+local consensus calculation. The approval warns that Kaspire can verify the
+transaction and signature binding but cannot verify an unknown covenant's
+business rules.
+
 This is not a blind signer. The native Rust core reconstructs the transaction
 and embedded UTXOs, rejects duplicate outpoints, invalid values, already-signed
 selected inputs, invalid covenant bindings and unsupported sighash values. It

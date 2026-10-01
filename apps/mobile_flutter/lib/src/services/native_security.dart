@@ -231,13 +231,13 @@ class NativeSecurity {
     );
   }
 
-  Future<void> exportEncryptedBackup() async {
+  Future<String?> exportEncryptedBackup() async {
     final binding = await getNativeAddress() ?? '';
     final token = await _authorizeOperation(
       operation: 'exportEncryptedBackup',
       binding: binding,
     );
-    await _channel.invokeMethod<void>(
+    return _channel.invokeMethod<String>(
       'exportEncryptedBackup',
       {'authorizationToken': token},
     );

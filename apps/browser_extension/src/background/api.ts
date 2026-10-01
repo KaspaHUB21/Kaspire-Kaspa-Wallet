@@ -1169,10 +1169,9 @@ export async function walletAssetCategory(address: string, network: KaspaNetwork
   const task = (async () => {
     let rows: any[];
     try {
-      rows = category === "tokens" ? await Promise.any([
-        loadKasplexTokens(address, "https://kaspire.kaslab.space/api/krc20-fallback"),
-        loadKasplexTokens(address),
-      ]) : category === "domains" ? await loadKnsDomains(address)
+      rows = category === "tokens" ? await loadKasplexTokens(address).catch(
+        () => loadKasplexTokens(address, "https://kaspire.kaslab.space/api/krc20-fallback"),
+      ) : category === "domains" ? await loadKnsDomains(address)
         : category === "krc721" ? await loadKrc721Collections(address)
         : await loadKcc20Assets(address);
     } catch (error) {

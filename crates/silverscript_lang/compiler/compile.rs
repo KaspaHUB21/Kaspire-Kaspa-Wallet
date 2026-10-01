@@ -14,10 +14,7 @@ use kaspa_txscript::serialize_i64;
 use std::collections::{HashMap, HashSet};
 
 fn script_builder() -> ScriptBuilder {
-    ScriptBuilder::with_flags(EngineFlags {
-        covenants_enabled: true,
-        ..Default::default()
-    })
+    ScriptBuilder::with_flags(EngineFlags::default())
 }
 
 pub(super) fn read_input_state_field_expr_symbolic<'i>(

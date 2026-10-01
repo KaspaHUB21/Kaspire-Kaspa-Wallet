@@ -1,0 +1,6 @@
+.receive-address-row em {
+  align-self: flex-end;
+  width: 78px;
+  margin-left: auto;
+  text-align: center;
+}

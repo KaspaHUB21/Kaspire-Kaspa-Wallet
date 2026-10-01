@@ -1,16 +1,16 @@
 use crate::{
-    address_with_prefix, derive_address_range, derive_backup_key, derive_evm_address,
-    export_evm_private_key, export_private_key, finalize_tangem_commit, finalize_tangem_reveal,
-    generate_wallet_with_passphrase, import_private_key, import_wallet_with_passphrase,
-    prepare_evm_transaction, prepare_inscription, prepare_kcc20_transfer, prepare_kron_transfer,
-    prepare_policy_transaction, prepare_pskt, prepare_reveal, prepare_tangem_commit,
-    prepare_tangem_reveal, prepare_transaction, prepare_wyrm_genesis, prepare_wyrm_transition,
-    public_key, sign_evm_transaction, sign_kcc20_transfer, sign_personal_message,
-    sign_policy_transaction, sign_pskt, sign_reveal, sign_transaction, sign_wyrm_genesis,
-    sign_wyrm_transition, tangem_address, EvmTransactionRequest, InscriptionRequest,
-    Kcc20TransferRequest, KronTransferRequest, PolicyTransactionRequest, PsktRequest,
-    RevealRequest, SendRequest, TangemCommitRequest, TangemRevealRequest, WyrmGenesisRequest,
-    WyrmTransitionRequest,
+    address_with_prefix, derive_address_range, derive_backup_key, derive_backup_key_v3,
+    derive_evm_address, export_evm_private_key, export_private_key, finalize_tangem_commit,
+    finalize_tangem_reveal, generate_wallet_with_passphrase, import_private_key,
+    import_wallet_with_passphrase, prepare_evm_transaction, prepare_inscription,
+    prepare_kcc20_transfer, prepare_kron_transfer, prepare_policy_transaction, prepare_pskt,
+    prepare_reveal, prepare_tangem_commit, prepare_tangem_reveal, prepare_transaction,
+    prepare_wyrm_genesis, prepare_wyrm_transition, public_key, sign_evm_transaction,
+    sign_kcc20_transfer, sign_personal_message, sign_policy_transaction, sign_pskt, sign_reveal,
+    sign_transaction, sign_wyrm_genesis, sign_wyrm_transition, tangem_address,
+    EvmTransactionRequest, InscriptionRequest, Kcc20TransferRequest, KronTransferRequest,
+    PolicyTransactionRequest, PsktRequest, RevealRequest, SendRequest, TangemCommitRequest,
+    TangemRevealRequest, WyrmGenesisRequest, WyrmTransitionRequest,
 };
 
 #[unsafe(no_mangle)]
@@ -61,12 +61,12 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareDotkMarket(
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signDotkMarket(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
     request_json: JString,
     review_hash: JString,
 ) -> jstring {
     let result = (|| {
-        let secret = zeroize::Zeroizing::new(read(&mut env, &secret)?);
+        let secret = read_secret(&mut env, &secret)?;
         let raw = read(&mut env, &request_json)?;
         let hash = read(&mut env, &review_hash)?;
         let request: crate::dotk_market::Request =
@@ -228,12 +228,12 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_preparePskt(
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signPskt(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
     request_json: JString,
     review_hash: JString,
 ) -> jstring {
     let result = (|| {
-        let secret = read(&mut env, &secret)?;
+        let secret = read_secret(&mut env, &secret)?;
         let request_json = read(&mut env, &request_json)?;
         let review_hash = read(&mut env, &review_hash)?;
         let request: PsktRequest =
@@ -244,7 +244,7 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signPskt(
     output(&mut env, result.unwrap_or_else(error_json))
 }
 use jni::{
-    objects::{JClass, JString},
+    objects::{JByteArray, JClass, JString},
     sys::jstring,
     JNIEnv,
 };
@@ -262,9 +262,9 @@ fn output(env: &mut JNIEnv, value: String) -> jstring {
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveEvmAddress(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
 ) -> jstring {
-    let result = read(&mut env, &secret)
+    let result = read_secret(&mut env, &secret)
         .and_then(|secret| derive_evm_address(&secret).map_err(|error| error.to_string()))
         .map(|address| {
             json!({"address": address, "derivationPath": "m/44'/60'/0'/0/0"}).to_string()
@@ -276,9 +276,9 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveEvmAddress(
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_exportEvmPrivateKey(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
 ) -> jstring {
-    let result = read(&mut env, &secret)
+    let result = read_secret(&mut env, &secret)
         .and_then(|secret| export_evm_private_key(&secret).map_err(|error| error.to_string()))
         .map(|private_key| json!({"privateKey": private_key}).to_string());
     output(&mut env, result.unwrap_or_else(error_json))
@@ -306,12 +306,12 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareEvmTransacti
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signEvmTransaction(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
     request_json: JString,
     review_hash: JString,
 ) -> jstring {
     let result = (|| {
-        let secret = read(&mut env, &secret)?;
+        let secret = read_secret(&mut env, &secret)?;
         let raw = read(&mut env, &request_json)?;
         let review_hash = read(&mut env, &review_hash)?;
         let request = serde_json::from_str::<EvmTransactionRequest>(&raw)
@@ -345,12 +345,12 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_preparePolicyTransa
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signPolicyTransaction(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
     request_json: JString,
     review_hash: JString,
 ) -> jstring {
     let result = (|| {
-        let secret = read(&mut env, &secret)?;
+        let secret = read_secret(&mut env, &secret)?;
         let request_json = read(&mut env, &request_json)?;
         let review_hash = read(&mut env, &review_hash)?;
         let request: PolicyTransactionRequest = serde_json::from_str(&request_json)
@@ -402,12 +402,12 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareReveal(
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signReveal(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
     request_json: JString,
     review_hash: JString,
 ) -> jstring {
     let result = (|| {
-        let secret = read(&mut env, &secret)?;
+        let secret = read_secret(&mut env, &secret)?;
         let raw = read(&mut env, &request_json)?;
         let review_hash = read(&mut env, &review_hash)?;
         let request: RevealRequest =
@@ -426,6 +426,22 @@ fn read(env: &mut JNIEnv, value: &JString) -> std::result::Result<Zeroizing<Stri
     env.get_string(value)
         .map(|s| Zeroizing::new(s.into()))
         .map_err(|_| "invalid JNI string".to_string())
+}
+
+fn read_secret(
+    env: &mut JNIEnv,
+    value: &JByteArray,
+) -> std::result::Result<Zeroizing<String>, String> {
+    let bytes = Zeroizing::new(
+        env.convert_byte_array(value)
+            .map_err(|_| "invalid JNI secret buffer".to_string())?,
+    );
+    let zeros = vec![0i8; bytes.len()];
+    env.set_byte_array_region(value, 0, &zeros)
+        .map_err(|_| "could not clear JNI secret buffer".to_string())?;
+    std::str::from_utf8(bytes.as_slice())
+        .map(|value| Zeroizing::new(value.to_owned()))
+        .map_err(|_| "invalid secret encoding".to_string())
 }
 
 #[unsafe(no_mangle)]
@@ -487,9 +503,9 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_importPrivateKey(
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_exportPrivateKey(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
 ) -> jstring {
-    let result = read(&mut env, &secret).and_then(|secret| {
+    let result = read_secret(&mut env, &secret).and_then(|secret| {
         export_private_key(&secret)
             .map(|private_key| json!({"privateKey": private_key}).to_string())
             .map_err(|error| error.to_string())
@@ -501,9 +517,9 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_exportPrivateKey(
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_publicKey(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
 ) -> jstring {
-    let result = read(&mut env, &secret).and_then(|secret| {
+    let result = read_secret(&mut env, &secret).and_then(|secret| {
         public_key(&secret)
             .map(|public_key| json!({"publicKey": public_key}).to_string())
             .map_err(|error| error.to_string())
@@ -515,14 +531,14 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_publicKey(
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveAddresses(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
     coin_type: i32,
     account: i32,
     change: i32,
     start: i32,
     count: i32,
 ) -> jstring {
-    let result = read(&mut env, &secret).and_then(|secret| {
+    let result = read_secret(&mut env, &secret).and_then(|secret| {
         let values = [coin_type, account, change, start, count];
         if values.iter().any(|value| *value < 0) {
             return Err("invalid HD discovery range".to_string());
@@ -562,6 +578,24 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveBackupKey(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveBackupKeyV3(
+    mut env: JNIEnv,
+    _class: JClass,
+    password: JString,
+    salt_hex: JString,
+) -> jstring {
+    let result = (|| {
+        let password = read(&mut env, &password)?;
+        let salt_hex = read(&mut env, &salt_hex)?;
+        let salt = hex::decode(salt_hex.as_str()).map_err(|_| "invalid backup salt".to_string())?;
+        derive_backup_key_v3(&password, &salt)
+            .map(|key| hex::encode(key.as_slice()))
+            .map_err(|error| error.to_string())
+    })();
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareTransaction(
     mut env: JNIEnv,
     _class: JClass,
@@ -582,12 +616,12 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareTransaction(
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signTransaction(
     mut env: JNIEnv,
     _class: JClass,
-    phrase: JString,
+    phrase: JByteArray,
     request_json: JString,
     review_hash: JString,
 ) -> jstring {
     let result = (|| {
-        let phrase = read(&mut env, &phrase)?;
+        let phrase = read_secret(&mut env, &phrase)?;
         let request_json = read(&mut env, &request_json)?;
         let review_hash = read(&mut env, &review_hash)?;
         let request: SendRequest =
@@ -621,12 +655,12 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareWyrmGenesis(
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signWyrmGenesis(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
     request_json: JString,
     review_hash: JString,
 ) -> jstring {
     let result = (|| {
-        let secret = zeroize::Zeroizing::new(read(&mut env, &secret)?);
+        let secret = read_secret(&mut env, &secret)?;
         let raw = read(&mut env, &request_json)?;
         let review_hash = read(&mut env, &review_hash)?;
         let request: WyrmGenesisRequest = serde_json::from_str(&raw)
@@ -660,12 +694,12 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareWyrmTransiti
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signWyrmTransition(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
     request_json: JString,
     review_hash: JString,
 ) -> jstring {
     let result = (|| {
-        let secret = zeroize::Zeroizing::new(read(&mut env, &secret)?);
+        let secret = read_secret(&mut env, &secret)?;
         let raw = read(&mut env, &request_json)?;
         let review_hash = read(&mut env, &review_hash)?;
         let request: WyrmTransitionRequest = serde_json::from_str(&raw)
@@ -699,12 +733,12 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareKcc20Transfe
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signKcc20Transfer(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
     request_json: JString,
     review_hash: JString,
 ) -> jstring {
     let result = (|| {
-        let secret = read(&mut env, &secret)?;
+        let secret = read_secret(&mut env, &secret)?;
         let request_json = read(&mut env, &request_json)?;
         let review_hash = read(&mut env, &review_hash)?;
         let request: Kcc20TransferRequest = serde_json::from_str(&request_json)
@@ -720,12 +754,12 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signKcc20Transfer(
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signPersonalMessage(
     mut env: JNIEnv,
     _class: JClass,
-    secret: JString,
+    secret: JByteArray,
     address: JString,
     message: JString,
 ) -> jstring {
     let result = (|| {
-        let secret = read(&mut env, &secret)?;
+        let secret = read_secret(&mut env, &secret)?;
         let address = read(&mut env, &address)?;
         let message = read(&mut env, &message)?;
         sign_personal_message(&secret, &address, &message)

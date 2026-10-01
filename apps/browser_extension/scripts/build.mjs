@@ -3,12 +3,16 @@ import { cp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 
+const cargoTargetDir = process.env.CARGO_TARGET_DIR
+  ? resolve(process.env.CARGO_TARGET_DIR)
+  : resolve("../../target");
+
 await rm("dist", { recursive: true, force: true });
 await rm("generated", { recursive: true, force: true });
 await mkdir("dist/wasm", { recursive: true });
 await mkdir("generated/wasm", { recursive: true });
 execFileSync("cargo", ["build", "--locked", "--release", "-p", "kaspa_secure_core", "--target", "wasm32-unknown-unknown"], { cwd: "../..", stdio: "inherit" });
-execFileSync("/root/.cargo/bin/wasm-bindgen", ["../../target/wasm32-unknown-unknown/release/kaspa_secure_core.wasm", "--target", "web", "--out-dir", "generated/wasm", "--no-typescript"], { stdio: "inherit" });
+execFileSync("/root/.cargo/bin/wasm-bindgen", [resolve(cargoTargetDir, "wasm32-unknown-unknown/release/kaspa_secure_core.wasm"), "--target", "web", "--out-dir", "generated/wasm", "--no-typescript"], { stdio: "inherit" });
 await cp("generated/wasm", "dist/wasm", { recursive: true });
 await cp("node_modules/@kronsdk/kron-sdk/vendor/kaspa/kaspa_bg.wasm", "dist/wasm/kron_kaspa_bg.wasm");
 await cp("manifest.json", "dist/manifest.json");

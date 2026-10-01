@@ -516,7 +516,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       final context = await _contextWhenReady();
       if (context != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("dApp request rejected: $message")),
+          SnackBar(content: Text("dApp request failed: $message")),
         );
       }
     }
@@ -1445,19 +1445,28 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         throw const FormatException('Invalid PSKT input selection.');
       }
       final item = raw.map((key, value) => MapEntry(key.toString(), value));
-      if (item.keys.any((key) => key != 'index' && key != 'sighashType')) {
+      if (item.keys.any((key) =>
+          key != 'index' && key != 'sighashType' && key != 'expectedSighash')) {
         throw const FormatException('Unknown PSKT input field.');
       }
       final index = item['index'];
       final sighash = item['sighashType'] ?? 1;
+      final expectedSighash = item['expectedSighash'];
       if (index is! int ||
           index < 0 ||
           index > 255 ||
           sighash is! int ||
-          !const {1, 2, 4, 129, 130, 132}.contains(sighash)) {
+          !const {1, 2, 4, 129, 130, 132}.contains(sighash) ||
+          (expectedSighash != null &&
+              (expectedSighash is! String ||
+                  !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(expectedSighash)))) {
         throw const FormatException('Invalid PSKT input selection.');
       }
-      signInputs.add({'index': index, 'sighashType': sighash});
+      signInputs.add({
+        'index': index,
+        'sighashType': sighash,
+        if (expectedSighash != null) 'expectedSighash': expectedSighash,
+      });
     }
     final scripts = <Map<String, Object?>>[];
     for (final raw in rawScripts) {
@@ -1547,6 +1556,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                       '${item['selected'] == true ? ' · SIGN ${item['sighashLabel']}' : ''}'
                       '${item['scriptAware'] == true ? ' · ${item['signatureScriptMode']}' : ''}\n'
                       '${item['address'] ?? 'Non-standard/covenant script'}\n'
+                      '${item['covenantId'] == null ? '' : 'Covenant: ${item['covenantId']}\n'}'
                       '${item['outpoint']}',
                     ),
                   );
@@ -1770,114 +1780,200 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         false;
   }
 
+  Future<void> _recordWyrmActivitySafely({
+    required String wallet,
+    required String transactionId,
+    required String operationLabel,
+    required String stateLabel,
+  }) async {
+    try {
+      await ActivityStore().recordCovenantWyrmTransaction(
+        wallet: wallet,
+        transactionId: transactionId,
+        operationLabel: operationLabel,
+        stateLabel: stateLabel,
+        timestamp: DateTime.now(),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Covenant activity recording deferred: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  Future<void> _showWyrmSuccess(String title, String message) async {
+    final dialogContext = await _contextWhenReady();
+    if (dialogContext == null || !dialogContext.mounted) return;
+    await showDialog<void>(
+      context: dialogContext,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(buttonLabel("RETURN TO GOTHDAG")),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _wyrmCommitKey(String covenantId, String action) =>
+      "kaspire_wyrm_commit_v1:${covenantId.toLowerCase()}:$action";
+
   Future<void> _handleWyrmGenesis(
     SessionRequestEvent request,
     String address,
   ) async {
-    _requireGothDagWyrmOrigin(request);
-    await _requireActiveSessionAddress(address);
-    const testWallet =
-        "kaspa:qp0mtdvzscrkfft702j85s8yzdl8a87n5d6pgtm8vrxg6hqu0wywzvwkevdk3";
-    final params = _paramsMap(request.params);
-    if (params.keys
-        .any((key) => key != "from" && key != "serial" && key != "element")) {
-      throw const FormatException("Unknown Covenant Wyrm genesis field.");
-    }
-    final serial = params["serial"] is int
-        ? params["serial"] as int
-        : int.tryParse(params["serial"]?.toString() ?? "");
-    final element = params["element"] is int
-        ? params["element"] as int
-        : int.tryParse(params["element"]?.toString() ?? "");
-    final from = params["from"] ?? address;
-    if (address != testWallet ||
-        from != address ||
-        serial == null ||
-        serial < 1 ||
-        serial > 8 ||
-        element == null ||
-        element < 0 ||
-        element > 7 ||
-        serial != element + 1) {
-      throw const FormatException(
-          "Invalid or unauthorized Covenant Wyrm genesis request.");
-    }
-    if (!await _security.hasNativeWalletFor(address)) {
-      throw const FormatException("The session wallet is watch-only.");
-    }
-    final api = KaspaApi();
-    final funding =
-        await Future.wait([api.loadUtxos(address), api.loadFeeRate()]);
-    final genesis = <String, Object?>{
-      "sender": address,
-      "serial": serial,
-      "element": element,
-      "feeRate": funding[1] as double,
-      "fundingUtxosJson": funding[0] as String,
-    };
-    final review = await _security.prepareWyrmGenesis(genesis);
-    final approved = await _approveWyrmRequest(
-      request,
-      "Mint Covenant Wyrm Genesis Egg?",
-      "This creates a permanent Mainnet Covenant asset. One KAS remains locked inside its living state cell.",
-      [
-        "Genesis serial: $serial / 287",
-        "Element index: $element",
-        "Covenant ID: ${review["covenantId"]}",
-        "Permanent template: ${review["templateHash"]}",
-        "Network fee: ${formatSompi((review["feeSompi"] as num).toInt())} KAS",
-      ],
-    );
-    if (!approved) {
-      await _dapps.respondError(request, "User rejected.", code: 4001);
-      return;
-    }
-    final signed = await _security.signWyrmGenesis(
-        genesis, review["reviewHash"] as String);
-    final transactionId = signed["transactionId"] as String;
-    await api.broadcastKcc20(signed["wrpcJson"] as String,
-        expectedTransactionId: transactionId);
-    await ActivityStore().recordCovenantWyrmTransaction(
-      wallet: address,
-      transactionId: transactionId,
-      operationLabel: "Covenant Egg Minted",
-      stateLabel: "Covenant Wyrm #$serial · Genesis Egg",
-      timestamp: DateTime.now(),
-    );
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Covenant egg broadcast successfully. Return to GothDAG while Mainnet confirmation completes.",
-          ),
-        ),
+    var diagnosticStage = "origin validation";
+    try {
+      _requireGothDagWyrmOrigin(request);
+      diagnosticStage = "active WalletConnect account validation";
+      await _requireActiveSessionAddress(address);
+      const testWallet =
+          "kaspa:qp0mtdvzscrkfft702j85s8yzdl8a87n5d6pgtm8vrxg6hqu0wywzvwkevdk3";
+      diagnosticStage = "request parameter validation";
+      final params = _paramsMap(request.params);
+      if (params.keys
+          .any((key) => key != "from" && key != "serial" && key != "element")) {
+        throw const FormatException("Unknown Covenant Wyrm genesis field.");
+      }
+      final serial = params["serial"] is int
+          ? params["serial"] as int
+          : int.tryParse(params["serial"]?.toString() ?? "");
+      final element = params["element"] is int
+          ? params["element"] as int
+          : int.tryParse(params["element"]?.toString() ?? "");
+      final from = params["from"] ?? address;
+      if (address != testWallet ||
+          from != address ||
+          serial == null ||
+          serial < 1 ||
+          serial > 13 ||
+          element == null ||
+          element < 0 ||
+          element > 12 ||
+          serial != element + 1) {
+        throw const FormatException(
+            "Invalid or unauthorized Covenant Wyrm genesis request.");
+      }
+      diagnosticStage = "native wallet key lookup";
+      if (!await _security.hasNativeWalletFor(address)) {
+        throw const FormatException("The session wallet is watch-only.");
+      }
+      final api = KaspaApi();
+      diagnosticStage = "UTXO and fee-rate loading";
+      final funding =
+          await Future.wait([api.loadUtxos(address), api.loadFeeRate()]);
+      final genesis = <String, Object?>{
+        "sender": address,
+        "serial": serial,
+        "element": element,
+        "feeRate": funding[1] as double,
+        "fundingUtxosJson": funding[0] as String,
+      };
+      diagnosticStage = "native Covenant transaction preparation";
+      final review = await _security.prepareWyrmGenesis(genesis);
+      diagnosticStage = "approval dialog";
+      final approved = await _approveWyrmRequest(
+        request,
+        "Mint Covenant Wyrm Genesis Egg?",
+        "This creates a permanent Mainnet Covenant asset. One KAS remains locked inside its living state cell.",
+        [
+          "Genesis serial: $serial / 287",
+          "Element index: $element",
+          "Covenant ID: ${review["covenantId"]}",
+          "Permanent template: ${review["templateHash"]}",
+          "Network fee: ${formatSompi((review["feeSompi"] as num).toInt())} KAS",
+        ],
+      );
+      if (!approved) {
+        await _dapps.respondError(request, "User rejected.", code: 4001);
+        return;
+      }
+      diagnosticStage = "native Covenant signing";
+      final signed = await _security.signWyrmGenesis(
+          genesis, review["reviewHash"] as String);
+      final transactionId = signed["transactionId"] as String;
+      diagnosticStage = "Kaspa node broadcast";
+      await api.broadcastKcc20(signed["wrpcJson"] as String,
+          expectedTransactionId: transactionId);
+      diagnosticStage = "WalletConnect result delivery";
+      await _dapps.respondResult(request, <String, Object?>{
+        "transactionId": transactionId,
+        "covenantId": signed["covenantId"],
+        "serial": serial,
+        "element": element,
+        "templateHash": review["templateHash"],
+        "feeSompi": review["feeSompi"],
+        "cell": <String, Object?>{
+          "covenantId": signed["covenantId"],
+          "transactionId": transactionId,
+          "index": 0,
+          "valueSompi": signed["valueSompi"],
+          "outputAddress": signed["outputAddress"],
+          "scriptPublicKey": signed["scriptPublicKey"],
+          "state": signed["state"],
+        },
+      });
+      await _recordWyrmActivitySafely(
+        wallet: address,
+        transactionId: transactionId,
+        operationLabel: "Covenant Egg Minted",
+        stateLabel: "Covenant Wyrm #$serial · Genesis Egg",
+      );
+      await _showWyrmSuccess(
+        "Covenant Egg Minted",
+        "The Covenant egg was broadcast successfully. Return to GothDAG while Mainnet confirmation and registration complete.",
+      );
+    } catch (error) {
+      final detail = switch (error) {
+        FormatException() => error.message,
+        PlatformException() => _safeNativeDappError(error),
+        KaspaApiException() => error.message,
+        _ => error.toString(),
+      };
+      throw FormatException(
+        "Covenant test failed at $diagnosticStage: $detail",
       );
     }
-    await _dapps.respondResult(request, <String, Object?>{
-      "transactionId": transactionId,
-      "covenantId": signed["covenantId"],
-      "serial": serial,
-      "element": element,
-      "templateHash": review["templateHash"],
-      "feeSompi": review["feeSompi"],
-      "cell": <String, Object?>{
-        "covenantId": signed["covenantId"],
-        "transactionId": transactionId,
-        "index": 0,
-        "valueSompi": signed["valueSompi"],
-        "outputAddress": signed["outputAddress"],
-        "scriptPublicKey": signed["scriptPublicKey"],
-        "state": signed["state"],
-      },
-    });
   }
 
   Future<void> _handleWyrmTransition(
     SessionRequestEvent request,
     String address,
   ) async {
+    var diagnosticStage = "origin validation";
+    try {
+      await _handleWyrmTransitionInner(
+        request,
+        address,
+        (stage) => diagnosticStage = stage,
+      );
+    } catch (error) {
+      final detail = switch (error) {
+        FormatException() => error.message,
+        PlatformException() => _safeNativeDappError(error),
+        KaspaApiException() => error.message,
+        _ => error.toString(),
+      };
+      throw FormatException(
+        "Covenant action failed at $diagnosticStage: $detail",
+      );
+    }
+  }
+
+  Future<void> _handleWyrmTransitionInner(
+    SessionRequestEvent request,
+    String address,
+    void Function(String stage) setStage,
+  ) async {
+    setStage("origin validation");
     _requireGothDagWyrmOrigin(request);
+    setStage("active WalletConnect account validation");
     await _requireActiveSessionAddress(address);
+    setStage("request parameter validation");
     final params = _paramsMap(request.params);
     if (params.keys.any((key) =>
         key != "from" &&
@@ -1913,50 +2009,81 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     }
     final cell = rawCell.cast<String, Object?>();
     final api = KaspaApi();
+    setStage("live Covenant cell verification");
     await api.verifyWyrmCell(cell);
-    final funding =
-        await Future.wait([api.loadUtxos(address), api.loadFeeRate()]);
-    final commit = <String, Object?>{
-      "sender": address,
-      "recipient": address,
-      "amountSompi": 100000000,
-      "feeRate": funding[1] as double,
-      "utxosJson": funding[0] as String,
-      "sendAll": false,
-    };
-    final commitReview = await _security.prepareTransaction(commit);
-    final commitApproved = await _approveWyrmRequest(
-      request,
-      "Commit Covenant Wyrm action?",
-      "Step 1 of 2 creates a confirmed self-owned action UTXO. Its DAA score is the non-forgeable covenant clock.",
-      [
-        "Action: $action",
-        "Temporary self-output: 1 KAS (returned by step 2, minus fees)",
-        "Commit fee: ${formatSompi((commitReview["feeSompi"] as num).toInt())} KAS",
-      ],
-    );
-    if (!commitApproved) {
-      await _dapps.respondError(request, "User rejected.", code: 4001);
-      return;
+    final covenantId = cell["covenantId"]?.toString() ?? "";
+    final commitKey = _wyrmCommitKey(covenantId, action);
+    final preferences = await SharedPreferences.getInstance();
+    String? commitTransactionId = preferences.getString(commitKey);
+    String? actionUtxosJson;
+    Map<String, Object?>? commitReview;
+
+    setStage("saved DAA commit recovery");
+    if (commitTransactionId != null) {
+      actionUtxosJson =
+          await api.transactionUtxos(address, commitTransactionId);
+      if (actionUtxosJson == null) {
+        await preferences.remove(commitKey);
+        commitTransactionId = null;
+      }
     }
-    final signedCommit = await _security.signTransaction(
-        commit, commitReview["reviewHash"] as String);
-    final commitTransactionId = signedCommit["transactionId"] as String;
-    final broadcastId =
-        await api.broadcast(signedCommit["submitJson"] as String);
-    if (broadcastId != commitTransactionId) {
-      throw const FormatException(
-          "Node returned a mismatching Wyrm commit ID.");
+
+    if (commitTransactionId == null) {
+      setStage("DAA commit preparation");
+      final funding =
+          await Future.wait([api.loadUtxos(address), api.loadFeeRate()]);
+      final commit = <String, Object?>{
+        "sender": address,
+        "recipient": address,
+        "amountSompi": 100000000,
+        "feeRate": funding[1] as double,
+        "utxosJson": funding[0] as String,
+        "sendAll": false,
+      };
+      commitReview = await _security.prepareTransaction(commit);
+      setStage("DAA commit approval");
+      final commitApproved = await _approveWyrmRequest(
+        request,
+        "Commit Covenant Wyrm action?",
+        "Step 1 of 2 creates a confirmed self-owned action UTXO. Its DAA score is the non-forgeable covenant clock.",
+        [
+          "Action: $action",
+          "Temporary self-output: 1 KAS (returned by step 2, minus fees)",
+          "Commit fee: ${formatSompi((commitReview["feeSompi"] as num).toInt())} KAS",
+        ],
+      );
+      if (!commitApproved) {
+        await _dapps.respondError(request, "User rejected.", code: 4001);
+        return;
+      }
+      setStage("DAA commit signing");
+      final signedCommit = await _security.signTransaction(
+          commit, commitReview["reviewHash"] as String);
+      commitTransactionId = signedCommit["transactionId"] as String;
+      setStage("DAA commit broadcast");
+      final broadcastId = await api.broadcast(
+        signedCommit["submitJson"] as String,
+        expectedTransactionId: commitTransactionId,
+      );
+      if (broadcastId != commitTransactionId) {
+        throw const FormatException(
+            "Node returned a mismatching Wyrm commit ID.");
+      }
+      await preferences.setString(commitKey, commitTransactionId);
+      await _recordWyrmActivitySafely(
+        wallet: address,
+        transactionId: commitTransactionId,
+        operationLabel: "Covenant Wyrm Action Commit",
+        stateLabel: "${_wyrmActionLabel(action)} · DAA clock commit",
+      );
+      setStage("DAA commit confirmation");
+      actionUtxosJson =
+          await api.waitForTransactionUtxos(address, commitTransactionId);
     }
-    await ActivityStore().recordCovenantWyrmTransaction(
-      wallet: address,
-      transactionId: commitTransactionId,
-      operationLabel: "Covenant Wyrm Action Commit",
-      stateLabel: "${_wyrmActionLabel(action)} · DAA clock commit",
-      timestamp: DateTime.now(),
-    );
-    final actionUtxosJson =
-        await api.waitForTransactionUtxos(address, commitTransactionId);
+
+    if (actionUtxosJson == null) {
+      throw const FormatException("The saved DAA commit is not spendable.");
+    }
     final transition = <String, Object?>{
       "sender": address,
       "action": action,
@@ -1968,7 +2095,9 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       "feeRate": await api.loadFeeRate(),
       "actionUtxosJson": actionUtxosJson,
     };
+    setStage("Covenant transition preparation");
     final review = await _security.prepareWyrmTransition(transition);
+    setStage("Covenant transition approval");
     final approved = await _approveWyrmRequest(
       request,
       "Apply Covenant Wyrm action?",
@@ -1992,34 +2121,21 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
           code: 4001);
       return;
     }
+    setStage("Covenant transition signing");
     final signed = await _security.signWyrmTransition(
         transition, review["reviewHash"] as String);
     final transactionId = signed["transactionId"] as String;
+    setStage("Toccata wRPC broadcast and own-node verification");
     await api.broadcastKcc20(signed["wrpcJson"] as String,
         expectedTransactionId: transactionId);
-    await ActivityStore().recordCovenantWyrmTransaction(
-      wallet: address,
-      transactionId: transactionId,
-      operationLabel: _wyrmActionLabel(action),
-      stateLabel: "Covenant Wyrm #${review["serial"]}",
-      timestamp: DateTime.now(),
-    );
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "${_wyrmActionLabel(action)} broadcast successfully. Return to GothDAG while Mainnet confirmation completes.",
-          ),
-        ),
-      );
-    }
+    setStage("WalletConnect result delivery");
     await _dapps.respondResult(request, <String, Object?>{
       "commitTransactionId": commitTransactionId,
       "transactionId": transactionId,
       "covenantId": signed["covenantId"],
       "action": action,
       "nextState": signed["nextState"],
-      "feeSompi": (commitReview["feeSompi"] as num).toInt() +
+      "feeSompi": ((commitReview?["feeSompi"] as num?)?.toInt() ?? 0) +
           (review["feeSompi"] as num).toInt(),
       "cell": <String, Object?>{
         "covenantId": signed["covenantId"],
@@ -2031,6 +2147,17 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         "state": signed["nextState"],
       },
     });
+    await preferences.remove(commitKey);
+    await _recordWyrmActivitySafely(
+      wallet: address,
+      transactionId: transactionId,
+      operationLabel: _wyrmActionLabel(action),
+      stateLabel: "Covenant Wyrm #${review["serial"]}",
+    );
+    await _showWyrmSuccess(
+      "Covenant Action Completed",
+      "${_wyrmActionLabel(action)} was broadcast successfully. Return to GothDAG while Mainnet confirmation and registration complete.",
+    );
   }
 
   String _wyrmActionLabel(String action) => switch (action) {

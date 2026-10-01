@@ -239,10 +239,7 @@ impl<'i> CompiledContract<'i> {
             )));
         }
 
-        let mut builder = ScriptBuilder::with_flags(EngineFlags {
-            covenants_enabled: true,
-            ..Default::default()
-        });
+        let mut builder = ScriptBuilder::with_flags(EngineFlags::default());
         for (input, arg) in function.inputs.iter().zip(args) {
             let type_ref = parse_type_ref(&input.type_name)?;
             push_typed_sigscript_arg(&mut builder, arg, &type_ref, &structs).map_err(|err| {

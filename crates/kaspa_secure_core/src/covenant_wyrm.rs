@@ -8,7 +8,7 @@ use silverscript_lang::{
 };
 
 const SOURCE: &str = include_str!("covenant_wyrm.sil");
-pub const ELEMENT_COUNT: u8 = 8;
+pub const ELEMENT_COUNT: u8 = 13;
 pub const GENESIS_SUPPLY_CAP: u16 = 287;
 
 #[derive(Debug, Clone, Copy)]
@@ -158,13 +158,13 @@ mod tests {
             element: 0,
         })
         .unwrap();
-        let lightning = compile_genesis(WyrmGenesisState {
+        let nuclear = compile_genesis(WyrmGenesisState {
             owner: [2; 32],
             serial: 287,
-            element: 7,
+            element: 12,
         })
         .unwrap();
-        assert_eq!(fire.template_hash(), lightning.template_hash());
+        assert_eq!(fire.template_hash(), nuclear.template_hash());
         assert!(fire
             .abi
             .iter()
@@ -182,7 +182,7 @@ mod tests {
         assert!(compile_genesis(WyrmGenesisState {
             owner: [0; 32],
             serial: 1,
-            element: 8
+            element: 13
         })
         .is_err());
     }

@@ -217,7 +217,7 @@ pub fn prepare_kron_transfer(request: &KronTransferRequest) -> Result<PreparedKr
         let contextual = calculator
             .calc_contextual_masses(&populated)
             .ok_or_else(|| CoreError::Transaction("KRON storage mass unavailable".into()))?;
-        let cofactors = MAINNET_PARAMS.mempool_block_mass_cofactors().after();
+        let cofactors = MAINNET_PARAMS.block_mass_cofactors();
         let transient = (non.transient_mass as f64 * cofactors.transient).ceil() as u64;
         let compute = non.compute_mass;
         let fee_mass = compute.max(transient);
@@ -374,10 +374,7 @@ fn transfer_sig_script(
         .flat_map(|(_, amount)| amount.to_le_bytes())
         .collect::<Vec<_>>();
     let minters = vec![0u8; states.len()];
-    let mut builder = ScriptBuilder::with_flags(EngineFlags {
-        covenants_enabled: true,
-        ..Default::default()
-    });
+    let mut builder = ScriptBuilder::with_flags(EngineFlags::default());
     for data in [
         &owners[..],
         &types,

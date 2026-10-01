@@ -334,7 +334,7 @@ fn build(request: &Kcc20TransferRequest) -> Result<BuiltKcc20> {
     )?;
     let funding_input_index = selected_cells.len();
     let funding_output_index = transaction_template.outputs.len() - 1;
-    let mass_limits = MAINNET_PARAMS.mempool_block_mass_limits().after();
+    let mass_limits = MAINNET_PARAMS.block_mass_limits;
     let mass_limit = mass_limits.reference();
     let storage_target = mass_limits
         .storage
@@ -636,10 +636,7 @@ fn consider_cell_candidate(
         .ok_or_else(|| CoreError::Transaction("KCC20 storage score overflow".into()))
     })?;
     let normalized_storage = ((output_harmonic.saturating_sub(input_harmonic) as f64)
-        * MAINNET_PARAMS
-            .mempool_block_mass_cofactors()
-            .after()
-            .storage)
+        * MAINNET_PARAMS.block_mass_cofactors().storage)
         .ceil() as u64;
     let committed_compute = cells.len() as u64 * u64::from(KCC20_COMPUTE_BUDGET) * 100;
     let score = (
@@ -683,7 +680,7 @@ fn calculate_mass(
     let contextual = calculator
         .calc_contextual_masses(populated)
         .ok_or_else(|| CoreError::Transaction("storage mass cannot be calculated".into()))?;
-    let cofactors = MAINNET_PARAMS.mempool_block_mass_cofactors().after();
+    let cofactors = MAINNET_PARAMS.block_mass_cofactors();
     let storage = (contextual.storage_mass as f64 * cofactors.storage).ceil() as u64;
     let transient = (non_contextual.transient_mass as f64 * cofactors.transient).ceil() as u64;
     let effective = Mass::new(
@@ -887,13 +884,10 @@ fn covenant_sigscript(
     let mut script = compiled
         .build_sig_script_for_covenant_decl("transfer", args, CovenantDeclCallOptions { is_leader })
         .map_err(|error| CoreError::Transaction(format!("KCC20 witness failed: {error}")))?;
-    let redeem = ScriptBuilder::with_flags(EngineFlags {
-        covenants_enabled: true,
-        ..Default::default()
-    })
-    .add_data(&compiled.script)
-    .map_err(|error| CoreError::Transaction(error.to_string()))?
-    .drain();
+    let redeem = ScriptBuilder::with_flags(EngineFlags::default())
+        .add_data(&compiled.script)
+        .map_err(|error| CoreError::Transaction(error.to_string()))?
+        .drain();
     script.extend_from_slice(&redeem);
     Ok(script)
 }
@@ -944,7 +938,6 @@ pub(crate) fn simulate_all(transaction: &Transaction, entries: &[UtxoEntry]) -> 
                 .with_reused(&reused)
                 .with_covenants_ctx(&covenant_context),
             EngineFlags {
-                covenants_enabled: true,
                 sigop_script_units: Gram(MAINNET_PARAMS.mass_per_sig_op).into(),
             },
             input.compute_commit.allowed_script_units(),
@@ -1233,10 +1226,7 @@ mod tests {
         let mut request = test_request(500, 11_000, 50_000_000);
         replace_funding(&mut request, &[1_000_000, 27_000_000, 1_000_000_000]);
         let built = build(&request).unwrap();
-        let limit = MAINNET_PARAMS
-            .mempool_block_mass_limits()
-            .after()
-            .reference();
+        let limit = MAINNET_PARAMS.block_mass_limits.reference();
 
         assert!(built.review.mass <= limit);
         assert!(built.review.storage_mass <= limit);
@@ -1251,10 +1241,7 @@ mod tests {
     fn minimally_tops_up_a_fragmented_token_cell_below_the_mass_limit() {
         let request = test_request(500, 11_000, 26_190_477);
         let built = build(&request).unwrap();
-        let limit = MAINNET_PARAMS
-            .mempool_block_mass_limits()
-            .after()
-            .reference();
+        let limit = MAINNET_PARAMS.block_mass_limits.reference();
         let total_outputs = built
             .transaction
             .outputs
@@ -1307,7 +1294,7 @@ mod tests {
     #[test]
     fn repeated_partial_transfer_keeps_the_sender_change_cell_mass_safe() {
         let mut request = test_request(500, 11_000, 50_000_000);
-        let limit = MAINNET_PARAMS.mempool_block_mass_limits().after().storage;
+        let limit = MAINNET_PARAMS.block_mass_limits.storage;
 
         for daa_score in 2..10 {
             let built = build(&request).unwrap();

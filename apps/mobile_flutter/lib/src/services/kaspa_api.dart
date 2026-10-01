@@ -20,22 +20,6 @@ class KaspaApiException implements Exception {
   String toString() => message;
 }
 
-/// A failed mirror must not beat a healthy response.
-Future<T> _firstSuccessful<T>(List<Future<T>> futures) {
-  final result = Completer<T>();
-  var remaining = futures.length;
-  for (final future in futures) {
-    future.then((value) {
-      if (!result.isCompleted) result.complete(value);
-    }, onError: (Object error, StackTrace stack) {
-      if (--remaining == 0 && !result.isCompleted) {
-        result.completeError(error, stack);
-      }
-    });
-  }
-  return result.future;
-}
-
 class KaspaApi {
   KaspaApi({
     http.Client? client,
@@ -528,15 +512,24 @@ class KaspaApi {
       return rows;
     }
 
-    final tokenList = _firstSuccessful([
-      _loadKrc20WalletTokens(kccKrc20BaseUrl, address)
-          .timeout(const Duration(seconds: 8)),
-      _loadKrc20WalletTokens(kasplexBaseUrl, address)
-          .timeout(const Duration(seconds: 8)),
-    ]);
+    // Kasplex is authoritative while it is healthy. The authenticated mirror
+    // is deliberately cold: do not contact it unless the primary request
+    // fails or returns an unusable response.
+    final tokenList = _loadKrc20WalletTokens(kasplexBaseUrl, address)
+        .timeout(const Duration(seconds: 8))
+        .catchError(
+          (_) => _loadKrc20WalletTokens(kccKrc20BaseUrl, address)
+              .timeout(const Duration(seconds: 8)),
+        );
+    final transactionList =
+        _loadKrc20WalletTransactions(kasplexBaseUrl, address)
+            .timeout(const Duration(seconds: 8))
+            .catchError(
+              (_) => _loadKrc20WalletTransactions(kccKrc20BaseUrl, address)
+                  .timeout(const Duration(seconds: 8)),
+            );
     final results = await Future.wait<List<Map<String, Object?>>>([
       track('tokens', tokenList.catchError((_) => <Map<String, Object?>>[])),
-      Future.value(<Map<String, Object?>>[]),
       track(
           'domains',
           _loadKnsWalletDomains(address, onProgress: (rows) {
@@ -551,28 +544,15 @@ class KaspaApi {
           _loadKrc721WalletHoldings(address)
               .timeout(const Duration(seconds: 12))
               .catchError((_) => <Map<String, Object?>>[])),
-      _loadKrc20WalletTransactions(kccKrc20BaseUrl, address)
-          .timeout(const Duration(seconds: 8))
-          .catchError((_) => <Map<String, Object?>>[]),
-      _loadKrc20WalletTransactions(kasplexBaseUrl, address)
-          .timeout(const Duration(seconds: 8))
-          .catchError((_) => <Map<String, Object?>>[]),
+      transactionList.catchError((_) => <Map<String, Object?>>[]),
     ]);
-    final tokens = _mergeRows(
-      [results[1], results[0]],
-      (item) => (item['token_id'] ?? item['symbol'] ?? '').toString(),
-    );
-    final transactions = _mergeRows(
-      [results[5], results[4]],
-      (item) => item['id']?.toString() ?? '',
-    );
     return {
       'data': {
         'address': address,
-        'tokens': tokens,
-        'domains': results[2],
-        'krc721_tokens': results[3],
-        'transactions': transactions,
+        'tokens': results[0],
+        'domains': results[1],
+        'krc721_tokens': results[2],
+        'transactions': results[3],
       },
       'source_mode': 'DIRECT_REDUNDANT',
       'warnings': warnings,
@@ -2272,25 +2252,30 @@ class KaspaApi {
   Future<String> waitForTransactionUtxos(
       String address, String transactionId) async {
     for (var attempt = 0; attempt < 45; attempt += 1) {
-      final raw = await loadUtxos(address);
-      final decoded = jsonDecode(raw);
-      final selected = decoded is List
-          ? decoded
-              .where((item) =>
-                  item is Map &&
-                  item["outpoint"] is Map &&
-                  (item["outpoint"]["transactionId"] ??
-                              item["outpoint"]["transaction_id"])
-                          ?.toString()
-                          .toLowerCase() ==
-                      transactionId.toLowerCase())
-              .toList()
-          : const [];
-      if (selected.isNotEmpty) return jsonEncode(selected);
+      final selected = await transactionUtxos(address, transactionId);
+      if (selected != null) return selected;
       await Future<void>.delayed(const Duration(seconds: 2));
     }
     throw KaspaApiException(
         "The Wyrm action commit was not confirmed in time.");
+  }
+
+  Future<String?> transactionUtxos(String address, String transactionId) async {
+    final raw = await loadUtxos(address);
+    final decoded = jsonDecode(raw);
+    final selected = decoded is List
+        ? decoded
+            .where((item) =>
+                item is Map &&
+                item["outpoint"] is Map &&
+                (item["outpoint"]["transactionId"] ??
+                            item["outpoint"]["transaction_id"])
+                        ?.toString()
+                        .toLowerCase() ==
+                    transactionId.toLowerCase())
+            .toList()
+        : const [];
+    return selected.isEmpty ? null : jsonEncode(selected);
   }
 
   static void validateUtxos(List<Object?> decoded, String address) {
@@ -2430,59 +2415,125 @@ class KaspaApi {
     }
   }
 
-  Future<String> broadcast(String submitJson) async {
-    final response = await _client
-        .post(
-          Uri.parse('$baseUrl/transactions'),
-          headers: const {'content-type': 'application/json'},
-          body: submitJson,
-        )
-        .timeout(const Duration(seconds: 20));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw KaspaApiException(
-        'Broadcast rejected (${response.statusCode}): ${response.body}',
-      );
+  Future<String> broadcast(
+    String submitJson, {
+    String? expectedTransactionId,
+  }) async {
+    Object? broadcastError;
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/transactions'),
+            headers: const {'content-type': 'application/json'},
+            body: submitJson,
+          )
+          .timeout(const Duration(seconds: 20));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        broadcastError = KaspaApiException(
+          'Broadcast rejected (${response.statusCode}): ${response.body}',
+        );
+      } else {
+        final decoded = _map(jsonDecode(response.body));
+        final transactionId =
+            (decoded['transactionId'] ?? decoded['transaction_id'] ?? '')
+                .toString()
+                .toLowerCase();
+        if (RegExp(r'^[0-9a-f]{64}$').hasMatch(transactionId)) {
+          return transactionId;
+        }
+        broadcastError = KaspaApiException(
+            'The Kaspa broadcaster returned no valid transaction ID.');
+      }
+    } on TimeoutException catch (error) {
+      broadcastError = error;
+    } on http.ClientException catch (error) {
+      broadcastError = error;
+    } on FormatException catch (error) {
+      broadcastError = error;
     }
-    final decoded = _map(jsonDecode(response.body));
-    final transactionId =
-        (decoded['transactionId'] ?? decoded['transaction_id'] ?? '')
-            .toString();
-    if (!RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(transactionId)) {
-      throw KaspaApiException(
-          'The Kaspa broadcaster returned no valid transaction ID.');
+
+    final expected = expectedTransactionId?.toLowerCase();
+    if (expected != null && await _waitForAcceptedTransaction(expected)) {
+      return expected;
     }
-    return transactionId.toLowerCase();
+    if (broadcastError is KaspaApiException) throw broadcastError;
+    throw KaspaApiException(
+      'Kaspa broadcast could not be confirmed: $broadcastError',
+    );
   }
 
   Future<String> broadcastKcc20(
     String signedTxJson, {
     required String expectedTransactionId,
   }) async {
-    final response = await _client
-        .post(
-          Uri.parse(toccataBroadcastUrl),
-          headers: const {'content-type': 'application/json'},
-          body: jsonEncode({'signedTxJson': signedTxJson}),
-        )
-        .timeout(const Duration(seconds: 30));
-    final decoded = _map(jsonDecode(response.body));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw KaspaApiException(
-        'Toccata wRPC broadcast rejected (${response.statusCode}): '
-        '${decoded['error'] ?? response.body}',
-      );
+    final expected = expectedTransactionId.toLowerCase();
+    Object? broadcastError;
+    try {
+      final response = await _client
+          .post(
+            Uri.parse(toccataBroadcastUrl),
+            headers: const {'content-type': 'application/json'},
+            body: jsonEncode({'signedTxJson': signedTxJson}),
+          )
+          .timeout(const Duration(seconds: 30));
+      Map<String, Object?> decoded = const {};
+      try {
+        decoded = _map(jsonDecode(response.body));
+      } catch (_) {}
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        broadcastError = KaspaApiException(
+          'Toccata wRPC broadcast rejected (${response.statusCode}): '
+          '${decoded['error'] ?? response.body}',
+        );
+      } else {
+        final transactionId =
+            (decoded['txId'] ?? decoded['transactionId'] ?? '')
+                .toString()
+                .toLowerCase();
+        if (transactionId == expected) return transactionId;
+        broadcastError = KaspaApiException(transactionId.isEmpty
+            ? 'Toccata wRPC broadcast returned no transaction ID.'
+            : 'Toccata wRPC returned a mismatching transaction ID.');
+      }
+    } on TimeoutException catch (error) {
+      broadcastError = error;
+    } on http.ClientException catch (error) {
+      broadcastError = error;
+    } on FormatException catch (error) {
+      broadcastError = error;
     }
-    final transactionId =
-        (decoded['txId'] ?? decoded['transactionId'] ?? '').toString();
-    if (transactionId.isEmpty) {
-      throw KaspaApiException(
-          'Toccata wRPC broadcast returned no transaction ID.');
+
+    // A broadcaster can lose its HTTP response after the node has already
+    // accepted the exact transaction. Verify that state before surfacing an
+    // error, otherwise a user retry can create a duplicate covenant asset.
+    if (await _waitForAcceptedTransaction(expected)) return expected;
+    if (broadcastError is KaspaApiException) throw broadcastError;
+    throw KaspaApiException(
+      'Covenant broadcast could not be confirmed: $broadcastError',
+    );
+  }
+
+  Future<bool> _waitForAcceptedTransaction(String transactionId) async {
+    for (var attempt = 0; attempt < 12; attempt += 1) {
+      try {
+        final response = await _client
+            .get(Uri.parse(
+                '$baseUrl/local-node/transactions/${Uri.encodeComponent(transactionId)}'))
+            .timeout(const Duration(seconds: 5));
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final transaction = _map(jsonDecode(response.body));
+          if (transaction['is_accepted'] == true &&
+              transaction['transaction_id']?.toString().toLowerCase() ==
+                  transactionId) {
+            return true;
+          }
+        }
+      } catch (_) {}
+      if (attempt < 11) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+      }
     }
-    if (transactionId != expectedTransactionId) {
-      throw KaspaApiException(
-          'Toccata wRPC returned a mismatching transaction ID.');
-    }
-    return transactionId;
+    return false;
   }
 
   Future<Object?> _get(String path) async {

@@ -119,6 +119,35 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
+  Future<void> _restoreEncryptedBackup() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final security = NativeSecurity();
+      final authenticated = await security.authenticate(
+        context,
+        'Authorize encrypted wallet restore',
+      );
+      if (!authenticated) {
+        throw StateError('Device authorization is required.');
+      }
+      final address = await security.restoreEncryptedBackup();
+      if (address == null || address.isEmpty) return;
+      await PreferencesService().setAddress(address);
+      if (mounted) widget.onConnected(address);
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _error = error.toString().replaceFirst('Bad state: ', ''),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Future<void> _continue() async {
     setState(() {
       _saving = true;
@@ -169,7 +198,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
               const SizedBox(height: 18),
               const Text(
-                'A fast, private Android wallet built around a native security boundary.',
+                'The most advanced Kaspa wallet with a strong emphasis on security',
                 style: TextStyle(
                   color: KasVaultTheme.muted,
                   fontSize: 17,
@@ -207,6 +236,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 onPressed: _saving ? null : _importPrivateKey,
                 icon: const Icon(Icons.password_rounded),
                 label: Text(buttonLabel('IMPORT PRIVATE KEY')),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(58),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _saving ? null : _restoreEncryptedBackup,
+                icon: const Icon(Icons.restore_rounded),
+                label: Text(buttonLabel('RESTORE FROM ENCRYPTED BACKUP')),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(58),
                   shape: RoundedRectangleBorder(
@@ -298,7 +339,7 @@ class _SecurityNotice extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                'Recovery words stay in the native Rust/Android security boundary and are encrypted with Android Keystore.',
+                'Wallet secrets are encrypted with Android Keystore. During approved operations, decrypted material is passed to the Rust signer through short-lived wipeable buffers.',
                 style: TextStyle(color: KasVaultTheme.muted, height: 1.35),
               ),
             ),

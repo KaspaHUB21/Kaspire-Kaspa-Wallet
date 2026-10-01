@@ -10,6 +10,7 @@ export interface WalletAddress {
   change: number;
   index: number;
   receiveRotation?: boolean;
+  used?: boolean;
 }
 export interface Contact {
   id: string;
@@ -74,6 +75,7 @@ function sanitized(raw: any): WalletState {
       ? raw.addresses.map((item: any) => ({
           ...item,
           receiveRotation: item?.receiveRotation === true,
+          used: item?.used === true,
         }))
       : [],
     permissions:

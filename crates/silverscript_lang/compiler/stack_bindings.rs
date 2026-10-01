@@ -522,10 +522,7 @@ mod tests {
                 &script,
                 &reused_values,
                 &sig_cache,
-                EngineFlags {
-                    covenants_enabled: true,
-                    ..Default::default()
-                },
+                EngineFlags::default(),
             )
             .execute_and_return_stacks()
             .expect("script executes");
@@ -533,7 +530,7 @@ mod tests {
         stacks
             .dstack
             .iter()
-            .map(|entry| deserialize_i64(entry, true).expect("stack entry decodes to int"))
+            .map(|entry| deserialize_i64(entry).expect("stack entry decodes to int"))
             .collect()
     }
 

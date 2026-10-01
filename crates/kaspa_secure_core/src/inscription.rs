@@ -292,7 +292,7 @@ fn build_reveal(
             non_contextual,
             ContextualMasses::new(contextual.storage_mass),
         )
-        .normalized_max(&MAINNET_PARAMS.mempool_block_mass_cofactors().after());
+        .normalized_max(&MAINNET_PARAMS.block_mass_cofactors());
         let required = (request.fee_rate * mass as f64).ceil() as u64;
         if fee >= required {
             break (tx, mass, return_sompi);
@@ -359,6 +359,7 @@ fn canonical_payload(request: &InscriptionRequest) -> Result<(&'static str, Stri
         "krc20" => {
             if ticker.is_empty()
                 || request.amount.is_empty()
+                || request.amount.len() > 78
                 || !request.amount.chars().all(|c| c.is_ascii_digit())
                 || request.amount == "0"
             {

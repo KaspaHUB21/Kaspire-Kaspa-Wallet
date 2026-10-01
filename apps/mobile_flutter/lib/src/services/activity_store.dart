@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/wallet_snapshot.dart';
 import 'encrypted_store.dart';
@@ -11,13 +12,14 @@ class ActivityStore {
 
   final EncryptedStore _encryptedStore;
   static const _key = 'kaspire_asset_activity_v1';
+  static const _fallbackKey = 'kaspire_asset_activity_fallback_v1';
   static const _maxEntries = 200;
   static final ValueNotifier<int> changes = ValueNotifier<int>(0);
 
   static void _notifyChanged() => changes.value++;
 
   Future<List<WalletTransaction>> load(String address) async {
-    final raw = await readWithPlaintextMigration(_encryptedStore, _key);
+    final raw = await _readRaw();
     if (raw == null) return const [];
     try {
       return (jsonDecode(raw) as List)
@@ -39,10 +41,7 @@ class ActivityStore {
   }) async {
     List<Object?> entries;
     try {
-      entries = (jsonDecode(
-        await readWithPlaintextMigration(_encryptedStore, _key) ?? '[]',
-      ) as List)
-          .toList();
+      entries = (jsonDecode(await _readRaw() ?? '[]') as List).toList();
     } catch (_) {
       entries = [];
     }
@@ -71,10 +70,7 @@ class ActivityStore {
     };
     entries.removeWhere((item) => item is Map && _sameEntry(item, value));
     entries.insert(0, value);
-    await _encryptedStore.write(
-      _key,
-      jsonEncode(entries.take(_maxEntries).toList()),
-    );
+    await _writeRaw(jsonEncode(entries.take(_maxEntries).toList()));
     _notifyChanged();
   }
 
@@ -125,10 +121,7 @@ class ActivityStore {
   ) async {
     List<Object?> entries;
     try {
-      entries = (jsonDecode(
-        await readWithPlaintextMigration(_encryptedStore, _key) ?? '[]',
-      ) as List)
-          .toList();
+      entries = (jsonDecode(await _readRaw() ?? '[]') as List).toList();
     } catch (_) {
       return;
     }
@@ -140,7 +133,7 @@ class ActivityStore {
       }
     }
     if (changed) {
-      await _encryptedStore.write(_key, jsonEncode(entries));
+      await _writeRaw(jsonEncode(entries));
       _notifyChanged();
     }
   }
@@ -148,20 +141,47 @@ class ActivityStore {
   Future<void> _upsert(Map<String, Object?> value) async {
     List<Object?> entries;
     try {
-      entries = (jsonDecode(
-        await readWithPlaintextMigration(_encryptedStore, _key) ?? '[]',
-      ) as List)
-          .toList();
+      entries = (jsonDecode(await _readRaw() ?? '[]') as List).toList();
     } catch (_) {
       entries = [];
     }
     entries.removeWhere((item) => item is Map && _sameEntry(item, value));
     entries.insert(0, value);
-    await _encryptedStore.write(
-      _key,
-      jsonEncode(entries.take(_maxEntries).toList()),
-    );
+    await _writeRaw(jsonEncode(entries.take(_maxEntries).toList()));
     _notifyChanged();
+  }
+
+  Future<String?> _readRaw() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final fallback = preferences.getString(_fallbackKey);
+      if (fallback != null) return fallback;
+    } catch (_) {
+      // The encrypted store remains the primary source when preferences are
+      // temporarily unavailable.
+    }
+    try {
+      return await readWithPlaintextMigration(_encryptedStore, _key);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeRaw(String value) async {
+    try {
+      await _encryptedStore.write(_key, value);
+      try {
+        await (await SharedPreferences.getInstance()).remove(_fallbackKey);
+      } catch (_) {}
+      return;
+    } catch (_) {
+      // Activity is public transaction metadata. Persist it in app-private
+      // preferences if an Android keystore plugin is temporarily unavailable.
+      await (await SharedPreferences.getInstance()).setString(
+        _fallbackKey,
+        value,
+      );
+    }
   }
 
   bool _sameEntry(Map item, Map value) =>

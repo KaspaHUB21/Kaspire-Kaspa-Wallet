@@ -1,6 +1,6 @@
 # dot.k integration: Android and extension
 
-Current release: **Android 0.11.45 (126)** and **extension 0.5.2**.
+Current release: **Android 0.11.46 (136)** and **extension 0.5.5**.
 Both use the same embedded Rust deed derivation (JNI / locally packaged WASM)
 and equivalent directory, script/bond/covenant and fresh-UTXO verification.
 The extension adds host access to the documented dot.k directory only.

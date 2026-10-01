@@ -49,6 +49,6 @@ fn review_hash_and_parameters_are_binding() {
     let prepared = prepare_wyrm_genesis(&request).unwrap();
     assert!(sign_wyrm_genesis(&secret, &request, "00").is_err());
     let mut altered = request.clone();
-    altered.element = 7;
+    altered.element = 12;
     assert!(sign_wyrm_genesis(&secret, &altered, &prepared.review_hash).is_err());
 }

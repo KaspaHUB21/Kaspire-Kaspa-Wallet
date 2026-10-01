@@ -187,6 +187,60 @@ Script modes:
 
 Kaspire appends `scriptHex` as the P2SH redeem script and independently verifies that its hash equals the selected embedded UTXO script public key. A mismatching script is rejected before approval.
 
+Unknown covenant protocols use this generic PSKT method; they are not required
+to wait for a wallet-specific allow-list entry. When a covenant engine must
+supply a complete signature-script skeleton instead of a redeem-script
+template, it may provide `prebuiltSignatureScript`, one or more
+`signatureOffsets`, and `expectedSighash` on that script entry. Every offset
+must point to an all-zero 65-byte signature slot, the embedded UTXO must carry
+a valid covenant ID, and Kaspire independently recomputes the selected input's
+sighash before showing approval. Any mismatch fails with the exact input and
+reason. The review clearly marks the protocol as an unknown covenant: Kaspire
+verifies the transaction, signature placement and sighash, but does not claim
+that the third-party covenant implements its advertised business rules.
+
+Known Kaspire profiles such as KCC20, KRON, Vault, Covenant Wyrms and
+KaspaRocket continue through their stricter protocol-specific validation.
+`kaspa_signVaultTransaction` remains intentionally limited to the documented
+vault policy; a new covenant must use `kaspa_signPskt` instead of pretending to
+be a known policy profile.
+
+Unknown covenant protocols use this generic PSKT method; they are not required
+to wait for a wallet-specific allow-list entry. When a covenant engine must
+supply a complete signature-script skeleton instead of a redeem-script
+template, it may provide `prebuiltSignatureScript`, one or more
+`signatureOffsets`, and `expectedSighash` on that script entry. Every offset
+must point to an all-zero 65-byte signature slot, the embedded UTXO must carry
+a valid covenant ID, and Kaspire independently recomputes the selected input's
+sighash before showing approval. Any mismatch fails with the exact input and
+reason. The review clearly marks the protocol as an unknown covenant: Kaspire
+verifies the transaction, signature placement and sighash, but does not claim
+that the third-party covenant implements its advertised business rules.
+
+Known Kaspire profiles such as KCC20, KRON, Vault, Covenant Wyrms and
+KaspaRocket continue through their stricter protocol-specific validation.
+`kaspa_signVaultTransaction` remains intentionally limited to the documented
+vault policy; a new covenant must use `kaspa_signPskt` instead of pretending to
+be a known policy profile.
+
+Unknown covenant protocols use this generic PSKT method; they are not required
+to wait for a wallet-specific allow-list entry. When a covenant engine must
+supply a complete signature-script skeleton instead of a redeem-script
+template, it may provide `prebuiltSignatureScript`, one or more
+`signatureOffsets`, and `expectedSighash` on that script entry. Every offset
+must point to an all-zero 65-byte signature slot, the embedded UTXO must carry
+a valid covenant ID, and Kaspire independently recomputes the selected input's
+sighash before showing approval. Any mismatch fails with the exact input and
+reason. The review clearly marks the protocol as an unknown covenant: Kaspire
+verifies the transaction, signature placement and sighash, but does not claim
+that the third-party covenant implements its advertised business rules.
+
+Known Kaspire profiles such as KCC20, KRON, Vault, Covenant Wyrms and
+KaspaRocket continue through their stricter protocol-specific validation.
+`kaspa_signVaultTransaction` remains intentionally limited to the documented
+vault policy; a new covenant must use `kaspa_signPskt` instead of pretending to
+be a known policy profile.
+
 The normalized sign-only response is:
 
 ```json
