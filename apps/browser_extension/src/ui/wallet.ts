@@ -24,6 +24,7 @@ type View =
   | "backups"
   | "receive"
   | "activity"
+  | "pending-reveal"
   | "marketplace";
 let view: View = "home";
 let status: any;
@@ -77,7 +78,7 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}) {
           ),
         );
       }
-    }, 45_000);
+    }, name === "resumeInscription" ? 600_000 : 45_000);
     const close = () => {
       if (!finished) {
         finished = true;
@@ -89,6 +90,8 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}) {
       if (response?.progress) {
         const button = document.querySelector<HTMLButtonElement>("#review");
         if (button) button.textContent = response.progress;
+        const revealProgress = document.querySelector<HTMLElement>("#reveal-progress");
+        if (revealProgress) revealProgress.textContent = response.progress;
         return;
       }
       close();
@@ -309,6 +312,7 @@ function shell(content: string, title = "KASPIRE", back = false) {
   root.innerHTML = `<main class="app natural-case"><header class="top">${back ? '<button id="back" class="icon" aria-label="Back">‹</button>' : '<button id="brand-store" class="brand-store" aria-label="Kaspire version and Chrome Web Store"><img src="kaspire-icon.png" alt="Kaspire"><span class="brand-verification" role="tooltip"></span></button>'}<b>${esc(title)}</b>${status && !status.locked ? `<button id="top-lock" class="icon top-lock" aria-label="Lock Kaspire" title="Lock Kaspire">${lockIcon()}</button>` : '<span></span>'}</header>${content}</main>`;
   classicCase(root);
   enhanceForms(root);
+  mountPendingReveal();
   document.querySelector<HTMLButtonElement>("#top-lock")?.addEventListener("click", async () => {
     await command("lock");
     view = "home";
@@ -395,6 +399,7 @@ async function render() {
   if (status.recoveryVerified === false)
     return recovery(await command("pendingRecovery"));
   if (view === "home") return home();
+  if (view === "pending-reveal") return pendingReveal();
   if (view === "wallets") return wallets();
   if (
     view === "watch" ||
@@ -592,7 +597,7 @@ function unlock() {
   document.querySelector<HTMLButtonElement>("#submit")!.onclick = async () => {
     try {
       await command("unlock", { password: value("password") });
-      view = "home";
+      if (view !== "pending-reveal") view = "home";
       await render();
     } catch (error) {
       document.querySelector("#error")!.textContent = (error as Error).message;
@@ -640,6 +645,60 @@ function home() {
   document.querySelector<HTMLButtonElement>("#app-promo")!.onclick = () =>
     chrome.tabs.create({ url: "https://kaspire.kaslab.space/" });
   void loadHome();
+}
+
+function mountPendingReveal() {
+  if (!status?.pendingInscription) return;
+  const host = root.querySelector(".dashboard, .send-screen");
+  if (!host) return;
+  const card = document.createElement("section");
+  card.className = "pending-reveal-card warning-box";
+  card.innerHTML = `<h2>Pending asset reveal</h2><p>Your transfer commit is saved. Complete its reveal before starting another asset transfer.</p><button id="open-pending-reveal" type="button">Resume reveal</button>`;
+  const actions = host.querySelector(".quick-actions");
+  if (actions) actions.after(card);
+  else host.prepend(card);
+  card.querySelector<HTMLButtonElement>("button")!.onclick = () => {
+    context.returnView = "home";
+    void go("pending-reveal");
+  };
+}
+
+function pendingReveal(lastError = "") {
+  const pending = status.pendingInscription;
+  if (!pending) {
+    view = "home";
+    return home();
+  }
+  const operation = pending.operation ?? {};
+  const entry = status.addresses.find((item: any) => item.address === operation.sender);
+  const symbol = operation.kind === "kns"
+    ? operation.domainName || operation.assetId || "KNS"
+    : ticker(operation.ticker || operation.kind);
+  shell(
+    `<section class="transaction-detail pending-reveal-screen"><p class="eyebrow">Transfer commit saved</p><h1>Resume asset reveal</h1><p class="info-box">The commit is already on-chain. Review and confirm the final reveal to complete this transfer.</p><section class="detail-section">${detailRow("Asset", symbol)}${operation.tokenId ? detailRow("Token ID", operation.tokenId) : ""}${operation.displayAmount ? detailRow("Amount", operation.displayAmount) : ""}${detailRow("Wallet", entry?.name || operation.sender)}${detailRow("Sender", operation.sender)}${detailRow("Recipient", operation.recipient)}${detailRow("Commit transaction", pending.commitTransactionId)}${pending.commitFeeSompi != null ? detailRow("Commit fee", sompiLabel(pending.commitFeeSompi)) : ""}</section><button id="resume-reveal">${status.network === "mainnet" ? "Resume reveal" : "Switch to Layer 1 and resume"}</button><p id="reveal-progress" role="status"></p><p id="reveal-error" class="error">${esc(lastError)}</p></section>`,
+    "Pending reveal",
+    true,
+  );
+  document.querySelector<HTMLButtonElement>("#resume-reveal")!.onclick = async () => {
+    const button = document.querySelector<HTMLButtonElement>("#resume-reveal")!;
+    const progress = document.querySelector<HTMLElement>("#reveal-progress")!;
+    const error = document.querySelector<HTMLElement>("#reveal-error")!;
+    button.disabled = true;
+    error.textContent = "";
+    progress.textContent = "Looking for the committed output…";
+    try {
+      if (status.network !== "mainnet") await command("setNetwork", { network: "mainnet" });
+      status = await command("status");
+      if (status.locked) return void await render();
+      const result = await command("resumeInscription");
+      status = await command("status");
+      kaspaTransactionReceipt(result, { kind: operation.kind, symbol, recipient: operation.recipient, amount: operation.displayAmount });
+    } catch (reason) {
+      error.textContent = (reason as Error).message;
+      progress.textContent = "Your commit remains saved. You can retry the reveal.";
+      button.disabled = false;
+    }
+  };
 }
 function isL2() { return status.network === "kasplex" || status.network === "igra"; }
 function networkLabel() { return status.network === "mainnet" ? "LAYER 1" : status.network === "testnet-10" ? "TN10" : status.network === "kasplex" ? "KASPLEX" : "IGRA"; }
@@ -1900,6 +1959,13 @@ function assetTransferReview(prepared: any) {
             ticker(operation.ticker) || String(operation.kind).toUpperCase(),
         });
       } catch (error) {
+        status = await command("status");
+        if (status.pendingInscription) {
+          view = "pending-reveal";
+          context.returnView = "home";
+          pendingReveal((error as Error).message);
+          return;
+        }
         document.querySelector("#review-error")!.textContent = (
           error as Error
         ).message;

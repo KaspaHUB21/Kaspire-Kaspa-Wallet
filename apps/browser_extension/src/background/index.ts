@@ -1789,6 +1789,7 @@ async function walletCommand(
         pending,
         state,
         sessionVault,
+        progress,
       );
     } finally {
       inscriptionOperationInFlight = false;
@@ -4768,7 +4769,9 @@ async function finishPendingInscription(
   pending: any,
   state: Awaited<ReturnType<typeof loadState>>,
   vault: VaultPayload,
+  progress: (stage: string) => void = () => {},
 ) {
+  const generation = sessionGeneration;
   if (state.network !== "mainnet")
     throw new Error("Switch back to Mainnet to resume the reveal.");
   const operation = pending?.operation;
@@ -4782,6 +4785,7 @@ async function finishPendingInscription(
   const wallet = vault.wallets.find((item) => item.id === entry?.walletId);
   if (!entry || entry.watchOnly || !wallet)
     throw new Error("The wallet controlling this reveal is unavailable.");
+  progress("Looking for the committed output…");
   const commitUtxosJson = await waitForUtxo(
     plan.commitAddress,
     commitTransactionId,
@@ -4795,6 +4799,7 @@ async function finishPendingInscription(
   };
   const wasm = await core();
   const review = JSON.parse(wasm.prepareReveal(JSON.stringify(revealRequest)));
+  progress("Review and authorize the final reveal…");
   if (
     !(await approve({
       origin,
@@ -4803,13 +4808,26 @@ async function finishPendingInscription(
         "The commit is already on-chain. Verify and publish the final asset transfer.",
       details: [
         `Kind: ${operation.kind}`,
+        ...(operation.ticker ? [`Ticker: ${operation.ticker}`] : []),
+        ...(operation.displayAmount ? [`Amount: ${operation.displayAmount}`] : []),
+        ...(operation.tokenId ? [`Token ID: ${operation.tokenId}`] : []),
+        `From: ${operation.sender}`,
         `To: ${operation.recipient}`,
         `Reveal fee: ${formatSompi(review.feeSompi)} KAS`,
         `Commit: ${commitTransactionId}`,
       ],
+      rawJson: { request: revealRequest, review },
     }))
   )
     throw rpc(4001, "Reveal rejected.");
+  const current = await loadState();
+  await expireSessionIfNeeded(current);
+  if (!sessionVault || generation !== sessionGeneration)
+    throw rpc(4100, "Wallet was locked during reveal recovery. Unlock Kaspire and resume again.");
+  if (current.network !== state.network || current.selectedAddress !== state.selectedAddress ||
+      !current.addresses.some(item => item.address === operation.sender && item.walletId === entry.walletId && !item.watchOnly))
+    throw rpc(4100, "Wallet account or network changed during approval. Resume the reveal again.");
+  progress("Signing and broadcasting the reveal…");
   const signed = JSON.parse(
     wasm.signReveal(
       signingSecret(wallet, entry),

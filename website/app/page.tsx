@@ -644,7 +644,7 @@ export default function Home() {
                 availability of this version in the Store is not yet confirmed.
               </p>
               <p>
-                <a href={`https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/v${currentRelease.version}/kaspire-extension-${extensionRelease.version}.zip`}>
+                <a href={`https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/${extensionRelease.releaseTag}/kaspire-extension-${extensionRelease.version}.zip`}>
                   Download extension {extensionRelease.version} ZIP
                 </a>. The latest ZIP may be newer than the version approved in the Chrome Web Store.
               </p>

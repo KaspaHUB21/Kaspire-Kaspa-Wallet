@@ -46,5 +46,27 @@ try{
   await evaluate(dapp,`window.staleResult="pending";window.kaspire.signPskt(${JSON.stringify(marketplaceRequest)}).then(value=>window.staleResult=JSON.stringify(value)).catch(error=>window.staleResult="error:"+error.code+":"+error.message);true`);await delay(500);
   approval=(await targets()).find(target=>target.url.includes("approval.html"));assert(approval,"Stale PSKT approval did not open.");await waitFor(approval.webSocketDebuggerUrl,'Boolean(document.querySelector("#approve"))');const networkMutation=await evaluate(reopenedWallet,'(async()=>await chrome.runtime.sendMessage({channel:"wallet",command:"setNetwork",network:"mainnet"}))()');assert.equal(networkMutation.result.network,"mainnet");await evaluate(approval.webSocketDebuggerUrl,'document.querySelector("#approve").click();true');await delay(700);assert.match(String(await evaluate(dapp,"window.staleResult")),/^error:4100:Wallet account or network changed during approval/);
   await evaluate(reopenedWallet,'(async()=>{await chrome.runtime.sendMessage({channel:"wallet",command:"lock"});location.reload();return true})()');await waitFor(reopenedWallet,'Boolean(document.querySelector("#password"))');assert.equal(await evaluate(reopenedWallet,'document.activeElement?.id'),"password");
-  console.log("Kaspire Chromium smoke test passed.");
+  // Recovery UI: existing storage survives reload/unlock and remains intact on failure.
+  // The deliberately invalid commit ID prevents all network or signing work.
+  await evaluate(reopenedWallet,'document.querySelector("#password").value="portable backup password 2026";document.querySelector("#submit").click();true');
+  await waitFor(reopenedWallet,'Boolean(document.querySelector("#send"))');
+  await evaluate(reopenedWallet,'(async()=>{const status=(await chrome.runtime.sendMessage({channel:"wallet",command:"status"})).result;await chrome.storage.local.set({pendingInscription:{operation:{kind:"krc721",sender:status.selectedAddress,recipient:status.selectedAddress,ticker:"TEST",tokenId:"42"},plan:{},commitTransactionId:"invalid-test-commit",createdAt:Date.now()}});location.reload();return true})()');
+  await waitFor(reopenedWallet,'Boolean(document.querySelector("#open-pending-reveal"))');
+  await evaluate(reopenedWallet,'document.querySelector("#send").click();true');
+  await waitFor(reopenedWallet,'Boolean(document.querySelector(".send-screen #open-pending-reveal"))');
+  await evaluate(reopenedWallet,'document.querySelector("#open-pending-reveal").click();true');
+  await waitFor(reopenedWallet,'Boolean(document.querySelector("#resume-reveal"))');
+  assert.match(String(await evaluate(reopenedWallet,'document.querySelector(".pending-reveal-screen").textContent')),/TEST[\s\S]*42[\s\S]*invalid-test-commit/);
+  await evaluate(reopenedWallet,'document.querySelector("#resume-reveal").click();true');
+  await waitFor(reopenedWallet,'document.querySelector("#reveal-error")?.textContent.includes("Pending reveal data is damaged")');
+  assert.equal(await evaluate(reopenedWallet,'(async()=>(await chrome.storage.local.get("pendingInscription")).pendingInscription.commitTransactionId)()'),"invalid-test-commit");
+  assert.equal(await evaluate(reopenedWallet,'document.querySelector("#resume-reveal").disabled'),false);
+  const blocked=await evaluate(reopenedWallet,'chrome.runtime.sendMessage({channel:"wallet",command:"confirmPreparedAsset",preparedId:"test"})');
+  assert.match(blocked.error.message,/Complete or resume the pending asset reveal/);
+  await evaluate(reopenedWallet,'(async()=>{await chrome.runtime.sendMessage({channel:"wallet",command:"lock"});location.reload();return true})()');
+  await waitFor(reopenedWallet,'Boolean(document.querySelector("#password"))');
+  await evaluate(reopenedWallet,'document.querySelector("#password").value="portable backup password 2026";document.querySelector("#submit").click();true');
+  await waitFor(reopenedWallet,'Boolean(document.querySelector("#open-pending-reveal"))');
+  await evaluate(reopenedWallet,'chrome.storage.local.remove("pendingInscription")');
+  console.log("Kaspire Chromium smoke test passed, including pending reveal recovery.");
 }finally{browser.kill("SIGTERM");if(browser.exitCode===null)await new Promise(resolveExit=>{browser.once("exit",resolveExit);setTimeout(resolveExit,3000)});server.close();await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100})}

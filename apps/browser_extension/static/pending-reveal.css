@@ -1,0 +1,14 @@
+.pending-reveal-card {
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--surface);
+  color: inherit;
+  border-color: var(--accent);
+}
+.pending-reveal-card p { line-height: 1.5; }
+.pending-reveal-card button { width: 100%; }
+.pending-reveal-screen { padding-bottom: 36px; }
+.pending-reveal-screen .detail-row { align-items: start; }
+.pending-reveal-screen .detail-row b { overflow-wrap: anywhere; min-width: 0; }
+.pending-reveal-screen > button { width: 100%; }
+.pending-reveal-screen button:disabled { opacity: .55; cursor: wait; }
