@@ -43,12 +43,9 @@ class DappSessionService {
     'balanceChanged',
   };
   // Reown project IDs are public application identifiers, not credentials.
-  // Keeping Kaspire's ID in source lets F-Droid reproduce a fully functional
-  // WalletConnect build without asking F-Droid to register for an API key.
-  static const _projectId = String.fromEnvironment(
-    'REOWN_PROJECT_ID',
-    defaultValue: '3dae39e7c46fbc79ee7bc33018184dd1',
-  );
+  // Pin the tested application identity. A stale release-machine dart-define
+  // must not silently switch the public app to a different relay project.
+  static const projectId = '3dae39e7c46fbc79ee7bc33018184dd1';
 
   final _proposals = StreamController<SessionProposalEvent>.broadcast();
   final _requests = StreamController<SessionRequestEvent>.broadcast();
@@ -59,7 +56,7 @@ class DappSessionService {
   Future<void>? _initializing;
   String? _lastError;
 
-  bool get configured => _projectId.trim().isNotEmpty;
+  bool get configured => projectId.trim().isNotEmpty;
   bool get ready => _walletKit != null;
   String? get lastError => _lastError;
   Stream<SessionProposalEvent> get proposals => _proposals.stream;
@@ -76,7 +73,7 @@ class DappSessionService {
     }
     try {
       final walletKit = await ReownWalletKit.createInstance(
-        projectId: _projectId,
+        projectId: projectId,
         metadata: const PairingMetadata(
           name: 'Kaspire',
           description: 'Kaspa Mainnet, Kasplex and Igra wallet',

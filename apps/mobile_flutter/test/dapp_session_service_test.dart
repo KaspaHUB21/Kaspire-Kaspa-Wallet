@@ -5,6 +5,11 @@ void main() {
   final topic = 'a' * 64;
   final symKey = 'b' * 64;
 
+  test('release relay identity cannot be replaced by a stale dart-define', () {
+    expect(DappSessionService.projectId, '3dae39e7c46fbc79ee7bc33018184dd1');
+    expect(DappSessionService.instance.configured, isTrue);
+  });
+
   test('advertises generic reviewed PSKT signing', () {
     expect(
       DappSessionService.supportedMethods,
