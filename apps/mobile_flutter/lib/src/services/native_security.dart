@@ -6,6 +6,9 @@ import 'package:local_auth/local_auth.dart';
 
 import 'app_settings.dart';
 import 'network_settings.dart';
+import '../theme.dart';
+import 'package:http/http.dart' as http;
+import 'krc721_reads.dart';
 
 class NativeSecurity {
   static const _channel = MethodChannel('space.kasvault/security');
@@ -187,6 +190,11 @@ class NativeSecurity {
       'operation': operation,
       'binding': binding,
       'sessionMinutes': fresh ? 0 : AppSettings.lockMinutes.value,
+      'dialogColors': [
+        KasVaultTheme.panel.toARGB32().toSigned(32),
+        KasVaultTheme.detailText.toARGB32().toSigned(32),
+        KasVaultTheme.mint.toARGB32().toSigned(32)
+      ],
     });
     if (token == null) throw StateError('Authorization cancelled.');
     return token;
@@ -435,6 +443,13 @@ class NativeSecurity {
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
+  Future<Map<String, Object?>> prepareNftMarket(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+        'prepareNftMarket', {'request': jsonEncode(request)});
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
   Future<Map<String, Object?>> prepareDotkMarket(
       Map<String, Object?> request) async {
     final raw = await _channel.invokeMethod<String>(
@@ -472,6 +487,15 @@ class NativeSecurity {
 
   Future<Map<String, Object?>> prepareInscription(
       Map<String, Object?> request) async {
+    if (['krc721', 'krc721-list'].contains(request['kind'])) {
+      final client = http.Client();
+      try {
+        await requireOfficialNftOwner(client, request['sender']! as String,
+            request['ticker']! as String, request['tokenId'].toString());
+      } finally {
+        client.close();
+      }
+    }
     final raw = await _channel.invokeMethod<String>(
         'prepareInscription', {'request': jsonEncode(request)});
     return (jsonDecode(raw!) as Map).cast<String, Object?>();

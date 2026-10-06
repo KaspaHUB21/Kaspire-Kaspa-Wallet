@@ -276,7 +276,14 @@ fn build_reveal(
             )],
             vec![TransactionOutput::new(
                 return_sompi,
-                pay_to_address_script(&sender),
+                if request.operation.kind.eq_ignore_ascii_case("krc721-list") {
+                    pay_to_address_script(&Address::try_from(crate::nft_market::descriptor(
+                        &request.operation.sender, &request.operation.ticker, &request.operation.token_id,
+                    )?["listingAddress"].as_str().ok_or(CoreError::Serialization)?)
+                        .map_err(|_| CoreError::InvalidAddress)?)
+                } else {
+                    pay_to_address_script(&sender)
+                },
             )],
             0,
             SUBNETWORK_ID_NATIVE,
@@ -356,6 +363,13 @@ fn canonical_payload(request: &InscriptionRequest) -> Result<(&'static str, Stri
         return Err(CoreError::InvalidRequest("invalid ticker".into()));
     }
     match request.kind.to_lowercase().as_str() {
+        "krc721-list" => {
+            crate::nft_market::descriptor(&request.sender, &ticker, &request.token_id)?;
+            if to != request.sender {
+                return Err(CoreError::InvalidRequest("NFT listing recipient must be the seller".into()));
+            }
+            Ok(("kspr", format!("{{\"p\":\"krc-721\",\"op\":\"list\",\"tick\":{},\"tokenId\":{}}}", quoted(&ticker)?, quoted(&request.token_id)?)))
+        }
         "krc20" => {
             if ticker.is_empty()
                 || request.amount.is_empty()

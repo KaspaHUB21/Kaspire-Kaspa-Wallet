@@ -1,0 +1,27 @@
+.agora-choice .market-name { display:flex; flex-direction:column; width:100%; gap:10px; margin:16px 0; padding:24px; }
+.agora-choice .market-name b {font-size:23px;}
+.nft-market-screen { padding-bottom:calc(56px + env(safe-area-inset-bottom)); }
+.nft-market-screen .market-title {display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.nft-market-screen .market-tools {display:grid;gap:10px;margin:16px 0;}
+.nft-market-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.nft-market-card {padding:10px;min-width:0;overflow-wrap:anywhere;}
+.nft-market-card > img {width:100%;aspect-ratio:1;object-fit:contain;border-radius:12px;}
+.nft-market-card h2 {font-size:15px;margin:10px 0 6px;}
+.nft-market-card p {font-size:12px;margin:8px 0;}
+.nft-market-card strong {font-size:17px;}
+.nft-card-actions {display:flex;flex-wrap:wrap;gap:6px;margin:10px 0;}
+.nft-card-actions button {flex:1;min-width:0;padding:9px 5px;font-size:12px;}
+.nft-market-card > button {padding:9px 5px;width:100%;font-size:12px;}
+.nft-traits summary {cursor:pointer;padding:10px 0;}
+.nft-traits label {display:block;margin:10px 0;}
+.nft-grid .nft-card {display:flex;flex-direction:column;min-width:0;padding:0;border-radius:12px;}
+.nft-grid .nft-card > [data-open-nft] {display:grid;grid-template-columns:1fr auto;gap:8px;width:100%;min-width:0;min-height:0;height:auto;background:transparent;border:0;border-radius:0;box-shadow:none;padding:0 0 8px;color:inherit;text-align:left;}
+.nft-grid .nft-card > [data-open-nft] > span {grid-column:1/-1;display:grid;place-items:center;aspect-ratio:1;overflow:hidden;background:var(--surface);}
+.nft-grid .nft-card > [data-open-nft] img {display:block;width:100%;height:100%;object-fit:contain;}
+.nft-grid .nft-card > [data-open-nft] > b {padding-left:8px;}
+.nft-grid .nft-card > [data-open-nft] > small {padding-right:8px;align-self:center;color:var(--muted);font-size:10px;}
+.nft-grid .nft-card .nft-tile-actions {display:flex;gap:6px;padding:8px;margin-top:auto;}
+.nft-grid .nft-card .nft-tile-actions button {font-size:12px;flex:1;min-width:0;min-height:36px;height:36px;padding:8px 4px;}
+.nft-preview > div {display:flex;flex-wrap:wrap;gap:6px;}
+.approval-sheet code {display:block;overflow-wrap:anywhere;margin:15px 0;}
+@media (max-width:320px) {.nft-market-grid {grid-template-columns:1fr;}}

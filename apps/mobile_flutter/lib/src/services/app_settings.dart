@@ -10,6 +10,7 @@ enum KaspireTheme {
   phoenix,
   cypherpunk,
   glacier,
+  neptune,
   hub21;
 
   String get label => switch (this) {

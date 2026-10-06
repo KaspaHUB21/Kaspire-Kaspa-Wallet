@@ -27,6 +27,15 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_addressWithPrefix(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareNftMarket(
+    mut env: JNIEnv, _class: JClass, request_json: JString,
+) -> jstring {
+    let result = read(&mut env, &request_json)
+        .and_then(|raw| crate::prepare_nft_market_json(&raw).map_err(|e|e.to_string()));
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_describeDotkMarket(
     mut env: JNIEnv,
     _class: JClass,

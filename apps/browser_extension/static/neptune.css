@@ -1,0 +1,44 @@
+/* Exact Android Neptune artwork; balances, labels and controls remain live. */
+@font-face { font-family: NeptuneScript; src: url("themes/neptune/Allura-Regular.ttf") format("truetype"); font-display: swap; }
+:root[data-theme="neptune"] {
+  color-scheme: dark;
+  --accent:#82eee7; --accent2:#d9f9f4; --text:#e8fbf8;
+  --surface:#07343f; --surface2:#104b56; --panel:#07343fee;
+  --line:#b9c5a3; --border:#b9c5a3; --muted:#b0d4d7; --danger:#ffb8b3; --glow:#0a6974;
+  --neptune-water:linear-gradient(135deg,#226670dc,#072e3be8 42%,#07333eea 76%,#145360dc),url("themes/neptune/water-glass.png");
+}
+:root[data-theme="neptune"] body { color:var(--text); background:#042d3a url("themes/neptune/ocean.png") center top / cover fixed no-repeat; }
+/* Browser action popups derive their viewport from the document's intrinsic
+   size. A viewport-relative root width creates an autosizing feedback loop. */
+html[data-theme="neptune"],:root[data-theme="neptune"] body { width:420px; min-width:420px; }
+:root[data-theme="neptune"] .app { background:linear-gradient(#00263308,#001c3030); }
+:root[data-theme="neptune"] :is(.top,.bottom-actions) { background:var(--neptune-water); background-size:cover; border-block:1px solid #e4d6a4; box-shadow:inset 0 1px #c9ffff55,0 5px 15px #00151c80; backdrop-filter:blur(14px); }
+:root[data-theme="neptune"] .top { margin-bottom:52px; }
+:root[data-theme="neptune"] .top > b { color:#b4f2ed; text-shadow:0 2px 3px #001922; }
+:root[data-theme="neptune"] .top:not(:has(#back))::after { content:"Flow Beyond Limits"; position:absolute; top:52px; left:26px; font:26px NeptuneScript,cursive; color:#b4e9e9; text-shadow:0 2px 3px #001922; pointer-events:none; }
+:root[data-theme="neptune"] :is(.balance-card,.quick-actions > button,.asset-group,.settings-link,.settings-group,.wallet-card,.price-grid > div,.review-card,.tx-meta,.address-full,.private-key-card,.detail-section,.copy-detail,.receipt-details,.app-promo,.market-offer,.market-name,.market-tabs,.market-emblem,.endpoint-card,.network-list,.diagnostic,.info-box) {
+  color:var(--text); background:var(--neptune-water); background-size:cover;
+  border:1.25px solid #e8d5a2; border-radius:20px;
+  box-shadow:inset 0 1px #c9ffff55,inset 0 0 0 3px #6bd5cf15,0 4px 12px #00131b80;
+}
+:root[data-theme="neptune"] .balance-card { min-height:170px; position:relative; padding:22px 16px 65px; }
+:root[data-theme="neptune"] .balance-card strong { color:#eefefd; text-shadow:0 2px 3px #00242d; font-size:clamp(22px,6.5vw,31px); overflow-wrap:anywhere; }
+:root[data-theme="neptune"] .balance-card small { color:#8ef4e4; }
+.neptune-orb,.neptune-slogan,.neptune-footer { display:none; }
+:root[data-theme="neptune"] .neptune-orb { display:block; width:100px; height:100px; position:absolute; bottom:0; right:3px; pointer-events:none; }
+:root[data-theme="neptune"] .neptune-orb > img:first-child { width:100%;height:100%;object-fit:contain; }
+/* Android's ornament globe center is (55%,40%), not the image center. */
+:root[data-theme="neptune"] .neptune-orb .orb-logo { position:absolute;left:34%;top:19%;width:42%;height:42%;object-fit:contain; }
+:root[data-theme="neptune"] .neptune-slogan { display:block; position:absolute; right:110px;bottom:6px; color:#b0dcdb; font:22px/.95 NeptuneScript,cursive; text-align:center; pointer-events:none; }
+:root[data-theme="neptune"] .quick-actions {gap:6px;}
+:root[data-theme="neptune"] .quick-actions > button {min-height:78px;border-radius:15px;}
+:root[data-theme="neptune"] .asset-group {background-image:linear-gradient(135deg,#073b43da,#032b36eb),url("themes/neptune/assets-ornament.png");background-size:cover;background-position:bottom right;}
+:root[data-theme="neptune"] :is(.section-title,.settings-title,.settings-about,.wallet-head,.form,.verify-grid,.onboard > p,.first-run > p,.first-run > h1,.token-detail > h1,.token-detail > p,.token-detail > strong,.nft-screen > h1,.nft-screen > p,.receive > h1,.receive > p,.send-screen > h1,.form-page > h1,.wallets-screen > h1,.wallets-screen > h2,.network-screen > h1,.address-book > h1,.eyebrow,.hint,.note,.available,.loading,.empty,.confirm-page > p,.unlock > h1,.unlock > p,.agora-choice > h1,.market-title) { background:#052f3de8;color:var(--text);border:1px solid #6baeb4;border-radius:12px;padding:10px 12px;box-shadow:0 3px 8px #001e2b80; }
+:root[data-theme="neptune"] :is(input,textarea,select,.password-input) {background:#06303bef;color:var(--text);border-color:#83bbb9;}
+:root[data-theme="neptune"] :is(.recipient-sheet,.nft-preview,.approval-sheet,.brand-verification,.address-verification,.raw-json pre,.seed-word,.market-tools) {background:#052e3bf5;color:var(--text);border:1px solid #b8c4a5;border-radius:18px;}
+:root[data-theme="neptune"] :is(button,.icon,.pill,.mini) {color:var(--accent);background-color:#063744;}
+:root[data-theme="neptune"] :is(.approval-actions > button:not(.outline),.market-offer button:not(.outline)) {background:#8ee8df;color:#032a35;}
+:root[data-theme="neptune"] .qr,:root[data-theme="neptune"] canvas {background:#fff;filter:none;opacity:1;}
+:root[data-theme="neptune"] .neptune-footer {display:block;text-align:center;color:#e9d8a4;font-size:17px;letter-spacing:4px;padding:12px 0;}
+:root[data-theme="neptune"] .neptune-footer small {display:block;font-size:9px;letter-spacing:5px;margin-top:8px;}
+@media (max-width:340px) { :root[data-theme="neptune"] .neptune-slogan {display:none;} :root[data-theme="neptune"] .quick-actions {gap:4px;} }

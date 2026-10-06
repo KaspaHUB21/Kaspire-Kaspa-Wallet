@@ -2,11 +2,13 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import '../widgets/hub21_material.dart';
+import '../widgets/neptune_material.dart';
 
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
 import '../services/kaspa_api.dart';
 import '../services/activity_store.dart';
+import '../services/nft_market_service.dart';
 import '../services/native_security.dart';
 import "../services/hd_account_service.dart";
 import '../services/privacy_settings.dart';
@@ -18,10 +20,11 @@ import '../services/dapp_session_service.dart';
 import '../models/asset_send_intent.dart';
 import '../theme.dart';
 import 'nft_collection_screen.dart';
+import '../widgets/krc721_image.dart';
 import 'krc20_token_detail_screen.dart';
 import 'transaction_detail_screen.dart';
 import 'dotk_name_screen.dart';
-import 'dotk_market_screen.dart';
+import 'k_agora_screen.dart';
 import 'kasparocket_screen.dart';
 import '../widgets/kaspire_brand.dart';
 
@@ -64,6 +67,7 @@ class _WalletScreenState extends State<WalletScreen> {
   void initState() {
     super.initState();
     ActivityStore.changes.addListener(_reloadLocalActivity);
+    NftMarketService.changes.addListener(_refresh);
     _account = HdAccountService().resolve(widget.address);
     _kasBalance = _loadAccountBalance();
     _balance = _loadAccountBalanceSnapshot();
@@ -81,6 +85,7 @@ class _WalletScreenState extends State<WalletScreen> {
   @override
   void dispose() {
     ActivityStore.changes.removeListener(_reloadLocalActivity);
+    NftMarketService.changes.removeListener(_refresh);
     super.dispose();
   }
 
@@ -384,7 +389,12 @@ class _WalletScreenState extends State<WalletScreen> {
                     ),
                   ],
                 ),
-                SizedBox(height: KasVaultTheme.isDecorative ? 50 : 28),
+                SizedBox(
+                    height: KasVaultTheme.isNeptune
+                        ? 20
+                        : KasVaultTheme.isDecorative
+                            ? 50
+                            : 28),
                 FutureBuilder<int>(
                   future: _kasBalance,
                   builder: (context, kasBalance) =>
@@ -446,7 +456,7 @@ class _WalletScreenState extends State<WalletScreen> {
                                 KaspaNetwork.mainnet
                             ? () => Navigator.of(context).push(
                                   MaterialPageRoute<void>(
-                                    builder: (_) => DotkMarketScreen(
+                                    builder: (_) => KAgoraScreen(
                                       address: widget.address,
                                     ),
                                   ),
@@ -602,7 +612,8 @@ class _AssetOverview extends StatelessWidget {
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: KasVaultTheme.line),
             ),
-      child: Column(
+      child: NeptuneAssetArtwork(
+          child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (empty)
@@ -759,7 +770,7 @@ class _AssetOverview extends StatelessWidget {
                   style: TextStyle(color: Color(0xFFFFD779), height: 1.4)),
             ),
         ],
-      ),
+      )),
     );
   }
 }
@@ -890,10 +901,10 @@ class _AssetIcon extends StatelessWidget {
         dimension: 36,
         child: asset.imageUrl == null
             ? fallback
-            : Image.network(
+            : Krc721Image(
                 asset.imageUrl!,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => fallback,
+                placeholder: fallback,
               ),
       ),
     );

@@ -1,5 +1,6 @@
 import { loadState, saveState } from "./state";
 import { core } from "./core";
+import {nftBrowse, nftOwned, nftOwnedCollections, nftMyListings, nftOperation, nftPublishPending} from "./nftMarket";
 import {configureDotkDeriver, resolveDotkName} from "./dotk";
 import {
   marketNames,
@@ -141,6 +142,7 @@ let sessionVault: VaultPayload | null = null;
 let sessionPassword: string | null = null;
 let lastActivity = 0;
 let sessionGeneration = 0;
+let nftContextRevision = 0;
 
 function kasAccountEntries(state: Awaited<ReturnType<typeof loadState>>, requested?: string | null) {
   const selected = state.addresses.find((item) => item.address === (requested ?? state.selectedAddress));
@@ -489,6 +491,37 @@ async function walletCommand(
     const fresh = await loadState();
     if (fresh.network !== state.network || fresh.selectedAddress !== state.selectedAddress) throw new Error("Account or network changed. Please retry.");
     return result;
+  }
+  if (String(message.command).startsWith("nftMarket")) {
+    if (state.network !== "mainnet" || !state.selectedAddress) throw new Error("NFT Market is available on Kaspa Layer 1 only.");
+    const address = state.selectedAddress;
+    if (message.command === "nftMarketBrowse") return nftBrowse(message.params as Record<string, any>);
+    if (message.command === "nftMarketOwned") return nftOwned(address, String(message.cursor ?? ""), String(message.collection ?? ""));
+    if (message.command === "nftMarketCollections") return nftOwnedCollections(address);
+    if (message.command === "nftMarketListings") return nftMyListings(address);
+    if (message.command === "nftMarketPublishPending") { await nftPublishPending(address); return true; }
+    if (message.command !== "nftMarketOperation") throw new Error("Unknown NFT marketplace command.");
+    const generation = sessionGeneration;
+    const contextRevision = nftContextRevision;
+    const guard = async () => {
+      await hydrateSession();
+      const fresh = await loadState();
+      if (!sessionVault || generation !== sessionGeneration) throw new Error("Wallet locked. Unlock and review again.");
+      if (fresh.network !== "mainnet" || fresh.selectedAddress !== address || contextRevision !== nftContextRevision) throw new Error("Account or network changed. Reopen NFT Market and review again.");
+      const entry = fresh.addresses.find(item => item.address === address);
+      if (!entry || entry.watchOnly || !sessionVault.wallets.some(item => item.id === entry.walletId)) throw new Error("Select an unlocked signing wallet.");
+    };
+    await guard();
+    return nftOperation({address, guard,
+      approve: (title, details, rawJson) => approve({origin:"Kaspire Wallet",title,description:"Verify the NFT transaction reconstructed by the Rust security core.",details,rawJson}),
+      sign: async (kind, request, hash) => {
+        const wasm = await core(); await guard();
+        if (!sessionVault || generation !== sessionGeneration || contextRevision !== nftContextRevision) throw new Error("Signing context changed. Unlock and review again.");
+        const entry = state.addresses.find(item => item.address === address)!;
+        const wallet = sessionVault!.wallets.find(item => item.id === entry.walletId)!;
+        return JSON.parse(wasm[`sign${kind}`](signingSecret(wallet,entry),JSON.stringify(request),hash));
+      },
+    },message);
   }
   if (message.command === "dotkMarketOffers") {
     if (state.network !== "mainnet") throw new Error("K-Agora is available on Layer 1 only.");
@@ -981,7 +1014,7 @@ async function walletCommand(
     return nftCollection(
       state.selectedAddress,
       String(message.ticker ?? "").toUpperCase(),
-      Number(message.offset ?? 0),
+      String(message.offset ?? ""),
     );
   }
   if (message.command === "nftRarity")
@@ -1435,6 +1468,7 @@ async function walletCommand(
     const address = String(message.address ?? "");
     if (!state.addresses.some((item) => item.address === address))
       throw new Error("Unknown wallet address.");
+    if (state.selectedAddress !== address) nftContextRevision += 1;
     state.selectedAddress = address;
     await saveState(state);
     return true;
@@ -1544,6 +1578,7 @@ async function walletCommand(
         "cypherpunk",
         "hub21",
         "glacier",
+        "neptune",
       ].includes(next?.theme)
     )
       state.settings.theme = next.theme;
@@ -2334,6 +2369,7 @@ async function convertNetwork(
   preservePermissionOrigin?: string,
 ) {
   const previousNetwork = state.network;
+  if (previousNetwork !== network) nftContextRevision += 1;
   const wasm = await core();
   const selectedIndex = state.addresses.findIndex(
     (item) => item.address === state.selectedAddress,
@@ -3476,13 +3512,11 @@ async function prepareWalletAsset(
       if (
         !/^[A-Z0-9_-]{1,32}$/.test(ticker) ||
         !tokenId ||
-        tokenId.length > 128 ||
-        !assets.krc721.some(
-          (item: any) => String(item.symbol).toUpperCase() === ticker,
-        )
+        tokenId.length > 128
       )
         throw new Error("Select a held KRC-721 NFT.");
       operation = { ...operation, ticker, tokenId };
+      await verifyKrc721Ownership(sender, ticker, tokenId);
     } else throw new Error("Unsupported asset kind.");
     progress("Preparing native inscription plan…");
     const wasm = await core();
@@ -4238,9 +4272,6 @@ async function inscriptionTransferUnsafe(
       !/^[A-Z0-9_-]{1,32}$/.test(ticker) ||
       !tokenId ||
       tokenId.length > 128 ||
-      !assets.krc721.some(
-        (item: any) => item.symbol.toUpperCase() === ticker,
-      ) ||
       !(await verifyKrc721Ownership(sender, ticker, tokenId))
     )
       throw rpc(

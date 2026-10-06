@@ -14,6 +14,7 @@ import '../services/kaspa_api.dart';
 import '../services/activity_store.dart';
 import '../services/app_settings.dart';
 import '../services/native_security.dart';
+import '../widgets/krc721_image.dart';
 import '../services/signer_service.dart';
 import '../services/preferences_service.dart';
 import '../theme.dart';
@@ -949,12 +950,10 @@ class _Krc20TokenOption extends StatelessWidget {
                   ? fallback
                   : Padding(
                       padding: const EdgeInsets.all(3),
-                      child: Image.network(
+                      child: Krc721Image(
                         asset.imageUrl!,
-                        width: 38,
-                        height: 38,
                         fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => fallback,
+                        placeholder: fallback,
                       ),
                     ),
             ),

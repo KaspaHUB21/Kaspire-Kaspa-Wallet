@@ -1,5 +1,6 @@
 import type { KaspaNetwork } from "../shared/protocol";
 import {dotkNamesOf, resolveDotkName} from "./dotk";
+import { nftWalletPage, nftMetadata, nftImage, requireUnlistedNft } from "./krc721Reads";
 const MAINNET = "https://kaspire.kaslab.space/api";
 const TN10 = "https://api-tn10.kaspa.org";
 async function request(
@@ -277,35 +278,29 @@ export async function tokenMarket(tokenId: string, symbol: string) {
 export async function nftCollection(
   address: string,
   ticker: string,
-  offset = 0,
+  offset: number | string = "",
 ) {
   if (
     !/^(kaspa|kaspatest):[a-z0-9]{61,63}$/.test(address) ||
     !/^[A-Z0-9_-]{1,32}$/.test(ticker) ||
-    !Number.isSafeInteger(offset) ||
-    offset < 0
+    String(offset).length > 256
   )
     throw new Error("Invalid NFT collection request.");
-  const value = await get(
-    `https://kaspatoken.kaslab.space/api/wallet/krc20/${encodeURIComponent(address)}/krc721/${encodeURIComponent(ticker)}?limit=48&offset=${offset}`,
-  );
-  const data = value?.data && typeof value.data === "object" ? value.data : {};
-  const rows = Array.isArray(data.nfts) ? data.nfts : [];
+  const value = await nftWalletPage(address, offset === 0 ? "" : String(offset), ticker, 48);
+  const rows = value.result;
+  let metadata: any[] = [];
+  try { metadata = await nftMetadata(ticker, rows.map((item: any) => String(item.tokenId))); } catch { /* Keep inventory. */ }
   return {
-    ticker: String(data.ticker ?? ticker).toUpperCase(),
-    total: Number(data.total ?? rows.length),
-    nextOffset: Number.isSafeInteger(data.next_offset)
-      ? data.next_offset
-      : null,
+    ticker,
+    total: Number(value.total ?? rows.length),
+    nextOffset: value.next || null,
     nfts: rows
       .map((item: any) => ({
-        ticker: String(item?.ticker ?? ticker).toUpperCase(),
-        tokenId: String(item?.token_id ?? ""),
-        imageUrl: typeof item?.image_url === "string" ? item.image_url : "",
-        rarityRank: Number.isSafeInteger(item?.rarity_rank)
-          ? item.rarity_rank
-          : null,
-        nexusUrl: typeof item?.nexus_url === "string" ? item.nexus_url : "",
+        ticker,
+        tokenId: String(item?.tokenId ?? ""),
+        imageUrl: nftImage(ticker, String(item.tokenId)),
+        rarityRank: metadata.find(row => String(row.tokenId) === String(item.tokenId))?.rarityRank ?? null,
+        status: item.status,
       }))
       .filter((item: any) => item.tokenId),
   };
@@ -313,20 +308,12 @@ export async function nftCollection(
 export async function nftRarity(ticker: string, tokenId: string) {
   if (!/^[A-Z0-9_-]{1,32}$/.test(ticker) || !tokenId || tokenId.length > 128)
     throw new Error("Invalid NFT metadata request.");
-  const value = await post("https://api.kaspa.com/krc721/tokens", {
-    ticker,
-    limit: 1,
-    offset: 0,
-    sortField: "tokenId",
-    sortDirection: "asc",
-    traits: {},
-    tokenIds: [tokenId],
-  });
-  const item = (Array.isArray(value?.items) ? value.items : []).find(
+  const items = await nftMetadata(ticker, [tokenId]);
+  const item = items.find(
     (row: any) => String(row?.tokenId ?? "") === tokenId,
   );
   const rank = Number(item?.rarityRank);
-  return { rarityRank: Number.isSafeInteger(rank) && rank > 0 ? rank : null };
+  return { rarityRank: Number.isSafeInteger(rank) && (rank > 0 || rank === -1) ? rank : null };
 }
 export async function resolveWalletInput(
   input: string,
@@ -395,30 +382,7 @@ export async function verifyKrc721Ownership(
   ticker: string,
   tokenId: string,
 ) {
-  let offset = "";
-  for (let page = 0; page < 100; page++) {
-    const query = new URLSearchParams({
-      limit: "500",
-      direction: "forward",
-      ...(offset ? { offset } : {}),
-    });
-    const value = await get(
-      `https://krc721-indexer.kaspa.com/api/v1/krc721/mainnet/address/${encodeURIComponent(address)}?${query}`,
-    );
-    const items = Array.isArray(value?.result) ? value.result : [];
-    if (
-      items.some(
-        (item: any) =>
-          String(item?.tick ?? "").toUpperCase() === ticker &&
-          String(item?.tokenId ?? "") === tokenId,
-      )
-    )
-      return true;
-    const next = typeof value?.next === "string" ? value.next : "";
-    if (!next || !items.length) return false;
-    offset = next;
-  }
-  throw new Error("KRC-721 ownership result exceeded the safe page limit.");
+  return requireUnlistedNft(address, ticker, tokenId);
 }
 const CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 function ownerId(address: string) {
@@ -1175,12 +1139,12 @@ export async function walletAssetCategory(address: string, network: KaspaNetwork
         : category === "krc721" ? await loadKrc721Collections(address)
         : await loadKcc20Assets(address);
     } catch (error) {
-      if (category === "kcc20") throw error;
+      if (category === "kcc20" || category === "krc721") throw error;
       const fallback = await get(`https://kaspatoken.kaslab.space/api/wallet/krc20/${encodeURIComponent(address)}`);
       rows = fallback?.data?.[category === "krc721" ? "krc721_tokens" : category];
       if (!Array.isArray(rows)) throw error;
     }
-    if (category === "tokens") rows = rows.map(item => ({...item, symbol: String(item.symbol).toUpperCase()}))
+    if (["tokens", "krc721", "kcc20"].includes(category)) rows = rows.map(item => ({...item, symbol: String(item.symbol).toUpperCase()}))
       .sort((a,b) => a.symbol.localeCompare(b.symbol, "en"));
     categoryCache.set(key, {at: Date.now(), value: rows});
     return rows;
@@ -1262,6 +1226,8 @@ async function loadKnsDomains(address: string) {
 }
 async function loadKrc721Collections(address: string) {
   const grouped = new Map<string, number>();
+  const thumbnails = new Map<string, string>();
+  const seen = new Set<string>();
   let offset = "";
   for (let page = 0; page < 100; page++) {
     const query = new URLSearchParams({
@@ -1269,17 +1235,21 @@ async function loadKrc721Collections(address: string) {
       direction: "forward",
       ...(offset ? { offset } : {}),
     });
-    const value = await get(
-      `https://krc721-indexer.kaspa.com/api/v1/krc721/mainnet/address/${encodeURIComponent(address)}?${query}`,
-    );
+    const value = await nftWalletPage(address, offset, "", 500);
     const rows = Array.isArray(value?.result) ? value.result : [];
     for (const item of rows) {
       const symbol = String(item?.tick ?? "").toUpperCase();
-      if (/^[A-Z0-9_-]{1,32}$/.test(symbol))
+      if (/^[A-Z0-9_-]{1,32}$/.test(symbol)) {
         grouped.set(symbol, (grouped.get(symbol) ?? 0) + 1);
+        const tokenId = String(item?.tokenId ?? "");
+        if (!thumbnails.has(symbol) && /^\d{1,20}$/.test(tokenId))
+          thumbnails.set(symbol, nftImage(symbol, tokenId));
+      }
     }
     const next = String(value?.next ?? "");
     if (!next || !rows.length) break;
+    if (seen.has(next)) throw new Error("NFT indexer repeated a page. Please reload.");
+    seen.add(next);
     offset = next;
   }
   return [...grouped].map(([symbol, balance]) => ({
@@ -1287,6 +1257,7 @@ async function loadKrc721Collections(address: string) {
     symbol,
     name: symbol,
     balance,
+    image_url: thumbnails.get(symbol),
   }));
 }
 export async function walletCoreSnapshot(

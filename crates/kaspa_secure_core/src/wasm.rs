@@ -244,6 +244,12 @@ pub fn sign_personal_message_js(
         .map_err(|error| JsError::new(&error.to_string()))
 }
 
+#[wasm_bindgen(js_name = prepareNftMarket)]
+pub fn prepare_nft_market_js(request: &str) -> std::result::Result<String, JsError> {
+    crate::prepare_nft_market_json(request)
+        .map_err(|error| JsError::new(&error.to_string()))
+}
+
 #[wasm_bindgen(js_name = preparePskt)]
 pub fn prepare_pskt_js(request: &str) -> std::result::Result<String, JsError> {
     let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid request"))?;

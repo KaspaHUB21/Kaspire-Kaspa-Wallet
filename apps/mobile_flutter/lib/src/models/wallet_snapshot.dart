@@ -185,6 +185,7 @@ class WalletNft {
     this.imageUrl,
     this.rarityRank,
     this.nexusUrl,
+    this.isListed = false,
   });
 
   final String ticker;
@@ -192,6 +193,7 @@ class WalletNft {
   final String? imageUrl;
   final int? rarityRank;
   final String? nexusUrl;
+  final bool isListed;
 }
 
 class KnsDomain {

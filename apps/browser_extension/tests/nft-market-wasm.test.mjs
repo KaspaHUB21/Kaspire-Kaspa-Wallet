@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import init,{generateWallet,publicKey,prepareNftMarket,preparePskt,signPskt,prepareInscription} from './generated/wasm/kaspa_secure_core.mjs';
+await init({module_or_path:await readFile(new URL('./generated/wasm/kaspa_secure_core_bg.wasm',import.meta.url))});
+function script(address){const charset='qpzry9x8gf2tvdw0s3jn54khce6mua7l';let value=0,bits=0;const bytes=[];for(const char of address.split(':')[1].slice(0,-8)){value=(value<<5)|charset.indexOf(char);bits+=5;while(bits>=8){bits-=8;bytes.push((value>>bits)&255);value&=(1<<bits)-1;}}assert.equal(bytes[0],8);return 'aa20'+Buffer.from(bytes.slice(1)).toString('hex')+'87';}
+test('NFT WASM seller, buyer and cancellation preserve settlement and enforce the fee',()=>{
+  const seller=JSON.parse(generateWallet('')),buyer=JSON.parse(generateWallet('')),secret=`mnemonic:${seller.mnemonic}`,buyerSecret=`mnemonic:${buyer.mnemonic}`;
+  const d=JSON.parse(prepareNftMarket(JSON.stringify({action:'describe',sender:seller.address,seller:seller.address,ticker:'KASPUNKS',tokenId:'82'})));
+  const listingId='11'.repeat(32),listingUtxosJson=JSON.stringify([{address:d.listingAddress,outpoint:{transactionId:listingId,index:0},utxoEntry:{amount:'29900000',blockDaaScore:'100',isCoinbase:false,scriptPublicKey:{version:0,scriptPublicKey:script(d.listingAddress)}}}]);
+  const args={action:'offer',sender:seller.address,seller:seller.address,ticker:'KASPUNKS',tokenId:'82',listingTransactionId:listingId,listingUtxosJson,priceSompi:1000000000,feeAddress:seller.address,feeRate:1};
+  const offer=JSON.parse(prepareNftMarket(JSON.stringify(args)));
+  offer.review=JSON.parse(preparePskt(JSON.stringify(offer.request)));
+  const signed=JSON.parse(signPskt(secret,JSON.stringify(offer.request),offer.review.reviewHash));
+  assert.equal(offer.request.profile,'krc721-market-v1');assert.equal(offer.request.signInputs[0].sighashType,132);assert.equal(signed.submitJson,null);assert.equal(offer.feeSompi,21000000);
+  const funding=JSON.stringify([{address:buyer.address,outpoint:{transactionId:'22'.repeat(32),index:1},utxoEntry:{amount:'2000000000',blockDaaScore:'100',isCoinbase:false,scriptPublicKey:{version:0,scriptPublicKey:`20${publicKey(buyerSecret)}ac`}}}]);
+  const buyArgs={...args,action:'buy',sender:buyer.address,sellerPskt:signed.signedTxJson,walletUtxosJson:funding};
+  const buy=JSON.parse(prepareNftMarket(JSON.stringify(buyArgs)));
+  buy.review=JSON.parse(preparePskt(JSON.stringify(buy.request)));
+  const purchase=JSON.parse(signPskt(buyerSecret,JSON.stringify(buy.request),buy.review.reviewHash));
+  assert(purchase.submitJson);assert.equal(buy.review.outputs.length,3);assert.equal(buy.review.outputs[2].amountSompi,21000000);
+  assert.equal(JSON.parse(purchase.signedTxJson).inputs[0].signatureScript,JSON.parse(signed.signedTxJson).inputs[0].signatureScript);
+  assert.throws(()=>prepareNftMarket(JSON.stringify({...buyArgs,priceSompi:1000001000})));
+  const tampered=structuredClone(buy.request),tx=JSON.parse(tampered.txJsonString);tx.outputs[2].value='1';tampered.txJsonString=JSON.stringify(tx);assert.throws(()=>preparePskt(JSON.stringify(tampered)));
+  const cancel=JSON.parse(prepareNftMarket(JSON.stringify({...args,action:'cancel'})));
+  cancel.review=JSON.parse(preparePskt(JSON.stringify(cancel.request)));
+  assert.equal(cancel.review.outputs.length,1);assert.equal(cancel.request.signInputs[0].sighashType,1);assert(JSON.parse(signPskt(secret,JSON.stringify(cancel.request),cancel.review.reviewHash)).submitJson);
+  const plan=JSON.parse(prepareInscription(JSON.stringify({kind:'krc721-list',sender:seller.address,recipient:seller.address,ticker:'KASPUNKS',tokenId:'82'})));
+  assert.match(plan.payloadJson,/"op":"list"/);
+});

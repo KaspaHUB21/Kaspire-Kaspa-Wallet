@@ -423,6 +423,9 @@ void main() {
 
   test('falls back to direct KRC20, KRC721 and KNS indexers', () async {
     final client = MockClient((request) async {
+      if (request.url.path.startsWith('/krc721-read-v1/')) {
+        return http.Response('local source offline', 503);
+      }
       if (request.url.host == 'kaspatoken.kaslab.space') {
         return http.Response('unavailable', 503);
       }

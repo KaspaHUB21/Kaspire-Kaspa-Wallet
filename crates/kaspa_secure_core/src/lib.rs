@@ -10,6 +10,7 @@ mod dotk_market;
 mod dotk_sale;
 mod evm;
 mod inscription;
+mod nft_market;
 mod kcc20;
 mod kron;
 mod policy_transaction;
@@ -85,6 +86,12 @@ pub fn describe_dotk_market_json(raw: &str) -> Result<String> {
     let request: dotk_market::DescribeRequest =
         serde_json::from_str(raw).map_err(|_| CoreError::Serialization)?;
     Ok(dotk_market::describe(&request)?.to_string())
+}
+
+pub fn prepare_nft_market_json(raw: &str) -> Result<String> {
+    if raw.len() > 512 * 1024 { return Err(CoreError::InvalidRequest("NFT market request too large".into())); }
+    let request: nft_market::Request = serde_json::from_str(raw).map_err(|_| CoreError::Serialization)?;
+    Ok(nft_market::prepare(&request)?.to_string())
 }
 pub const DERIVATION_PATH: &str = "m/44'/111111'/0'/0/0";
 pub const MODERN_COIN_TYPE: u32 = 111_111;

@@ -261,6 +261,9 @@ class MainActivity : FlutterFragmentActivity() {
                     "describeDotkMarket" -> resultFromCore(
                         SecureCore.describeDotkMarket(call.argument<String>("request") ?: error("Missing marketplace request")), result,
                     )
+                    "prepareNftMarket" -> resultFromCore(
+                        SecureCore.prepareNftMarket(call.argument<String>("request") ?: error("Missing NFT marketplace request")), result,
+                    )
                     "prepareDotkMarket", "signDotkMarket" -> {
                         val request = call.argument<String>("request") ?: error("Missing marketplace request")
                         check(request.length <= 512 * 1024) { "Marketplace request is too large" }
@@ -329,6 +332,7 @@ class MainActivity : FlutterFragmentActivity() {
                         call.argument<String>("binding") ?: error("Missing operation binding"),
                         call.argument<Int>("sessionMinutes") ?: 0,
                         result,
+                        call.argument<List<Int>>("dialogColors"),
                     )
                     "verifyPin" -> verifyPinDialog(call.argument<String>("reason") ?: "Authorize Kaspire", result)
                     "configurePin" -> configurePinDialog(result)
@@ -2232,6 +2236,17 @@ class MainActivity : FlutterFragmentActivity() {
                             "Output $index: ${output.getLong("amountSompi")} sompi · " +
                                 (output.optString("address").ifEmpty { "covenant / non-standard script" })
                         }
+                else if (json.optString("profile") == "krc721-market-v1") {
+                    val terms = json.getJSONObject("tradeSummary")
+                    "NFT Market · ${terms.getString("action").uppercase()}\n" +
+                        "${json.optString("ticker")} #${json.optString("tokenId")}\n" +
+                        "Account ${json.getString("sender")}\n" +
+                        (if (json.optBoolean("finalFeeKnown")) "Network fee ${json.optString("feeSompi")} sompi\n"
+                         else "Seller authorization only · buyer supplies payment and network fee\n") +
+                        (0 until json.getJSONArray("outputs").length()).joinToString("\n") { index ->
+                            val output = json.getJSONArray("outputs").getJSONObject(index)
+                            "Output $index: ${output.getLong("amountSompi")} sompi\n${output.optString("address")}" }
+                }
                 else "PSKT ${json.getString("transactionId").take(16)}…\n" +
                     "${json.getInt("selectedInputCount")} of ${json.getInt("inputCount")} inputs · " +
                     "${json.getInt("outputCount")} outputs · " +
@@ -2644,6 +2659,7 @@ class MainActivity : FlutterFragmentActivity() {
         binding: String,
         sessionMinutes: Int,
         result: MethodChannel.Result,
+        dialogColors: List<Int>? = null,
     ) {
         check(sessionMinutes == 0 || sessionMinutes == 5 ||
             sessionMinutes == 10 || sessionMinutes == 15) {
@@ -2670,6 +2686,7 @@ class MainActivity : FlutterFragmentActivity() {
             promptText,
             result,
             sessionMinutes,
+            dialogColors,
         )
     }
 
@@ -2729,14 +2746,29 @@ class MainActivity : FlutterFragmentActivity() {
         promptText: String,
         result: MethodChannel.Result,
         sessionMinutes: Int,
+        dialogColors: List<Int>? = null,
     ) {
         val sessionActive = sessionMinutes > 0 &&
             System.currentTimeMillis() - lastSessionAuthenticationAtMs <
                 sessionMinutes * 60_000L
         if (sessionActive) {
+            val colors = dialogColors?.takeIf { it.size == 3 }
+            val title = TextView(this).apply {
+                text = "Confirm authorization"
+                textSize = 20f
+                setPadding(dp(24), dp(24), dp(24), dp(12))
+                if (colors != null) setTextColor(colors[1])
+            }
+            val content = TextView(this).apply {
+                text = promptText
+                textSize = 15f
+                setTextIsSelectable(true)
+                setPadding(dp(24), dp(8), dp(24), dp(16))
+                if (colors != null) setTextColor(colors[1])
+            }
             AlertDialog.Builder(this)
-                .setTitle("Review Kaspire operation")
-                .setMessage(promptText)
+                .setCustomTitle(title)
+                .setView(ScrollView(this).apply { addView(content) })
                 .setNegativeButton("Cancel") { _, _ -> result.success(null) }
                 .setPositiveButton("Approve") { _, _ ->
                     result.success(issueAuthorization(operation, binding))
@@ -2746,6 +2778,14 @@ class MainActivity : FlutterFragmentActivity() {
                 .apply {
                     setOnShowListener {
                         window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        if (colors != null) {
+                            window?.setBackgroundDrawable(android.graphics.drawable.GradientDrawable().apply {
+                                setColor(colors[0]); cornerRadius = dp(24).toFloat()
+                                setStroke(dp(1), colors[2])
+                            })
+                            getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(colors[2])
+                            getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(colors[1])
+                        }
                     }
                     show()
                 }

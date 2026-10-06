@@ -4,6 +4,8 @@ import '../models/wallet_snapshot.dart';
 import '../services/kaspa_api.dart';
 import '../theme.dart';
 import '../services/app_settings.dart';
+import 'nft_market_screen.dart';
+import '../widgets/krc721_image.dart';
 
 class NftCollectionScreen extends StatefulWidget {
   const NftCollectionScreen({
@@ -95,10 +97,10 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                   child: nft.imageUrl == null
                       ? const _NoImage()
                       : InteractiveViewer(
-                          child: Image.network(
+                          child: Krc721Image(
                             nft.imageUrl!,
                             fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => const _NoImage(),
+                            placeholder: const _NoImage(),
                           ),
                         ),
                 ),
@@ -129,20 +131,46 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                     const SizedBox(height: 14),
                     Align(
                       alignment: Alignment.centerRight,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                      child: Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
                           TextButton(
                             onPressed: () => Navigator.pop(context),
                             child: Text(buttonLabel('CLOSE')),
                           ),
                           const SizedBox(width: 8),
-                          FilledButton.icon(
-                            onPressed: () {
+                          OutlinedButton.icon(
+                            onPressed: () async {
                               Navigator.pop(context);
-                              Navigator.pop(this.context);
-                              widget.onSend(nft);
+                              await Navigator.of(this.context)
+                                  .push(MaterialPageRoute<void>(
+                                      builder: (_) => NftMarketScreen(
+                                          address: widget.address,
+                                          initialTab: nft.isListed ? 2 : 0,
+                                          initialNft: nft.isListed
+                                              ? null
+                                              : {
+                                                  'ticker': nft.ticker,
+                                                  'tokenId': nft.tokenId,
+                                                  'imageUrl': nft.imageUrl,
+                                                  'rarityRank': nft.rarityRank
+                                                })));
+                              if (mounted) await _load();
                             },
+                            icon: const Icon(Icons.storefront_outlined),
+                            label:
+                                Text(nft.isListed ? 'MY LISTINGS' : 'LIST NFT'),
+                          ),
+                          FilledButton.icon(
+                            onPressed: nft.isListed
+                                ? null
+                                : () {
+                                    Navigator.pop(context);
+                                    Navigator.pop(this.context);
+                                    widget.onSend(nft);
+                                  },
                             icon: const Icon(Icons.send_rounded),
                             label: Text(buttonLabel('SEND NFT')),
                           ),
@@ -199,7 +227,7 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                               crossAxisCount: 2,
                               mainAxisSpacing: 12,
                               crossAxisSpacing: 12,
-                              childAspectRatio: .78,
+                              childAspectRatio: .54,
                             ),
                             itemCount: page.nfts.length,
                             itemBuilder: (context, index) {
@@ -222,11 +250,10 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                                       Expanded(
                                         child: nft.imageUrl == null
                                             ? const _NoImage()
-                                            : Image.network(
+                                            : Krc721Image(
                                                 nft.imageUrl!,
                                                 fit: BoxFit.cover,
-                                                errorBuilder: (_, __, ___) =>
-                                                    const _NoImage(),
+                                                placeholder: const _NoImage(),
                                               ),
                                       ),
                                       Padding(
@@ -268,6 +295,51 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                                             ),
                                           ],
                                         ),
+                                      ),
+                                      OutlinedButton.icon(
+                                        onPressed: () async {
+                                          await Navigator.of(context).push(
+                                              MaterialPageRoute<void>(
+                                                  builder: (_) =>
+                                                      NftMarketScreen(
+                                                          address:
+                                                              widget.address,
+                                                          initialTab:
+                                                              nft.isListed
+                                                                  ? 2
+                                                                  : 0,
+                                                          initialNft:
+                                                              nft.isListed
+                                                                  ? null
+                                                                  : {
+                                                                      'ticker':
+                                                                          nft.ticker,
+                                                                      'tokenId':
+                                                                          nft.tokenId,
+                                                                      'imageUrl':
+                                                                          nft.imageUrl,
+                                                                      'rarityRank':
+                                                                          nft.rarityRank
+                                                                    })));
+                                          if (mounted) await _load();
+                                        },
+                                        icon: const Icon(
+                                            Icons.storefront_outlined,
+                                            size: 16),
+                                        label: Text(nft.isListed
+                                            ? 'LISTED'
+                                            : 'LIST NFT'),
+                                      ),
+                                      OutlinedButton.icon(
+                                        onPressed: nft.isListed
+                                            ? null
+                                            : () {
+                                                Navigator.of(context).pop();
+                                                widget.onSend(nft);
+                                              },
+                                        icon: const Icon(Icons.north_east,
+                                            size: 16),
+                                        label: const Text('SEND NFT'),
                                       ),
                                     ],
                                   ),

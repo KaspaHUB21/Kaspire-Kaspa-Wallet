@@ -14,6 +14,22 @@ class KaspireWordmark extends StatelessWidget {
           label: 'Kaspire',
           image: true,
           child: switch (theme) {
+            KaspireTheme.neptune => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _image(const Color(0xFF9CF8F0)),
+                  const Text('Flow Beyond Limits',
+                      style: TextStyle(
+                          fontFamily: 'NeptuneScript',
+                          fontSize: 21,
+                          height: 1.1,
+                          color: Color(0xFFD7F3EC),
+                          shadows: [
+                            Shadow(color: Color(0xFF001820), blurRadius: 4)
+                          ])),
+                ],
+              ),
             KaspireTheme.hub21 => Stack(
                 alignment: Alignment.centerLeft,
                 children: [

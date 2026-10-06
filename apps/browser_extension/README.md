@@ -64,3 +64,38 @@ npm run package
 ```
 
 Load `dist/` at `chrome://extensions` → Developer mode → Load unpacked.
+
+## Neptune and NFT Market test build
+
+Neptune reuses Android's local ocean, water-glass and moon-orb artwork, including
+the corrected logo placement. Select it in Settings → Wallet display.
+
+K-Agora now offers dot.k Market and NFT Market separately. NFT Market uses the
+same KRC721 commit/reveal listing and seller PSKT profile as Android, with Browse,
+My NFTs and My listings, 10-item pagination, collection/trait filters and price
+sorting. Send and List remain separate NFT actions. Public recovery records are
+saved before broadcast; incomplete listings and ambiguous broadcasts can resume.
+Completed listings publish automatically, with bounded retry on indexer lag.
+
+NFT inventories, images and rarity metadata prefer the read-only Kaspire gateway.
+Only source unavailability invokes the official inventory fallback; healthy empty
+results remain authoritative. Ownership/listing/spendability checks for transactions
+use the official KaspaCom indexer and accepted node data, never display metadata.
+
+The native PSKT profile checks the 2.1% fee and the hub21.kas address pinned per
+listing. A seller's SINGLE|ANYONECANPAY signature binds the seller payout but
+cannot make the fee unavoidable for an external PSKT consumer. The approval
+screen discloses this limitation. No operator escrow or server-held keys are used.
+
+The 0.5.7.1 test revision restores collection thumbnails from held NFT IDs,
+places Send and List below each gallery image, and hides recovery/publication
+controls on sold or cancelled listings. Remote app listings without a local
+extension recovery stage are not considered incomplete. Genuine pending local
+transactions retain their recovery flow. Neptune uses an intrinsic 420px root
+width to avoid viewport-dependent browser-action autosizing feedback.
+
+Additional checks: `npm test`, `node tests/neptune-nft-browser.mjs` and
+`node tests/neptune-popup-browser.mjs` after build. The popup check opens the
+actual Chromium browser action repeatedly, including persisted Neptune settings.
+Browser fixtures and synthetic WASM settlement tests do not broadcast transactions;
+real-wallet acceptance testing is still required before a public release.

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'kns_holdings_loader.dart';
 import 'dotk_service.dart';
 import 'kasparocket_service.dart';
+import 'krc721_reads.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -30,6 +31,7 @@ class KaspaApi {
     this.knsIndexerBaseUrl = 'https://api.knsdomains.org/mainnet',
     this.krc721IndexerBaseUrl =
         'https://krc721-indexer.kaspa.com/api/v1/krc721/mainnet',
+    this.krc721ReadBaseUrl = 'https://kaspire.kaslab.space/krc721-read-v1',
     this.krc721CacheBaseUrl =
         'https://krc721-cache.kaspa.com/krc721/mainnet/optimized',
     this.kaspaComBaseUrl = 'https://api.kaspa.com',
@@ -50,6 +52,11 @@ class KaspaApi {
   final String kccKrc20BaseUrl;
   final String knsIndexerBaseUrl;
   final String krc721IndexerBaseUrl;
+  final String krc721ReadBaseUrl;
+  Krc721Reads get nftReads => Krc721Reads(_client,
+      localBase: krc721ReadBaseUrl,
+      officialBase: krc721IndexerBaseUrl,
+      metadataBase: nftMetadataBaseUrl);
   final String krc721CacheBaseUrl;
   final String kaspaComBaseUrl;
   final String nftMetadataBaseUrl;
@@ -543,7 +550,10 @@ class KaspaApi {
           'krc721_tokens',
           _loadKrc721WalletHoldings(address)
               .timeout(const Duration(seconds: 12))
-              .catchError((_) => <Map<String, Object?>>[])),
+              .then((rows) {
+            progress['krc721_read_succeeded'] = true;
+            return rows;
+          }).catchError((_) => <Map<String, Object?>>[])),
       transactionList.catchError((_) => <Map<String, Object?>>[]),
     ]);
     return {
@@ -552,6 +562,7 @@ class KaspaApi {
         'tokens': results[0],
         'domains': results[1],
         'krc721_tokens': results[2],
+        'krc721_read_succeeded': progress['krc721_read_succeeded'] == true,
         'transactions': results[3],
       },
       'source_mode': 'DIRECT_REDUNDANT',
@@ -592,7 +603,8 @@ class KaspaApi {
     );
     final krc721 = _mergeRows(
       [
-        rows(explorerData, 'krc721_tokens'),
+        if (directData['krc721_read_succeeded'] != true)
+          rows(explorerData, 'krc721_tokens'),
         rows(directData, 'krc721_tokens'),
       ],
       (item) => (item['token_id'] ?? item['symbol'] ?? item['ticker'] ?? '')
@@ -739,15 +751,8 @@ class KaspaApi {
     final grouped = <String, List<String>>{};
     String? cursor;
     for (var page = 0; page < 100; page++) {
-      final raw = _map(await _externalGet(
-        krc721IndexerBaseUrl,
-        '/address/${Uri.encodeComponent(address)}',
-        query: {
-          'limit': '500',
-          'direction': 'forward',
-          if (cursor != null) 'offset': cursor,
-        },
-      ));
+      final raw =
+          await nftReads.walletPage(address, cursor: cursor, limit: 500);
       final items = _externalItems(raw);
       for (final item in items) {
         final symbol = (item['tick'] ?? item['ticker'] ?? item['symbol'] ?? '')
@@ -770,9 +775,7 @@ class KaspaApi {
               'decimals': 0,
               'image_url': entry.value.isEmpty
                   ? null
-                  : '$krc721CacheBaseUrl/'
-                      '${entry.key.toLowerCase()}/'
-                      '${Uri.encodeComponent(entry.value.first)}',
+                  : Krc721Reads.image(entry.key, entry.value.first),
             })
         .toList();
   }
@@ -1738,74 +1741,7 @@ class KaspaApi {
     String ticker, {
     int offset = 0,
   }) async {
-    try {
-      return await _loadNftCollectionFromIndexer(
-        address,
-        ticker,
-        offset: offset,
-      );
-    } catch (_) {
-      return _loadNftCollectionFromKaspaToken(
-        address,
-        ticker,
-        offset: offset,
-      );
-    }
-  }
-
-  Future<NftCollectionPage> _loadNftCollectionFromKaspaToken(
-    String address,
-    String ticker, {
-    int offset = 0,
-  }) async {
-    final response = await _client
-        .get(
-          Uri.parse(
-            '$tokenExplorerBaseUrl/wallet/krc20/${Uri.encodeComponent(address)}/krc721/${Uri.encodeComponent(ticker)}?limit=48&offset=$offset',
-          ),
-        )
-        .timeout(const Duration(seconds: 20));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw KaspaApiException(
-        'KaspaToken NFT route returned ${response.statusCode}',
-      );
-    }
-    final data = _map(_map(jsonDecode(response.body))['data']);
-    final nfts = (data['nfts'] as List? ?? const [])
-        .whereType<Map>()
-        .map((item) {
-          final map = item.cast<String, Object?>();
-          return WalletNft(
-            ticker: (map['ticker'] ?? ticker).toString().toUpperCase(),
-            tokenId: (map['token_id'] ?? '').toString(),
-            imageUrl: _absoluteImageUrl(map['image_url']?.toString()),
-            rarityRank: _nullableInt(map['rarity_rank']),
-            nexusUrl: map['nexus_url']?.toString(),
-          );
-        })
-        .where((nft) => nft.tokenId.isNotEmpty)
-        .toList();
-    final ranks = await _loadNftRanks(
-      (data['ticker'] ?? ticker).toString(),
-      nfts.map((nft) => nft.tokenId).toList(),
-    );
-    final rankedNfts = nfts
-        .map(
-          (nft) => WalletNft(
-            ticker: nft.ticker,
-            tokenId: nft.tokenId,
-            imageUrl: nft.imageUrl,
-            rarityRank: nft.rarityRank ?? ranks[nft.tokenId],
-            nexusUrl: nft.nexusUrl,
-          ),
-        )
-        .toList();
-    return NftCollectionPage(
-      ticker: (data['ticker'] ?? ticker).toString().toUpperCase(),
-      total: _asInt(data['total']),
-      nfts: rankedNfts,
-      nextOffset: _nullableInt(data['next_offset']),
-    );
+    return _loadNftCollectionFromIndexer(address, ticker, offset: offset);
   }
 
   Future<NftCollectionPage> _loadNftCollectionFromIndexer(
@@ -1815,17 +1751,11 @@ class KaspaApi {
   }) async {
     final normalizedTicker = ticker.toUpperCase();
     final tokenIds = <String>[];
+    final listedTokenIds = <String>{};
     String? cursor;
     for (var page = 0; page < 100; page++) {
-      final raw = _map(await _externalGet(
-        krc721IndexerBaseUrl,
-        '/address/${Uri.encodeComponent(address)}',
-        query: {
-          'limit': '500',
-          'direction': 'forward',
-          if (cursor != null) 'offset': cursor,
-        },
-      ));
+      final raw =
+          await nftReads.walletPage(address, cursor: cursor, limit: 500);
       final items = _externalItems(raw);
       for (final item in items) {
         final itemTicker =
@@ -1838,6 +1768,9 @@ class KaspaApi {
             tokenId != null &&
             tokenId.isNotEmpty) {
           tokenIds.add(tokenId);
+          if (_map(item['status'])['state'] == 'listed') {
+            listedTokenIds.add(tokenId);
+          }
         }
       }
       cursor = _externalCursor(raw);
@@ -1859,8 +1792,8 @@ class KaspaApi {
             (tokenId) => WalletNft(
               ticker: normalizedTicker,
               tokenId: tokenId,
-              imageUrl: '$krc721CacheBaseUrl/${normalizedTicker.toLowerCase()}/'
-                  '${Uri.encodeComponent(tokenId)}',
+              isListed: listedTokenIds.contains(tokenId),
+              imageUrl: Krc721Reads.image(normalizedTicker, tokenId),
               rarityRank: ranks[tokenId],
               nexusUrl: 'https://kaspanftnexus.com/nft/'
                   '${normalizedTicker.toLowerCase()}/'
@@ -1880,27 +1813,9 @@ class KaspaApi {
   ) async {
     if (tokenIds.isEmpty) return const {};
     try {
-      final response = await _client
-          .post(
-            Uri.parse('$nftMetadataBaseUrl/krc721/tokens'),
-            headers: const {'content-type': 'application/json'},
-            body: jsonEncode({
-              'ticker': ticker.toUpperCase(),
-              'limit': tokenIds.length,
-              'offset': 0,
-              'sortField': 'tokenId',
-              'sortDirection': 'asc',
-              'traits': <String, Object?>{},
-              'tokenIds': tokenIds,
-            }),
-          )
-          .timeout(const Duration(seconds: 15));
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        return const {};
-      }
-      final data = _map(jsonDecode(response.body));
+      final items = await nftReads.metadata(ticker, tokenIds);
       return Map.fromEntries(
-        (data['items'] as List? ?? const []).whereType<Map>().map((item) {
+        items.map((item) {
           final id = (item['tokenId'] ?? '').toString();
           final rank = _nullableInt(item['rarityRank']);
           return rank == null || id.isEmpty ? null : MapEntry(id, rank);

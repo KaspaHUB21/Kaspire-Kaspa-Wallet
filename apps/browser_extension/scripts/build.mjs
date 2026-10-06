@@ -25,6 +25,7 @@ if (process.env.KASPIRE_TEST_BUILD === "hub21") {
 await cp("static", "dist", { recursive: true });
 await cp("../mobile_flutter/assets/themes/hub21", "dist/themes/hub21", { recursive: true });
 await cp("../mobile_flutter/assets/themes/glacier", "dist/themes/glacier", { recursive: true });
+await cp("../mobile_flutter/assets/themes/neptune", "dist/themes/neptune", { recursive: true });
 await cp("../mobile_flutter/assets/branding/kaspire_app_icon_v4.png", "dist/kaspire-icon.png");
 await cp("../mobile_flutter/assets/branding/hub21_wordmark.png", "dist/hub21-wordmark.png");
 for (const [entry, outfile] of Object.entries({ "src/background/index.ts": "dist/background.js", "src/content/index.ts": "dist/content.js", "src/inpage/provider.ts": "dist/inpage.js", "src/ui/popup.ts": "dist/popup.js", "src/ui/wallet.ts": "dist/wallet.js", "src/ui/approval.ts":"dist/approval.js", "src/offscreen/session.ts":"dist/session.js" })) {

@@ -247,6 +247,10 @@ pub fn sign_pskt(
             Value::String(hex::encode(signature_script));
     }
     built.tx.finalize();
+    if request.profile.as_deref() == Some("krc721-market-v1") && built.review.funding_deficit_sompi == 0 {
+        crate::kcc20::simulate_all(&built.tx, &built.entries)
+            .map_err(|e|CoreError::Transaction(format!("NFT market local script validation failed: {e}")))?;
+    }
     let submit_json = if built.review.funding_deficit_sompi == 0 {
         crate::transaction::submit_json(&built.tx).ok()
     } else {
@@ -652,6 +656,8 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         warnings
             .push("TESTNET ONLY — KaspaRocket uses version-1 covenant transaction plans.".into());
         warnings.push("Ticker symbols are not unique; verify token and pool covenant IDs.".into());
+    } else if request.profile.as_deref() == Some("krc721-market-v1") {
+        crate::nft_market::validate(request)?;
     } else if request.profile.is_some() {
         return Err(CoreError::InvalidRequest("unsupported PSKT profile".into()));
     }

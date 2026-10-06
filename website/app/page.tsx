@@ -2,7 +2,7 @@ import DagField from "./dag-field";
 import { currentRelease, extensionRelease } from "./release";
 
 const downloadUrl =
-  `https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/v${currentRelease.version}/Kaspire-Android-mainnet-v${currentRelease.version}.apk`;
+  "https://kaspire.kaslab.space/downloads/Kaspire-Android-mainnet-latest.apk";
 const extensionStoreUrl =
   "https://chromewebstore.google.com/detail/kaspire-wallet/ldjonnkfjmcingabncepnibledcanmoe";
 
@@ -52,14 +52,20 @@ const highlights = [
   {
     number: "08",
     title: "Your wallet. Your style.",
-    copy: "Choose the HUB21 gold-and-silver theme with brushed-metal panels and clear, readable controls. Find tokens and names in alphabetically sorted asset lists. Available in the latest Android app and extension ZIP; Chrome Web Store versions depend on approval.",
-    tags: ["HUB21 theme", "Readable panels", "A–Z assets"],
+    copy: "Choose Neptune's turquoise ocean and water-glass panels, Glacier's aurora crystal glass, or HUB21's brushed gold and silver. Keep controls readable and find tokens and names in alphabetically sorted asset lists. Available in Android and the browser extension.",
+    tags: ["Neptune", "Glacier", "HUB21", "A–Z assets"],
   },
   {
     number: "09",
     title: "Pay a name. Verify its owner.",
     copy: "Find your dot.k covenant names alongside your other assets. Enter a .k name to send KAS or assets on Layer 1: Kaspire derives its deed in Rust and checks live ownership through the node before selecting the payment address. Android and the browser extension include K-Agora: list, buy and cancel dot.k name sales through native sale covenants, with a 10 KAS minimum price and a 2.1% marketplace fee. Network fees are separate.",
     tags: ["dot.k names", "Rust verification", "Layer 1 payments"],
+  },
+  {
+    number: "10",
+    title: "NFTs meet K-Agora.",
+    copy: "Choose NFT Market or dot.k Market inside K-Agora. List, buy and cancel KRC721 NFT offers through decentralized seller-signed PSKTs, without operator escrow. Search collections, filter traits and sort prices with ten offers per page. Images and available rarity ranks come from Kaspire's read-only NFT gateway; transaction checks continue through the official indexer. Kaspire settlements include a 2.1% marketplace fee; network fees are separate.",
+    tags: ["NFT Market", "PSKT listings", "Collection filters", "Rarity ranks"],
   },
 ];
 
@@ -640,13 +646,13 @@ export default function Home() {
               <p>
                 Kaspire Wallet is live in the Chrome Web Store. Chrome installs
                 approved updates automatically through the official listing.
-                Version {extensionRelease.version} is available below as a ZIP;
-                availability of this version in the Store is not yet confirmed.
+                Neptune and NFT Market are now available in the Store. Version
+                {" "}{extensionRelease.version} is also available below as a ZIP.
               </p>
               <p>
                 <a href={`https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/${extensionRelease.releaseTag}/kaspire-extension-${extensionRelease.version}.zip`}>
                   Download extension {extensionRelease.version} ZIP
-                </a>. The latest ZIP may be newer than the version approved in the Chrome Web Store.
+                </a>.
               </p>
             </div>
           </div>

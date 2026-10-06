@@ -4,10 +4,12 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../services/app_settings.dart';
+import 'neptune_material.dart';
 
 bool get _isGlacier => AppSettings.theme.value == KaspireTheme.glacier;
+bool get _isNeptune => AppSettings.theme.value == KaspireTheme.neptune;
 bool get _isDecorative =>
-    AppSettings.theme.value == KaspireTheme.hub21 || _isGlacier;
+    AppSettings.theme.value == KaspireTheme.hub21 || _isGlacier || _isNeptune;
 
 /// Opaque reading surface for text that normally sits directly on the plain
 /// background. Other themes keep their original layout and spacing.
@@ -28,11 +30,17 @@ class Hub21Readable extends StatelessWidget {
     return Container(
         padding: padding,
         decoration: BoxDecoration(
-            color: glacier ? const Color(0xEAF5FBFD) : const Color(0xFF141611),
+            color: _isNeptune
+                ? const Color(0xF0072E3B)
+                : glacier
+                    ? const Color(0xEAF5FBFD)
+                    : const Color(0xFF141611),
             border: Border.all(
-                color: glacier
-                    ? const Color(0xCC79AEBB)
-                    : const Color(0xFF756647)),
+                color: _isNeptune
+                    ? const Color(0xFF9DB5A3)
+                    : glacier
+                        ? const Color(0xCC79AEBB)
+                        : const Color(0xFF756647)),
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
@@ -61,9 +69,11 @@ class Hub21Backdrop extends StatelessWidget {
         child: ExcludeSemantics(
           child: RepaintBoundary(
             child: Image.asset(
-                glacier
-                    ? 'assets/themes/glacier/aurora-glacier.png'
-                    : 'assets/themes/hub21/relief.png',
+                _isNeptune
+                    ? 'assets/themes/neptune/ocean.png'
+                    : glacier
+                        ? 'assets/themes/glacier/aurora-glacier.png'
+                        : 'assets/themes/hub21/relief.png',
                 fit: BoxFit.cover,
                 alignment: Alignment.topCenter,
                 filterQuality: FilterQuality.medium),
@@ -77,17 +87,23 @@ class Hub21Backdrop extends StatelessWidget {
                 gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: glacier
+              colors: _isNeptune
                   ? const [
-                      Color(0x14FFFFFF),
-                      Color(0x24DFF7FA),
-                      Color(0x66D2E7EF)
+                      Color(0x00000000),
+                      Color(0x08001923),
+                      Color(0x30001923)
                     ]
-                  : const [
-                      Color(0x14000000),
-                      Color(0x33000000),
-                      Color(0x99000000)
-                    ],
+                  : glacier
+                      ? const [
+                          Color(0x14FFFFFF),
+                          Color(0x24DFF7FA),
+                          Color(0x66D2E7EF)
+                        ]
+                      : const [
+                          Color(0x14000000),
+                          Color(0x33000000),
+                          Color(0x99000000)
+                        ],
               stops: const [0, .65, 1],
             )),
           ),
@@ -411,10 +427,13 @@ Decoration kaspireDecorativeDecoration({
   double rim = 4,
   bool shadow = true,
 }) =>
-    _isGlacier
-        ? GlacierGlassDecoration(radius: radius, strong: gold, shadow: shadow)
-        : Hub21MetalDecoration(
-            radius: radius, gold: gold, rim: rim, shadow: shadow);
+    _isNeptune
+        ? NeptuneWaterDecoration(radius: radius)
+        : _isGlacier
+            ? GlacierGlassDecoration(
+                radius: radius, strong: gold, shadow: shadow)
+            : Hub21MetalDecoration(
+                radius: radius, gold: gold, rim: rim, shadow: shadow);
 
 class Hub21Panel extends StatelessWidget {
   const Hub21Panel(
@@ -455,15 +474,19 @@ class Hub21Panel extends StatelessWidget {
 
 /// Used by Material cards and dialogs, including settings and send reviews.
 class Hub21CardShape extends RoundedRectangleBorder {
-  const Hub21CardShape({this.glacier = false})
+  const Hub21CardShape({this.glacier = false, this.neptune = false})
       : super(borderRadius: const BorderRadius.all(Radius.circular(18)));
   final bool glacier;
+  final bool neptune;
   @override
   bool get preferPaintInterior => true;
   @override
   void paintInterior(Canvas canvas, Rect rect, Paint paint,
       {TextDirection? textDirection}) {
-    if (glacier) {
+    if (neptune) {
+      NeptuneWaterPainter(18)
+          .paint(canvas, rect.topLeft, ImageConfiguration(size: rect.size));
+    } else if (glacier) {
       _GlacierGlassPainter(const GlacierGlassDecoration(radius: 18))
           .paint(canvas, rect.topLeft, ImageConfiguration(size: rect.size));
     } else {
@@ -505,8 +528,11 @@ class Hub21Action extends StatelessWidget {
               Icon(
                 icon,
                 size: 29,
-                color:
-                    glacier ? const Color(0xFF087F86) : const Color(0xFFFFE5A4),
+                color: _isNeptune
+                    ? const Color(0xFF8EEDEB)
+                    : glacier
+                        ? const Color(0xFF087F86)
+                        : const Color(0xFFFFE5A4),
                 shadows: [
                   Shadow(
                     color: glacier ? const Color(0x5577DDE0) : Colors.black,
@@ -558,6 +584,15 @@ class Hub21BalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (_isNeptune) {
+      return NeptuneBalanceCard(
+          walletName: walletName,
+          amount: amount,
+          symbol: symbol,
+          fiat: fiat,
+          hideAmounts: hideAmounts,
+          onTogglePrivacy: onTogglePrivacy);
+    }
     final glacier = _isGlacier;
     final primaryText =
         glacier ? const Color(0xFF173A47) : const Color(0xFFF0EDE4);
@@ -724,6 +759,29 @@ class KaspireNavigationBar extends StatelessWidget {
         onDestinationSelected: onDestinationSelected,
         destinations: destinations);
     if (!_isDecorative) return navigation;
+    if (_isNeptune) {
+      return Hub21Panel(
+          radius: 0,
+          rim: 2,
+          child: SafeArea(
+              top: false,
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                MediaQuery.removePadding(
+                    context: context, removeBottom: true, child: navigation),
+                const ExcludeSemantics(
+                    child: Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: Column(children: [
+                          NeptuneMoonOrnament(),
+                          SizedBox(height: 4),
+                          Text('—  K A S P A   L I V E S  —',
+                              style: TextStyle(
+                                  color: Color(0xFFC4E3DD),
+                                  fontSize: 8,
+                                  letterSpacing: 2)),
+                        ]))),
+              ])));
+    }
     return Hub21Panel(radius: 0, rim: 2, child: navigation);
   }
 }

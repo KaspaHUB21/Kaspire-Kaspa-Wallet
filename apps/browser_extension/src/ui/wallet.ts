@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import {agoraChooser, openNftMarket, nftImageFallback} from "./nftMarket";
 import { sortedAssets, assetTicker, sameAsset } from "../shared/assetPresentation";
 const root = document.querySelector<HTMLElement>("#app")!;
 // This port lets the background distinguish an open wallet UI from a closed
@@ -78,7 +79,7 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}) {
           ),
         );
       }
-    }, name === "resumeInscription" ? 600_000 : 45_000);
+    }, ["resumeInscription", "nftMarketOperation"].includes(name) ? 600_000 : 45_000);
     const close = () => {
       if (!finished) {
         finished = true;
@@ -312,6 +313,9 @@ function shell(content: string, title = "KASPIRE", back = false) {
   root.innerHTML = `<main class="app natural-case"><header class="top">${back ? '<button id="back" class="icon" aria-label="Back">‹</button>' : '<button id="brand-store" class="brand-store" aria-label="Kaspire version and Chrome Web Store"><img src="kaspire-icon.png" alt="Kaspire"><span class="brand-verification" role="tooltip"></span></button>'}<b>${esc(title)}</b>${status && !status.locked ? `<button id="top-lock" class="icon top-lock" aria-label="Lock Kaspire" title="Lock Kaspire">${lockIcon()}</button>` : '<span></span>'}</header>${content}</main>`;
   classicCase(root);
   enhanceForms(root);
+  const balance = root.querySelector(".balance-card");
+  if (balance) balance.insertAdjacentHTML("beforeend", '<span class="neptune-slogan" aria-hidden="true">Deeper<br>Stronger<br>Freer ♡</span><span class="neptune-orb" aria-hidden="true"><img src="themes/neptune/orb.png" alt=""><img class="orb-logo" src="kaspire-icon.png" alt=""></span>');
+  root.querySelector(".dashboard")?.insertAdjacentHTML("beforeend", '<span class="neptune-footer" aria-hidden="true">─ ☽ ☽ ─ ♆ ─ ☾ ☾ ─<small>— KASPA LIVES —</small></span>');
   mountPendingReveal();
   document.querySelector<HTMLButtonElement>("#top-lock")?.addEventListener("click", async () => {
     await command("lock");
@@ -1137,7 +1141,7 @@ function settingsDetail() {
     );
   else if (view === "display")
     shell(
-      `<section class="form-page"><h1>Wallet display</h1><div class="form"><label>Currency<select id="currency">${["USD", "EUR", "GBP", "AUD", "CAD", "JPY", "CNY", "CHF", "INR", "BRL", "KRW"].map((code) => `<option ${status.settings.currency === code ? "selected" : ""}>${code}</option>`).join("")}</select></label><label>Kaspire design<select id="theme">${["midnight", "emerald", "amethyst", "sakura", "crimson", "phoenix", "cypherpunk", "hub21", "glacier"].map((theme) => `<option ${status.settings.theme === theme ? "selected" : ""} value="${theme}">${theme === "hub21" ? "HUB21" : theme === "glacier" ? "Glacier" : theme}</option>`).join("")}</select></label>${toggle("show-subwallets", "Show subwallets", status.settings.showSubwallets)}${toggle("hide", "Privacy: hide wallet amounts", status.settings.hideBalances)}</div></section>`,
+      `<section class="form-page"><h1>Wallet display</h1><div class="form"><label>Currency<select id="currency">${["USD", "EUR", "GBP", "AUD", "CAD", "JPY", "CNY", "CHF", "INR", "BRL", "KRW"].map((code) => `<option ${status.settings.currency === code ? "selected" : ""}>${code}</option>`).join("")}</select></label><label>Kaspire design<select id="theme">${["midnight", "emerald", "amethyst", "sakura", "crimson", "phoenix", "cypherpunk", "hub21", "glacier", "neptune"].map((theme) => `<option ${status.settings.theme === theme ? "selected" : ""} value="${theme}">${theme === "hub21" ? "HUB21" : theme === "glacier" ? "Glacier" : theme === "neptune" ? "Neptune" : theme}</option>`).join("")}</select></label>${toggle("show-subwallets", "Show subwallets", status.settings.showSubwallets)}${toggle("hide", "Privacy: hide wallet amounts", status.settings.hideBalances)}</div></section>`,
       "WALLET DISPLAY",
       true,
     );
@@ -1659,10 +1663,11 @@ function renderAssetGroups(assets: any) {
     ? groups
         .map(
           (group) =>
-            `<details class="asset-group" data-category="${group.key}" ${openGroups.has(group.key) ? "open" : ""}><summary><span class="group-icon">▱</span><span><b>${group.title}</b><small>${group.items.length} asset${group.items.length === 1 ? "" : "s"}</small></span><i>⌄</i></summary><div>${group.key === "kns" ? `<div class="kns-chips">${group.items.map((item: any, index: number) => `<button data-group="${group.key}" data-index="${index}">◎ ${esc(item.symbol)}</button>`).join("")}</div>` : group.items.map((item: any, index: number) => `<button class="asset-row" data-group="${group.key}" data-index="${index}"><span class="asset-icon" id="icon-${group.key}-${index}">${item.raw.image_url ? `<img src="${esc(item.raw.image_url)}" alt="">` : esc(item.symbol.slice(0, 1))}</span><span><b data-preserve-case>${esc(item.symbol)}</b><small>${status.settings.hideBalances ? "••••••" : esc(item.balance)}</small></span><i>›</i></button>`).join("")}</div></details>`,
+            `<details class="asset-group" data-category="${group.key}" ${openGroups.has(group.key) ? "open" : ""}><summary><span class="group-icon">▱</span><span><b>${group.title}</b><small>${group.items.length} asset${group.items.length === 1 ? "" : "s"}</small></span><i>⌄</i></summary><div>${group.key === "kns" ? `<div class="kns-chips">${group.items.map((item: any, index: number) => `<button data-group="${group.key}" data-index="${index}">◎ ${esc(item.symbol)}</button>`).join("")}</div>` : group.items.map((item: any, index: number) => `<button class="asset-row" data-group="${group.key}" data-index="${index}"><span class="asset-icon" id="icon-${group.key}-${index}">${item.raw.image_url ? `<img ${group.key === "krc721" ? "data-nft-image" : ""} src="${esc(item.raw.image_url)}" alt="">` : esc(item.symbol.slice(0, 1))}</span><span><b data-preserve-case>${esc(item.symbol)}</b><small>${status.settings.hideBalances ? "••••••" : esc(item.balance)}</small></span><i>›</i></button>`).join("")}</div></details>`,
         )
         .join("")
     : '<div class="empty">No assets or names found.</div>';
+  nftImageFallback(document.querySelector("#asset-list")!);
   for (const group of groups)
     document
       .querySelectorAll<HTMLButtonElement>(`[data-group="${group.key}"]`)
@@ -1773,7 +1778,7 @@ async function nftGallery(asset: any) {
     `${asset.symbol} NFTs`,
     true,
   );
-  let offset = 0;
+  let offset: string | number = "";
   const load = async (more = false) => {
     try {
       const page = await command("nftCollection", {
@@ -1786,7 +1791,7 @@ async function nftGallery(asset: any) {
       const html = page.nfts
         .map(
           (nft: any, index: number) =>
-            `<button class="nft-card" data-nft='${esc(JSON.stringify(nft))}'><span>${nft.imageUrl ? `<img src="${esc(nft.imageUrl)}" alt="${esc(nft.ticker)} #${esc(nft.tokenId)}">` : "<b>NO IMAGE</b>"}</span><b>#${esc(nft.tokenId)}</b><small>${nft.rarityRank == null ? "RANK —" : `RANK #${nft.rarityRank}`}</small></button>`,
+            `<article class="nft-card" data-nft='${esc(JSON.stringify(nft))}'><button data-open-nft><span>${nft.imageUrl ? `<img data-nft-image src="${esc(nft.imageUrl)}" alt="${esc(nft.ticker)} #${esc(nft.tokenId)}">` : "<b>NO IMAGE</b>"}</span><b>#${esc(nft.tokenId)}</b><small>${nft.rarityRank == null ? "RANK —" : `RANK #${nft.rarityRank}`}</small></button><div class="nft-tile-actions"><button data-send-nft ${nft.status?.state === "listed" ? "disabled" : ""}>Send</button><button data-list-nft>${nft.status?.state === "listed" ? "Listed" : "List"}</button></div></article>`,
         )
         .join("");
       if (more)
@@ -1796,13 +1801,15 @@ async function nftGallery(asset: any) {
       else
         document.querySelector("#nft-grid")!.innerHTML =
           html || '<div class="empty">No NFTs returned.</div>';
-      document
-        .querySelectorAll<HTMLButtonElement>(".nft-card")
-        .forEach(
-          (button) =>
-            (button.onclick = () =>
-              nftPreview(JSON.parse(button.dataset.nft ?? "{}"), asset)),
-        );
+      nftImageFallback(document.querySelector("#nft-grid")!);
+      document.querySelectorAll<HTMLElement>(".nft-card").forEach(card => {
+        const nft = JSON.parse(card.dataset.nft ?? "{}");
+        card.querySelector<HTMLButtonElement>("[data-open-nft]")!.onclick = () => nftPreview(nft,asset);
+        card.querySelector<HTMLButtonElement>("[data-send-nft]")!.onclick = () => send({...asset,tokenId:nft.tokenId,raw:{...asset.raw,tokenId:nft.tokenId}});
+        card.querySelector<HTMLButtonElement>("[data-list-nft]")!.onclick = () => {
+          view="marketplace";context.returnView="home";void openNftMarket(nftHooks(),nft.status?.state==="listed"?undefined:nft,nft.status?.state==="listed"?"listings":"browse");
+        };
+      });
       const loadMore = document.querySelector<HTMLButtonElement>("#load-more")!;
       loadMore.hidden = page.nextOffset == null;
       if (page.nextOffset != null) {
@@ -1819,7 +1826,7 @@ async function nftGallery(asset: any) {
 function legacyNftPreview(nft: any, asset: any) {
   const overlay = document.createElement("div");
   overlay.className = "kaspire-modal";
-  overlay.innerHTML = `<section class="nft-preview">${nft.imageUrl ? `<img src="${esc(nft.imageUrl)}" alt="">` : ""}<h2>${esc(nft.ticker)} #${esc(nft.tokenId)}</h2><p>${nft.rarityRank == null ? "Rarity rank unavailable" : `Rarity rank #${nft.rarityRank}`}</p><div><button id="close-nft" class="outline">CLOSE</button><button id="send-nft">SEND NFT</button></div></section>`;
+  overlay.innerHTML = `<section class="nft-preview">${nft.imageUrl ? `<img data-nft-image src="${esc(nft.imageUrl)}" alt="">` : ""}<h2>${esc(nft.ticker)} #${esc(nft.tokenId)}</h2><p>${nft.rarityRank == null ? "Rarity rank unavailable" : `Rarity rank #${nft.rarityRank}`}</p><div><button id="close-nft" class="outline">CLOSE</button><button id="send-nft">SEND NFT</button></div></section>`;
   document.body.append(overlay);
   overlay.querySelector<HTMLButtonElement>("#close-nft")!.onclick = () =>
     overlay.remove();
@@ -2137,6 +2144,15 @@ function paintMarketplace() {
 }
 async function marketplace() {
   if (status.network === "testnet-10") return rocketMarketplace();
+  if (status.network !== "mainnet") { toast("K-Agora is available on Kaspa Layer 1 only.",true); return; }
+  context.returnView = "home";
+  return agoraChooser(nftHooks());
+}
+function nftHooks() {
+  return {command, shell, address:()=>String(status.selectedAddress), dotk:()=>void dotkMarketplace(),
+    send:(nft:any)=>send({kind:"krc721",symbol:nft.ticker,tokenId:nft.tokenId,raw:{...nft,symbol:nft.ticker}})};
+}
+async function dotkMarketplace() {
   market.tab = "browse"; market.limit = 12; market.query = ""; market.error = ""; market.statuses = {};
   shell('<section class="marketplace-screen"><div class="market-title"><span class="market-emblem">'+agoraIcon()+'</span><div><p class="eyebrow">DOT.K MARKETPLACE</p><h1>K-Agora</h1></div><button id="market-refresh" class="icon" aria-label="Refresh marketplace">↻</button></div><div id="market-content"><div class="loading">Loading marketplace…</div></div></section>', "K-Agora", true);
   document.querySelector<HTMLButtonElement>("#market-refresh")!.onclick = () => { void loadMarketplace(); };
@@ -2538,6 +2554,7 @@ async function command(name: string, values: Record<string, unknown> = {}) {
     "exportSecret",
     "submitEvmTransfer",
     "submitDotkMarket",
+    "nftMarketOperation",
     "submitRocketSwap",
     "prepareRocketSwap",
   ].includes(name);
@@ -2641,8 +2658,14 @@ function addCompound(core: any) {
 function nftPreview(nft: any, asset: any) {
   const overlay = document.createElement("div");
   overlay.className = "kaspire-modal";
-  overlay.innerHTML = `<section class="nft-preview">${nft.imageUrl ? `<img src="${esc(nft.imageUrl)}" alt="">` : ""}<h2>${esc(nft.ticker)} #${esc(nft.tokenId)}</h2><p id="nft-rarity">Loading rarity rank…</p><div><button id="close-nft" class="outline">CLOSE</button><button id="send-nft">SEND NFT</button></div></section>`;
+  overlay.innerHTML = `<section class="nft-preview">${nft.imageUrl ? `<img data-nft-image src="${esc(nft.imageUrl)}" alt="">` : ""}<h2>${esc(nft.ticker)} #${esc(nft.tokenId)}</h2><p id="nft-rarity">Loading rarity rank…</p><div><button id="close-nft" class="outline">CLOSE</button><button id="send-nft">SEND NFT</button></div></section>`;
   document.body.append(overlay);
+  const listButton = document.createElement("button");
+  nftImageFallback(overlay);
+  listButton.textContent = nft.status?.state === "listed" ? "LISTED" : "LIST NFT";
+  overlay.querySelector(".nft-preview > div")!.append(listButton);
+  listButton.onclick = () => { overlay.remove(); view="marketplace"; context.returnView="home"; void openNftMarket(nftHooks(),nft.status?.state==="listed"?undefined:nft,nft.status?.state==="listed"?"listings":"browse"); };
+  if(nft.status?.state === "listed") overlay.querySelector<HTMLButtonElement>("#send-nft")!.disabled=true;
   overlay.querySelector<HTMLButtonElement>("#close-nft")!.onclick = () =>
     overlay.remove();
   overlay.querySelector<HTMLButtonElement>("#send-nft")!.onclick = () => {
