@@ -1,5 +1,5 @@
 use crate::{
-    address_with_prefix, derive_address_range, derive_backup_key, derive_backup_key_v3,
+    address_with_prefix, derive_address_range, derive_backup_key_bytes, derive_backup_key_v3_bytes,
     derive_evm_address, export_evm_private_key, export_private_key, finalize_tangem_commit,
     finalize_tangem_reveal, generate_wallet_with_passphrase, import_private_key,
     import_wallet_with_passphrase, prepare_evm_transaction, prepare_inscription,
@@ -254,7 +254,7 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signPskt(
 }
 use jni::{
     objects::{JByteArray, JClass, JString},
-    sys::jstring,
+    sys::{jint, jstring},
     JNIEnv,
 };
 use serde_json::json;
@@ -569,39 +569,34 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveAddresses(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveBackupKey(
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveBackupKeyBytes(
     mut env: JNIEnv,
     _class: JClass,
-    password: JString,
-    salt_hex: JString,
-) -> jstring {
+    password: JByteArray,
+    salt: JByteArray,
+    version: jint,
+) -> jni::sys::jbyteArray {
     let result = (|| {
-        let password = read(&mut env, &password)?;
-        let salt_hex = read(&mut env, &salt_hex)?;
-        let salt = hex::decode(salt_hex).map_err(|_| "invalid backup salt".to_string())?;
-        derive_backup_key(&password, &salt)
-            .map(|key| hex::encode(key.as_slice()))
-            .map_err(|error| error.to_string())
+        let bytes = Zeroizing::new(env.convert_byte_array(&password)
+            .map_err(|_| "invalid JNI backup password buffer".to_string())?);
+        env.set_byte_array_region(&password, 0, &vec![0i8; bytes.len()])
+            .map_err(|_| "could not clear JNI backup password buffer".to_string())?;
+        let salt = env.convert_byte_array(&salt).map_err(|_| "invalid backup salt".to_string())?;
+        let key = match version {
+            2 => derive_backup_key_bytes(&bytes, &salt),
+            3 => derive_backup_key_v3_bytes(&bytes, &salt),
+            _ => return Err("unsupported backup KDF version".to_string()),
+        }.map_err(|error| error.to_string())?;
+        env.byte_array_from_slice(key.as_slice()).map(|value| value.into_raw())
+            .map_err(|_| "could not return backup key buffer".to_string())
     })();
-    output(&mut env, result.unwrap_or_else(error_json))
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveBackupKeyV3(
-    mut env: JNIEnv,
-    _class: JClass,
-    password: JString,
-    salt_hex: JString,
-) -> jstring {
-    let result = (|| {
-        let password = read(&mut env, &password)?;
-        let salt_hex = read(&mut env, &salt_hex)?;
-        let salt = hex::decode(salt_hex.as_str()).map_err(|_| "invalid backup salt".to_string())?;
-        derive_backup_key_v3(&password, &salt)
-            .map(|key| hex::encode(key.as_slice()))
-            .map_err(|error| error.to_string())
-    })();
-    output(&mut env, result.unwrap_or_else(error_json))
+    match result {
+        Ok(array) => array,
+        Err(error) => {
+            let _ = env.throw_new("java/lang/IllegalStateException", error);
+            std::ptr::null_mut()
+        }
+    }
 }
 
 #[unsafe(no_mangle)]

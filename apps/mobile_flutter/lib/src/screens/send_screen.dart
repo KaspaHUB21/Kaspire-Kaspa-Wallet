@@ -409,7 +409,7 @@ class _KasSendPanelState extends State<_KasSendPanel> {
                 const SizedBox(height: 12),
                 const _SendFact(label: 'Fee', value: 'Live node estimate'),
                 const SizedBox(height: 12),
-                const _SendFact(label: 'Signer', value: 'Rusty Kaspa v2.0.1'),
+                const _SendFact(label: 'Signer', value: 'Rusty Kaspa v2.1.0'),
               ],
             ),
           ),

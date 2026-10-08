@@ -3,6 +3,8 @@ import http from 'node:http';
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {join} from 'node:path';
+import {createSalesFeed} from './nft-market-sales.mjs';
+import {compareNftListings} from './nft-market-sort.mjs';
 const state=process.env.MARKET_STATE_DIR, helper=process.env.MARKET_DESCRIPTOR, feeAddress=process.env.MARKET_FEE_ADDRESS;
 if(!state||!helper||!/^kaspa:[a-z0-9]{40,80}$/.test(feeAddress||''))throw Error('Explicit state, native verifier and fee recipient required');
 const node='https://kaspire.kaslab.space/api/local-node', indexer='https://krc721-indexer.kaspa.com/api/v1/krc721/mainnet';
@@ -22,13 +24,13 @@ async function enrichDisplay(rows) {
       if(response.ok){const data=await response.json();items=data.items||[];fallback=data.ranksAvailable===false;}else fallback=response.status>=500||response.status===404;
     }catch{fallback=true;}
     if(fallback)try{const response=await fetch('https://api.kaspa.com/krc721/tokens',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ticker:tick,tokenIds:ids,limit:ids.length,offset:0,sortField:'tokenId',sortDirection:'asc',traits:{}}),signal:AbortSignal.timeout(5000)});if(response.ok){const remote=(await response.json()).items||[];for(const row of remote){const local=items.find(i=>String(i.tokenId)===String(row.tokenId));if(local){local.rarityRank??=row.rarityRank;}else items.push(row);}}}catch{}
-    for(const r of batch){const row=items.find(i=>String(i.tokenId)===r.tokenId),traits={};
+    for(const r of batch){const row=items.find(i=>String(i.tokenId)===r.tokenId),traits={},traitRarity={};
       for(const entry of row?.attributes||[]){if(entry?.trait_type&&entry.value!=null)traits[String(entry.trait_type).slice(0,80)]=String(entry.value).slice(0,160);}
-      for(const[k,v]of Object.entries(row?.traits||{})){const value=v&&typeof v==='object'?v.value:v;if(k.length<=80&&value!=null)traits[k]=String(value).slice(0,160);}
+      for(const[k,v]of Object.entries(row?.traits||{})){const value=v&&typeof v==='object'?v.value:v;if(k.length<=80&&value!=null){traits[k]=String(value).slice(0,160);if(v&&typeof v==='object'&&typeof v.rarity==='number'&&Number.isFinite(v.rarity)&&v.rarity>=0&&v.rarity<=100)traitRarity[k]=v.rarity;}}
       const rank=row?.rarityRank;
       const value={imageUrl:`https://kaspire.kaslab.space/krc721-read-v1/images/${r.ticker}/${r.tokenId}`,
         rarityRank:Number.isSafeInteger(rank)&&(rank>0||rank===-1)?rank:r.rarityRank??null,
-        traits:Object.keys(traits).length?traits:r.traits||{}};
+        traits:Object.keys(traits).length?traits:r.traits||{},traitRarity};
       Object.assign(r,value);if(displayCache.size>=2048)displayCache.delete(displayCache.keys().next().value);displayCache.set(r.ticker+'/'+r.tokenId,{until:Date.now()+60000,value});
     }
   }
@@ -73,12 +75,21 @@ async function verify(r){
 }
 // Repair display metadata for existing offers without changing signed terms.
 await enrichDisplay(records);
+const salesPage = createSalesFeed({state, get, node, records: () => records});
 http.createServer(async(req,res)=>{
   res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');
   const send=(code,body)=>{res.writeHead(code);res.end(JSON.stringify(body));};
   try{
     const url=new URL(req.url,'http://localhost');
     if(req.method==='GET'&&url.pathname==='/health')return send(200,{status:'internal-test-directory',offers:records.length});
+    if(req.method==='GET'&&url.pathname==='/alert-listings')return send(200,{offers:records.map(r=>({
+      ticker:r.ticker,tokenId:r.tokenId,priceSompi:String(r.priceSompi),rarityRank:r.rarityRank,
+      listingTransactionId:r.listingTransactionId,createdAt:r.createdAt,
+    }))});
+    if(req.method==='GET'&&url.pathname==='/sales'){
+      try{return send(200,await salesPage(Number(url.searchParams.get('offset')||0)));}
+      catch(error){console.error('NFT sales feed:',error.message);return send(503,{error:'Sales verification temporarily unavailable'});}
+    }
     if(req.method==='GET'&&url.pathname==='/offers'){
       const offset=Number(url.searchParams.get('offset')||0);if(!Number.isSafeInteger(offset)||offset<0)throw Error('Invalid page offset');
       const seller=url.searchParams.get('seller'),q=(url.searchParams.get('q')||'').toUpperCase().slice(0,80),collection=url.searchParams.get('collection');
@@ -87,8 +98,12 @@ http.createServer(async(req,res)=>{
       const relevant=records.filter(r=>!seller||r.seller===seller);
       const collections=[...new Set(records.filter(r=>!['sold','cancelled'].includes(cache.get(r.listingTransactionId)?.status)).map(r=>r.ticker))].sort();
       const traitOptions={};for(const r of relevant.filter(r=>r.ticker===collection&&!['sold','cancelled'].includes(cache.get(r.listingTransactionId)?.status))){for(const[k,v]of Object.entries(r.traits)){(traitOptions[k]??=new Set()).add(v);}}
-      let rows=relevant.filter(r=>(!collection||r.ticker===collection)&&`${r.ticker} #${r.tokenId}`.includes(q)&&Object.entries(traits).every(([k,v])=>r.traits[k]===v));
-      rows.sort((a,b)=>seller?(Number(['sold','cancelled'].includes(cache.get(a.listingTransactionId)?.status))-Number(['sold','cancelled'].includes(cache.get(b.listingTransactionId)?.status))||b.createdAt-a.createdAt):url.searchParams.get('sort')==='high'?b.priceSompi-a.priceSompi:a.priceSompi-b.priceSompi);
+      const tokenId=url.searchParams.get('tokenId');
+      if(tokenId&&!/^\d{1,20}$/.test(tokenId))throw Error('Invalid NFT token ID');
+      let rows=relevant.filter(r=>(!collection||r.ticker===collection)&&(!tokenId||r.tokenId===tokenId)&&`${r.ticker} #${r.tokenId}`.includes(q)&&Object.entries(traits).every(([k,v])=>r.traits[k]===v));
+      const sort=url.searchParams.get('sort')||'low';
+      if(sort.startsWith('rank-')){if(!collection)throw Error('Select a collection to sort by rarity rank');await enrichDisplay(rows);}
+      rows.sort((a,b)=>seller?(Number(['sold','cancelled'].includes(cache.get(a.listingTransactionId)?.status))-Number(['sold','cancelled'].includes(cache.get(b.listingTransactionId)?.status))||b.createdAt-a.createdAt):compareNftListings(a,b,sort));
       const page=[];let cursor=offset;
       const scanEnd=Math.min(rows.length,offset+30);
       while(cursor<scanEnd&&page.length<10){const batch=rows.slice(cursor,Math.min(scanEnd,cursor+10-page.length));cursor+=batch.length;await enrichDisplay(batch);const verified=await Promise.all(batch.map(async r=>{try{return {...r,status:await status(r,url.searchParams.get('refresh')==='1')};}catch{return {...r,status:'unavailable'};}}));page.push(...verified.filter(r=>seller||r.status==='active'));}

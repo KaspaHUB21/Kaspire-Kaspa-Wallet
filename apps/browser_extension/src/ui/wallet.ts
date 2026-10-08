@@ -1,5 +1,6 @@
 import QRCode from "qrcode";
 import {agoraChooser, openNftMarket, nftImageFallback} from "./nftMarket";
+import {openNexus,mountNexusBell} from './nexus';
 import { sortedAssets, assetTicker, sameAsset } from "../shared/assetPresentation";
 const root = document.querySelector<HTMLElement>("#app")!;
 // This port lets the background distinguish an open wallet UI from a closed
@@ -317,6 +318,10 @@ function shell(content: string, title = "KASPIRE", back = false) {
   if (balance) balance.insertAdjacentHTML("beforeend", '<span class="neptune-slogan" aria-hidden="true">Deeper<br>Stronger<br>Freer ♡</span><span class="neptune-orb" aria-hidden="true"><img src="themes/neptune/orb.png" alt=""><img class="orb-logo" src="kaspire-icon.png" alt=""></span>');
   root.querySelector(".dashboard")?.insertAdjacentHTML("beforeend", '<span class="neptune-footer" aria-hidden="true">─ ☽ ☽ ─ ♆ ─ ☾ ☾ ─<small>— KASPA LIVES —</small></span>');
   mountPendingReveal();
+  if(status&&!status.locked&&status.network==='mainnet') {
+    const lock=root.querySelector<HTMLButtonElement>('#top-lock');
+    if(lock){const wrapper=document.createElement('span');wrapper.className='nexus-header-actions';lock.replaceWith(wrapper);wrapper.innerHTML='<button id="nexus-bell" class="icon" aria-label="Nexus Offers notifications" title="Nexus Offers notifications"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9 21h6"/></svg><span class="nexus-count"></span></button>';wrapper.append(lock);mountNexusBell(nexusHooks(),root);}
+  }
   document.querySelector<HTMLButtonElement>("#top-lock")?.addEventListener("click", async () => {
     await command("lock");
     view = "home";
@@ -826,7 +831,7 @@ function legacySend(asset: any) {
             ? (snapshot?.assets?.kcc20 ?? [])
             : [];
   shell(
-    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send ${esc(asset.symbol ?? asset.kind.toUpperCase())}`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select">${owned.map((item: any, index: number) => `<option value="${index}" ${item === asset.raw ? "selected" : ""}>${esc(item.symbol ?? item.name)}</option>`).join("")}</select></label>` : ""}<label>Address / KNS / .k name<input id="recipient" list="recipients"></label>${asset.kind === "krc721" ? '<label>Token ID<input id="token-id"></label>' : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div>${recipients()}</section>`,
+    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send ${esc(asset.symbol ?? asset.kind.toUpperCase())}`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select">${owned.map((item: any, index: number) => `<option value="${index}" ${item === asset.raw ? "selected" : ""}>${esc(item.symbol ?? item.name)}</option>`).join("")}</select></label>` : ""}<label>Address / KNS / .k name<input id="recipient" list="recipients"></label>${asset.kind === "krc721" ? '<label>Token ID<input id="token-id"></label>' : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.1.0</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div>${recipients()}</section>`,
     "SEND",
     true,
   );
@@ -1852,7 +1857,7 @@ function send(asset: any) {
             ? (snapshot?.assets?.kcc20 ?? [])
             : []);
   shell(
-    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send <span data-preserve-case>${esc(asset.kind === "kns" ? asset.symbol : ticker(asset.symbol ?? asset.kind))}</span>`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select" data-preserve-case>${owned.map((item: any, index: number) => `<option value="${index}" ${sameAsset(item, asset.raw, asset.kind) ? "selected" : ""}>${esc(asset.kind === "kns" ? item.name : ticker(item.symbol))}${asset.tokenId ? ` #${esc(asset.tokenId)}` : ""}</option>`).join("")}</select></label>` : ""}<label>Address / KNS / .k name<div class="recipient-input"><input id="recipient" autocomplete="off"><button id="choose-recipient" type="button" title="Address book">♙</button></div></label>${asset.kind === "krc721" ? `<label>Token ID<input id="token-id" value="${esc(asset.tokenId ?? asset.raw?.tokenId ?? "")}" readonly></label>` : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max" type="button">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.0.1</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div></section>`,
+    `<section class="send-screen"><p class="eyebrow">SEND</p><h1>${asset.kind === "kas" ? "Send KAS" : `Send <span data-preserve-case>${esc(asset.kind === "kns" ? asset.symbol : ticker(asset.symbol ?? asset.kind))}</span>`}</h1><div class="form">${asset.kind !== "kas" ? `<label>Asset<select id="asset-select" data-preserve-case>${owned.map((item: any, index: number) => `<option value="${index}" ${sameAsset(item, asset.raw, asset.kind) ? "selected" : ""}>${esc(asset.kind === "kns" ? item.name : ticker(item.symbol))}${asset.tokenId ? ` #${esc(asset.tokenId)}` : ""}</option>`).join("")}</select></label>` : ""}<label>Address / KNS / .k name<div class="recipient-input"><input id="recipient" autocomplete="off"><button id="choose-recipient" type="button" title="Address book">♙</button></div></label>${asset.kind === "krc721" ? `<label>Token ID<input id="token-id" value="${esc(asset.tokenId ?? asset.raw?.tokenId ?? "")}" readonly></label>` : ""}${["kas", "krc20", "kcc20"].includes(asset.kind) ? `<label>Amount<div class="amount"><input id="amount" inputmode="decimal" placeholder="0.00"><button id="max" type="button">MAX</button></div></label><small class="available">Available: ${esc(asset.balance ?? (snapshot ? `${fmt(snapshot.balanceKas)} KAS` : "—"))}</small>` : ""}<section class="tx-meta"><span>Network</span><b>${status.network === "mainnet" ? "Kaspa Layer 1" : "Kaspa TN10"}</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.1.0</b></section><button id="review">REVIEW TRANSFER</button><p id="error" class="error"></p></div></section>`,
     "Send",
     true,
   );
@@ -2149,9 +2154,10 @@ async function marketplace() {
   return agoraChooser(nftHooks());
 }
 function nftHooks() {
-  return {command, shell, address:()=>String(status.selectedAddress), dotk:()=>void dotkMarketplace(),
+  return {command, shell, address:()=>String(status.selectedAddress), dotk:()=>void dotkMarketplace(), nexus:()=>void openNexus(nexusHooks()),
     send:(nft:any)=>send({kind:"krc721",symbol:nft.ticker,tokenId:nft.tokenId,raw:{...nft,symbol:nft.ticker}})};
 }
+function nexusHooks(){return {command,shell,address:()=>String(status.selectedAddress),market:(nft?:any,seller?:boolean)=>void openNftMarket(nftHooks(),seller?nft:undefined,seller?'owned':'browse')};}
 async function dotkMarketplace() {
   market.tab = "browse"; market.limit = 12; market.query = ""; market.error = ""; market.statuses = {};
   shell('<section class="marketplace-screen"><div class="market-title"><span class="market-emblem">'+agoraIcon()+'</span><div><p class="eyebrow">DOT.K MARKETPLACE</p><h1>K-Agora</h1></div><button id="market-refresh" class="icon" aria-label="Refresh marketplace">↻</button></div><div id="market-content"><div class="loading">Loading marketplace…</div></div></section>', "K-Agora", true);
@@ -2555,6 +2561,7 @@ async function command(name: string, values: Record<string, unknown> = {}) {
     "submitEvmTransfer",
     "submitDotkMarket",
     "nftMarketOperation",
+    "nexusConnect",
     "submitRocketSwap",
     "prepareRocketSwap",
   ].includes(name);

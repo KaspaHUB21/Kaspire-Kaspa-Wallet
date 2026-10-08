@@ -246,7 +246,7 @@ pub fn prepare_kron_transfer(request: &KronTransferRequest) -> Result<PreparedKr
     let raw = safe_json(&transaction, &all_entries);
     let pskt_request = crate::PsktRequest {
         sender: request.sender.clone(),
-        profile: None,
+        profile: Some("kron-transfer-v1".into()),
         token_id: None,
         lp_covenant_id: None,
         ticker: None,
@@ -446,6 +446,33 @@ fn script_json(script: &kaspa_consensus_core::tx::ScriptPublicKey) -> String {
     let mut bytes = script.version().to_be_bytes().to_vec();
     bytes.extend_from_slice(script.script());
     hex::encode(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn native_kron_send_simulates_with_a_real_template_and_serializes_for_wrpc() {
+        let secret = "private:0000000000000000000000000000000000000000000000000000000000000001";
+        let sender = crate::derive_address(secret).unwrap();
+        let owner = address_owner(&sender).unwrap();
+        let public_template = decode_state(hex::decode(include_str!("../tests/fixtures/kron-transfer-redeem.hex").trim()).unwrap()).unwrap();
+        let redeem = materialize(&public_template, &owner, 1_000);
+        let request = KronTransferRequest {
+            sender: sender.to_string(), recipient: sender.to_string(), covenant_id: "aa".repeat(32),
+            ticker: "SHAY".into(), amount: 500, decimals: 0, fee_rate: 100.0, template_hash: String::new(),
+            cells: vec![KronCell { transaction_id: "bb".repeat(32), index: 0, value_sompi: TOKEN_CELL_VALUE, block_daa_score: 1,
+                script_public_key: hex::encode(pay_to_script_hash_script(&redeem).script()), token_amount: 1_000, redeem_script: hex::encode(&redeem) }],
+            funding_utxos_json: json!([{"address":sender.to_string(),"outpoint":{"transactionId":"cc".repeat(32),"index":0},"utxoEntry":{"amount":"10000000000","blockDaaScore":"1","isCoinbase":false,"scriptPublicKey":{"version":0,"scriptPublicKey":hex::encode(pay_to_address_script(&sender).script())}}}]).to_string(),
+        };
+        let prepared = prepare_kron_transfer(&request).unwrap();
+        let review = crate::prepare_pskt(&prepared.pskt_request).unwrap();
+        let signed = crate::sign_pskt(secret, &prepared.pskt_request, &review.review_hash).unwrap();
+        let wire: serde_json::Value = serde_json::from_str(signed.wrpc_json.as_ref().unwrap()).unwrap();
+        assert_eq!(wire["id"], signed.transaction_id);
+        assert_eq!(wire["inputs"][0]["computeBudget"], TOKEN_COMPUTE_BUDGET);
+        assert_eq!(wire["outputs"][0]["covenant"]["covenantId"], request.covenant_id);
+    }
 }
 
 fn safe_json(tx: &Transaction, entries: &[UtxoEntry]) -> serde_json::Value {

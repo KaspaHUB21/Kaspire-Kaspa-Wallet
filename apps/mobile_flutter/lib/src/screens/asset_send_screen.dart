@@ -406,7 +406,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
       }
       final expectedTransactionId = signed['transactionId']! as String;
       final transactionId = await _api.broadcastKcc20(
-        (_kronTransfer ? signed['signedTxJson'] : signed['wrpcJson'])!
+        signed['wrpcJson']!
             as String,
         expectedTransactionId: expectedTransactionId,
       );
@@ -720,7 +720,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             SizedBox(height: 12),
             _TransferFact(label: 'Fee', value: 'Live node estimate'),
             SizedBox(height: 12),
-            _TransferFact(label: 'Signer', value: 'Rusty Kaspa v2.0.1'),
+            _TransferFact(label: 'Signer', value: 'Rusty Kaspa v2.1.0'),
           ],
         ),
       );

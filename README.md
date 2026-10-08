@@ -482,6 +482,15 @@ raising the cost of parallel GPU and ASIC guesses.
 Kaspire continues to import `kaspire-backup-v1`, protected by
 PBKDF2-HMAC-SHA256 with 600,000 iterations. New exports use Argon2id.
 
+Android reads backup passwords into mutable character buffers, encodes UTF-8
+without creating a password `String`, and passes a `ByteArray` through JNI.
+JNI clears the Java password array; Rust keeps its copy and the derived key in
+zeroizing buffers. The key returns as a byte array, not a hexadecimal string.
+Kotlin clears its temporary encoding buffers in `finally`. Password input still
+exists in the Android editable UI while the user enters it; this does not claim
+that the entire UI is Rust-only. Existing backup formats and KDF parameters are
+unchanged.
+
 Restore verifies format, KDF and exact parameters, salt length, GCM
 authentication, recovered wallet address, and every stored derivation path.
 Modified backups fail instead of registering unverified metadata. No KDF
@@ -496,7 +505,7 @@ Public addresses and transaction IDs may be copied deliberately.
 ## 19. Pinned native signing code
 
 The ARM64 and ARMv7 signing core is compiled into the APK and pinned to Rusty
-Kaspa `v2.0.1`; `Cargo.lock` fixes Rust dependencies. Signing code cannot be
+Kaspa `v2.1.0`; `Cargo.lock` fixes Rust dependencies. Signing code cannot be
 replaced by a web or over-the-air script update.
 
 The F-Droid recipe deletes committed native artifacts and recompiles

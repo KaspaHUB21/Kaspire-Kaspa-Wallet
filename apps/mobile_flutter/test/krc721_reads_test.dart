@@ -53,16 +53,18 @@ void main() {
             .walletPage(owner))['result'],
         isEmpty);
   });
-  test('reachable rejection or malformed success is not an outage', () async {
+  test('broken local responses use emergency fallback', () async {
     for (final code in [403, 404, 200]) {
       var calls = 0;
-      final client = MockClient((_) async {
+      final client = MockClient((r) async {
         calls++;
-        return http.Response('{}', code);
+        return local(r)
+            ? http.Response('{}', code)
+            : http.Response('{"result":[{"tick":"TEST","tokenId":"1"}]}', 200);
       });
-      await expectLater(
-          Krc721Reads(client).walletPage(owner), throwsA(anything));
-      expect(calls, 1);
+      expect((await Krc721Reads(client).walletPage(owner))['result'],
+          hasLength(1));
+      expect(calls, 2);
     }
   });
   test('local ranks and unknown ranks do not trigger provider calls', () async {

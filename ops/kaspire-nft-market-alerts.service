@@ -1,0 +1,33 @@
+[Unit]
+Description=Kaspire NFT marketplace Telegram alerts
+After=network-online.target kaspire-nft-market-test.service kaspire-nft-read.service
+Requires=kaspire-nft-market-test.service kaspire-nft-read.service
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=kaspire-nft-market-alerts
+EnvironmentFile=/etc/kaspire-nft-market-alerts.env
+Environment=ALERT_STATE_FILE=/var/lib/kaspire-nft-market-alerts/sent.json
+Environment=MARKET_LISTINGS_URL=http://127.0.0.1:8149/alert-listings
+Environment=MARKET_SALES_URL=http://127.0.0.1:8149/sales
+Environment=NFT_IMAGE_BASE=http://127.0.0.1:8150/images
+Environment=ALERT_INTERVAL_MS=30000
+ExecStart=/opt/node-v22.23.1/bin/node /opt/kaspire-nft-market-alerts/worker.mjs
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=128M
+TasksMax=24
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

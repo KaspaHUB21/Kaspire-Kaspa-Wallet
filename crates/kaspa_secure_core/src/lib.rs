@@ -79,7 +79,7 @@ pub use transaction::{
     SignedTransaction,
 };
 
-pub const REQUIRED_RUSTY_KASPA_RELEASE: &str = "v2.0.1";
+pub const REQUIRED_RUSTY_KASPA_RELEASE: &str = "v2.1.0";
 
 /// Read-only descriptor used by the test marketplace directory. No signing API.
 pub fn describe_dotk_market_json(raw: &str) -> Result<String> {
@@ -242,6 +242,10 @@ pub fn generate_wallet_with_word_count(
 }
 
 pub fn derive_backup_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; 32]>> {
+    derive_backup_key_bytes(password.as_bytes(), salt)
+}
+
+pub fn derive_backup_key_bytes(password: &[u8], salt: &[u8]) -> Result<Zeroizing<[u8; 32]>> {
     derive_backup_key_with_params(
         password,
         salt,
@@ -252,6 +256,10 @@ pub fn derive_backup_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; 3
 }
 
 pub fn derive_backup_key_v3(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; 32]>> {
+    derive_backup_key_v3_bytes(password.as_bytes(), salt)
+}
+
+pub fn derive_backup_key_v3_bytes(password: &[u8], salt: &[u8]) -> Result<Zeroizing<[u8; 32]>> {
     derive_backup_key_with_params(
         password,
         salt,
@@ -262,7 +270,7 @@ pub fn derive_backup_key_v3(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8
 }
 
 fn derive_backup_key_with_params(
-    password: &str,
+    password: &[u8],
     salt: &[u8],
     memory_kib: u32,
     iterations: u32,
@@ -278,7 +286,7 @@ fn derive_backup_key_with_params(
     let argon = Argon2::new(Algorithm::Argon2id, ArgonVersion::V0x13, params);
     let mut key = Zeroizing::new([0u8; 32]);
     argon
-        .hash_password_into(password.as_bytes(), salt, key.as_mut())
+        .hash_password_into(password, salt, key.as_mut())
         .map_err(|_| CoreError::Derivation)?;
     Ok(key)
 }
@@ -497,6 +505,33 @@ mod tests {
     use super::*;
 
     const VECTOR: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    #[test]
+    fn reported_rusty_kaspa_release_matches_pinned_dependencies() {
+        let manifest = include_str!("../Cargo.toml");
+        assert_eq!(REQUIRED_RUSTY_KASPA_RELEASE, "v2.1.0");
+        for line in manifest.lines().filter(|line| line.contains("git = \"https://github.com/kaspanet/rusty-kaspa\"")) {
+            assert!(line.contains(&format!("tag = \"{REQUIRED_RUSTY_KASPA_RELEASE}\"")));
+        }
+    }
+
+    #[test]
+    fn byte_backup_passwords_preserve_v2_v3_unicode_keys() {
+        let salt = [7u8; 32];
+        // Frozen outputs from the previous WASM core, before the byte-API change.
+        for (password, v2, v3) in [
+            ("correct horse battery staple", "b5af6a4b543949d5eef52b724c0d80448d1a29b83e5e3de3059296a0d8322f80", "0678d548f1a7c3c0d88652f20dcb8ad6fe179a597c0d8480a9a0e78c8d56c15f"),
+            ("übergrößé🔐密码123", "f6697862ea7488c8b956fc7413db7957d12214ba5ebc84a0d1138b8e24ddc75c", "e03304419eb66279a79fff1e2993b5da58cf909b86753ebfe7def43e65acb132"),
+            ("e\u{301}clair password", "e907cca398f6449c0a62de139870d32e4aa6a2b2d0c07a9fcb0fdb164b10d29b", "0aefd97143b8ae8c45ef951119197946f9acafa1e4546e82fa39b2447c362731"),
+        ] {
+            assert_eq!(*derive_backup_key(password, &salt).unwrap(), *derive_backup_key_bytes(password.as_bytes(), &salt).unwrap());
+            assert_eq!(*derive_backup_key_v3(password, &salt).unwrap(), *derive_backup_key_v3_bytes(password.as_bytes(), &salt).unwrap());
+            assert_eq!(hex::encode(derive_backup_key_bytes(password.as_bytes(), &salt).unwrap().as_slice()), v2);
+            assert_eq!(hex::encode(derive_backup_key_v3_bytes(password.as_bytes(), &salt).unwrap().as_slice()), v3);
+        }
+        assert!(derive_backup_key_bytes(b"short", &salt).is_err());
+        assert!(derive_backup_key_v3_bytes(b"long enough password", &[0u8; 16]).is_err());
+    }
 
     #[test]
     fn argon2_backup_key_is_deterministic_and_password_bound() {

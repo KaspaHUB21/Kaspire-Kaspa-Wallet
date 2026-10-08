@@ -32,7 +32,7 @@ async function save(record: RecordData) {
   await chrome.storage.local.set({[key(record.seller)]: [...rows.filter(row => row.localId !== record.localId), record]});
 }
 export async function nftBrowse(params: RecordData = {}) {
-  const query = new URLSearchParams({q:String(params.q ?? ""),offset:String(params.offset ?? 0),sort:params.high ? "high" : "low"});
+  const query = new URLSearchParams({q:String(params.q ?? ""),offset:String(params.offset ?? 0),sort:String(params.sort ?? (params.high ? "high" : "low"))});
   if (params.collection) query.set("collection",String(params.collection));
   if (params.traits && Object.keys(params.traits).length) query.set("traits",JSON.stringify(params.traits));
   if (params.seller) query.set("seller",String(params.seller));
@@ -55,12 +55,23 @@ export async function nftOwnedCollections(address: string) {
 export async function nftOwned(address:string, cursor="", collection="") {
   const seen = new Set<string>(); let rows:any[] = [], next=cursor;
   do {
-    const page = await nftWalletPage(address,next,"",10);
-    rows = page.result.filter((row:any)=>!collection || String(row.tick).toUpperCase()===collection);
+    const page = await nftWalletPage(address,next,collection,10-rows.length);
+    rows.push(...page.result.filter((row:any)=>!collection || String(row.tick).toUpperCase()===collection));
     next = String(page.next ?? "");
     if (next && seen.has(next)) throw new Error("NFT indexer repeated a page. Please reload.");
     seen.add(next);
-  } while (collection && !rows.length && next);
+  } while (rows.length<10 && next);
+  if(next) {
+    let probe=next;
+    while(probe) {
+      const page=await nftWalletPage(address,probe,collection,1);
+      if(page.result.some((row:any)=>!collection||String(row.tick).toUpperCase()===collection))break;
+      probe=String(page.next??'');
+      if(probe&&seen.has(probe))throw new Error('NFT indexer repeated a page. Please reload.');
+      seen.add(probe);
+    }
+    if(!probe)next='';
+  }
   rows = rows.map((row:any)=>({...row,ticker:String(row.tick).toUpperCase(),tokenId:String(row.tokenId)}));
   await Promise.all([...new Set<string>(rows.map(row=>row.ticker))].map(async tick=>{
     let metadata:any[] = [];

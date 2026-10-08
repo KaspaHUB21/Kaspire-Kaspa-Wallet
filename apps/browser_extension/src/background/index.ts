@@ -1,6 +1,7 @@
 import { loadState, saveState } from "./state";
 import { core } from "./core";
 import {nftBrowse, nftOwned, nftOwnedCollections, nftMyListings, nftOperation, nftPublishPending} from "./nftMarket";
+import {nexusConnected,nexusDisconnect,nexusRequest,nexusSetSession,nexusRestoreSession,validateNexusChallenge} from "./nexus";
 import {configureDotkDeriver, resolveDotkName} from "./dotk";
 import {
   marketNames,
@@ -320,7 +321,7 @@ async function walletCommand(
   await hydrateSession();
   const state = await loadState();
   await expireSessionIfNeeded(state);
-  if (sessionVault) await touchSession();
+  if (sessionVault && message.command !== 'nexusPoll') await touchSession();
   if (message.command === "storeUpdateStatus") {
     return new Promise<{
       installedVersion: string;
@@ -491,6 +492,44 @@ async function walletCommand(
     const fresh = await loadState();
     if (fresh.network !== state.network || fresh.selectedAddress !== state.selectedAddress) throw new Error("Account or network changed. Please retry.");
     return result;
+  }
+  if (String(message.command).startsWith('nexus')) {
+    if(state.network!=='mainnet'||!state.selectedAddress||!sessionVault){nexusDisconnect();if(message.command==='nexusPoll')return {connected:false,notifications:[]};throw Error('Unlock a Kaspa mainnet wallet to use Nexus Offers.');}
+    const address=state.selectedAddress,generation=sessionGeneration,revision=nftContextRevision;
+    const context={address,generation,revision};
+    const guard=async()=>{const fresh=await loadState();await expireSessionIfNeeded(fresh);if(!sessionVault||generation!==sessionGeneration||revision!==nftContextRevision||fresh.selectedAddress!==address||fresh.network!=='mainnet'){nexusDisconnect();throw Error('Wallet locked or account/network changed. Unlock and reconnect to Nexus.');}};
+    await guard();await nexusRestoreSession(context);await guard();
+    if(message.command==='nexusConnect'||message.command==='nexusPoll') {
+      if(message.command==='nexusPoll'&&!nexusConnected(context)) {
+        const entry=state.addresses.find(item=>item.address===address);
+        if(!entry||entry.watchOnly)return {connected:false,notifications:[]};
+      }
+      if(!nexusConnected(context)) {
+      const challenge=await nexusRequest(context,'auth/internal-challenge',{}, {walletAddress:address});
+      const text=validateNexusChallenge(address,challenge);
+      // Internal wallet feature, not a dApp connection. Only the exact,
+      // purpose-separated internal challenge can reach this signing path.
+      await guard();
+      const wasm=await core();await guard();
+      const entry=state.addresses.find(item=>item.address===address)!;
+      const wallet=sessionVault!.wallets.find(item=>item.id===entry.walletId);
+      if(entry.watchOnly||!wallet)throw Error('Selected wallet cannot sign a Nexus login message.');
+      const signature=wasm.signPersonalMessage(signingSecret(wallet,entry),address,text);
+      const publicKey=wasm.publicKey(signingSecret(wallet,entry));
+      const result=await nexusRequest(context,'auth/internal-verify',{}, {walletAddress:address,nonce:challenge.nonce,signature,publicKey});
+      await guard();nexusSetSession(context,result);
+      }
+      if(message.command==='nexusConnect')return {connected:true};
+    }
+    if(message.command==='nexusPoll') {
+      if(!nexusConnected(context))return {connected:false,notifications:[]};
+      const notifications=await nexusRequest(context,'dashboard/notifications');await guard();return {connected:true,notifications};
+    }
+    if(message.command==='nexusStatus')return {connected:nexusConnected(context)};
+    if(message.command!=='nexusRequest')throw Error('Unknown Nexus command.');
+    await guard();
+    const result=await nexusRequest(context,String(message.path),message.query as Record<string,string>??{},message.body as Record<string,unknown>|undefined);
+    await guard();return result;
   }
   if (String(message.command).startsWith("nftMarket")) {
     if (state.network !== "mainnet" || !state.selectedAddress) throw new Error("NFT Market is available on Kaspa Layer 1 only.");
@@ -2288,6 +2327,7 @@ async function resolveApproval(id: string, approved: boolean) {
 }
 
 async function lockSession(state: Awaited<ReturnType<typeof loadState>>) {
+  nexusDisconnect();
   sessionGeneration += 1;
   rejectApprovals();
   preparedEvmTransfers.clear();

@@ -2,14 +2,30 @@
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {createRequire} from 'node:module';
 const local='http://127.0.0.1:18801';
 const rankDir=process.env.KRC721_RARITY_DIR;
 if (!rankDir) throw Error('Explicit local rarity directory required');
-const sharp=process.env.KRC721_SHARP_MODULE ? createRequire(import.meta.url)(process.env.KRC721_SHARP_MODULE) : null;
 const headers=process.env.KRC721_API_KEY?{'X-KRC721-Key':process.env.KRC721_API_KEY}:{};
 const tickPattern=/^[A-Za-z0-9]{1,10}$/,idPattern=/^\d{1,20}$/,addressPattern=/^kaspa:[a-z0-9]{40,100}$/;
 const imageCache=new Map(), rankCache=new Map();
+let imageBusy=false,imageCacheBytes=0;const imageWaiters=[];
+async function acquireImage(){
+  if(!imageBusy){imageBusy=true;return;}
+  if(imageWaiters.length>=32)throw Error('Image processing queue full');
+  await new Promise(resolve=>imageWaiters.push(resolve));
+}
+function releaseImage(){const next=imageWaiters.shift();if(next)next();else imageBusy=false;}
+async function boundedImageBody(response){
+  if(Number(response.headers.get('content-length'))>2*1024*1024){await response.body?.cancel();throw Error('Image too large');}
+  const pieces=[];let size=0;
+  for await(const chunk of response.body){size+=chunk.length;if(size>2*1024*1024)throw Error('Image too large');pieces.push(chunk);}
+  return Buffer.concat(pieces,size);
+}
+function cacheImage(key,image){
+  if(image.body.length>16*1024*1024)return;
+  while(imageCache.size>=64||imageCacheBytes+image.body.length>16*1024*1024){const oldest=imageCache.keys().next().value;imageCacheBytes-=imageCache.get(oldest).body.length;imageCache.delete(oldest);}
+  imageCache.set(key,image);imageCacheBytes+=image.body.length;
+}
 let active=0;
 async function fetchLocal(path) { return fetch(local+path,{headers,redirect:'error',signal:AbortSignal.timeout(5000)}); }
 async function localJson(path) {
@@ -29,8 +45,9 @@ async function ranks(tick) {
 http.createServer(async(req,res)=>{
   const send=(status,value)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(value));};
   if(req.method!=='GET')return send(405,{error:'Read-only endpoint'});
-  if(active>=16)return send(503,{error:'Local display source busy'});
-  active++;
+  const imageRequest=req.url.startsWith('/images/');
+  if(!imageRequest&&active>=16)return send(503,{error:'Local display source busy'});
+  if(!imageRequest)active++;
   try {
     if(req.url.length>4096)return send(400,{error:'URL too long'});
     const url=new URL(req.url,'http://localhost');
@@ -65,22 +82,26 @@ http.createServer(async(req,res)=>{
       const tick=parts[1].toUpperCase(),id=parts[2],key=tick+'/'+id;
       let image=imageCache.get(key);
       if(!image) {
-        const response=await fetchLocal('/v1/token-images/'+tick+'/'+id);
-        if(!response.ok) {
-          res.writeHead(302,{'location':'https://krc721-cache.kaspa.com/krc721/mainnet/optimized/'+tick.toLowerCase()+'/'+id,'cache-control':'no-store'});return res.end();
-        }
-        const raw=Buffer.from(await response.arrayBuffer());if(raw.length>32*1024*1024)throw Error('Image too large');
-        image=sharp?{body:await sharp(raw,{limitInputPixels:40000000}).resize(512,512,{fit:'inside',withoutEnlargement:true}).webp({quality:82}).toBuffer(),type:'image/webp'}:{body:raw,type:response.headers.get('content-type')};
-        if(!image.type?.startsWith('image/')||image.type.includes('svg'))throw Error('Unsupported display image');
-        if(imageCache.size>=64)imageCache.delete(imageCache.keys().next().value);imageCache.set(key,image);
+        await acquireImage();
+        try {
+          image=imageCache.get(key);
+          if(!image) {
+            const response=await fetchLocal('/v1/token-images/'+tick+'/'+id+'?size=512');
+            if(!response.ok) {
+              await response.body?.cancel();
+              return send(response.status===404?404:503,{error:'Local image unavailable'});
+            }
+            const raw=await boundedImageBody(response);
+            image={body:raw,type:response.headers.get('content-type')};
+            if(!image.type?.startsWith('image/')||image.type.includes('svg'))throw Error('Unsupported display image');
+            cacheImage(key,image);
+          }
+        } finally {releaseImage();}
       }
       res.writeHead(200,{'content-type':image.type,'cache-control':'public,max-age=300','x-content-type-options':'nosniff'});return res.end(image.body);
     }
     return send(404,{error:'Unknown read route'});
   } catch(error) {
-    // A file transport/decoder failure may use the independent image fallback.
-    const m=/^\/images\/([A-Za-z0-9]{1,10})\/(\d{1,20})$/.exec(req.url);
-    if(m){res.writeHead(302,{'location':'https://krc721-cache.kaspa.com/krc721/mainnet/optimized/'+m[1].toLowerCase()+'/'+m[2],'cache-control':'no-store'});res.end();}
-    else send(error.status||503,{error:'Local display source unavailable'});
-  } finally { active--; }
+    send(error.status||503,{error:'Local display source unavailable'});
+  } finally { if(!imageRequest)active--; }
 }).listen(Number(process.env.PORT||8150),'127.0.0.1');

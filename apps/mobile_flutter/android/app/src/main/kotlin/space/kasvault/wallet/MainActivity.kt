@@ -203,6 +203,9 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
     private var lastSessionAuthenticationAtMs = 0L
+    // Internal non-binding offer authentication only; never authorizes a TX,
+    // arbitrary message, secret export or external provider request.
+    private var internalNexusUnlocked = false
     private val channelName = "space.kasvault/security"
     private val vaultAlias = "kaspire_secret_wrap_v4"
     private val preferencesName = "kaspire_native_v4"
@@ -327,6 +330,10 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(null)
                     }
                     "hasPin" -> result.success(hasPin())
+                    "setInternalNexusUnlocked" -> {
+                        internalNexusUnlocked = call.argument<Boolean>("enabled") == true
+                        result.success(null)
+                    }
                     "authorizeOperation" -> authorizeOperation(
                         call.argument<String>("operation") ?: error("Missing operation"),
                         call.argument<String>("binding") ?: error("Missing operation binding"),
@@ -580,10 +587,15 @@ class MainActivity : FlutterFragmentActivity() {
                             SecureCore.signKcc20Transfer(it, request, reviewHash)
                         }, result)
                     }
-                    "signPersonalMessage" -> {
+                    "signPersonalMessage", "signInternalNexusChallenge" -> {
                         val address = call.argument<String>("address") ?: error("Missing address")
                         val message = call.argument<String>("message") ?: error("Missing message")
-                        requireAuthorization(call, "signPersonalMessage", "$address\u0000$message")
+                        if (call.method == "signInternalNexusChallenge") {
+                            check(internalNexusUnlocked && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) { "Open and unlock Kaspire first" }
+                            check(validInternalNexusBinding("$address\u0000$message")) { "Invalid internal offer authentication" }
+                        } else {
+                            requireAuthorization(call, call.method, "$address\u0000$message")
+                        }
                         resultFromCore(withDecryptedSecret(address) {
                             SecureCore.signPersonalMessage(it, address, message)
                         }, result)
@@ -756,6 +768,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onStop() {
+        internalNexusUnlocked = false
         // Some phones launch the installed Tangem application when its card is
         // presented, even while Kaspire has requested Reader Mode. Do not turn
         // that transient focus loss into UserCancelled: preserve the Tangem
@@ -1751,22 +1764,31 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun argon2BackupKey(password: CharArray, salt: ByteArray, version: Int = 2): ByteArray {
-        val passwordText = String(password)
+        val encoded = java.nio.ByteBuffer.allocate(password.size * 3)
+        var passwordBytes: ByteArray? = null
         return try {
-            val saltHex = salt.joinToString("") { "%02x".format(it.toInt() and 0xff) }
-            val raw = if (version == 3) {
-                SecureCore.deriveBackupKeyV3(passwordText, saltHex)
-            } else {
-                SecureCore.deriveBackupKey(passwordText, saltHex)
-            }
-            if (raw.trimStart().startsWith("{")) parseCore(raw)
-            check(raw.length == 64) { "Argon2id key derivation failed" }
-            ByteArray(32) { index ->
-                raw.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+            val encoder = Charsets.UTF_8.newEncoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPLACE)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPLACE)
+            val result = encoder.encode(java.nio.CharBuffer.wrap(password), encoded, true)
+            if (result.isError) result.throwException()
+            check(!result.isOverflow) { "Backup password encoding failed" }
+            val flushed = encoder.flush(encoded)
+            if (flushed.isError) flushed.throwException()
+            passwordBytes = encoded.array().copyOf(encoded.position())
+            SecureCore.deriveBackupKeyBytes(passwordBytes!!, salt, version).also {
+                check(it.size == 32) { "Argon2id key derivation failed" }
             }
         } finally {
             password.fill('\u0000')
+            encoded.array().fill(0)
+            passwordBytes?.fill(0)
         }
+    }
+
+    private fun backupPasswordChars(field: EditText): CharArray {
+        val text = field.text
+        return CharArray(text.length) { text[it] }
     }
 
     private fun readBackup(uri: android.net.Uri): String {
@@ -1889,11 +1911,14 @@ class MainActivity : FlutterFragmentActivity() {
             dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 try {
-                    val one = first.text.toString()
-                    check(one.length >= 12) { "Use at least 12 characters" }
-                    check(one == second.text.toString()) { "Backup passwords do not match" }
+                    val one = backupPasswordChars(first)
+                    val two = backupPasswordChars(second)
                     val salt = ByteArray(32).also { SecureRandom().nextBytes(it) }
-                    val key = argon2BackupKey(one.toCharArray(), salt, 3)
+                    val key = try {
+                        check(one.size >= 12) { "Use at least 12 characters" }
+                        check(one.contentEquals(two)) { "Backup passwords do not match" }
+                        argon2BackupKey(one, salt, 3)
+                    } finally { one.fill('\u0000'); two.fill('\u0000') }
                     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                     cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"))
                     val secret = decryptedSecretForExplicitUse()
@@ -2107,7 +2132,7 @@ class MainActivity : FlutterFragmentActivity() {
                                 backup.getInt("iterations") == 600000) {
                                 "Unsupported legacy backup KDF"
                             }
-                            backupKey(password.text.toString().toCharArray(), salt)
+                            backupKey(backupPasswordChars(password), salt)
                         }
                         "kaspire-backup-v2" -> {
                             check(backup.optString("kdf") == "argon2id-v19" &&
@@ -2116,7 +2141,7 @@ class MainActivity : FlutterFragmentActivity() {
                                 backup.getInt("parallelism") == 1) {
                                 "Unsupported Argon2id parameters"
                             }
-                            argon2BackupKey(password.text.toString().toCharArray(), salt)
+                            argon2BackupKey(backupPasswordChars(password), salt)
                         }
                         else -> {
                             check(backup.optString("kdf") == "argon2id-v19" &&
@@ -2125,7 +2150,7 @@ class MainActivity : FlutterFragmentActivity() {
                                 backup.getInt("parallelism") == 1) {
                                 "Unsupported Argon2id v3 parameters"
                             }
-                            argon2BackupKey(password.text.toString().toCharArray(), salt, 3)
+                            argon2BackupKey(backupPasswordChars(password), salt, 3)
                         }
                     }
                     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -2885,11 +2910,33 @@ class MainActivity : FlutterFragmentActivity() {
                     ?.text
             }
         "signPersonalMessage" -> "Authorize the KIP-5 address and message shown by Kaspire"
+        "signInternalNexusChallenge" -> if (validInternalNexusBinding(binding))
+            "Unlock private NFT offers and notifications inside Kaspire. No funds are spent or locked." else null
         "exportPrivateKey" -> "Reveal the private key for\n$binding"
         "exportRecoveryPhrase" -> "Reveal this wallet's recovery phrase"
         "exportEncryptedBackup" -> "Export this wallet as an encrypted backup"
         "deleteWallet" -> "Permanently delete this wallet from the device"
         else -> null
+    }
+
+    private fun validInternalNexusBinding(binding: String): Boolean {
+        val separator = binding.indexOf('\u0000')
+        if (separator <= 0) return false
+        val address = binding.substring(0, separator)
+        if (!address.matches(Regex("kaspa:[a-z0-9]{40,80}"))) return false
+        val lines = binding.substring(separator + 1).split('\n')
+        if (lines.size != 11 || lines[0] != "Kaspire Internal NFT Offers" || lines[1] != "" ||
+            lines[2] != "Domain: kaspire.kaslab.space" || lines[3] != "Purpose: internal-private-offers-v1" ||
+            lines[4] != "Wallet: $address" || !lines[5].matches(Regex("Nonce: [A-Za-z0-9_-]{43}")) ||
+            !lines[6].startsWith("Issued at: ") || !lines[7].startsWith("Expires at: ") || lines[8] != "" ||
+            lines[9] != "Authenticate this wallet for private offers and notifications inside Kaspire only." ||
+            lines[10] != "This signature does not create a transaction or spend funds.") return false
+        return runCatching {
+            val issued = java.time.Instant.parse(lines[6].removePrefix("Issued at: "))
+            val expires = java.time.Instant.parse(lines[7].removePrefix("Expires at: "))
+            val lifetime = java.time.Duration.between(issued, expires).toMillis()
+            lifetime in 1L..360_000L
+        }.getOrDefault(false)
     }
 
     private fun issueAuthorization(operation: String, binding: String): String {

@@ -55,6 +55,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   bool _locked = false;
   bool _unlocking = false;
 
+  void _lockWallet() {
+    unawaited(_security.setInternalNexusUnlocked(false));
+    setState(() => _locked = true);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -82,6 +87,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    unawaited(_security.setInternalNexusUnlocked(false));
     WidgetsBinding.instance.removeObserver(this);
     _inactivityTimer?.cancel();
     _dappStateTimer?.cancel();
@@ -173,10 +179,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.hidden) {
+      unawaited(_security.setInternalNexusUnlocked(false));
       _backgroundedAt ??= DateTime.now();
       unawaited(AppSettings.recordBackgroundedAt(_backgroundedAt!));
       if (AppSettings.lockMinutes.value == 0 && mounted) {
-        setState(() => _locked = true);
+        _lockWallet();
       }
       return;
     }
@@ -188,8 +195,9 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
           (minutes == 0 ||
               DateTime.now().difference(since) >= Duration(minutes: minutes)) &&
           mounted) {
-        setState(() => _locked = true);
+        _lockWallet();
       }
+      if (!_locked) unawaited(_security.setInternalNexusUnlocked(true));
     }
   }
 
@@ -208,7 +216,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     if (minutes == 0 || _locked || !mounted) return;
     if (DateTime.now().difference(_lastActivity) >=
         Duration(minutes: minutes)) {
-      setState(() => _locked = true);
+      _lockWallet();
     }
   }
 
@@ -221,6 +229,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       context,
       'Unlock Kaspire',
     );
+    if (authenticated) await _security.setInternalNexusUnlocked(true);
     if (!mounted) return;
     setState(() {
       _unlocking = false;
@@ -2362,20 +2371,24 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       _locked = minutes == 0 ||
           lastActive == null ||
           DateTime.now().difference(lastActive) >= Duration(minutes: minutes);
+      await _security.setInternalNexusUnlocked(!_locked);
       return saved;
     }
     final nativeAddress = await _security.getNativeAddress();
     if (nativeAddress != null) await _preferences.setAddress(nativeAddress);
+    await _security.setInternalNexusUnlocked(nativeAddress != null && !_locked);
     return nativeAddress;
   }
 
   void _openWallet(String address) async {
     await _preferences.setAddress(address);
+    await _security.setInternalNexusUnlocked(!_locked);
     if (!mounted) return;
     setState(() => _address = Future.value(address));
   }
 
   void _reset() async {
+    await _security.setInternalNexusUnlocked(false);
     await _preferences.clearAddress();
     if (mounted) setState(() => _address = Future.value(null));
   }

@@ -11,6 +11,23 @@ bool get _isNeptune => AppSettings.theme.value == KaspireTheme.neptune;
 bool get _isDecorative =>
     AppSettings.theme.value == KaspireTheme.hub21 || _isGlacier || _isNeptune;
 
+class KaspireHeaderIconFrame extends StatelessWidget {
+  const KaspireHeaderIconFrame({super.key, required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) {
+    Theme.of(context);
+    if (!_isDecorative) return child;
+    return Container(
+      width: 40,
+      height: 40,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: kaspireDecorativeDecoration(radius: 14, rim: 2, gold: true),
+      child: child,
+    );
+  }
+}
+
 /// Opaque reading surface for text that normally sits directly on the plain
 /// background. Other themes keep their original layout and spacing.
 class Hub21Readable extends StatelessWidget {

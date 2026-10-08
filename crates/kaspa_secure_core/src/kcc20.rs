@@ -36,6 +36,10 @@ use silverscript_lang::{
 use std::str::FromStr;
 
 const KCC20_SOURCE: &str = include_str!("kcc20.sil");
+// Kascov's legacy KCC1 identifier is not the canonical SilverScript template
+// hash. Both identify the same byte-exact contract (covered by a live-cell
+// regression). Never use either metadata identifier instead of validate_cell.
+const LEGACY_KCC1_IDENTIFIER: &str = "9bf2df2cd4a05b8124082c868e79c52eb4d719362af2e1a75c025cfb50a2844e";
 const KCC20_MAX_INPUTS: usize = 2;
 const KCC20_MAX_OUTPUTS: usize = 2;
 // A two-cell leader executes two Schnorr checks and currently consumes about
@@ -274,7 +278,8 @@ fn build(request: &Kcc20TransferRequest) -> Result<BuiltKcc20> {
         .map_err(|_| CoreError::InvalidRequest("invalid covenant ID".into()))?;
 
     let local_template_hash = kcc20_template_hash()?;
-    if request.template_hash.to_lowercase() != local_template_hash {
+    if request.template_hash.to_lowercase() != local_template_hash
+        && request.template_hash.to_lowercase() != LEGACY_KCC1_IDENTIFIER {
         return Err(CoreError::InvalidRequest(
             "KCC20 template is not the locally audited template".into(),
         ));
@@ -1170,6 +1175,23 @@ mod tests {
             kcc20_template_hash().unwrap(),
             "36205a78ae657a7f1db798f6c52925ca82aca7361df71ef6a8202ce05aa7ec5f"
         );
+    }
+
+    #[test]
+    fn legacy_live_cell_script_matches_local_contract() {
+        let owner: [u8; 32] = hex::decode("e0becf4cb926bb4578e55cfbdd0fb8f484ec50f23cab0157d9c131e5edcc099d").unwrap().try_into().unwrap();
+        let compiled = compile_state(&owner, 1_000_000, false).unwrap();
+        assert_eq!(hex::encode(pay_to_script_hash_script(&compiled.script).script()), "aa2020cbadd52cbbf6124859beb028d5cac22c0f3ce1ef55438f301af1e27e1d9f7787");
+    }
+
+    #[test]
+    fn legacy_identifier_keeps_live_script_validation_and_signing() {
+        let mut request = test_request(500, 1_000, 50_000_000);
+        request.template_hash = LEGACY_KCC1_IDENTIFIER.into();
+        let review = prepare_kcc20_transfer(&request).unwrap();
+        sign_kcc20_transfer("private:0000000000000000000000000000000000000000000000000000000000000001", &request, &review.review_hash).unwrap();
+        request.cells[0].script_public_key = "aa20".to_owned() + &"00".repeat(32) + "87";
+        assert!(prepare_kcc20_transfer(&request).is_err());
     }
 
     #[test]

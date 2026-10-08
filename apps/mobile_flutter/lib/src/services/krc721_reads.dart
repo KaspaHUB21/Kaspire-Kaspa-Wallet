@@ -11,10 +11,11 @@ class Krc721Reads {
         'https://krc721-indexer.kaspa.com/api/v1/krc721/mainnet',
     this.metadataBase = 'https://api.kaspa.com',
     this.timeout = const Duration(seconds: 5),
+    this.officialTimeout = const Duration(seconds: 15),
   });
   final http.Client client;
   final String localBase, officialBase, metadataBase;
-  final Duration timeout;
+  final Duration timeout, officialTimeout;
   static const imageBase = 'https://kaspire.kaslab.space/krc721-read-v1/images';
   static String image(String ticker, String id) =>
       '$imageBase/${Uri.encodeComponent(ticker.toUpperCase())}/${Uri.encodeComponent(id)}';
@@ -36,22 +37,29 @@ class Krc721Reads {
       response = await client
           .get(Uri.parse('$localBase$path').replace(queryParameters: query))
           .timeout(timeout);
-      if (_unavailable(response.statusCode)) response = null;
-    } on TimeoutException {
-      response = null;
-    } on http.ClientException {
+      if (response.statusCode != 200) {
+        response = null;
+      } else {
+        final data = _map(response.body);
+        if (data['result'] is! List ||
+            (data['message'] != null && data['message'] != 'success')) {
+          response = null;
+        }
+      }
+    } catch (_) {
       response = null;
     }
-    // An empty successful result is authoritative. Errors such as 400/403/404
-    // and malformed 200 bodies must not silently select a different indexer.
+    // A valid healthy empty result is authoritative. An unavailable or broken
+    // local response must not prevent the official emergency source loading.
     response ??= await client
         .get(Uri.parse('$officialBase$path').replace(queryParameters: query))
-        .timeout(timeout);
+        .timeout(officialTimeout);
     if (response.statusCode != 200) {
       throw StateError('NFT lookup unavailable (${response.statusCode}).');
     }
     final data = _map(response.body);
-    if (data['result'] is! List) {
+    if (data['result'] is! List ||
+        (data['message'] != null && data['message'] != 'success')) {
       throw const FormatException('Invalid NFT wallet response');
     }
     return data;
@@ -77,11 +85,9 @@ class Krc721Reads {
             .toList();
         useFallback = data['ranksAvailable'] == false;
       } else {
-        return [];
+        useFallback = true;
       }
-    } on TimeoutException {
-      useFallback = true;
-    } on http.ClientException {
+    } catch (_) {
       useFallback = true;
     }
     if (!useFallback) return local;

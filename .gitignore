@@ -26,6 +26,7 @@ artifacts/
 .vscode/
 **/.kotlin/
 website/node_modules/
+**/node_modules/
 website/.next/
 website/dist/
 website/out/

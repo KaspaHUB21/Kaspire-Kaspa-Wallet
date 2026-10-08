@@ -19,8 +19,7 @@ object SecureCore {
     external fun exportEvmPrivateKey(secret: ByteArray): String
     external fun prepareEvmTransaction(requestJson: String): String
     external fun signEvmTransaction(secret: ByteArray, requestJson: String, reviewHash: String): String
-    external fun deriveBackupKey(password: String, saltHex: String): String
-    external fun deriveBackupKeyV3(password: String, saltHex: String): String
+    external fun deriveBackupKeyBytes(password: ByteArray, salt: ByteArray, version: Int): ByteArray
     external fun prepareTransaction(requestJson: String): String
     external fun signTransaction(phrase: ByteArray, requestJson: String, reviewHash: String): String
     external fun prepareWyrmGenesis(requestJson: String): String

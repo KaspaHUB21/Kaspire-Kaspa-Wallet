@@ -48,7 +48,8 @@ class _NftMarketScreenState extends State<NftMarketScreen> {
   String? myCollection;
   int tab = 0, visibleOwned = 10, visibleMine = 10;
   int? nextOffset;
-  bool loading = false, busy = false, high = false;
+  bool loading = false, busy = false;
+  String sort = 'recent';
   bool approvalCancelled = false;
   bool pendingBroadcast = false;
   int generation = 0;
@@ -121,7 +122,7 @@ class _NftMarketScreenState extends State<NftMarketScreen> {
             q: search.text.trim(),
             collection: collection,
             traits: traits,
-            high: high,
+            sort: sort,
             offset: more ? (nextOffset ?? 0) : 0,
             refresh: !more);
         if (!mounted || current != generation) return;
@@ -262,7 +263,12 @@ class _NftMarketScreenState extends State<NftMarketScreen> {
 
   Future<void> _list(Map<String, Object?> nft) async {
     if (busy) return;
-    final controller = TextEditingController();
+    final controller = TextEditingController(
+        text: nft['suggestedPriceSompi'] == null
+            ? ''
+            : nftKas(nft['suggestedPriceSompi'])
+                .replaceAll(' KAS', '')
+                .replaceAll(',', ''));
     final amount = await showDialog<int>(
         context: context,
         builder: (context) => StatefulBuilder(
@@ -323,6 +329,11 @@ class _NftMarketScreenState extends State<NftMarketScreen> {
     final status = (item['status'] ?? 'pending').toString();
     final active = status == 'active';
     final pending = item['stage'] != null && item['stage'] != 'complete';
+    final details =
+        item['traits'] is Map ? nftMap(item['traits']) : <String, Object?>{};
+    final percentages = item['traitRarity'] is Map
+        ? nftMap(item['traitRarity'])
+        : <String, Object?>{};
     return Card(
         child: Padding(
             padding: const EdgeInsets.all(16),
@@ -343,9 +354,30 @@ class _NftMarketScreenState extends State<NftMarketScreen> {
                               ? 'Rarity rank unavailable'
                               : 'Rarity rank #${item['rarityRank']}'),
                           Text(nftKas(item['priceSompi'])),
-                          Text(status[0].toUpperCase() + status.substring(1))
+                          if (tab != 0 || !active)
+                            Text(status[0].toUpperCase() + status.substring(1))
                         ]))
                   ]),
+                  ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      title: const Text('Seller & NFT traits'),
+                      children: [
+                        Align(
+                            alignment: Alignment.centerLeft,
+                            child: SelectableText(
+                                'Seller wallet\n${item['seller'] ?? 'Unavailable'}')),
+                        for (final trait in details.entries)
+                          ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(trait.key),
+                              subtitle: Text('${trait.value}'),
+                              trailing: percentages[trait.key] == null
+                                  ? null
+                                  : Text('${percentages[trait.key]}%')),
+                        if (details.isEmpty)
+                          const Text('No trait data available.')
+                      ]),
                   const SizedBox(height: 12),
                   if (mine) ...[
                     if (pending)
@@ -444,23 +476,36 @@ class _NftMarketScreenState extends State<NftMarketScreen> {
                           setState(() {
                             collection = c == '' ? null : c;
                             traits = {};
+                            if (collection == null &&
+                                sort.startsWith('rank-')) {
+                              sort = 'recent';
+                            }
                           });
                           _load();
                         }),
               const SizedBox(height: 12),
-              DropdownButtonFormField<bool>(
-                  initialValue: high,
+              DropdownButtonFormField<String>(
+                  key: ValueKey('sort-$collection-$sort'),
+                  initialValue: sort,
                   decoration: const InputDecoration(labelText: 'Sort offers'),
-                  items: const [
+                  items: [
+                    const DropdownMenuItem(
+                        value: 'recent', child: Text('Most recent listings')),
                     DropdownMenuItem(
-                        value: false, child: Text('Price: Low to High')),
+                        value: 'low', child: Text('Price: Low to High')),
                     DropdownMenuItem(
-                        value: true, child: Text('Price: High to Low'))
+                        value: 'high', child: Text('Price: High to Low')),
+                    if (collection != null) ...[
+                      const DropdownMenuItem(
+                          value: 'rank-low', child: Text('Rank: Low to High')),
+                      const DropdownMenuItem(
+                          value: 'rank-high', child: Text('Rank: High to Low')),
+                    ]
                   ],
                   onChanged: busy
                       ? null
                       : (v) {
-                          setState(() => high = v ?? false);
+                          setState(() => sort = v ?? 'recent');
                           _load();
                         }),
               if (collection != null && options.isNotEmpty)

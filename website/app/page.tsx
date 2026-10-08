@@ -64,7 +64,7 @@ const highlights = [
   {
     number: "10",
     title: "NFTs meet K-Agora.",
-    copy: "Choose NFT Market or dot.k Market inside K-Agora. List, buy and cancel KRC721 NFT offers through decentralized seller-signed PSKTs, without operator escrow. Search collections, filter traits and sort prices with ten offers per page. Images and available rarity ranks come from Kaspire's read-only NFT gateway; transaction checks continue through the official indexer. Kaspire settlements include a 2.1% marketplace fee; network fees are separate.",
+    copy: "Choose NFT Market, dot.k Market or Nexus Offers inside K-Agora. List, buy and cancel KRC721 NFT listings through decentralized seller-signed PSKTs, without operator escrow. Submit private, non-binding offers, negotiate counter offers and receive wallet notifications without locking funds. Search collections, filter traits and sort by price, recency or collection rarity rank with ten items per page. Images and available rarity ranks come from Kaspire's read-only NFT gateway with an official-indexer emergency fallback; transaction checks continue through the official indexer. Kaspire settlements include a 2.1% marketplace fee; network fees are separate.",
     tags: ["NFT Market", "PSKT listings", "Collection filters", "Rarity ranks"],
   },
 ];

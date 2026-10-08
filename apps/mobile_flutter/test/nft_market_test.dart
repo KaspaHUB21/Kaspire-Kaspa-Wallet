@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -32,6 +33,7 @@ class FakeNftMarket extends NftMarketService {
       String? collection,
       Map<String, String> traits = const {},
       bool high = false,
+      String? sort,
       int offset = 0,
       String? seller,
       bool refresh = false}) async {
@@ -40,6 +42,7 @@ class FakeNftMarket extends NftMarketService {
       'collection': collection,
       'traits': Map.of(traits),
       'high': high,
+      'sort': sort,
       'offset': offset,
       'seller': seller
     });
@@ -78,6 +81,35 @@ class FakeNftMarket extends NftMarketService {
 }
 
 void main() {
+  test('owned collection loads ten per page and hides exhausted cursor',
+      () async {
+    final service = NftMarketService(client: MockClient((request) async {
+      if (request.url.path.contains('/metadata/')) {
+        return http.Response(
+            jsonEncode({'items': [], 'ranksAvailable': true}), 200);
+      }
+      expect(request.url.path.endsWith('/TEST'), isTrue);
+      final offset = int.parse(request.url.queryParameters['offset'] ?? '0');
+      final limit = int.parse(request.url.queryParameters['limit']!);
+      final end = (offset + limit).clamp(0, 21);
+      return http.Response(
+          jsonEncode({
+            'result': List.generate(end - offset,
+                (i) => {'tick': 'TEST', 'tokenId': '${offset + i}'}),
+            'next': end < 21 ? '$end' : null
+          }),
+          200);
+    }));
+    String? cursor;
+    final sizes = <int>[];
+    do {
+      final page =
+          await service.owned('wallet', collection: 'TEST', cursor: cursor);
+      sizes.add((page['items'] as List).length);
+      cursor = page['next'] as String?;
+    } while (cursor != null);
+    expect(sizes, [10, 10, 1]);
+  });
   test('exact KAS price parsing, eight decimals and dust-safe fee', () {
     expect(nftPrice('10'), 1000000000);
     expect(nftPrice('1.00000001'), 100000001);

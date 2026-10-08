@@ -1,0 +1,27 @@
+[Unit]
+Description=Kaspire standalone KAS NFT Nexus test service
+After=network-online.target postgresql.service krc721-private-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kaspire-nexus
+Group=kaspire-nexus
+WorkingDirectory=/srv/kaspire/source/services/nft-nexus
+EnvironmentFile=/etc/kaspire-nexus-test.env
+Environment=NEXUS_NATIVE_PORT=8160
+ExecStart=/srv/kaspire/source/services/nft-nexus/node_modules/.bin/tsx --tsconfig /srv/kaspire/source/services/nft-nexus/tsconfig.json /srv/kaspire/source/scripts/nexus-server.ts
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+InaccessiblePaths=-/srv/kasnftnexus -/etc/kasnftnexus.env
+
+[Install]
+WantedBy=multi-user.target

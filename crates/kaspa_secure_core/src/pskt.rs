@@ -196,6 +196,7 @@ pub struct PreparedPskt {
 #[serde(rename_all = "camelCase")]
 pub struct SignedPskt {
     pub signed_tx_json: String,
+    pub wrpc_json: Option<String>,
     pub submit_json: Option<String>,
     pub transaction_id: String,
     pub signed_input_indexes: Vec<usize>,
@@ -247,9 +248,9 @@ pub fn sign_pskt(
             Value::String(hex::encode(signature_script));
     }
     built.tx.finalize();
-    if request.profile.as_deref() == Some("krc721-market-v1") && built.review.funding_deficit_sompi == 0 {
+    if matches!(request.profile.as_deref(), Some("krc721-market-v1" | "kron-transfer-v1")) && built.review.funding_deficit_sompi == 0 {
         crate::kcc20::simulate_all(&built.tx, &built.entries)
-            .map_err(|e|CoreError::Transaction(format!("NFT market local script validation failed: {e}")))?;
+            .map_err(|e|CoreError::Transaction(format!("Local contract script validation failed: {e}")))?;
     }
     let submit_json = if built.review.funding_deficit_sompi == 0 {
         crate::transaction::submit_json(&built.tx).ok()
@@ -257,6 +258,7 @@ pub fn sign_pskt(
         None // A seller offer is sign-only, not a broadcastable transaction.
     };
     Ok(SignedPskt {
+        wrpc_json: if built.review.funding_deficit_sompi == 0 { Some(crate::kcc20::wrpc_safe_json(&built.tx, &built.entries)?) } else { None },
         signed_tx_json: serde_json::to_string(&built.json).map_err(|_| CoreError::Serialization)?,
         submit_json,
         transaction_id: built.tx.id().to_string(),
@@ -658,6 +660,10 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         warnings.push("Ticker symbols are not unique; verify token and pool covenant IDs.".into());
     } else if request.profile.as_deref() == Some("krc721-market-v1") {
         crate::nft_market::validate(request)?;
+    } else if request.profile.as_deref() == Some("kron-transfer-v1") {
+        if !request.sender.starts_with("kaspa:") || version != 1 || input_total < output_total {
+            return Err(CoreError::InvalidRequest("KRON transfer requires a fully funded mainnet covenant transaction".into()));
+        }
     } else if request.profile.is_some() {
         return Err(CoreError::InvalidRequest("unsupported PSKT profile".into()));
     }

@@ -11,6 +11,13 @@ import 'package:http/http.dart' as http;
 import 'krc721_reads.dart';
 
 class NativeSecurity {
+  static bool internalNexusUnlocked = false;
+  Future<void> setInternalNexusUnlocked(bool enabled) async {
+    internalNexusUnlocked = enabled;
+    await _channel
+        .invokeMethod<void>('setInternalNexusUnlocked', {'enabled': enabled});
+  }
+
   static const _channel = MethodChannel('space.kasvault/security');
   final LocalAuthentication _auth = LocalAuthentication();
 
@@ -342,6 +349,14 @@ class NativeSecurity {
     });
     final result = (jsonDecode(raw!) as Map).cast<String, Object?>();
     return result['signature']! as String;
+  }
+
+  Future<String> signInternalNexusChallenge(
+      String address, String message) async {
+    if (!internalNexusUnlocked) throw StateError('Unlock Kaspire first.');
+    final raw = await _channel.invokeMethod<String>(
+        'signInternalNexusChallenge', {'address': address, 'message': message});
+    return (jsonDecode(raw!) as Map)['signature'] as String;
   }
 
   Future<String> publicKey(String address) async {

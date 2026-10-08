@@ -106,13 +106,14 @@ class NftMarketService {
       String? collection,
       Map<String, String> traits = const {},
       bool high = false,
+      String? sort,
       int offset = 0,
       String? seller,
       bool refresh = false}) async {
     final url = Uri.parse('$directory/offers').replace(queryParameters: {
       'q': q,
       'offset': '$offset',
-      'sort': high ? 'high' : 'low',
+      'sort': sort ?? (high ? 'high' : 'low'),
       if (collection != null) 'collection': collection,
       if (traits.isNotEmpty) 'traits': jsonEncode(traits),
       if (seller != null) 'seller': seller,
@@ -128,8 +129,8 @@ class NftMarketService {
     String? next = cursor;
     do {
       guard();
-      final raw =
-          await displayReads.walletPage(address, cursor: next, limit: 10);
+      final raw = await displayReads.walletPage(address,
+          cursor: next, limit: 10 - rows.length, ticker: collection);
       rows.addAll((raw['result'] as List? ?? []).map(nftMap).where((r) =>
           collection == null ||
           r['tick'].toString().toUpperCase() == collection));
@@ -137,8 +138,25 @@ class NftMarketService {
       if (next != null && !seen.add(next)) {
         throw StateError('NFT indexer repeated a page. Please reload.');
       }
-    } while (
-        collection != null && rows.isEmpty && next != null && next.isNotEmpty);
+    } while (rows.length < 10 && next != null && next.isNotEmpty);
+    // Indexers may return a cursor even on the last nonempty page. Only expose
+    // Load more when a matching NFT actually exists after this page.
+    if (next != null && next.isNotEmpty) {
+      String? probe = next;
+      while (probe != null && probe.isNotEmpty) {
+        final page = await displayReads.walletPage(address,
+            cursor: probe, limit: 1, ticker: collection);
+        final found = (page['result'] as List? ?? []).map(nftMap).any((r) =>
+            collection == null ||
+            r['tick'].toString().toUpperCase() == collection);
+        if (found) break;
+        probe = page['next']?.toString();
+        if (probe != null && probe.isNotEmpty && !seen.add(probe)) {
+          throw StateError('NFT indexer repeated a page. Please reload.');
+        }
+      }
+      if (probe == null || probe.isEmpty) next = null;
+    }
     for (final row in rows) {
       row['ticker'] = (row['tick'] ?? '').toString().toUpperCase();
       row['tokenId'] = row['tokenId'].toString();

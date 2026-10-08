@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ListingStatus {
+  LISTED
+  UNLISTED
+  UNKNOWN
+}
+
+enum OfferStatus {
+  DRAFT
+  OPEN
+  COUNTERED
+  AGREED_WAITING_RELIST
+  RELIST_DETECTED
+  COMPLETED_EXTERNALLY
+  DECLINED
+  CANCELLED_BY_BUYER
+  EXPIRED
+  INVALIDATED_OWNER_CHANGED
+  INVALIDATED_NFT_UNAVAILABLE
+}
+
+enum OfferRevisionType {
+  CREATED
+  COUNTERED
+  DECLINED
+  CANCELLED
+  AGREED_TO_RELIST
+  RELIST_DETECTED
+  EXPIRED
+  INVALIDATED_OWNER_CHANGED
+  INVALIDATED_LISTING_CHANGED
+  COMPLETED_EXTERNALLY
+}
+
+enum NotificationChannel {
+  IN_APP
+  TELEGRAM
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model WalletAccount {
+  id                  String               @id @default(cuid())
+  walletAddress       String               @unique
+  publicKey           String?
+  verifiedAt          DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  challenges          AuthChallenge[]
+  telegramConnections TelegramConnection[]
+  boughtOffers        OfferThread[]        @relation("BuyerOffers")
+  notifications       Notification[]
+}
+
+model AuthChallenge {
+  id            String   @id @default(cuid())
+  walletAddress String
+  nonce         String   @unique
+  message       String
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdAt     DateTime @default(now())
+
+  walletAccount WalletAccount? @relation(fields: [walletAddress], references: [walletAddress])
+
+  @@index([walletAddress])
+}
+
+model TelegramConnection {
+  id                 String    @id @default(cuid())
+  walletAccountId    String
+  telegramChatId     String?
+  telegramUsername   String?
+  linkTokenHash      String    @unique
+  linkTokenExpiresAt DateTime
+  verifiedAt         DateTime?
+  createdAt          DateTime  @default(now())
+
+  walletAccount WalletAccount @relation(fields: [walletAccountId], references: [id], onDelete: Cascade)
+}
+
+model TelegramNftWatch {
+  id                     String   @id @default(cuid())
+  telegramChatId         String
+  telegramUsername       String?
+  collectionId           String
+  tokenId                String
+  lastNotifiedListingId  String?
+  lastNotifiedPriceSompi BigInt?
+  active                 Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@unique([telegramChatId, collectionId, tokenId])
+  @@index([active, collectionId, tokenId])
+}
+
+model SupportedCollection {
+  id          String   @id @default(cuid())
+  collectionId String   @unique
+  displayName String
+  isEnabled   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model BlacklistedCollection {
+  id        String   @id @default(cuid())
+  ticker    String   @unique
+  createdAt DateTime @default(now())
+}
+
+model NftCache {
+  id                 String        @id @default(cuid())
+  collectionId       String
+  tokenId            String
+  name               String
+  imageUrl           String?
+  marketUrl          String
+  currentOwnerWallet String?
+  listingStatus      ListingStatus @default(UNKNOWN)
+  listingPriceSompi  BigInt?
+  listingId          String?
+  lastCheckedAt      DateTime      @default(now())
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  offerThreads       OfferThread[]
+
+  @@unique([collectionId, tokenId])
+  @@index([collectionId])
+}
+
+model NftRarityCache {
+  id             String   @id @default(cuid())
+  collectionId   String
+  tokenId        String
+  rarityRank     Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([collectionId, tokenId])
+  @@index([collectionId])
+}
+
+model OfferThread {
+  id                      String      @id @default(cuid())
+  nftCacheId              String
+  buyerWalletAccountId    String
+  sellerWalletAtCreation  String?
+  currentSellerWallet     String?
+  currency                String      @default("KAS")
+  currentAmountSompi      BigInt
+  status                  OfferStatus @default(OPEN)
+  expiresAt               DateTime
+  agreedAt                DateTime?
+  relistDeadlineAt        DateTime?
+  marketUrlAtCreation     String
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
+
+  nftCache           NftCache       @relation(fields: [nftCacheId], references: [id])
+  buyerWalletAccount WalletAccount  @relation("BuyerOffers", fields: [buyerWalletAccountId], references: [id])
+  revisions          OfferRevision[]
+
+  @@index([status])
+  @@index([buyerWalletAccountId])
+}
+
+model OfferRevision {
+  id                 String            @id @default(cuid())
+  offerThreadId      String
+  actorWalletAddress String
+  type               OfferRevisionType
+  amountSompi        BigInt?
+  createdAt          DateTime          @default(now())
+
+  offerThread OfferThread @relation(fields: [offerThreadId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id              String              @id @default(cuid())
+  walletAccountId String
+  type            String
+  payloadJson     Json
+  channel         NotificationChannel
+  status          NotificationStatus  @default(PENDING)
+  dedupeKey       String              @unique
+  sentAt          DateTime?
+  readAt          DateTime?
+  createdAt       DateTime            @default(now())
+
+  walletAccount WalletAccount @relation(fields: [walletAccountId], references: [id], onDelete: Cascade)
+}
+
+model AuditEvent {
+  id                 String   @id @default(cuid())
+  actorWalletAddress String?
+  entityType         String
+  entityId           String
+  action             String
+  metadataJson       Json?
+  ipHash             String?
+  createdAt          DateTime @default(now())
+
+  @@index([entityType, entityId])
+}

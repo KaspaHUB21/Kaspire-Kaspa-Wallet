@@ -3,6 +3,7 @@ type Hooks = {
   shell(content:string,title?:string,back?:boolean):void;
   address():string;
   dotk():void;
+  nexus():void;
   send(nft:any):void;
 };
 const esc=(value:any)=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]!));
@@ -20,13 +21,14 @@ export function nftImageFallback(container:Element) {
   });
 }
 export function agoraChooser(hooks:Hooks) {
-  hooks.shell('<section class="agora-choice"><p class="eyebrow">K-AGORA</p><h1>Marketplace</h1><button id="agora-dotk" class="market-name"><b>dot.k Market</b><small>Covenant names</small></button><button id="agora-nft" class="market-name"><b>NFT Market</b><small>KRC-721 · PSKT listings</small></button></section>',"K-Agora",true);
+  hooks.shell('<section class="agora-choice"><p class="eyebrow">K-AGORA</p><h1>Marketplace</h1><button id="agora-dotk" class="market-name"><b>dot.k Market</b><small>Covenant names</small></button><button id="agora-nft" class="market-name"><b>NFT Market</b><small>KRC-721 · PSKT listings</small></button><button id="agora-nexus" class="market-name"><b>Nexus Offers</b><small>Private offers · negotiate with collectors</small></button></section>',"K-Agora",true);
   document.querySelector<HTMLButtonElement>("#agora-dotk")!.onclick=hooks.dotk;
   document.querySelector<HTMLButtonElement>("#agora-nft")!.onclick=()=>void openNftMarket(hooks);
+  document.querySelector<HTMLButtonElement>('#agora-nexus')!.onclick=hooks.nexus;
 }
 export async function openNftMarket(hooks:Hooks,initialNft?:any,initialTab="browse") {
   const address=hooks.address();
-  let tab=initialTab,query="",collection="",ownedCollection="",high=false,traits:Record<string,string>={},limit=10;
+  let tab=initialTab,query="",collection="",ownedCollection="",sort="recent",traits:Record<string,string>={},limit=10;
   let offers:any[]=[],owned:any[]=[],listings:any[]=[],collections:string[]=[],ownedCollections:string[]=[],traitOptions:any={},offset:any=null,cursor:any=null,pendingBroadcast=false;
   let epoch=0,loading=false,error="",searchTimer:ReturnType<typeof setTimeout>;
   hooks.shell('<section class="nft-market-screen"><div class="market-title"><div><p class="eyebrow">K-AGORA</p><h1>NFT Market</h1></div><button id="nft-market-refresh" class="icon" aria-label="Refresh NFT Market">↻</button></div><div id="nft-market-content"></div></section>',"NFT Market",true);
@@ -49,19 +51,20 @@ export async function openNftMarket(hooks:Hooks,initialNft?:any,initialTab="brow
         : nft.publicationBlocked
           ? `<p>Publication rejected: ${esc(nft.publicationError)}</p>`
           : '<p>Publishing automatically · waiting for confirmation</p>';
-    return `<article class="market-offer nft-market-card" data-nft-row="${index}">${nft.imageUrl?`<img data-nft-image src="${esc(nft.imageUrl)}" alt="${esc(nft.ticker)} #${esc(nft.tokenId)}">`:""}<h2 data-preserve-case>${esc(nft.ticker)} #${esc(nft.tokenId)}</h2><p>${nft.rarityRank==null?"Rarity rank unavailable":nft.rarityRank===-1?"Legendary":`Rarity rank #${esc(nft.rarityRank)}`}</p>${tab!=="owned"?`<strong>${money(nft.priceSompi)}</strong><p class="nft-listing-state">${esc(state??"pending")}</p>`:""}<div class="nft-card-actions">${tab==="browse" && state==="active" && nft.seller!==address?'<button data-action="buy">Buy NFT</button>':""}${tab==="owned"?`<button data-action="send" ${state==="listed"?"disabled":""}>Send</button><button data-action="list">${state==="listed"?"Listed":"List"}</button>`:""}${tab==="listings" && !terminal?unfinished?'<button data-action="resume">Resume listing</button>':'<button data-action="cancel">Cancel listing</button>':""}</div>${publication}</article>`;
+    const details=tab==='owned'?'':`<details class="nft-traits"><summary>Seller & NFT traits</summary><p>Seller wallet</p><code style="overflow-wrap:anywhere">${esc(nft.seller)}</code>${Object.entries(nft.traits??{}).map(([name,value])=>`<p><b>${esc(name)}</b>: ${esc(value)}${nft.traitRarity?.[name]==null?'':` · ${esc(nft.traitRarity[name])}%`}</p>`).join('') || '<p>No trait data available.</p>'}</details>`;
+    return `<article class="market-offer nft-market-card" data-nft-row="${index}">${nft.imageUrl?`<img data-nft-image src="${esc(nft.imageUrl)}" alt="${esc(nft.ticker)} #${esc(nft.tokenId)}">`:""}<h2 data-preserve-case>${esc(nft.ticker)} #${esc(nft.tokenId)}</h2><p>${nft.rarityRank==null?"Rarity rank unavailable":nft.rarityRank===-1?"Legendary":`Rarity rank #${esc(nft.rarityRank)}`}</p>${tab!=="owned"?`<strong>${money(nft.priceSompi)}</strong>${tab==='browse' && state==='active'?'':`<p class="nft-listing-state">${esc(state??"pending")}</p>`}`:""}${details}<div class="nft-card-actions">${tab==="browse" && state==="active" && nft.seller!==address?'<button data-action="buy">Buy NFT</button>':""}${tab==="owned"?`<button data-action="send" ${state==="listed"?"disabled":""}>Send</button><button data-action="list">${state==="listed"?"Listed":"List"}</button>`:""}${tab==="listings" && !terminal?unfinished?'<button data-action="resume">Resume listing</button>':'<button data-action="cancel">Cancel listing</button>':""}</div>${publication}</article>`;
   }
   function paint() {
     if(!active()) return;
     const rows=tab==="browse"?offers:tab==="owned"?owned:listings.slice(0,limit);
-    const tools=tab==="browse"?`<div class="market-tools"><input id="nft-market-search" placeholder="Search NFTs" value="${esc(query)}"><select data-preserve-case id="nft-market-collection" aria-label="Collection">${options(collections,collection)}</select><select id="nft-market-sort" aria-label="Sort price"><option value="low" ${!high?"selected":""}>Price: Low to High</option><option value="high" ${high?"selected":""}>Price: High to Low</option></select>${collection?`<details class="nft-traits"><summary>Trait filters${Object.keys(traits).length?` (${Object.keys(traits).length})`:""}</summary>${Object.entries(traitOptions).map(([name,values])=>`<label>${esc(name)}<select data-trait="${esc(name)}"><option value="">All</option>${(Array.isArray(values)?values:[]).map((v:any)=>`<option value="${esc(v)}" ${traits[name]===String(v)?"selected":""}>${esc(v)}</option>`).join("")}</select></label>`).join("")}</details>`:""}</div>`:tab==="owned"?`<div class="market-tools"><select data-preserve-case id="nft-owned-collection" aria-label="My NFT collection">${options(ownedCollections,ownedCollection)}</select></div>`:"";
+    const tools=tab==="browse"?`<div class="market-tools"><input id="nft-market-search" placeholder="Search NFTs" value="${esc(query)}"><select data-preserve-case id="nft-market-collection" aria-label="Collection">${options(collections,collection)}</select><select id="nft-market-sort" aria-label="Sort offers">${[["recent","Most recent listings"],["low","Price: Low to High"],["high","Price: High to Low"],...(collection?[["rank-low","Rank: Low to High"],["rank-high","Rank: High to Low"]]:[])].map(([id,label])=>`<option value="${id}" ${sort===id?"selected":""}>${label}</option>`).join("")}</select>${collection?`<details class="nft-traits"><summary>Trait filters${Object.keys(traits).length?` (${Object.keys(traits).length})`:""}</summary>${Object.entries(traitOptions).map(([name,values])=>`<label>${esc(name)}<select data-trait="${esc(name)}"><option value="">All</option>${(Array.isArray(values)?values:[]).map((v:any)=>`<option value="${esc(v)}" ${traits[name]===String(v)?"selected":""}>${esc(v)}</option>`).join("")}</select></label>`).join("")}</details>`:""}</div>`:tab==="owned"?`<div class="market-tools"><select data-preserve-case id="nft-owned-collection" aria-label="My NFT collection">${options(ownedCollections,ownedCollection)}</select></div>`:"";
     host.innerHTML=`<div class="market-tabs">${[["browse","Browse"],["owned","My NFTs"],["listings","My listings"]].map(([id,label])=>`<button data-tab="${id}" class="${tab===id?"active":""}">${label}</button>`).join("")}</div>${tools}${error?`<p class="error">${esc(error)}</p>`:""}${tab==="listings" && pendingBroadcast?'<button id="nft-resume-broadcast">Resume saved transaction</button>':""}<div class="nft-market-grid">${rows.map(card).join("")}</div>${loading?'<div class="loading">Loading NFTs…</div>':!rows.length?'<p class="empty">No NFTs found.</p>':""}${(tab==="browse"?offset!=null:tab==="owned"?cursor!=null:listings.length>limit)?'<button id="nft-market-more" class="outline">Load more</button>':""}`;
     nftImageFallback(host);
     host.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach(button=>button.onclick=()=>{tab=button.dataset.tab!;limit=10;void load();});
     const search=host.querySelector<HTMLInputElement>("#nft-market-search");
     if(search) search.oninput=()=>{query=search.value;clearTimeout(searchTimer);searchTimer=setTimeout(()=>void load(),450);};
-    host.querySelector<HTMLSelectElement>("#nft-market-collection")?.addEventListener("change",event=>{collection=(event.target as HTMLSelectElement).value;traits={};void load();});
-    host.querySelector<HTMLSelectElement>("#nft-market-sort")?.addEventListener("change",event=>{high=(event.target as HTMLSelectElement).value==="high";void load();});
+    host.querySelector<HTMLSelectElement>("#nft-market-collection")?.addEventListener("change",event=>{collection=(event.target as HTMLSelectElement).value;traits={};if(!collection&&sort.startsWith('rank-'))sort='recent';void load();});
+    host.querySelector<HTMLSelectElement>("#nft-market-sort")?.addEventListener("change",event=>{sort=(event.target as HTMLSelectElement).value;void load();});
     host.querySelector<HTMLSelectElement>("#nft-owned-collection")?.addEventListener("change",event=>{ownedCollection=(event.target as HTMLSelectElement).value;void load();});
     host.querySelectorAll<HTMLSelectElement>("[data-trait]").forEach(select=>select.onchange=()=>{if(select.value) traits[select.dataset.trait!]=select.value;else delete traits[select.dataset.trait!];void load();});
     host.querySelector<HTMLButtonElement>("#nft-market-more")?.addEventListener("click",()=>{if(tab==="listings"){limit+=10;paint();}else void load(true);});
@@ -81,7 +84,7 @@ export async function openNftMarket(hooks:Hooks,initialNft?:any,initialTab="brow
     const stamp=++epoch;loading=true;error="";paint();
     try {
       if(tab==="browse") {
-        const page=await hooks.command("nftMarketBrowse",{params:{q:query,collection,traits,high,offset:more?offset:0,refresh}});
+        const page=await hooks.command("nftMarketBrowse",{params:{q:query,collection,traits,sort,offset:more?offset:0,refresh}});
         if(!active()||stamp!==epoch)return;
         offers=more?[...offers,...page.offers]:page.offers;offset=page.nextOffset;collections=page.collections??[];traitOptions=page.traitOptions??{};
       } else if(tab==="owned") {
@@ -103,7 +106,7 @@ export async function openNftMarket(hooks:Hooks,initialNft?:any,initialTab="brow
   }
   function list(nft:any) {
     const overlay=document.createElement("div");overlay.className="kaspire-modal";
-    overlay.innerHTML=`<section class="approval-sheet"><p class="eyebrow">LIST NFT</p><h1 data-preserve-case>${esc(nft.ticker)} #${esc(nft.tokenId)}</h1><label>Price in KAS<input id="nft-list-price" inputmode="decimal" placeholder="Minimum 10 KAS"></label><p class="error" id="nft-price-error"></p><div class="approval-actions"><button class="outline" id="nft-list-close">Cancel</button><button id="nft-list-review">Review listing</button></div></section>`;
+    overlay.innerHTML=`<section class="approval-sheet"><p class="eyebrow">LIST NFT</p><h1 data-preserve-case>${esc(nft.ticker)} #${esc(nft.tokenId)}</h1><label>Price in KAS<input id="nft-list-price" value="${nft.suggestedPriceSompi==null?'':esc(money(nft.suggestedPriceSompi).replace(' KAS',''))}" inputmode="decimal" placeholder="Minimum 10 KAS"></label><p class="error" id="nft-price-error"></p><div class="approval-actions"><button class="outline" id="nft-list-close">Cancel</button><button id="nft-list-review">Review listing</button></div></section>`;
     document.body.append(overlay);overlay.querySelector<HTMLButtonElement>("#nft-list-close")!.onclick=()=>overlay.remove();
     overlay.querySelector<HTMLButtonElement>("#nft-list-review")!.onclick=()=>{
       const value=overlay.querySelector<HTMLInputElement>("#nft-list-price")!.value.trim();

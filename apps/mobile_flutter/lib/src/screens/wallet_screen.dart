@@ -27,6 +27,7 @@ import 'dotk_name_screen.dart';
 import 'k_agora_screen.dart';
 import 'kasparocket_screen.dart';
 import '../widgets/kaspire_brand.dart';
+import '../widgets/nexus_bell.dart';
 
 class WalletScreen extends StatefulWidget {
   const WalletScreen({
@@ -341,11 +342,12 @@ class _WalletScreenState extends State<WalletScreen> {
                     const Expanded(
                       child: KaspireWordmark(height: 19),
                     ),
-                    IconButton(
+                    KaspireHeaderIconFrame(
+                        child: IconButton(
                       onPressed: widget.onSwitchWallet,
                       tooltip: 'Switch wallet',
                       icon: const Icon(Icons.account_balance_wallet_outlined),
-                    ),
+                    )),
                     Tooltip(
                       message: 'Switch network',
                       child: InkWell(
@@ -387,6 +389,8 @@ class _WalletScreenState extends State<WalletScreen> {
                         ),
                       ),
                     ),
+                    if (NetworkSettings.network.value == KaspaNetwork.mainnet)
+                      NexusBell(address: widget.address),
                   ],
                 ),
                 SizedBox(

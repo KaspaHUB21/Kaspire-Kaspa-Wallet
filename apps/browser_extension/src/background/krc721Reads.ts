@@ -18,12 +18,14 @@ export async function nftWalletPage(address: string, cursor = "", ticker = "", l
   const path = `/address/${encodeURIComponent(address)}${ticker ? `/${encodeURIComponent(ticker.toLowerCase())}` : ""}`;
   const query = new URLSearchParams({limit: String(limit), direction: "forward", ...(cursor ? {offset: cursor} : {})});
   let response: Response | undefined;
-  try { response = await fetch(`${NFT_READ}${path}?${query}`, {signal: AbortSignal.timeout(5000)}); }
-  catch (error) { if (!(error instanceof TypeError) && !["TimeoutError", "AbortError"].includes((error as Error).name)) throw error; }
-  // Healthy empty, 4xx and malformed responses never invoke the fallback.
-  if (!response || unavailable(response.status)) response = await fetch(`${NFT_OFFICIAL}${path}?${query}`, {signal: AbortSignal.timeout(12000)});
+  try {
+    response = await fetch(`${NFT_READ}${path}?${query}`, {signal: AbortSignal.timeout(5000)});
+    const local = await json(response);
+    if (Array.isArray(local?.result) && (local.message == null || local.message === 'success')) return local;
+  } catch { /* Invalid local responses are source failures, not empty wallets. */ }
+  response = await fetch(`${NFT_OFFICIAL}${path}?${query}`, {signal: AbortSignal.timeout(12000)});
   const value = await json(response);
-  if (!Array.isArray(value?.result)) throw new Error("Invalid NFT wallet response.");
+  if (!Array.isArray(value?.result) || (value.message != null && value.message !== 'success')) throw new Error("Invalid NFT wallet response.");
   return value;
 }
 export function nftImage(ticker: string, id: string) {
@@ -42,8 +44,7 @@ export async function nftMetadata(ticker: string, ids: string[]) {
       if (!Array.isArray(data.items)) throw new Error("Invalid NFT metadata response.");
       local = data.items; fallback = data.ranksAvailable !== true;
     }
-  } catch (error) {
-    if (!(error instanceof TypeError) && !["TimeoutError", "AbortError"].includes((error as Error).name)) throw error;
+  } catch {
     fallback = true;
   }
   if (fallback) try {

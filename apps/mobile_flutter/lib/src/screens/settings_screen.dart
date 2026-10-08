@@ -332,7 +332,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 detail: snapshot.connectionState != ConnectionState.done
                     ? 'Checking…'
                     : snapshot.data == true
-                        ? 'Native signing wallet · Rusty Kaspa v2.0.1'
+                        ? 'Native signing wallet · Rusty Kaspa v2.1.0'
                         : 'Watch-only · no signing key',
                 color: snapshot.data == true
                     ? KasVaultTheme.mint
@@ -806,7 +806,7 @@ class _SettingsOverview extends StatelessWidget {
                         : Icons.visibility_outlined,
                     title: 'Wallet mode',
                     detail: snapshot.data == true
-                        ? 'Native signing wallet · Rusty Kaspa v2.0.1'
+                        ? 'Native signing wallet · Rusty Kaspa v2.1.0'
                         : 'Watch-only · no signing key',
                     color: KasVaultTheme.mint,
                   ),

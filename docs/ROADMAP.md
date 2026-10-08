@@ -2,7 +2,7 @@
 
 ## Phase 1 — security core
 
-- [x] Pin Rusty Kaspa `v2.0.1` with a locked dependency graph.
+- [x] Pin Rusty Kaspa `v2.1.0` with a locked dependency graph.
 - [x] Implement BIP39 creation/import and first-address derivation at `m/44'/111111'/0'/0/0`.
 - [x] Add the JNI bridge for create/import, address derivation, transaction preparation and signing.
 - [x] Encrypt seed material with AES-256-GCM under an authenticated Android Keystore key.
