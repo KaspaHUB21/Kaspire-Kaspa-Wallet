@@ -458,6 +458,13 @@ class NativeSecurity {
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
+  Future<Map<String, Object?>> prepareKaspacomMarket(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+        'prepareKaspacomMarket', {'request': jsonEncode(request)});
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
   Future<Map<String, Object?>> prepareNftMarket(
       Map<String, Object?> request) async {
     final raw = await _channel.invokeMethod<String>(

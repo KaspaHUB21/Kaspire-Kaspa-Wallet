@@ -540,42 +540,49 @@ class Hub21Action extends StatelessWidget {
           child: Hub21Panel(
             radius: 14,
             rim: 3.5,
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 15),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(
-                icon,
-                size: 29,
-                color: _isNeptune
-                    ? const Color(0xFF8EEDEB)
-                    : glacier
-                        ? const Color(0xFF087F86)
-                        : const Color(0xFFFFE5A4),
-                shadows: [
-                  Shadow(
-                    color: glacier ? const Color(0x5577DDE0) : Colors.black,
-                    blurRadius: 3,
-                    offset: const Offset(0, 2),
-                  )
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                buttonLabel(label),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: foreground,
-                  shadows: [
-                    Shadow(
-                      color: glacier ? const Color(0x55FFFFFF) : Colors.black,
-                      offset: const Offset(0, 1),
-                      blurRadius: 2,
-                    ),
-                  ],
-                ),
-              ),
-            ]),
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    icon,
+                    size: 29,
+                    color: _isNeptune
+                        ? const Color(0xFF8EEDEB)
+                        : glacier
+                            ? const Color(0xFF087F86)
+                            : const Color(0xFFFFE5A4),
+                    shadows: [
+                      Shadow(
+                        color: glacier ? const Color(0x5577DDE0) : Colors.black,
+                        blurRadius: 3,
+                        offset: const Offset(0, 2),
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        buttonLabel(label),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: foreground,
+                          shadows: [
+                            Shadow(
+                              color: glacier
+                                  ? const Color(0x55FFFFFF)
+                                  : Colors.black,
+                              offset: const Offset(0, 1),
+                              blurRadius: 2,
+                            ),
+                          ],
+                        ),
+                      )),
+                ]),
           ),
         ),
       ),

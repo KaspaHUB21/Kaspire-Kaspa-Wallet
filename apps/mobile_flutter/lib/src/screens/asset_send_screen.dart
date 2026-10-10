@@ -255,10 +255,12 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         case _AssetKind.kcc20:
           final token = _covenantToken;
           if (token == null) throw StateError('Select a KCC20 token.');
-          if (token.validationStatus != 'verified') {
+          if (token.standard != 'kron-native' &&
+              token.validationStatus != 'verified') {
             throw StateError('Only indexer-verified KCC20 tokens can be sent.');
           }
-          if (!token.discoveryComplete || token.kcc20Cells.isEmpty) {
+          if (token.standard != 'kron-native' &&
+              (!token.discoveryComplete || token.kcc20Cells.isEmpty)) {
             throw StateError(
                 'KCC20 cell discovery is incomplete. Refresh and verify the token before sending.');
           }
@@ -267,10 +269,13 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             throw StateError(
                 'Invalid amount, too many decimals, or insufficient token balance.');
           }
-          await _api.verifyKcc20CellsOnOwnNode(
-            token.kcc20Cells,
-            token.covenantId!,
-          );
+          final cells = token.standard == 'kron-native'
+              ? await _api.loadKronSigningCells(
+                  widget.address, token.covenantId!, int.parse(raw))
+              : token.kcc20Cells;
+          if (token.standard != 'kron-native') {
+            await _api.verifyKcc20CellsOnOwnNode(cells, token.covenantId!);
+          }
           final fundingUtxos = await _api.loadUtxos(widget.address);
           final request = <String, Object?>{
             'sender': widget.address,
@@ -280,14 +285,14 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             'amount': int.parse(raw),
             'decimals': token.decimals,
             'feeRate': 100.0,
-            'templateHash': token.templateHash,
-            'cells': token.kcc20Cells.map((cell) => cell.toJson()).toList(),
+            'templateHash': token.templateHash ?? '',
+            'cells': cells.map((cell) => cell.toJson()).toList(),
             'fundingUtxosJson': fundingUtxos,
           };
           Map<String, Object?> review;
           Map<String, Object?> signingRequest = request;
           if (token.standard == 'kron-native') {
-            if (token.kcc20Cells.any((cell) =>
+            if (cells.any((cell) =>
                 cell.redeemScript == null || cell.redeemScript!.isEmpty)) {
               throw StateError(
                   'KRON signing data is incomplete. Refresh the wallet.');
@@ -300,8 +305,8 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
               'amount': int.parse(raw),
               'decimals': token.decimals,
               'feeRate': 100.0,
-              'templateHash': token.templateHash,
-              'cells': token.kcc20Cells
+              'templateHash': token.templateHash ?? '',
+              'cells': cells
                   .map((cell) => <String, Object?>{
                         'transactionId': cell.transactionId,
                         'index': cell.index,
@@ -406,8 +411,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
       }
       final expectedTransactionId = signed['transactionId']! as String;
       final transactionId = await _api.broadcastKcc20(
-        signed['wrpcJson']!
-            as String,
+        signed['wrpcJson']! as String,
         expectedTransactionId: expectedTransactionId,
       );
       if (transactionId.isEmpty) {
@@ -851,11 +855,14 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           const SizedBox(height: 10),
           if (_covenantToken != null)
             Text(
-              _covenantToken!.discoveryComplete
-                  ? 'Indexer verified · ${_covenantToken!.kcc20Cells.length} spendable cell(s)'
-                  : 'Sending disabled: cell discovery is incomplete.',
+              _covenantToken!.standard == 'kron-native'
+                  ? 'KRON balance · Signing cells are verified on the local node before review.'
+                  : _covenantToken!.discoveryComplete
+                      ? 'Indexer verified · ${_covenantToken!.kcc20Cells.length} spendable cell(s)'
+                      : 'Sending disabled: cell discovery is incomplete.',
               style: TextStyle(
-                color: _covenantToken!.discoveryComplete
+                color: _covenantToken!.standard == 'kron-native' ||
+                        _covenantToken!.discoveryComplete
                     ? KasVaultTheme.mint
                     : const Color(0xFFFFB65C),
                 fontSize: 12,
@@ -1022,7 +1029,7 @@ class _Kcc20Review extends StatelessWidget {
           padding: const EdgeInsets.all(20),
           children: [
             const Text(
-              'REVIEW KCC20 COVENANT TRANSFER',
+              'Review KCC20 Covenant Transfer',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 10),

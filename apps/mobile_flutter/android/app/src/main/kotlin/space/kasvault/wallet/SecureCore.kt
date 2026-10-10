@@ -7,6 +7,7 @@ object SecureCore {
     external fun deriveDotkDeed(requestJson: String): String
     external fun describeDotkMarket(requestJson: String): String
     external fun prepareNftMarket(requestJson: String): String
+    external fun prepareKaspacomMarket(requestJson: String): String
     external fun prepareDotkMarket(requestJson: String): String
     external fun signDotkMarket(secret: ByteArray, requestJson: String, reviewHash: String): String
     external fun importWallet(phrase: String, passphrase: String): String

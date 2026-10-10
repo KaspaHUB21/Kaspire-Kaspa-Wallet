@@ -393,7 +393,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
             const SizedBox(height: 8),
             Hub21Readable(
               child: const Text(
-                'RECEIVE KAS',
+            'Receive KAS',
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w900,

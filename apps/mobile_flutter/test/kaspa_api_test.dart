@@ -14,6 +14,38 @@ void main() {
   const otherAddress =
       'kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh';
 
+  test(
+      'fresh activity includes incoming marketplace KRC20 sends without a wallet snapshot',
+      () async {
+    var calls = 0;
+    final api = KaspaApi(client: MockClient((r) async {
+      calls++;
+      expect(r.url.host, 'api.kasplex.org');
+      expect(r.url.path, endsWith('/krc20/oplist'));
+      expect(r.url.queryParameters['address'], address);
+      return http.Response(
+          jsonEncode({
+            'result': [
+              {
+                'op': 'send',
+                'tick': 'KASBTC',
+                'amt': '400000000',
+                'from': otherAddress,
+                'to': address,
+                'hashRev': 'a' * 64,
+                'mtsAdd': DateTime.now().millisecondsSinceEpoch.toString(),
+              }
+            ]
+          }),
+          200);
+    }));
+    final rows = await api.loadKrc20Transactions(address);
+    expect(calls, 1);
+    expect(rows.single.assetSymbol, 'KASBTC');
+    expect(rows.single.displayAmount, '4');
+    expect(rows.single.incoming, isTrue);
+  });
+
   test('merged NFT and KNS holdings remain alphabetical after fallback merge',
       () async {
     final api = KaspaApi(client: MockClient((request) async {

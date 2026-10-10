@@ -5,6 +5,27 @@ import 'package:kasvault_wallet/src/services/encrypted_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('marketplace receipt records received tokens, not an outgoing transfer',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = ActivityStore(encryptedStore: _MemoryEncryptedStore());
+    await store.recordAssetTransfer(
+        wallet: 'buyer',
+        incoming: true,
+        operation: const {
+          'kind': 'krc20',
+          'ticker': 'KASBTC',
+          'displayAmount': '4',
+          'recipient': 'seller'
+        },
+        transactionId: 'purchase',
+        timestamp: DateTime.utc(2026, 10, 9));
+    final tx = (await store.load('buyer')).single;
+    expect(tx.incoming, isTrue);
+    expect(tx.assetKind, 'KRC-20');
+    expect(tx.displayAmount, '4');
+    expect(tx.counterparty, 'seller');
+  });
   test('persists completed KRC-721 and KNS activity per wallet', () async {
     SharedPreferences.setMockInitialValues({});
     final store = ActivityStore(encryptedStore: _MemoryEncryptedStore());

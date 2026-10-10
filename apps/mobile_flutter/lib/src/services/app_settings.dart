@@ -59,14 +59,12 @@ class AppSettings {
   static const _lockMinutesKey = 'security_lock_minutes_v1';
   static const _showSubwalletsKey = 'wallet_show_subwallets_v1';
   static const _themeKey = 'appearance_theme_v1';
-  static const _uppercaseButtonsKey = 'appearance_uppercase_buttons_v1';
   static const _lastBackgroundAtKey = 'security_last_background_at_v1';
   static const _fiatCurrencyKey = 'appearance_fiat_currency_v1';
   static const _recipientAllowlistKey = 'security_recipient_allowlist_v1';
 
   static final ValueNotifier<int> lockMinutes = ValueNotifier(15);
   static final ValueNotifier<bool> showSubwallets = ValueNotifier(true);
-  static final ValueNotifier<bool> uppercaseButtons = ValueNotifier(true);
   static final ValueNotifier<KaspireTheme> theme =
       ValueNotifier(KaspireTheme.midnight);
   static final ValueNotifier<FiatCurrency> fiatCurrency =
@@ -77,7 +75,8 @@ class AppSettings {
     final preferences = await SharedPreferences.getInstance();
     lockMinutes.value = preferences.getInt(_lockMinutesKey) ?? 15;
     showSubwallets.value = preferences.getBool(_showSubwalletsKey) ?? true;
-    uppercaseButtons.value = preferences.getBool(_uppercaseButtonsKey) ?? true;
+    // Retire the old preference, including on upgrades from uppercase layouts.
+    await preferences.remove('appearance_uppercase_buttons_v1');
     recipientAllowlist.value =
         preferences.getBool(_recipientAllowlistKey) ?? false;
     final storedCurrency = preferences.getString(_fiatCurrencyKey);
@@ -113,12 +112,6 @@ class AppSettings {
         .setString(_themeKey, value.name);
   }
 
-  static Future<void> setUppercaseButtons(bool value) async {
-    uppercaseButtons.value = value;
-    await (await SharedPreferences.getInstance())
-        .setBool(_uppercaseButtonsKey, value);
-  }
-
   static Future<void> setFiatCurrency(FiatCurrency value) async {
     fiatCurrency.value = value;
     await (await SharedPreferences.getInstance())
@@ -146,7 +139,6 @@ class AppSettings {
 }
 
 String displayLabel(String uppercase) {
-  if (AppSettings.uppercaseButtons.value) return uppercase;
   const preserved = {
     'KAS': 'KAS',
     'KRC-20': 'KRC-20',
@@ -159,6 +151,7 @@ String displayLabel(String uppercase) {
     'TX': 'TX',
     'DAPP': 'dApp',
     'KASPIRE': 'Kaspire',
+    'K-AGORA': 'K-Agora',
   };
   return uppercase.split(' ').map((word) {
     final punctuation = word.endsWith('…') ? '…' : '';

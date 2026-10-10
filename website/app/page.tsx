@@ -67,6 +67,12 @@ const highlights = [
     copy: "Choose NFT Market, dot.k Market or Nexus Offers inside K-Agora. List, buy and cancel KRC721 NFT listings through decentralized seller-signed PSKTs, without operator escrow. Submit private, non-binding offers, negotiate counter offers and receive wallet notifications without locking funds. Search collections, filter traits and sort by price, recency or collection rarity rank with ten items per page. Images and available rarity ranks come from Kaspire's read-only NFT gateway with an official-indexer emergency fallback; transaction checks continue through the official indexer. Kaspire settlements include a 2.1% marketplace fee; network fees are separate.",
     tags: ["NFT Market", "PSKT listings", "Collection filters", "Rarity ranks"],
   },
+  {
+    number: "11",
+    title: "Keep dApps inside your wallet.",
+    copy: "Open approved dApps directly in Kaspire Browser on Android. Choose Kasvio, GothDAG, Kaspa Dev Tools, dot.k or KasCoven Vaults and keep WalletConnect connection and transaction approvals inside Kaspire. Browser navigation is restricted to the approved dApp origins.",
+    tags: ["In-app browser", "Approved dApps", "WalletConnect"],
+  },
 ];
 
 const securityChapters = [
@@ -297,7 +303,7 @@ const securityChapters = [
           The ARM64 and ARMv7 signing core is compiled into the Android app;
           the browser extension includes the corresponding Rust WebAssembly
           core inside its reviewed package. Both are pinned to Rusty Kaspa
-          v2.0.1 and locked dependencies. The extension executes no remote code.
+          v2.1.0 and locked dependencies. The extension executes no remote code.
         </p>
         <p>
           Kaspire defaults to its own HTTPS gateway, pruned Kaspa node and local
@@ -647,7 +653,10 @@ export default function Home() {
                 Kaspire Wallet is live in the Chrome Web Store. Chrome installs
                 approved updates automatically through the official listing.
                 Neptune and NFT Market are now available in the Store. Version
-                {" "}{extensionRelease.version} is also available below as a ZIP.
+                {" "}{extensionRelease.version} is available below as a ZIP
+                {extensionRelease.storeReviewPending
+                  ? " and has been submitted for Chrome Web Store review."
+                  : "."}
               </p>
               <p>
                 <a href={`https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/${extensionRelease.releaseTag}/kaspire-extension-${extensionRelease.version}.zip`}>

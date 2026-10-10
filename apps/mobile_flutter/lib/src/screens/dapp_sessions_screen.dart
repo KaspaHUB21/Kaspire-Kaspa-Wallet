@@ -219,7 +219,7 @@ class _DappSessionsScreenState extends State<DappSessionsScreen> {
           const SizedBox(height: 26),
           Hub21Readable(
               child: const Text(
-            'PAIR MANUALLY',
+            'Pair Manually',
             style: TextStyle(
               color: KasVaultTheme.muted,
               fontWeight: FontWeight.w900,

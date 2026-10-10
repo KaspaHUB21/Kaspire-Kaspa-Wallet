@@ -309,7 +309,7 @@ class _EvmSendPanelState extends State<_EvmSendPanel> {
                   decoration: const InputDecoration(
                       labelText: 'Amount', hintText: '0.00'))),
           const SizedBox(width: 12),
-          OutlinedButton(onPressed: _max, child: const Text('MAX'))
+          OutlinedButton(onPressed: _max, child: const Text('Max'))
         ]),
         const SizedBox(height: 7),
         Hub21Readable(
@@ -397,7 +397,7 @@ class _ReceiptCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(18),
               border: Border.all(color: Theme.of(context).colorScheme.primary)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('TRANSACTION CONFIRMED',
+        const Text('Transaction Confirmed',
             style: TextStyle(fontWeight: FontWeight.w900)),
         const SizedBox(height: 12),
         SelectableText(

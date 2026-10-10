@@ -15,6 +15,7 @@ import '../theme.dart';
 import 'diagnostics_screen.dart';
 import 'tangem_rescue_screen.dart';
 import 'dotk_market_screen.dart';
+import 'kaspacom_market_screen.dart';
 import '../services/dotk_market_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -441,32 +442,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               ),
             ),
-            const SizedBox(height: 12),
-            ValueListenableBuilder<bool>(
-              valueListenable: AppSettings.uppercaseButtons,
-              builder: (context, uppercase, _) => SwitchListTile(
-                value: uppercase,
-                onChanged: AppSettings.setUppercaseButtons,
-                secondary: Icon(
-                  Icons.text_fields_rounded,
-                  color: KasVaultTheme.mint,
-                ),
-                title: const Text(
-                  'Uppercase text',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                subtitle: Text(
-                  uppercase
-                      ? 'Headings and controls use uppercase labels.'
-                      : 'Headings and controls use conventional capitalization.',
-                ),
-                tileColor: KasVaultTheme.panel,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  side: BorderSide(color: KasVaultTheme.line),
-                ),
-              ),
-            ),
             const SizedBox(height: 24),
             const _Heading('NETWORK'),
             InkWell(
@@ -881,18 +856,6 @@ class _SettingsOverview extends StatelessWidget {
                   ),
                 ),
                 ValueListenableBuilder<bool>(
-                  valueListenable: AppSettings.uppercaseButtons,
-                  builder: (context, uppercase, _) => SwitchListTile(
-                    value: uppercase,
-                    onChanged: AppSettings.setUppercaseButtons,
-                    secondary: Icon(
-                      Icons.text_fields_rounded,
-                      color: KasVaultTheme.mint,
-                    ),
-                    title: const Text('Uppercase text'),
-                  ),
-                ),
-                ValueListenableBuilder<bool>(
                   valueListenable: PrivacySettings.hideAmounts,
                   builder: (context, hidden, _) => SwitchListTile(
                     value: hidden,
@@ -1087,6 +1050,15 @@ class _SettingsOverview extends StatelessWidget {
               title: 'HUB21 Toolbox',
               subtitle: 'Explorers, vaults and developer tools',
               children: [
+                _ToolAction(
+                  icon: Icons.storefront_outlined,
+                  title: 'KaspaCom Marketplace',
+                  subtitle: 'Internal test · KRC-721, KRC-20 and KNS',
+                  onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) =>
+                              KaspaComMarketScreen(address: address))),
+                ),
                 if (DotkMarketService.enabled)
                   _ToolAction(
                     icon: Icons.storefront_outlined,
@@ -1127,8 +1099,8 @@ class _SettingsOverview extends StatelessWidget {
                 ),
                 _ToolLink(
                   icon: Icons.dataset_linked_outlined,
-                  title: 'KCC20 Indexer',
-                  url: 'https://kcc20.info/',
+                  title: 'Kasvio',
+                  url: 'https://kasvio.network/',
                   onOpen: _open,
                 ),
                 _ToolLink(

@@ -535,7 +535,7 @@ class _PaymentSuccess extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             Text(
-              'PAYMENT SENT',
+              'Payment Sent',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
             ),
@@ -682,7 +682,7 @@ class _ConfirmPayment extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'RECIPIENT',
+                'Recipient',
                 style: TextStyle(
                   color: KasVaultTheme.muted,
                   fontSize: 11,

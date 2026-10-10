@@ -10,6 +10,7 @@ mod dotk_market;
 mod dotk_sale;
 mod evm;
 mod inscription;
+mod kaspacom_market;
 mod nft_market;
 mod kcc20;
 mod kron;
@@ -92,6 +93,23 @@ pub fn prepare_nft_market_json(raw: &str) -> Result<String> {
     if raw.len() > 512 * 1024 { return Err(CoreError::InvalidRequest("NFT market request too large".into())); }
     let request: nft_market::Request = serde_json::from_str(raw).map_err(|_| CoreError::Serialization)?;
     Ok(nft_market::prepare(&request)?.to_string())
+}
+pub fn normalize_kaspacom_transport_json(raw: &str, buyer: &str) -> Result<String> {
+    kaspacom_market::normalize_transport_pskt(raw, buyer)
+}
+pub fn prepare_kaspacom_market_json(raw: &str) -> Result<String> {
+    if raw.len()>512*1024 { return Err(CoreError::InvalidRequest("KaspaCom request too large".into())); }
+    let request: kaspacom_market::Request=serde_json::from_str(raw).map_err(|_|CoreError::Serialization)?;
+    Ok(kaspacom_market::prepare(&request)?.to_string())
+}
+pub fn verify_kaspacom_login(address: &str, message: &str, signature: &str) -> Result<()> {
+    let a=Address::try_from(address).map_err(|_|CoreError::InvalidAddress)?;
+    if a.prefix!=Prefix::Mainnet||a.version!=Version::PubKey||message.len()>4096{return Err(CoreError::InvalidRequest("Invalid marketplace login".into()));}
+    let mut h=PersonalMessageSigningHash::new();h.write(message.as_bytes());
+    let msg=secp256k1::Message::from_digest_slice(h.finalize().as_slice()).map_err(|_|CoreError::Serialization)?;
+    let sig=secp256k1::schnorr::Signature::from_slice(&hex::decode(signature).map_err(|_|CoreError::Serialization)?).map_err(|_|CoreError::Serialization)?;
+    let key=secp256k1::XOnlyPublicKey::from_slice(&a.payload).map_err(|_|CoreError::InvalidAddress)?;
+    secp256k1::Secp256k1::verification_only().verify_schnorr(&sig,&msg,&key).map_err(|_|CoreError::InvalidRequest("Wallet authentication signature is invalid".into()))
 }
 pub const DERIVATION_PATH: &str = "m/44'/111111'/0'/0/0";
 pub const MODERN_COIN_TYPE: u32 = 111_111;

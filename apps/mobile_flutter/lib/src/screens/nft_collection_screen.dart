@@ -327,8 +327,8 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                                             Icons.storefront_outlined,
                                             size: 16),
                                         label: Text(nft.isListed
-                                            ? 'LISTED'
-                                            : 'LIST NFT'),
+                                            ? 'Listed'
+                                            : 'List NFT'),
                                       ),
                                       OutlinedButton.icon(
                                         onPressed: nft.isListed
@@ -339,7 +339,7 @@ class _NftCollectionScreenState extends State<NftCollectionScreen> {
                                               },
                                         icon: const Icon(Icons.north_east,
                                             size: 16),
-                                        label: const Text('SEND NFT'),
+                                        label: const Text('Send NFT'),
                                       ),
                                     ],
                                   ),

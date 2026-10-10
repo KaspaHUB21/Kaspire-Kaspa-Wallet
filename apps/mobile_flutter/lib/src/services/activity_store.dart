@@ -38,6 +38,7 @@ class ActivityStore {
     required Map operation,
     required String transactionId,
     required DateTime timestamp,
+    bool incoming = false,
   }) async {
     List<Object?> entries;
     try {
@@ -65,7 +66,7 @@ class ActivityStore {
           (kind == 'krc721' ? '1' : null),
       'tokenId': operation['tokenId']?.toString(),
       'counterparty': operation['recipient']?.toString(),
-      'incoming': false,
+      'incoming': incoming,
       'status': TransactionStatus.accepted.name,
     };
     entries.removeWhere((item) => item is Map && _sameEntry(item, value));

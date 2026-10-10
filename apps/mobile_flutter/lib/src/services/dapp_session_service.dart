@@ -51,6 +51,7 @@ class DappSessionService {
   final _requests = StreamController<SessionRequestEvent>.broadcast();
   final _changes = StreamController<void>.broadcast();
   final Set<String> _consumedPairingTopics = {};
+  final Map<String, Uri> _browserPairingOrigins = {};
   final Set<String> _deliveredRequestIds = {};
   ReownWalletKit? _walletKit;
   Future<void>? _initializing;
@@ -184,7 +185,7 @@ class DappSessionService {
   Future<void> pairQrPayload(String payload) =>
       pair(pairingUriFromQrPayload(payload));
 
-  Future<void> pair(String rawUri) async {
+  Future<void> pair(String rawUri, {Uri? browserOrigin}) async {
     final uri = _validatedPairingUri(rawUri);
     final topic = RegExp(r'^([0-9a-fA-F]{64})@2$')
         .firstMatch(uri.path)!
@@ -193,16 +194,19 @@ class DappSessionService {
     if (!_consumedPairingTopics.add(topic)) {
       throw const FormatException('This pairing link was already consumed.');
     }
+    if (browserOrigin != null) _browserPairingOrigins[topic] = browserOrigin;
     await initialize();
     final walletKit = _walletKit;
     if (walletKit == null) {
       _consumedPairingTopics.remove(topic);
+      _browserPairingOrigins.remove(topic);
       throw StateError(_lastError ?? 'dApp relay is unavailable.');
     }
     try {
       await walletKit.pair(uri: uri);
     } catch (_) {
       _consumedPairingTopics.remove(topic);
+      _browserPairingOrigins.remove(topic);
       throw StateError('Encrypted pairing failed. Request a fresh link.');
     }
   }
@@ -242,6 +246,17 @@ class DappSessionService {
   }
 
   String? proposalProblem(SessionProposalEvent event) {
+    final browserOrigin = _browserPairingOrigins[event.params.pairingTopic];
+    if (browserOrigin != null) {
+      final claimed = Uri.tryParse(event.params.proposer.metadata.url);
+      if (claimed == null ||
+          claimed.scheme != 'https' ||
+          claimed.host != browserOrigin.host ||
+          claimed.port != 443 ||
+          claimed.userInfo.isNotEmpty) {
+        return 'The browser connection does not belong to the approved dApp.';
+      }
+    }
     final verification = event.verifyContext;
     if (verification?.validation == Validation.SCAM ||
         verification?.isScam == true) {

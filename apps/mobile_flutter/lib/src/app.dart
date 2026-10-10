@@ -1542,7 +1542,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                 SelectableText(review['transactionId']!.toString()),
                 if (warnings.isNotEmpty) ...[
                   const SizedBox(height: 16),
-                  const Text('IMPORTANT WARNINGS',
+                  const Text('Important Warnings',
                       style: TextStyle(
                           color: Color(0xFFFFC857),
                           fontWeight: FontWeight.w900)),
@@ -1554,7 +1554,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                       )),
                 ],
                 const SizedBox(height: 16),
-                const Text('INPUTS',
+                const Text('Inputs',
                     style: TextStyle(fontWeight: FontWeight.w900)),
                 ...inputs.map((raw) {
                   final item = raw.cast<String, Object?>();
@@ -1571,7 +1571,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                   );
                 }),
                 const SizedBox(height: 16),
-                const Text('OUTPUTS',
+                const Text('Outputs',
                     style: TextStyle(fontWeight: FontWeight.w900)),
                 ...outputs.map((raw) {
                   final item = raw.cast<String, Object?>();
@@ -1589,7 +1589,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                 }),
                 if ((review['payloadHex'] as String).isNotEmpty) ...[
                   const SizedBox(height: 16),
-                  const Text('PAYLOAD',
+                  const Text('Payload',
                       style: TextStyle(fontWeight: FontWeight.w900)),
                   SelectableText(payloadText ?? review['payloadHex'] as String),
                 ],
@@ -2397,45 +2397,43 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<KaspireTheme>(
       valueListenable: AppSettings.theme,
-      builder: (context, selectedTheme, _) => ValueListenableBuilder<bool>(
-        valueListenable: AppSettings.uppercaseButtons,
-        builder: (context, _, __) => ValueListenableBuilder<FiatCurrency>(
-          valueListenable: AppSettings.fiatCurrency,
-          builder: (context, selectedCurrency, ___) => MaterialApp(
-            navigatorKey: _navigatorKey,
-            title: 'Kaspire',
-            debugShowCheckedModeBanner: false,
-            theme: KasVaultTheme.forTheme(selectedTheme),
-            builder: (context, child) => Listener(
-              behavior: HitTestBehavior.translucent,
-              onPointerDown: (_) => _recordActivity(),
-              child: Hub21Backdrop(child: child ?? const SizedBox.shrink()),
-            ),
-            home: FutureBuilder<String?>(
-              future: _address,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return const Scaffold(
-                    body: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                final address = snapshot.data;
-                if (address != null && _locked) {
-                  return _KaspireLockScreen(
-                    unlocking: _unlocking,
-                    onUnlock: _unlock,
-                  );
-                }
-                return address == null
-                    ? OnboardingScreen(onConnected: _openWallet)
-                    : HomeShell(
-                        key: ValueKey('$address-${selectedCurrency.code}'),
-                        address: address,
-                        onSwitchWallet: _openWallet,
-                        onDisconnect: _reset,
-                      );
-              },
-            ),
+      builder: (context, selectedTheme, _) =>
+          ValueListenableBuilder<FiatCurrency>(
+        valueListenable: AppSettings.fiatCurrency,
+        builder: (context, selectedCurrency, ___) => MaterialApp(
+          navigatorKey: _navigatorKey,
+          title: 'Kaspire',
+          debugShowCheckedModeBanner: false,
+          theme: KasVaultTheme.forTheme(selectedTheme),
+          builder: (context, child) => Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) => _recordActivity(),
+            child: Hub21Backdrop(child: child ?? const SizedBox.shrink()),
+          ),
+          home: FutureBuilder<String?>(
+            future: _address,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final address = snapshot.data;
+              if (address != null && _locked) {
+                return _KaspireLockScreen(
+                  unlocking: _unlocking,
+                  onUnlock: _unlock,
+                );
+              }
+              return address == null
+                  ? OnboardingScreen(onConnected: _openWallet)
+                  : HomeShell(
+                      key: ValueKey('$address-${selectedCurrency.code}'),
+                      address: address,
+                      onSwitchWallet: _openWallet,
+                      onDisconnect: _reset,
+                    );
+            },
           ),
         ),
       ),

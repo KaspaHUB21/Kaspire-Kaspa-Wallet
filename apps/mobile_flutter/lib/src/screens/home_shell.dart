@@ -219,6 +219,7 @@ class _HomeShellState extends State<HomeShell> {
         onReceive: () => setState(() => _index = 2),
         onPairDapps: _openDappSessions,
         onSwitchWallet: _openWalletManager,
+        onSettings: () => setState(() => _index = 3),
       ),
       SendScreen(
         key: ValueKey('$_sendRevision-${NetworkSettings.network.value.name}'),

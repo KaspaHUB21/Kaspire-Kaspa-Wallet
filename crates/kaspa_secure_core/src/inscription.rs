@@ -149,7 +149,9 @@ fn prepare_inscription_with_scheme(
     Ok(InscriptionPlan {
         kind: request.kind.to_lowercase(),
         commit_address: commit_address.to_string(),
-        commit_amount_sompi: COMMIT_AMOUNT_SOMPI,
+        // Partner list outputs remain spendable for settlement/cancellation.
+        // Keep ordinary transfers and the existing NFT marketplace unchanged.
+        commit_amount_sompi: if matches!(request.kind.to_lowercase().as_str(), "krc20-list" | "kns-list") { 200_000_000 } else { COMMIT_AMOUNT_SOMPI },
         namespace: namespace.into(),
         payload_json,
         redeem_script_hex: hex::encode(redeem_script),
@@ -233,7 +235,7 @@ fn build_reveal(
             .ok_or_else(|| CoreError::UntrustedUtxo("missing amount".into()))?,
     )
     .ok_or_else(|| CoreError::UntrustedUtxo("invalid amount".into()))?;
-    if amount != COMMIT_AMOUNT_SOMPI {
+    if amount != plan.commit_amount_sompi {
         return Err(CoreError::UntrustedUtxo("unexpected commit amount".into()));
     }
     let script_hex = entry_value
@@ -276,10 +278,8 @@ fn build_reveal(
             )],
             vec![TransactionOutput::new(
                 return_sompi,
-                if request.operation.kind.eq_ignore_ascii_case("krc721-list") {
-                    pay_to_address_script(&Address::try_from(crate::nft_market::descriptor(
-                        &request.operation.sender, &request.operation.ticker, &request.operation.token_id,
-                    )?["listingAddress"].as_str().ok_or(CoreError::Serialization)?)
+                if ["krc721-list","krc20-list","kns-list"].contains(&request.operation.kind.to_lowercase().as_str()) {
+                    pay_to_address_script(&Address::try_from(listing_descriptor(&request.operation)?["listingAddress"].as_str().ok_or(CoreError::Serialization)?)
                         .map_err(|_| CoreError::InvalidAddress)?)
                 } else {
                     pay_to_address_script(&sender)
@@ -351,6 +351,10 @@ fn quoted(value: &str) -> Result<String> {
     serde_json::to_string(value).map_err(|_| CoreError::Serialization)
 }
 
+fn listing_descriptor(r:&InscriptionRequest)->Result<Value>{
+    let req:crate::kaspacom_market::Request=serde_json::from_value(json!({"action":"describe","kind":r.kind.trim_end_matches("-list"),"sender":r.sender,"seller":r.sender,"ticker":r.ticker,"tokenId":r.token_id,"assetId":r.asset_id})).map_err(|_|CoreError::Serialization)?;
+    crate::kaspacom_market::descriptor(&req)
+}
 fn canonical_payload(request: &InscriptionRequest) -> Result<(&'static str, String)> {
     let to = checked_address(&request.recipient)?.to_string();
     let ticker = request.ticker.trim().to_lowercase();
@@ -369,6 +373,16 @@ fn canonical_payload(request: &InscriptionRequest) -> Result<(&'static str, Stri
                 return Err(CoreError::InvalidRequest("NFT listing recipient must be the seller".into()));
             }
             Ok(("kspr", format!("{{\"p\":\"krc-721\",\"op\":\"list\",\"tick\":{},\"tokenId\":{}}}", quoted(&ticker)?, quoted(&request.token_id)?)))
+        }
+        "krc20-list" => {
+            listing_descriptor(request)?;
+            if to!=request.sender||request.amount.is_empty()||request.amount.len()>78||!request.amount.bytes().all(|c|c.is_ascii_digit())||request.amount.bytes().all(|c|c==b'0') {return Err(CoreError::InvalidRequest("Invalid KRC20 listing amount or seller".into()));}
+            Ok(("kasplex",format!("{{\"p\":\"krc-20\",\"op\":\"list\",\"tick\":{},\"amt\":{}}}",quoted(&ticker)?,quoted(&request.amount)?)))
+        }
+        "kns-list" => {
+            listing_descriptor(request)?;
+            if to!=request.sender{return Err(CoreError::InvalidRequest("Only the owner can list a KNS name".into()));}
+            Ok(("kns",format!("{{\"op\":\"list\",\"p\":\"domain\",\"id\":{}}}",quoted(&request.asset_id.to_lowercase())?)))
         }
         "krc20" => {
             if ticker.is_empty()

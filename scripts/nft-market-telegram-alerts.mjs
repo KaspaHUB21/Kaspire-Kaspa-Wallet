@@ -46,24 +46,42 @@ async function fetchJson(url) {
   return response.json();
 }
 
-async function sendPhoto({token, chatId, threadId, imageBase}, kind, record) {
-  const image = await fetch(`${imageBase}/${encodeURIComponent(record.ticker)}/${encodeURIComponent(record.tokenId)}`,
-    {signal: AbortSignal.timeout(15000), cache: 'no-store'});
-  if (!image.ok) throw Error(`Local NFT image returned HTTP ${image.status}`);
-  const bytes = await image.arrayBuffer();
-  if (!bytes.byteLength || bytes.byteLength > 10 * 1024 * 1024) throw Error('NFT image size is invalid for Telegram');
-  const form = new FormData();
-  form.set('chat_id', chatId);
-  form.set('message_thread_id', threadId);
-  form.set('parse_mode', 'HTML');
-  form.set('caption', alertCaption(kind, record));
-  form.set('photo', new Blob([bytes], {type: image.headers.get('content-type') || 'image/png'}), `${record.ticker}-${record.tokenId}.png`);
-  const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-    method: 'POST', body: form, signal: AbortSignal.timeout(30000),
+async function sendTelegram(config, method, body) {
+  const response = await fetch(`https://api.telegram.org/bot${config.token}/${method}`, {
+    method: 'POST', body, signal: AbortSignal.timeout(30000),
   });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok || result.ok !== true) throw Error(`Telegram sendPhoto failed (${response.status}): ${String(result.description || 'unknown error').slice(0, 160)}`);
-  return result.result?.message_id;
+  if (!response.ok || result.ok !== true || !Number.isSafeInteger(result.result?.message_id)) {
+    throw Error(`Telegram ${method} failed (${response.status}): ${String(result.description || 'invalid receipt').slice(0, 160)}`);
+  }
+  return {messageId: result.result.message_id, method};
+}
+
+async function sendAlert(config, kind, record) {
+  let bytes, mime;
+  try {
+    const image = await fetch(`${config.imageBase}/${encodeURIComponent(record.ticker)}/${encodeURIComponent(record.tokenId)}`,
+      {signal: AbortSignal.timeout(15000), cache: 'no-store', redirect: 'error'});
+    if (!image.ok) { await image.body?.cancel(); throw Error('Image unavailable'); }
+    mime = image.headers.get('content-type')?.split(';')[0];
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(mime)) {
+      await image.body?.cancel(); throw Error('Unsupported image');
+    }
+    bytes = await image.arrayBuffer();
+    if (!bytes.byteLength || bytes.byteLength > 10 * 1024 * 1024) throw Error('Invalid image size');
+  } catch {
+    const body = new URLSearchParams({chat_id: config.chatId, message_thread_id: config.threadId,
+      parse_mode: 'HTML', text: alertCaption(kind, record) + '\n\n🖼 Image unavailable.'});
+    return sendTelegram(config, 'sendMessage', body);
+  }
+  const form = new FormData();
+  form.set('chat_id', config.chatId);
+  form.set('message_thread_id', config.threadId);
+  form.set('parse_mode', 'HTML');
+  form.set('caption', alertCaption(kind, record));
+  const extension = {'image/png':'png', 'image/jpeg':'jpg', 'image/webp':'webp', 'image/gif':'gif'}[mime];
+  form.set('photo', new Blob([bytes], {type: mime}), `${record.ticker}-${record.tokenId}.${extension}`);
+  return sendTelegram(config, 'sendPhoto', form);
 }
 
 export async function runAlerts(config) {
@@ -83,20 +101,38 @@ export async function runAlerts(config) {
   const byListing = new Map(offers.map(offer => [offer.listingTransactionId, offer]));
   const pendingListings = offers.filter(offer => !listingIds.has(offer.listingTransactionId))
     .sort((a, b) => Number(a.createdAt) - Number(b.createdAt));
-  for (const offer of pendingListings) {
-    await sendPhoto(config, 'listing', offer);
-    listingIds.add(offer.listingTransactionId);
-    state.listings = [...listingIds]; await atomicJson(config.alertState, state);
-  }
   const pendingSales = salesPage.sales.filter(sale => !saleIds.has(sale.transactionId))
     .sort((a, b) => Number(a.soldAt) - Number(b.soldAt));
-  for (const sale of pendingSales) {
-    const offer = byListing.get(sale.listingTransactionId) || {};
-    await sendPhoto(config, 'sale', {...sale, rarityRank: offer.rarityRank ?? null});
-    saleIds.add(sale.transactionId);
-    state.sales = [...saleIds]; await atomicJson(config.alertState, state);
+  const sent = {listings: 0, sales: 0, failed: 0};
+  for (const [kind, records, ids, field, counter, idKey] of [
+    ['listing', pendingListings, listingIds, 'listings', 'listings', 'listingTransactionId'],
+    ['sale', pendingSales, saleIds, 'sales', 'sales', 'transactionId'],
+  ]) {
+    for (const record of records) {
+      const offer = byListing.get(record.listingTransactionId) || {};
+      let receipt;
+      try {
+        receipt = await sendAlert(config, kind, kind === 'sale'
+          ? {...record, rarityRank: offer.rarityRank ?? record.rarityRank ?? null} : record);
+      } catch (error) {
+        sent.failed++;
+        console.error(JSON.stringify({status:'failed', kind, ticker:record.ticker,
+          tokenId:record.tokenId, eventId:record[idKey], error:String(error.message || error).slice(0, 300)}));
+        continue;
+      }
+      // Persist each confirmed delivery before proceeding; state-write failures abort
+      // rather than continuing to send without a durable duplicate guard.
+      ids.add(record[idKey]);
+      state[field] = [...ids];
+      state.receipts ||= {};
+      state.receipts[`${kind}:${record[idKey]}`] = {...receipt, sentAt:Date.now()};
+      await atomicJson(config.alertState, state);
+      sent[counter]++;
+      console.log(JSON.stringify({status:'delivered', kind, ticker:record.ticker,
+        tokenId:record.tokenId, eventId:record[idKey], ...receipt}));
+    }
   }
-  return {listings: pendingListings.length, sales: pendingSales.length};
+  return sent;
 }
 
 async function main() {
@@ -106,7 +142,7 @@ async function main() {
     imageBase: required('NFT_IMAGE_BASE')};
   const interval = Math.max(10000, Number(process.env.ALERT_INTERVAL_MS) || 30000);
   for (;;) {
-    try { const sent = await runAlerts(config); if (sent.listings || sent.sales) console.log(JSON.stringify({status:'sent', ...sent})); }
+    try { const sent = await runAlerts(config); if (sent.listings || sent.sales || sent.failed) console.log(JSON.stringify({status:'sent', ...sent})); }
     catch (error) { console.error(`NFT marketplace alert cycle failed: ${String(error.message || error).slice(0, 300)}`); }
     await new Promise(resolve => setTimeout(resolve, interval));
   }

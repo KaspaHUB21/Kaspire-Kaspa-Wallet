@@ -275,7 +275,7 @@ class NeptuneBalanceCard extends StatelessWidget {
                                     : Icons.visibility_outlined,
                                 color: const Color(0xFF7EF4E7)))
                       ]),
-                      const Text('TOTAL BALANCE',
+                      const Text('Total Balance',
                           style: TextStyle(
                               color: Color(0xFFB0D9DF),
                               fontSize: 11,

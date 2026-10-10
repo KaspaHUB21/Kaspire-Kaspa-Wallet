@@ -27,6 +27,8 @@ type View =
   | "receive"
   | "activity"
   | "pending-reveal"
+  | "swap"
+  | "vaults"
   | "marketplace";
 let view: View = "home";
 let status: any;
@@ -233,6 +235,16 @@ function settingsIcon() {
 function agoraIcon() {
   return '<svg class="ui-symbol agora-symbol" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M5 17h14M6 9h12M7 9v8m3-8v8m4-8v8m3-8v8M4 9l8-5 8 5"/></svg>';
 }
+function swapIcon() {
+  return '<svg class="ui-symbol" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/></svg>';
+}
+function vaultIcon() {
+  return '<svg class="ui-symbol" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="13" cy="12" r="4"/><path d="M13 8v8m-4-4h8M6 7v3m0 4v3"/></svg>';
+}
+function upcomingFeature(vaults: boolean) {
+  shell(`<section class="feature-preview"><article class="review-card"><div class="feature-emblem">${vaults ? vaultIcon() : swapIcon()}</div><h1>${vaults ? 'Your money. Your rules.' : 'KCC20 DEX Swaps'}</h1><p>${vaults ? 'Programmable self-custody and true sovereignty. Secured by covenant logic and Kaspa consensus.' : 'Available very soon'}</p>${vaults ? '<p>New Silverscript Vaults are releasing very soon directly inside Kaspire. In the meantime you can test the previous vaults from KasCoven Vaults.</p><button id="open-cascoven-vaults">Open KasCoven Vaults</button>' : ''}</article></section>`, vaults ? 'Vaults' : 'Swap', true);
+  if (vaults) document.querySelector<HTMLButtonElement>('#open-cascoven-vaults')!.onclick = () => chrome.tabs.create({url:'https://vaults.kaslab.space/'});
+}
 function storeUpdateStatus() {
   storeUpdateRequest ??= rawCommand("storeUpdateStatus").catch(() => ({
     installedVersion: chrome.runtime.getManifest().version,
@@ -333,7 +345,7 @@ function shell(content: string, title = "KASPIRE", back = false) {
     .querySelector<HTMLButtonElement>("#back")
     ?.addEventListener("click", () => {
       view =
-        view === "wallets" || view === "settings" || view === "home"
+        view === "wallets" || view === "settings" || view === "home" || view === 'swap' || view === 'vaults'
           ? "home"
           : (context.returnView ??
             (view === "contact" || view === "my-wallets"
@@ -408,6 +420,7 @@ async function render() {
   if (status.recoveryVerified === false)
     return recovery(await command("pendingRecovery"));
   if (view === "home") return home();
+  if (view === 'swap' || view === 'vaults') return upcomingFeature(view === 'vaults');
   if (view === "pending-reveal") return pendingReveal();
   if (view === "wallets") return wallets();
   if (
@@ -623,7 +636,7 @@ function home() {
     (item: any) => item.address === status.selectedAddress,
   );
   shell(
-    `<section class="dashboard"><div class="wallet-head"><div class="wallet-brand"><button id="wallets" class="wallet-select"><img src="kaspire-icon.png" alt=""><span><b>${esc(selected?.name ?? "Wallet")}</b><small id="active-address">${short(status.selectedAddress)}</small></span></button><button id="copy-main-address" class="copy-main" title="Verify and copy wallet address" aria-label="Verify and copy wallet address">${copyIcon()}</button></div><div class="head-buttons"><button id="network" class="pill" title="Switch network" aria-label="Switch network">● ${networkLabel()} <span aria-hidden="true">⌄</span></button><button id="settings" class="icon" aria-label="Settings" title="Settings">${settingsIcon()}</button></div></div><section class="balance-card"><p>TOTAL BALANCE</p><strong id="balance">— ${status.network === "igra" ? "iKAS" : "KAS"}</strong><small id="fiat"></small><button id="privacy" class="eye" aria-label="${status.settings.hideBalances ? "Show balances" : "Hide balances"}">${eyeIcon(status.settings.hideBalances)}</button></section><div class="quick-actions four"><button id="send"><b>↑</b><span>SEND</span></button><button id="receive"><b>↓</b><span>RECEIVE</span></button><button id="activity"><b>≡</b><span>ACTIVITY</span></button><button id="marketplace"><b>${agoraIcon()}</b><span>K-AGORA</span></button></div><section class="assets"><div class="section-title"><h2>ASSETS & NAMES</h2><span id="asset-count"></span></div><div id="asset-list"><div class="loading">Loading assets…</div></div></section><button id="app-promo" class="app-promo">Kaspire is even better in the app!<span>›</span></button></section>`,
+    `<section class="dashboard"><div class="wallet-head"><div class="wallet-brand"><button id="wallets" class="wallet-select"><img src="kaspire-icon.png" alt=""><span><b>${esc(selected?.name ?? "Wallet")}</b><small id="active-address">${short(status.selectedAddress)}</small></span></button><button id="copy-main-address" class="copy-main" title="Verify and copy wallet address" aria-label="Verify and copy wallet address">${copyIcon()}</button></div><div class="head-buttons"><button id="network" class="pill" title="Switch network" aria-label="Switch network">● ${networkLabel()} <span aria-hidden="true">⌄</span></button><button id="settings" class="icon" aria-label="Settings" title="Settings">${settingsIcon()}</button></div></div><section class="balance-card"><p>TOTAL BALANCE</p><strong id="balance">— ${status.network === "igra" ? "iKAS" : "KAS"}</strong><small id="fiat"></small><button id="privacy" class="eye" aria-label="${status.settings.hideBalances ? "Show balances" : "Hide balances"}">${eyeIcon(status.settings.hideBalances)}</button></section><div class="quick-actions ${isL2() ? "four" : "six"}"><button id="send"><b>↑</b><span>SEND</span></button><button id="receive"><b>↓</b><span>RECEIVE</span></button><button id="activity"><b>≡</b><span>ACTIVITY</span></button>${isL2() ? "" : `<button id="swap"><b>${swapIcon()}</b><span>SWAP</span></button><button id="vaults"><b>${vaultIcon()}</b><span>VAULTS</span></button>`}<button id="marketplace"><b>${agoraIcon()}</b><span>K-AGORA</span></button></div><section class="assets"><div class="section-title"><h2>ASSETS & NAMES</h2><span id="asset-count"></span></div><div id="asset-list"><div class="loading">Loading assets…</div></div></section><button id="app-promo" class="app-promo">Kaspire is even better in the app!<span>›</span></button></section>`,
   );
   document.querySelector<HTMLButtonElement>("#wallets")!.onclick = () =>
     go("wallets");
@@ -649,6 +662,8 @@ function home() {
     go("receive");
   document.querySelector<HTMLButtonElement>("#activity")!.onclick = () =>
     go("activity");
+  document.querySelector<HTMLButtonElement>('#swap')?.addEventListener('click', () => go('swap'));
+  document.querySelector<HTMLButtonElement>('#vaults')?.addEventListener('click', () => go('vaults'));
   document.querySelector<HTMLButtonElement>("#marketplace")!.onclick = () =>
     go("marketplace");
   document.querySelector<HTMLButtonElement>("#app-promo")!.onclick = () =>
@@ -1206,7 +1221,7 @@ function toolbox() {
     ["Token Explorer", "https://kaspatoken.kaslab.space"],
     ["KasCoven Vaults", "https://vaults.kaslab.space"],
     ["Kaspa Dev Tools", "https://devtools.kaslab.space"],
-    ["KCC20 Indexer", "https://kcc20.info"],
+    ["Kasvio", "https://kasvio.network/"],
     ["Discover more", "https://kaslab.space"],
   ]
     .map(
@@ -1768,7 +1783,7 @@ function kronDetail(asset: any) {
     ? `<img src="${esc(asset.raw.image_url)}" alt="">`
     : esc(asset.symbol.slice(0, 2));
   shell(
-    `<section class="token-detail"><div class="token-logo">${image}</div><h1>${esc(asset.symbol)}</h1><p>${esc(asset.raw?.name ?? "KRON Native token")}</p><strong>${esc(asset.balance)} ${esc(asset.symbol)}</strong><div class="review-card"><div><span>Standard</span><b>KRON Native KCC20</b></div><div><span>Verification</span><b>Template verified</b></div><div><span>Covenant ID</span><b class="wrap-id">${esc(asset.raw.covenantId)}</b></div></div><button id="send-kron">Send asset</button><button id="kcc-explorer" class="outline">Check on KCC20 Explorer</button><p class="hint">The KRON covenant transaction is built locally, reviewed by Kaspire and signed only after your approval.</p></section>`,
+    `<section class="token-detail"><div class="token-logo">${image}</div><h1>${esc(asset.symbol)}</h1><p>${esc(asset.raw?.name ?? "KRON Native token")}</p><strong>${esc(asset.balance)} ${esc(asset.symbol)}</strong><div class="review-card"><div><span>Standard</span><b>KRON Native KCC20</b></div><div><span>Balance source</span><b>${asset.raw?.validationStatus === 'observed' ? 'KRON indexer' : 'KCC20 indexer'}</b></div>${asset.raw?.priceKas != null ? `<div><span>Price · Kasvio</span><b>${esc(asset.raw.priceKas)} KAS</b></div>` : ''}<div><span>Covenant ID</span><b class="wrap-id">${esc(asset.raw.covenantId)}</b></div></div><button id="send-kron">Send asset</button><button id="kcc-explorer" class="outline">Open token source</button><p class="hint">Signing cells are verified against the local Kaspa node. The KRON covenant transaction is built locally, reviewed by Kaspire and signed only after your approval.</p></section>`,
     "TOKEN DETAILS",
     true,
   );

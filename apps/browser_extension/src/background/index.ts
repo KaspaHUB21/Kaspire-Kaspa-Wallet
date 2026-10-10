@@ -3766,14 +3766,26 @@ async function prepareKronTransfer(
     const first = decoded[0];
     if (!first) throw new Error("No spendable KRON token cells were found.");
     const template = first.decoded.template;
+    const senderScript = String(kaspa.payToAddressScript(sender).script ?? '');
+    const senderOwner = /^20([0-9a-f]{64})ac$/i.exec(senderScript)?.[1]?.toLowerCase();
+    if (!senderOwner) throw new Error('KRON transfers require a standard P2PK sender.');
     for (const item of decoded) {
       if (
         item.decoded.state.identifierType !== kronKcc20.IDENTIFIER.ADDRESS ||
+        item.decoded.state.isMinter ||
+        Array.from(item.decoded.state.ownerIdentifier as Uint8Array, byte => byte.toString(16).padStart(2, '0')).join('') !== senderOwner ||
         item.decoded.state.amount !== BigInt(item.cell.tokenAmount)
       )
         throw new Error(
           "KRON cell ownership or amount did not match its verified state.",
         );
+      if (String(kaspa.payToScriptHashScript(hexBytes(item.cell.redeemScript)).script ?? '').toLowerCase() !== item.cell.scriptPublicKey)
+        throw new Error('KRON redeem script does not match the node-verified output.');
+      const neutral = {ownerIdentifier: new Uint8Array(32), identifierType: kronKcc20.IDENTIFIER.ADDRESS, amount: 0n, isMinter: false};
+      const expectedTemplate = kronKcc20.materializeKcc20Script(template, neutral);
+      const candidateTemplate = kronKcc20.materializeKcc20Script(item.decoded.template, neutral);
+      if (expectedTemplate.length !== candidateTemplate.length || expectedTemplate.some((byte: number, index: number) => byte !== candidateTemplate[index]))
+        throw new Error('KRON cells use conflicting covenant templates.');
     }
     stage = "recipient script";
     const recipientScript = String(

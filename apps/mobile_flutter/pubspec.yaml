@@ -1,7 +1,7 @@
 name: kasvault_wallet
 description: Android-first Kaspa wallet with a native Rust signing boundary.
 publish_to: none
-version: 0.11.49+151
+version: 0.11.50+166
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
@@ -13,6 +13,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.2.2
   flutter_secure_storage: ^9.2.2
+  flutter_svg: ^2.2.3
   local_auth: ^2.3.0
   package_info_plus: ^9.0.1
   qr_code_scanner_plus: ^2.2.0
@@ -21,6 +22,8 @@ dependencies:
   share_plus: ^10.0.2
   shared_preferences: ^2.3.2
   url_launcher: ^6.3.0
+  webview_flutter: ^4.14.1
+  webview_flutter_android: ^4.13.0
 
 dev_dependencies:
   flutter_test:
@@ -30,6 +33,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/browser/
     - assets/branding/kaspire_wordmark.png
     - assets/branding/hub21_wordmark.png
     - assets/branding/kaspire_app_icon_v4.png

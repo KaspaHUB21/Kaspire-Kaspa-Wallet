@@ -28,6 +28,8 @@ import 'k_agora_screen.dart';
 import 'kasparocket_screen.dart';
 import '../widgets/kaspire_brand.dart';
 import '../widgets/nexus_bell.dart';
+import 'dapp_browser_selection_screen.dart';
+import 'upcoming_feature_screen.dart';
 
 class WalletScreen extends StatefulWidget {
   const WalletScreen({
@@ -38,6 +40,7 @@ class WalletScreen extends StatefulWidget {
     required this.onPairDapps,
     required this.onSendAsset,
     required this.onSwitchWallet,
+    required this.onSettings,
   });
   final String address;
   final VoidCallback onSend;
@@ -45,6 +48,7 @@ class WalletScreen extends StatefulWidget {
   final VoidCallback onPairDapps;
   final ValueChanged<AssetSendIntent> onSendAsset;
   final VoidCallback onSwitchWallet;
+  final VoidCallback onSettings;
 
   @override
   State<WalletScreen> createState() => _WalletScreenState();
@@ -76,6 +80,21 @@ class _WalletScreenState extends State<WalletScreen> {
     _activity = Future<void>.delayed(const Duration(milliseconds: 500))
         .then<List<WalletTransaction>>((_) => _loadActivity());
     _walletName = _loadWalletName();
+  }
+
+  Future<void> _openAgora() async {
+    if (NetworkSettings.network.value == KaspaNetwork.mainnet) {
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => KAgoraScreen(address: widget.address)));
+    } else if (NetworkSettings.network.value == KaspaNetwork.tn10) {
+      await Navigator.of(context).push(MaterialPageRoute<bool>(
+          builder: (_) => KaspaRocketScreen(
+              address: NetworkSettings.addressForNetwork(widget.address))));
+      if (mounted) _refresh();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('K-Agora DEX testing is available on TN10.')));
+    }
   }
 
   void _reloadLocalActivity() {
@@ -176,13 +195,17 @@ class _WalletScreenState extends State<WalletScreen> {
       Future.wait(
         {widget.address, account.primaryAddress}.map(ActivityStore().load),
       ).then((lists) => lists.expand((items) => items).toList()),
+      _api
+          .loadKrc20Transactions(account.primaryAddress)
+          .catchError((_) => <WalletTransaction>[]),
     ]);
     final snapshot = results[0] as WalletSnapshot;
     final native = results[1] as List<WalletTransaction>;
     final local = results[2] as List<WalletTransaction>;
+    final tokens = results[3] as List<WalletTransaction>;
     return mergeWalletActivity(
       local,
-      <WalletTransaction>[...snapshot.transactions, ...native]
+      <WalletTransaction>[...snapshot.transactions, ...native, ...tokens]
         ..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
     );
   }
@@ -418,77 +441,28 @@ class _WalletScreenState extends State<WalletScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _Action(
-                        icon: Icons.arrow_upward_rounded,
-                        label: 'SEND',
-                        onTap: widget.onSend,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _Action(
-                        icon: Icons.arrow_downward_rounded,
-                        label: 'RECEIVE',
-                        onTap: widget.onReceive,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _Action(
-                        icon: Icons.qr_code_scanner_rounded,
-                        label: 'PAIR DAPP',
-                        onTap: NetworkSettings.isTestnet
-                            ? () => ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'dApp sessions are available on Layer 1 and supported Layer 2 networks.',
-                                    ),
-                                  ),
-                                )
-                            : widget.onPairDapps,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _Action(
-                        icon: Icons.account_balance_rounded,
-                        label: 'K-AGORA',
-                        onTap: NetworkSettings.network.value ==
-                                KaspaNetwork.mainnet
-                            ? () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => KAgoraScreen(
-                                      address: widget.address,
-                                    ),
-                                  ),
-                                )
-                            : NetworkSettings.network.value == KaspaNetwork.tn10
-                                ? () async {
-                                    await Navigator.of(context).push(
-                                      MaterialPageRoute<bool>(
-                                        builder: (_) => KaspaRocketScreen(
-                                          address:
-                                              NetworkSettings.addressForNetwork(
-                                                  widget.address),
-                                        ),
-                                      ),
-                                    );
-                                    if (mounted) _refresh();
-                                  }
-                                : () =>
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'K-Agora DEX testing is available on TN10.',
-                                        ),
-                                      ),
-                                    ),
-                      ),
-                    ),
-                  ],
+                WalletDashboardActions(
+                  onSend: widget.onSend,
+                  onReceive: widget.onReceive,
+                  onVaults: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) =>
+                              const UpcomingFeatureScreen(vaults: true))),
+                  onSwap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) =>
+                              const UpcomingFeatureScreen(vaults: false))),
+                  onBrowser: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) => const DappBrowserSelectionScreen())),
+                  onPairDapp: NetworkSettings.isTestnet
+                      ? () => ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text(
+                                  'dApp sessions are available on Layer 1 and supported Layer 2 networks.')))
+                      : widget.onPairDapps,
+                  onAgora: _openAgora,
+                  onSettings: widget.onSettings,
                 ),
                 const SizedBox(height: 32),
                 if (snapshot.hasData || _progress != null) ...[
@@ -1041,6 +1015,53 @@ class _BalanceCard extends StatelessWidget {
   }
 }
 
+class WalletDashboardActions extends StatelessWidget {
+  const WalletDashboardActions(
+      {super.key,
+      required this.onSend,
+      required this.onReceive,
+      required this.onVaults,
+      required this.onSwap,
+      required this.onBrowser,
+      required this.onPairDapp,
+      required this.onAgora,
+      required this.onSettings});
+  final VoidCallback onSend,
+      onReceive,
+      onVaults,
+      onSwap,
+      onBrowser,
+      onPairDapp,
+      onAgora,
+      onSettings;
+  @override
+  Widget build(BuildContext context) {
+    final actions = [
+      (Icons.arrow_upward_rounded, 'SEND', onSend),
+      (Icons.arrow_downward_rounded, 'RECEIVE', onReceive),
+      (Icons.lock_person_outlined, 'VAULTS', onVaults),
+      (Icons.swap_horiz_rounded, 'SWAP', onSwap),
+      (Icons.public_rounded, 'BROWSER', onBrowser),
+      (Icons.qr_code_scanner_rounded, 'PAIR DAPP', onPairDapp),
+      (Icons.account_balance_rounded, 'K-AGORA', onAgora),
+      (Icons.tune_rounded, 'SETTINGS', onSettings),
+    ];
+    Widget row(int start) => Row(children: [
+          for (var i = start; i < start + 4; i++) ...[
+            if (i > start) const SizedBox(width: 8),
+            Expanded(
+                child: SizedBox(
+                    height: 76,
+                    child: _Action(
+                        icon: actions[i].$1,
+                        label: actions[i].$2,
+                        onTap: actions[i].$3))),
+          ],
+        ]);
+    return Column(children: [row(0), const SizedBox(height: 8), row(4)]);
+  }
+}
+
 class _Action extends StatelessWidget {
   const _Action({required this.icon, required this.label, required this.onTap});
   final IconData icon;
@@ -1053,24 +1074,28 @@ class _Action extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(18),
           child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 17),
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
             decoration: BoxDecoration(
               color: KasVaultTheme.panel,
               borderRadius: BorderRadius.circular(18),
               border: Border.all(color: KasVaultTheme.line),
             ),
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(icon, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(height: 7),
-                Text(
-                  buttonLabel(label),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: .7,
-                  ),
-                ),
+                FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      buttonLabel(label),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .2,
+                      ),
+                    )),
               ],
             ),
           ),

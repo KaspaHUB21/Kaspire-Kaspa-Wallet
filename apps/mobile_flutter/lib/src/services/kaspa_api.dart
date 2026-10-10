@@ -4,6 +4,7 @@ import 'kns_holdings_loader.dart';
 import 'dotk_service.dart';
 import 'kasparocket_service.dart';
 import 'krc721_reads.dart';
+import 'kron_holdings.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -39,6 +40,7 @@ class KaspaApi {
     this.kcc20IndexerBaseUrl = 'https://kcc20.info',
     this.kascovBaseUrl = 'https://kascov.io/data/mainnet',
     this.kronIndexerBaseUrl = 'https://idx.kron.technology/v1/kcc20',
+    this.kasvioBaseUrl = 'https://kasvio.network',
     this.toccataBroadcastUrl =
         'https://gothdag.kaslab.space/api/covenant-broadcast',
   })  : _baseUrlOverride = baseUrl,
@@ -63,6 +65,9 @@ class KaspaApi {
   final String kcc20IndexerBaseUrl;
   final String kascovBaseUrl;
   final String kronIndexerBaseUrl;
+  final String kasvioBaseUrl;
+  KronHoldings get kronHoldings =>
+      KronHoldings(_client, indexer: kronIndexerBaseUrl, kasvio: kasvioBaseUrl);
   final String toccataBroadcastUrl;
   Future<Map<String, double>>? _floorPrices;
 
@@ -780,6 +785,19 @@ class KaspaApi {
         .toList();
   }
 
+  /// Fresh activity, independent of the cached asset/balance snapshot.
+  Future<List<WalletTransaction>> loadKrc20Transactions(String address) async {
+    if (NetworkSettings.isTestnet || NetworkSettings.isEvm) return [];
+    final rows = await _loadKrc20WalletTransactions(kasplexBaseUrl, address)
+        .timeout(const Duration(seconds: 8))
+        .catchError((_) =>
+            _loadKrc20WalletTransactions(kccKrc20BaseUrl, address)
+                .timeout(const Duration(seconds: 8)));
+    return _parseTokenTransactions({
+      'data': {'transactions': rows}
+    }, address);
+  }
+
   Future<List<Map<String, Object?>>> _loadKrc20WalletTransactions(
     String sourceBaseUrl,
     String address,
@@ -954,10 +972,12 @@ class KaspaApi {
   }) async {
     _Kcc20Wallet? primaryProgress;
     _Kcc20Wallet? fallbackProgress;
+    _Kcc20Wallet? kronProgress;
     void publish() {
-      final value = primaryProgress != null && fallbackProgress != null
+      var value = primaryProgress != null && fallbackProgress != null
           ? _mergeKcc20Wallets(primaryProgress!, fallbackProgress!)
           : primaryProgress ?? fallbackProgress;
+      if (kronProgress != null) value = _withKronHoldings(value, kronProgress!);
       if (value != null) onProgress?.call(value);
     }
 
@@ -975,24 +995,92 @@ class KaspaApi {
         publish();
         return value;
       }).catchError((_) => null),
+      kronHoldings.load(address, onProgress: (assets) {
+        kronProgress =
+            _Kcc20Wallet(assets: assets, transactions: const [], warning: '');
+        publish();
+      }).then<_Kcc20Wallet?>((assets) {
+        final value =
+            _Kcc20Wallet(assets: assets, transactions: const [], warning: '');
+        kronProgress = value;
+        publish();
+        return value;
+      }).catchError((_) => null),
     ]);
     final primary = results[0];
     final fallback = results[1];
-    if (primary == null && fallback == null) {
+    if (primary == null && fallback == null && results[2] == null) {
       throw KaspaApiException(
         'Both KCC20 indexers are temporarily unavailable.',
       );
     }
-    if (primary == null) {
-      return _Kcc20Wallet(
-        assets: fallback!.assets,
-        transactions: fallback.transactions,
-        warning:
-            'The primary KCC20 indexer is unavailable; Kaspire is using Kascov fallback data.',
-      );
+    final existing = primary != null && fallback != null
+        ? _mergeKcc20Wallets(primary, fallback)
+        : primary ?? fallback;
+    return results[2] != null
+        ? _withKronHoldings(existing, results[2]!)
+        : existing!;
+  }
+
+  _Kcc20Wallet _withKronHoldings(_Kcc20Wallet? existing, _Kcc20Wallet kron) {
+    final ids = kron.assets.map((asset) => asset.covenantId).toSet();
+    return _Kcc20Wallet(
+      assets: [
+        ...?existing?.assets.where((asset) =>
+            asset.standard != 'kron-native' && !ids.contains(asset.covenantId)),
+        ...kron.assets,
+      ],
+      transactions: existing?.transactions ?? const [],
+      warning: existing == null
+          ? 'KRON balances loaded. Legacy KCC20 sources are temporarily unavailable.'
+          : existing.warning,
+    );
+  }
+
+  /// Token quantities from KRON must not be confused with native UTXO value.
+  Future<List<Kcc20CellRecord>> loadKronSigningCells(
+      String address, String covenantId, int amount) async {
+    final rows = await kronHoldings.transferRows(address, covenantId, amount);
+    final cells = <Kcc20CellRecord>[];
+    for (final row in rows) {
+      final txid = row['outpoint']['transactionId'].toString();
+      final index = row['outpoint']['index'] as int;
+      final transaction = _map(await _get('/local-node/transactions/$txid'));
+      final outputs = transaction['outputs'] as List? ?? const [];
+      final output = outputs.whereType<Map>().firstWhere(
+          (item) => _nullableInt(item['index']) == index,
+          orElse: () => throw KaspaApiException(
+              'The local node could not find this KRON output.'));
+      final outputAddress =
+          (output['script_public_key_address'] ?? output['address'])
+              ?.toString();
+      if (outputAddress == null) {
+        throw KaspaApiException(
+            'KRON output address is missing on the local node.');
+      }
+      final live = await _get(
+          '/local-node/addresses/${Uri.encodeComponent(outputAddress)}/utxos');
+      final entry =
+          (live is List ? live : const []).whereType<Map>().firstWhere(
+                (item) =>
+                    item['outpoint']?['transactionId'] == txid &&
+                    item['outpoint']?['index'] == index,
+                orElse: () => throw KaspaApiException(
+                    'This KRON output is already spent or pending. Refresh and try again.'),
+              )['utxoEntry'] as Map;
+      cells.add(Kcc20CellRecord(
+        covenantId: covenantId,
+        transactionId: txid,
+        index: index,
+        valueSompi: _asInt(output['amount']),
+        blockDaaScore: _asInt(entry['blockDaaScore']),
+        scriptPublicKey: _normalizeScriptPublicKey(row['scriptPublicKey']),
+        tokenAmount: int.parse(row['amount'].toString()),
+        redeemScript: row['redeemScriptHex'].toString(),
+      ));
     }
-    if (fallback == null) return primary;
-    return _mergeKcc20Wallets(primary, fallback);
+    await verifyKcc20CellsOnOwnNode(cells, covenantId);
+    return cells;
   }
 
   _Kcc20Wallet _mergeKcc20Wallets(

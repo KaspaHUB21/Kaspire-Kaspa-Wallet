@@ -1,4 +1,5 @@
 import type { KaspaNetwork } from "../shared/protocol";
+import {directKronAssets, directKronTransfer} from './kronHoldings';
 import {dotkNamesOf, resolveDotkName} from "./dotk";
 import { nftWalletPage, nftMetadata, nftImage, requireUnlistedNft } from "./krc721Reads";
 const MAINNET = "https://kaspire.kaslab.space/api";
@@ -439,7 +440,7 @@ function verifiedKcc20Standard(token: any) {
     return "legacy-kcc20";
   return "";
 }
-async function loadKcc20Assets(address: string) {
+async function loadKcc20AssetsFromIndexer(address: string) {
   const owner = ownerId(address);
   if (!owner) return [];
   const [status, balances] = await Promise.all([
@@ -510,6 +511,49 @@ async function loadKcc20Assets(address: string) {
       }),
     )
   ).filter(Boolean);
+}
+async function loadKcc20Assets(address: string) {
+  const [legacy, kron] = await Promise.allSettled([
+    loadKcc20AssetsFromIndexer(address).catch(() => loadKascovAssets(address)),
+    directKronAssets(url => request(url, {headers: {accept: 'application/json'}}, 5000), address),
+  ]);
+  if (legacy.status === 'rejected' && kron.status === 'rejected') throw legacy.reason;
+  const assets = legacy.status === 'fulfilled' ? legacy.value : [];
+  if (kron.status === 'rejected') return assets;
+  const ids = new Set(kron.value.map((item: any) => item.covenantId));
+  return [...assets.filter((item: any) => item.standard !== 'kron-native' && !ids.has(item.covenantId)), ...kron.value];
+}
+
+async function loadKascovAssets(address: string) {
+  const owner = ownerId(address);
+  if (!owner) return [];
+  const data = await get(`https://kascov.io/data/mainnet/addr/${encodeURIComponent(address)}.json`);
+  if (String(data?.pubkey).toLowerCase() !== owner || !Array.isArray(data?.token_holdings))
+    throw new Error('Kascov did not resolve this wallet.');
+  const assets: any[] = [], seen = new Set<string>();
+  const rows = data.token_holdings.filter((item: any) => item?.status === 'verified');
+  if (rows.length > 1000) throw new Error('Invalid Kascov holdings response.');
+  for (let start = 0; start < rows.length; start += 4) {
+    const batch = await Promise.all(rows.slice(start, start + 4).map(async (row: any) => {
+      const id = String(row?.token_id ?? row?.covenant_id ?? '').toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(id) || seen.has(id)) return null;
+      seen.add(id);
+      try {
+        const detail = await get(`https://kascov.io/data/mainnet/token/${id}`), token = detail?.token;
+        if (token?.status !== 'verified') return null;
+        const balance = (Array.isArray(detail?.balances) ? detail.balances : []).find((item: any) => String(item?.owner).toLowerCase() === owner);
+        const rawBalance = String(balance?.balance ?? ''), decimals = Number(token?.claimed_decimals ?? row?.claimed_decimals ?? 8);
+        if (!/^\d+$/.test(rawBalance) || BigInt(rawBalance) <= 0n || !Number.isInteger(decimals) || decimals < 0 || decimals > 18) return null;
+        const image = String(token?.claimed_image ?? row?.claimed_image ?? '');
+        return {covenantId:id, symbol:String(token?.claimed_ticker ?? row?.claimed_ticker ?? token?.claimed_name ?? 'KCC20').toUpperCase(),
+          name:String(token?.claimed_name ?? row?.claimed_name ?? 'KCC20'), rawBalance, decimals,
+          image_url:/^https:\/\//.test(image) ? image : '', standard:'legacy-kcc20', validationStatus:'verified', directTransfer:true,
+          explorerUrl:`https://kascov.io/token/${id}`};
+      } catch { return null; }
+    }));
+    assets.push(...batch.filter(Boolean));
+  }
+  return assets;
 }
 export function mapKcc20Cells(
   cellsData: any,
@@ -706,18 +750,32 @@ export async function kcc20TransferData(
     amount <= 0
   )
     throw new Error("Invalid KCC20 request.");
-  const [status, balances, cellsData, token] = await Promise.all([
+  let status: any, balances: any, cellsData: any, token: any;
+  let usingKascov = false;
+  try {
+    [status, balances, cellsData, token] = await Promise.all([
     get("https://kcc20.info/v1/status"),
     get(`https://kcc20.info/v1/owners/${owner}/balances?limit=1000`),
     get(
       `https://kcc20.info/v1/owners/${owner}/cells?signing_ready=true&limit=1000`,
     ),
     get(`https://kcc20.info/v1/tokens/${covenantId}`),
-  ]);
+    ]);
+  } catch {
+    const detail = await get(`https://kascov.io/data/mainnet/token/${covenantId}`);
+    if (detail?.token?.status !== 'verified') throw new Error('Legacy KCC20 verification is unavailable.');
+    const row = (Array.isArray(detail?.balances) ? detail.balances : []).find((item: any) => String(item?.owner).toLowerCase() === owner);
+    usingKascov = true;
+    balances = {balances:[{token_id:covenantId,balance:row?.balance,validation_status:'verified',unresolved_cells:0}]};
+    token = {...detail.token, validation_status:'verified', unresolved_cells:0};
+    // Null forces the existing Kascov cell adapter. All cells still undergo
+    // node checks and the locally audited template validation before signing.
+    cellsData = null;
+  }
   if (
-    status?.capabilities?.balances !== true ||
+    !usingKascov && (status?.capabilities?.balances !== true ||
     status?.capabilities?.signing_data !== true ||
-    Number(status?.max_daa) <= 0
+    Number(status?.max_daa) <= 0)
   )
     throw new Error("KCC20 indexer lacks verified signing data.");
   const balance = (
@@ -816,7 +874,7 @@ export async function kcc20TransferData(
   }
   return {
     ticker: String(
-      token?.ticker ?? token?.claimed_name ?? token?.name ?? "KCC20",
+      token?.ticker ?? token?.claimed_ticker ?? token?.claimed_name ?? token?.name ?? "KCC20",
     ).toUpperCase(),
     decimals: Number(token?.decimals ?? token?.claimed_decimals ?? 8),
     templateHash,
@@ -886,109 +944,10 @@ export async function verifyWyrmCell(cell: any) {
   return match;
 }
 
-export async function kronTransferData(
-  address: string,
-  covenantId: string,
-  amount: number,
-) {
-  const owner = ownerId(address);
-  if (
-    !owner ||
-    !/^[0-9a-f]{64}$/.test(covenantId) ||
-    !Number.isSafeInteger(amount) ||
-    amount <= 0
-  )
+export async function kronTransferData(address: string, covenantId: string, amount: number) {
+  if (!ownerId(address) || !/^[0-9a-f]{64}$/.test(covenantId))
     throw new Error("Invalid KRON transfer request.");
-  const [balances, cellsData, token] = await Promise.all([
-    get(`https://kcc20.info/v1/owners/${owner}/balances?limit=1000`),
-    get(
-      `https://kcc20.info/v1/owners/${owner}/cells?signing_ready=true&limit=1000`,
-    ),
-    get(`https://kcc20.info/v1/tokens/${covenantId}`),
-  ]);
-  if (verifiedKcc20Standard(token) !== "kron-native")
-    throw new Error(
-      "The selected token is not a template-verified KRON token.",
-    );
-  const balance = (
-      Array.isArray(balances?.balances) ? balances.balances : []
-    ).find(
-      (item: any) =>
-        String(item?.token_id).toLowerCase() === covenantId &&
-        item?.validation_status === "template_verified" &&
-        Number(item?.unresolved_cells) === 0,
-    ),
-    rawBalance = Number(balance?.balance);
-  if (
-    !Number.isSafeInteger(rawBalance) ||
-    rawBalance <= 0 ||
-    amount > rawBalance
-  )
-    throw new Error("Insufficient verified KRON balance.");
-  const rows = (Array.isArray(cellsData?.cells) ? cellsData.cells : []).filter(
-    (item: any) =>
-      String(item?.covenant_id ?? item?.token_id).toLowerCase() ===
-        covenantId &&
-      item?.signing_ready !== false &&
-      Number(item?.state?.amount) > 0 &&
-      item?.state?.is_minter !== true,
-  );
-  const seen = new Set<string>(),
-    cells = rows
-      .map((item: any) => {
-        const transactionId = String(item?.outpoint_tx_id ?? "").toLowerCase(),
-          index = Number(item?.outpoint_index),
-          value = Number(item?.value),
-          tokenAmount = Number(item?.state?.amount),
-          redeemScript = String(item?.redeem_script ?? "").toLowerCase(),
-          scriptPublicKey = normalizeKcc20Script(item?.script_public_key);
-        const key = `${transactionId}:${index}`;
-        if (
-          !/^[0-9a-f]{64}$/.test(transactionId) ||
-          !Number.isSafeInteger(index) ||
-          index < 0 ||
-          !Number.isSafeInteger(value) ||
-          value <= 0 ||
-          !Number.isSafeInteger(tokenAmount) ||
-          tokenAmount <= 0 ||
-          !/^[0-9a-f]+$/.test(redeemScript) ||
-          !/^[0-9a-f]+$/.test(scriptPublicKey) ||
-          seen.has(key)
-        )
-          throw new Error("Invalid or duplicate KRON signing cell.");
-        seen.add(key);
-        return {
-          transactionId,
-          index,
-          value,
-          tokenAmount,
-          redeemScript,
-          scriptPublicKey,
-        };
-      })
-      .sort((a: any, b: any) => b.tokenAmount - a.tokenAmount);
-  const selected: any[] = [];
-  let selectedAmount = 0;
-  for (const cell of cells) {
-    selected.push(cell);
-    selectedAmount += cell.tokenAmount;
-    if (selectedAmount >= amount) break;
-    if (selected.length === 4) break;
-  }
-  if (selectedAmount < amount)
-    throw new Error(
-      "KRON balance needs more than four token cells. Consolidate it in KRON first.",
-    );
-  return {
-    ticker: String(token?.ticker ?? token?.name ?? "KRON").toUpperCase(),
-    decimals: Number(token?.decimals ?? 0),
-    rawBalance,
-    standard: "kron-native",
-    templateHash: String(
-      token?.template_hash ?? token?.kcc1_template_hash ?? "",
-    ).toLowerCase(),
-    cells: selected,
-  };
+  return directKronTransfer(get, address, covenantId, amount, MAINNET);
 }
 export async function kcc20History(address: string) {
   const owner = ownerId(address);

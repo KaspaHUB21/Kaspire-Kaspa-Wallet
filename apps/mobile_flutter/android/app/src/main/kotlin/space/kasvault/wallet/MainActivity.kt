@@ -264,6 +264,9 @@ class MainActivity : FlutterFragmentActivity() {
                     "describeDotkMarket" -> resultFromCore(
                         SecureCore.describeDotkMarket(call.argument<String>("request") ?: error("Missing marketplace request")), result,
                     )
+                    "prepareKaspacomMarket" -> resultFromCore(
+                        SecureCore.prepareKaspacomMarket(call.argument<String>("request") ?: error("Missing KaspaCom request")), result,
+                    )
                     "prepareNftMarket" -> resultFromCore(
                         SecureCore.prepareNftMarket(call.argument<String>("request") ?: error("Missing NFT marketplace request")), result,
                     )
@@ -2261,6 +2264,17 @@ class MainActivity : FlutterFragmentActivity() {
                             "Output $index: ${output.getLong("amountSompi")} sompi · " +
                                 (output.optString("address").ifEmpty { "covenant / non-standard script" })
                         }
+                else if (json.optString("profile") == "kaspacom-market-v1") {
+                    val terms = json.getJSONObject("tradeSummary")
+                    "KaspaCom Mainnet · ${terms.getString("action")}\n" +
+                        "${terms.getString("kind")} ${terms.optString("ticker")} ${terms.optString("tokenId")} ${terms.optString("assetId")}\n" +
+                        "Account ${json.getString("sender")}\n" +
+                        (if (json.optBoolean("finalFeeKnown")) "Network fee ${json.optString("feeSompi")} sompi\n"
+                         else "Seller PSKT only · buyer adds funding\n") +
+                        (0 until json.getJSONArray("outputs").length()).joinToString("\n") { index ->
+                            val output = json.getJSONArray("outputs").getJSONObject(index)
+                            "Output $index: ${output.getLong("amountSompi")} sompi · ${output.optString("address")}" }
+                }
                 else if (json.optString("profile") == "krc721-market-v1") {
                     val terms = json.getJSONObject("tradeSummary")
                     "NFT Market · ${terms.getString("action").uppercase()}\n" +

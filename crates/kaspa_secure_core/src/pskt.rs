@@ -248,7 +248,7 @@ pub fn sign_pskt(
             Value::String(hex::encode(signature_script));
     }
     built.tx.finalize();
-    if matches!(request.profile.as_deref(), Some("krc721-market-v1" | "kron-transfer-v1")) && built.review.funding_deficit_sompi == 0 {
+    if (matches!(request.profile.as_deref(), Some("krc721-market-v1" | "kron-transfer-v1")) || (request.profile.as_deref()==Some("kaspacom-market-v1") && request.side.as_deref()==Some("cancel"))) && built.review.funding_deficit_sompi == 0 {
         crate::kcc20::simulate_all(&built.tx, &built.entries)
             .map_err(|e|CoreError::Transaction(format!("Local contract script validation failed: {e}")))?;
     }
@@ -660,6 +660,8 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         warnings.push("Ticker symbols are not unique; verify token and pool covenant IDs.".into());
     } else if request.profile.as_deref() == Some("krc721-market-v1") {
         crate::nft_market::validate(request)?;
+    } else if request.profile.as_deref() == Some("kaspacom-market-v1") {
+        crate::kaspacom_market::validate(request)?;
     } else if request.profile.as_deref() == Some("kron-transfer-v1") {
         if !request.sender.starts_with("kaspa:") || version != 1 || input_total < output_total {
             return Err(CoreError::InvalidRequest("KRON transfer requires a fully funded mainnet covenant transaction".into()));

@@ -53,6 +53,12 @@ http.createServer(async(req,res)=>{
     const url=new URL(req.url,'http://localhost');
     const parts=url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
     if(parts.length===1&&parts[0]==='health')return send(200,{mode:'read-only'});
+    if(parts.length===1&&parts[0]==='collection-previews') {
+      const data=await localJson('/v1/collections?samples=true');
+      return send(200,{samples:Object.fromEntries(Object.entries(data.samples||{})
+        .filter(([tick,s])=>tickPattern.test(tick)&&idPattern.test(s.tokenId))
+        .map(([tick,s])=>[tick,{tokenId:s.tokenId}]))});
+    }
     if(parts[0]==='nfts'&&parts.length===3&&tickPattern.test(parts[1])&&idPattern.test(parts[2])) {
       const data=await localJson('/v1/nfts/'+parts[1].toUpperCase()+'/'+parts[2]);
       if(data.result)data.result.imageUrl='https://kaspire.kaslab.space/krc721-read-v1/images/'+parts[1].toUpperCase()+'/'+parts[2];

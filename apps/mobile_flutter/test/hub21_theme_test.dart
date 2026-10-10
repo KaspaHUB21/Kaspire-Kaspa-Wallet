@@ -17,7 +17,6 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() {
     AppSettings.theme.value = KaspireTheme.hub21;
-    AppSettings.uppercaseButtons.value = true;
   });
   tearDown(() => AppSettings.theme.value = KaspireTheme.midnight);
 
@@ -162,8 +161,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).first, const Offset(0, -520));
     await tester.pumpAndSettle();
-    expect(find.text('COPY'), findsOneWidget);
-    expect(find.text('SHARE'), findsOneWidget);
+    expect(find.text('Copy'), findsOneWidget);
+    expect(find.text('Share'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -179,7 +178,7 @@ void main() {
                         icon: Icons.send,
                         label: 'SEND',
                         onTap: () => taps++))))));
-    await tester.tap(find.text('SEND'));
+    await tester.tap(find.text('Send'));
     expect(taps, 1);
   });
 
@@ -225,7 +224,7 @@ void main() {
                 address:
                     'kaspa:qp0mtdvzscrkfft702j85s8yzdl8a87n5d6pgtm8vrxg6hqu0wywzvwkevdk3'))));
     await tester.pumpAndSettle();
-    expect(find.text('RECEIVE KAS'), findsOneWidget);
+    expect(find.text('Receive KAS'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

@@ -83,7 +83,7 @@ void main() {
     expect(qr.dataModuleStyle.color, const Color(0xFF031D29));
     await tester.drag(find.byType(ListView).first, const Offset(0, -500));
     await tester.pumpAndSettle();
-    expect(find.text('COPY'), findsOneWidget);
+    expect(find.text('Copy'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
   testWidgets('Neptune footer stays above Android system navigation',
