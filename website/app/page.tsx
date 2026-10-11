@@ -10,7 +10,7 @@ const highlights = [
   {
     number: "01",
     title: "One wallet. Every Kaspa asset.",
-    copy: "Hold and move KAS, KRC20, KRC721, KNS, KCC20, and Kasplex/Igra L2 assets from one focused Android wallet or browser extension.",
+    copy: "Hold and move KAS, KRC20, KRC721, KNS, KCC20, and Kasplex/Igra L2 assets. Android also supports the new KCC20 Last Call reference profile, with independent local covenant validation.",
     tags: ["KAS", "KRC-20", "KRC-721", "KNS", "KCC20"],
   },
   {
@@ -72,6 +72,12 @@ const highlights = [
     title: "Keep dApps inside your wallet.",
     copy: "Open approved dApps directly in Kaspire Browser on Android. Choose Kasvio, GothDAG, Kaspa Dev Tools, dot.k or KasCoven Vaults and keep WalletConnect connection and transaction approvals inside Kaspire. Browser navigation is restricted to the approved dApp origins.",
     tags: ["In-app browser", "Approved dApps", "WalletConnect"],
+  },
+  {
+    number: "12",
+    title: "Trade KRON tokens inside Kaspire.",
+    copy: "Open KRON DEX from Swap on Android to buy and sell supported mainnet launchpad and pool tokens. Review covenant IDs, minimum receive, deposits and fees before approving. Signed transactions stay available for recovery.",
+    tags: ["KRON DEX", "Mainnet swaps", "Launchpad and pools"],
   },
 ];
 

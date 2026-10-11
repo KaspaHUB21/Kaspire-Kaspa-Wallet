@@ -9,6 +9,68 @@ import 'package:kasvault_wallet/src/services/kaspa_api.dart';
 import 'package:kasvault_wallet/src/services/app_settings.dart';
 
 void main() {
+  test(
+      'KRON history joins exact raw units, wallet and covenant; never derives units from volume',
+      () async {
+    const wallet = 'kaspa:history';
+    final id = 'a' * 64, covenant = 'b' * 64;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final api = KaspaApi(client: MockClient((r) async {
+      if (r.url.path.contains('/address/')) {
+        return http.Response(
+            jsonEncode({
+              'result': [
+                {
+                  'tick': 'kron',
+                  'txid': id,
+                  'ts': now ~/ 1000,
+                  'side': 'buy',
+                  'kind': 'pool',
+                  'volume': 10,
+                  'price': 0.01
+                }
+              ]
+            }),
+            200);
+      }
+      if (r.url.path == '/v1/kcc20/token/kron') {
+        return http.Response(
+            jsonEncode({
+              'result': [
+                {'covenantId': covenant, 'dec': 3}
+              ]
+            }),
+            200);
+      }
+      return http.Response(
+          jsonEncode({
+            'data': [
+              {
+                'txid': id,
+                'token_id': covenant,
+                'side': 'buy',
+                'token_amount_raw': '420290',
+                'time_ms': now.toString(),
+                'wallet_addresses': [wallet]
+              },
+              {
+                'txid': 'c' * 64,
+                'token_id': covenant,
+                'side': 'buy',
+                'token_amount_raw': '999999',
+                'time_ms': now.toString(),
+                'wallet_addresses': ['other']
+              },
+            ]
+          }),
+          200);
+    }));
+    final rows = await api.loadKronTransactions(wallet);
+    expect(rows, hasLength(1));
+    expect(rows.single.assetKind, 'KCC20');
+    expect(rows.single.amountLabel, '420.29 KRON');
+    expect(rows.single.tokenId, covenant);
+  });
   const address =
       'kaspa:qz03mracsz6c0pjxmsdaql39453tn3jgmrldkqpy24ea39rxtvd9xxynslpyc';
   const otherAddress =

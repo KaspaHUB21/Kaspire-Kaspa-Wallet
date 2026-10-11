@@ -213,7 +213,11 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareKronTransfer
             serde_json::from_str::<KronTransferRequest>(&raw)
                 .map_err(|_| "invalid KRON transfer request".to_string())
         })
-        .and_then(|request| prepare_kron_transfer(&request).map_err(|error| error.to_string()))
+        .and_then(|request| {
+            if request.template_hash == crate::kcc20_standard::TEMPLATE_ID {
+                crate::kcc20_standard::prepare(&request)
+            } else { prepare_kron_transfer(&request) }.map_err(|error| error.to_string())
+        })
         .and_then(|prepared| {
             serde_json::to_string(&prepared).map_err(|_| "serialization failed".to_string())
         });

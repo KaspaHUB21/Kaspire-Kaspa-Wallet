@@ -9,6 +9,7 @@ import 'native_security.dart';
 import 'network_settings.dart';
 import 'signer_service.dart';
 import 'krc721_reads.dart';
+import 'activity_store.dart';
 
 typedef NftReview = Future<bool> Function(
     String title, Map<String, Object?> details);
@@ -423,6 +424,17 @@ class NftMarketService {
     if (record['stage'] == 'reveal') {
       await acceptedOrBroadcast(record['listingTransactionId']! as String,
           record['revealSubmitJson']! as String);
+      await ActivityStore().recordAssetTransfer(
+          wallet: address,
+          transactionId: record['listingTransactionId']! as String,
+          timestamp: DateTime.now(),
+          operation: {
+            'kind': 'krc721',
+            'ticker': record['ticker'],
+            'tokenId': record['tokenId'],
+            'displayAmount': '1',
+            'operationLabel': 'NFT Listed'
+          });
       record['stage'] = 'offer';
       await save(address, record);
     }
@@ -521,12 +533,36 @@ class NftMarketService {
         'kaspire_nft_market_broadcast_$address',
         jsonEncode({
           ...signed,
+          'activity': {
+            'kind': 'krc721',
+            'ticker': offer['ticker'],
+            'tokenId': offer['tokenId'],
+            'displayAmount': '1',
+            'recipient': offer['seller'],
+            'operationLabel':
+                action == 'buy' ? 'NFT Purchase' : 'NFT Listing Cancelled'
+          },
+          'activityTimestamp': DateTime.now().toIso8601String(),
           'listingTransactionId': offer['listingTransactionId']
         }))) {
       throw StateError(
           'Could not save transaction recovery. Nothing was broadcast.');
     }
     await api.broadcast(signed['submitJson']! as String);
+    await ActivityStore().recordAssetTransfer(
+        wallet: address,
+        operation: {
+          'kind': 'krc721',
+          'ticker': offer['ticker'],
+          'tokenId': offer['tokenId'],
+          'displayAmount': '1',
+          'recipient': offer['seller'],
+          'operationLabel':
+              action == 'buy' ? 'NFT Purchase' : 'NFT Listing Cancelled'
+        },
+        incoming: true,
+        transactionId: signed['transactionId']! as String,
+        timestamp: DateTime.now());
     await notifyCompletion(offer['listingTransactionId']! as String,
         signed['transactionId']! as String);
     await prefs.remove('kaspire_nft_market_broadcast_$address');
@@ -548,6 +584,16 @@ class NftMarketService {
     final signed = nftMap(jsonDecode(raw));
     await acceptedOrBroadcast(
         signed['transactionId']! as String, signed['submitJson']! as String);
+    if (signed['activity'] is Map) {
+      await ActivityStore().recordAssetTransfer(
+          wallet: address,
+          operation: signed['activity'] as Map,
+          incoming: true,
+          transactionId: signed['transactionId']! as String,
+          timestamp: DateTime.tryParse(
+                  signed['activityTimestamp']?.toString() ?? '') ??
+              DateTime.now());
+    }
     if (signed['listingTransactionId'] != null) {
       await notifyCompletion(signed['listingTransactionId']! as String,
           signed['transactionId']! as String);

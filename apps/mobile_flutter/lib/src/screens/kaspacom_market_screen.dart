@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/kaspacom_market_service.dart';
 import '../services/nft_market_service.dart';
 import '../services/krc721_reads.dart';
+import '../widgets/krc20_order_card.dart';
 
 /// Internal test entry only. KaspaCom's fees and orders are independent of Agora.
 class KaspaComMarketScreen extends StatefulWidget {
@@ -915,38 +916,14 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
             ]))
       ])));
 
-  Widget tokenOrder(Map<String, Object?> r) => Card(
-      child: Padding(
-          padding: const EdgeInsets.all(12),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Expanded(
-                  child: Text('${kcPrice(r['totalPrice'])} KAS',
-                      style: const TextStyle(fontWeight: FontWeight.bold))),
-              const Icon(Icons.chevron_right),
-              const SizedBox(width: 8),
-              image(r, 36),
-              const SizedBox(width: 8),
-              Expanded(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                    Text(kcPrice(r['quantity']),
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text(label(r))
-                  ])),
-            ]),
-            const SizedBox(height: 8),
-            Text(
-                'Price: ${kcPrice(r['pricePerToken'] ?? _perToken(r))} KAS / ${r['ticker']}'),
-            Text('1 KAS = ${kcPrice(_tokensPerKas(r))} ${r['ticker']}'),
-            Align(
-                alignment: Alignment.centerRight,
-                child: OutlinedButton(
-                    onPressed: working ? null : () => openOrder(r),
-                    child: const Text('View order'))),
-          ])));
+  Widget tokenOrder(Map<String, Object?> r) => Krc20OrderCard(
+        totalKas: kcPrice(r['totalPrice']),
+        quantity: kcPrice(r['quantity']),
+        ticker: r['ticker'].toString().toUpperCase(),
+        unitPrice: kcPrice(r['pricePerToken'] ?? _perToken(r)),
+        logo: image(r, 38),
+        onOpen: working ? null : () => openOrder(r),
+      );
 }
 
 class KaspaComPurchaseSuccess extends StatelessWidget {

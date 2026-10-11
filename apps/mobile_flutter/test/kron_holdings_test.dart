@@ -43,13 +43,16 @@ MockClient client(
       if (request.url.host == 'kasvio.network') {
         if (kasvioDown) return http.Response('offline', 503);
         return reply({
-          'stale': stale,
-          'source': {'available': true},
-          'tokens': [
+          'meta': {
+            'network': 'mainnet',
+            'adapter_fresh': !stale,
+            'source_caught_up': true
+          },
+          'data': [
             {
-              'id': id,
-              'price': '0.01',
-              'logo': 'https://example.org/kasm.png',
+              'token_id': id,
+              'last_price_kas_per_raw_unit': '0.01',
+              'logo_uri': 'https://example.org/kasm.png',
               'balance': '0'
             }
           ]

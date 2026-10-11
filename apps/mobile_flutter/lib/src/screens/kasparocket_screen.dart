@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/kasparocket_service.dart';
 import '../services/kaspa_api.dart';
 import '../services/native_security.dart';
+import '../services/activity_store.dart';
 
 class KaspaRocketScreen extends StatefulWidget {
   const KaspaRocketScreen(
@@ -404,6 +405,21 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
       for (var i = 0; i < signed.length; i++) {
         receipts.add(await widget.service.submit(signed[i],
             orderRow: i == signed.length - 1 ? order : null));
+      }
+      if (reviews.isNotEmpty) {
+        await ActivityStore().recordAssetTransfer(
+            wallet: widget.address,
+            transactionId: reviews.last['transactionId'].toString(),
+            timestamp: DateTime.now(),
+            incoming: side == 'buy',
+            operation: {
+              'kind': 'kcc20',
+              'ticker': widget.token.ticker,
+              'covenantId': widget.token.tokenId,
+              'displayAmount': KaspaRocketService.amountTokensDisplay(summary),
+              'operationLabel':
+                  side == 'buy' ? 'KaspaRocket Buy' : 'KaspaRocket Sell'
+            });
       }
       if (!mounted) return;
       setState(() {

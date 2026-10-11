@@ -24,11 +24,37 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
   bool _trustedPage = false;
   int _progress = 0;
   String? _error;
+  bool _connected = false;
+  StreamSubscription<void>? _sessionChanges;
 
   @override
   void initState() {
     super.initState();
+    final sessions = DappSessionService.instance;
+    _sessionChanges = sessions.changes.listen((_) => _updateConnection());
+    _updateConnection();
+    unawaited(sessions.initialize().then((_) => _updateConnection()).catchError(
+        (Object _) {
+      /* Keep the connection hint on initialization failure. */
+    }));
     unawaited(_initialize());
+  }
+
+  void _updateConnection() {
+    final connected =
+        DappSessionService.instance.activeSessions().values.any((session) {
+      final peer = Uri.tryParse(session.peer.metadata.url);
+      return peer != null && DappBrowserPolicy.sameDapp(peer, widget.dapp.home);
+    });
+    if (mounted && connected != _connected) {
+      setState(() => _connected = connected);
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sessionChanges?.cancel());
+    super.dispose();
   }
 
   Future<void> _initialize() async {
@@ -176,12 +202,13 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
         ),
         body: SafeArea(
             child: Column(children: [
-          ListTile(
-              dense: true,
-              leading: const Icon(Icons.lock_outline),
-              title: Text(widget.dapp.home.host),
-              subtitle: const Text(
-                  'Choose Kaspire App in Connect Wallet. Approvals stay inside Kaspire.')),
+          if (!_connected)
+            ListTile(
+                dense: true,
+                leading: const Icon(Icons.lock_outline),
+                title: Text(widget.dapp.home.host),
+                subtitle: const Text(
+                    'Choose Kaspire App in Connect Wallet. Approvals stay inside Kaspire.')),
           if (_error != null)
             Padding(
                 padding: const EdgeInsets.all(12),

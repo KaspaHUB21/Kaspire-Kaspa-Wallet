@@ -3,8 +3,60 @@ import 'package:kasvault_wallet/src/models/wallet_snapshot.dart';
 import 'package:kasvault_wallet/src/services/activity_store.dart';
 import 'package:kasvault_wallet/src/services/encrypted_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:kasvault_wallet/src/services/kron_dex_service.dart';
 
 void main() {
+  test('KRON buys and sells record exact units and replay idempotently',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = ActivityStore(encryptedStore: _MemoryEncryptedStore());
+    for (final side in ['buy', 'sell']) {
+      final receipt = {
+        'ticker': 'KRON',
+        'decimals': 3,
+        'tokenId': 'a' * 64,
+        'timestamp': '2026-10-10T12:00:00.000Z',
+        'summary': {'side': side, 'tokenAmount': '420290'}
+      };
+      await KronDexService.recordReceipt('wallet', receipt, side,
+          activity: store);
+      await KronDexService.recordReceipt('wallet', receipt, side,
+          activity: store);
+    }
+    final rows = await store.load('wallet');
+    expect(rows, hasLength(2));
+    expect(rows.map((r) => r.amountLabel).toSet(), {'420.29 KRON'});
+    expect(rows.map((r) => r.incoming).toSet(), {true, false});
+    expect(rows.every((r) => r.tokenId == 'a' * 64), isTrue);
+  });
+  test('concurrent mixed assets and different wallets never overwrite entries',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = ActivityStore(encryptedStore: _MemoryEncryptedStore());
+    await Future.wait([
+      for (final wallet in ['one', 'two'])
+        for (final operation in [
+          {'kind': 'krc20', 'ticker': 'X'},
+          {'kind': 'krc721', 'ticker': 'X', 'tokenId': '1'},
+          {'kind': 'kcc20', 'ticker': 'X', 'covenantId': 'a' * 64},
+          {'kind': 'kcc20', 'ticker': 'X', 'covenantId': 'b' * 64},
+          {'kind': 'kns', 'domainName': 'Demo.kas'},
+          {'kind': 'dotk', 'name': 'Demo.k'},
+        ])
+          store.recordAssetTransfer(
+              wallet: wallet,
+              operation: operation,
+              transactionId: 'same',
+              timestamp: DateTime.utc(2026, 10, 10)),
+    ]);
+    expect(await store.load('one'), hasLength(6));
+    expect(await store.load('two'), hasLength(6));
+    expect(
+        (await store.load('one'))
+            .singleWhere((r) => r.assetKind == 'DOT.K')
+            .assetSymbol,
+        'Demo.k');
+  });
   test('marketplace receipt records received tokens, not an outgoing transfer',
       () async {
     SharedPreferences.setMockInitialValues({});

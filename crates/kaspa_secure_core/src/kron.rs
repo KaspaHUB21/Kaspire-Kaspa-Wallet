@@ -338,6 +338,12 @@ fn decode_state(template: Vec<u8>) -> Result<State> {
     })
 }
 
+pub(crate) fn owned_swap_state(redeem: &[u8], owner: &[u8]) -> Result<u64> {
+    let state = decode_state(redeem.to_vec())?;
+    if state.owner.as_slice() != owner { return Err(CoreError::UntrustedUtxo("KRON swap token owner differs from signing wallet".into())); }
+    Ok(state.amount)
+}
+
 fn same_template(a: &State, b: &State) -> bool {
     if a.state_start != b.state_start || a.template.len() != b.template.len() {
         return false;

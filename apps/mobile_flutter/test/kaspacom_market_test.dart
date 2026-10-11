@@ -830,7 +830,7 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
-  testWidgets('KRC20 browse shows logo, floor and both order price units',
+  testWidgets('KRC20 browse shows logo, floor and compact unit-price card',
       (tester) async {
     final service = KaspaComMarketService(wallet, client: MockClient((r) async {
       if (r.url.path.endsWith('/catalog')) {
@@ -854,8 +854,10 @@ void main() {
     await tester.tap(find.text('NACHO'));
     await tester.pumpAndSettle();
     expect(find.text('Floor: 0.0002 KAS / NACHO'), findsOneWidget);
-    expect(find.text('Price: 0.0005 KAS / NACHO'), findsOneWidget);
-    expect(find.text('1 KAS = 2000 NACHO'), findsOneWidget);
+    expect(find.text('Price'), findsOneWidget);
+    expect(find.text('0.0005 KAS / NACHO'), findsOneWidget);
+    expect(find.text('1 KAS = 2000 NACHO'), findsNothing);
+    expect(find.text('10000'), findsOneWidget);
     final logos = tester.widgetList<Image>(find.byType(Image));
     expect(logos.length, 2);
     expect(

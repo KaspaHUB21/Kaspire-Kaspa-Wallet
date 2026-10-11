@@ -39,16 +39,11 @@ class ActivityStore {
     required String transactionId,
     required DateTime timestamp,
     bool incoming = false,
+    TransactionStatus status = TransactionStatus.accepted,
   }) async {
-    List<Object?> entries;
-    try {
-      entries = (jsonDecode(await _readRaw() ?? '[]') as List).toList();
-    } catch (_) {
-      entries = [];
-    }
     final kind = operation['kind'].toString();
-    final symbol = kind == 'kns'
-        ? operation['domainName']?.toString()
+    final symbol = kind == 'kns' || kind == 'dotk'
+        ? (operation['domainName'] ?? operation['name'])?.toString()
         : operation['ticker']?.toString().toUpperCase();
     final value = <String, Object?>{
       'wallet': wallet,
@@ -60,19 +55,24 @@ class ActivityStore {
               ? 'KRC-20'
               : kind == 'krc721'
                   ? 'KRC-721'
-                  : 'KNS',
+                  : kind == 'dotk'
+                      ? 'DOT.K'
+                      : kind == 'kns'
+                          ? 'KNS'
+                          : 'ASSET',
       'assetSymbol': symbol,
       'displayAmount': operation['displayAmount']?.toString() ??
           (kind == 'krc721' ? '1' : null),
-      'tokenId': operation['tokenId']?.toString(),
+      'tokenId': (kind == 'kcc20'
+              ? operation['covenantId'] ?? operation['tokenId']
+              : operation['tokenId'])
+          ?.toString(),
+      'operationLabel': operation['operationLabel']?.toString(),
       'counterparty': operation['recipient']?.toString(),
       'incoming': incoming,
-      'status': TransactionStatus.accepted.name,
+      'status': status.name,
     };
-    entries.removeWhere((item) => item is Map && _sameEntry(item, value));
-    entries.insert(0, value);
-    await _writeRaw(jsonEncode(entries.take(_maxEntries).toList()));
-    _notifyChanged();
+    await _upsert(value);
   }
 
   Future<void> recordKasTransfer({
@@ -139,7 +139,14 @@ class ActivityStore {
     }
   }
 
-  Future<void> _upsert(Map<String, Object?> value) async {
+  static Future<void> _writes = Future<void>.value();
+  Future<void> _upsert(Map<String, Object?> value) {
+    final result = _writes.then((_) => _upsertUnlocked(value));
+    _writes = result.catchError((_) {});
+    return result;
+  }
+
+  Future<void> _upsertUnlocked(Map<String, Object?> value) async {
     List<Object?> entries;
     try {
       entries = (jsonDecode(await _readRaw() ?? '[]') as List).toList();
@@ -186,6 +193,7 @@ class ActivityStore {
   }
 
   bool _sameEntry(Map item, Map value) =>
+      item['wallet'] == value['wallet'] &&
       item['transactionId']?.toString() == value['transactionId']?.toString() &&
       item['assetKind']?.toString() == value['assetKind']?.toString() &&
       item['assetSymbol']?.toString() == value['assetSymbol']?.toString() &&
@@ -208,7 +216,16 @@ List<WalletTransaction> mergeWalletActivity(
   final merged = <String, WalletTransaction>{
     for (final transaction in local) identity(transaction): transaction,
     for (final transaction in network) identity(transaction): transaction,
-  }.values.toList()
+  }
+      .values
+      .where((tx) =>
+          tx.assetKind != 'KRON SWAP' ||
+          ![...local, ...network].any((other) =>
+              other.id == tx.id &&
+              other.assetKind == 'KCC20' &&
+              other.operationLabel == tx.operationLabel &&
+              other.assetSymbol == tx.assetSymbol))
+      .toList()
     ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
   return merged;
 }

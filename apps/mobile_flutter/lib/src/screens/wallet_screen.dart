@@ -30,6 +30,7 @@ import '../widgets/kaspire_brand.dart';
 import '../widgets/nexus_bell.dart';
 import 'dapp_browser_selection_screen.dart';
 import 'upcoming_feature_screen.dart';
+import 'kron_dex_screen.dart';
 
 class WalletScreen extends StatefulWidget {
   const WalletScreen({
@@ -187,25 +188,34 @@ class _WalletScreenState extends State<WalletScreen> {
   Future<List<WalletTransaction>> _loadActivity() async {
     final account = await _account;
     final results = await Future.wait([
-      _snapshot,
-      _api.loadNativeTransactionsForAddresses(
-        account.networkAddresses,
-        limit: _historyLimit,
-      ),
+      _snapshot
+          .then((value) => value.transactions)
+          .catchError((_) => <WalletTransaction>[]),
+      _api
+          .loadNativeTransactionsForAddresses(
+            account.networkAddresses,
+            limit: _historyLimit,
+          )
+          .catchError((_) => <WalletTransaction>[]),
       Future.wait(
-        {widget.address, account.primaryAddress}.map(ActivityStore().load),
+        {...account.networkAddresses, widget.address, account.primaryAddress}
+            .map(ActivityStore().load),
       ).then((lists) => lists.expand((items) => items).toList()),
       _api
           .loadKrc20Transactions(account.primaryAddress)
           .catchError((_) => <WalletTransaction>[]),
+      _api
+          .loadKronTransactions(account.primaryAddress, limit: _historyLimit)
+          .timeout(const Duration(seconds: 20))
+          .catchError((_) => <WalletTransaction>[]),
     ]);
-    final snapshot = results[0] as WalletSnapshot;
-    final native = results[1] as List<WalletTransaction>;
-    final local = results[2] as List<WalletTransaction>;
-    final tokens = results[3] as List<WalletTransaction>;
+    final snapshot = results[0];
+    final native = results[1];
+    final local = results[2];
+    final tokens = results[3];
     return mergeWalletActivity(
       local,
-      <WalletTransaction>[...snapshot.transactions, ...native, ...tokens]
+      <WalletTransaction>[...snapshot, ...native, ...tokens, ...results[4]]
         ..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
     );
   }
@@ -451,7 +461,7 @@ class _WalletScreenState extends State<WalletScreen> {
                   onSwap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                           builder: (_) =>
-                              const UpcomingFeatureScreen(vaults: false))),
+                              DexSelectionScreen(address: widget.address))),
                   onBrowser: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                           builder: (_) => const DappBrowserSelectionScreen())),

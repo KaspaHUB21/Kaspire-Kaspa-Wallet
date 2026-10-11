@@ -248,7 +248,7 @@ pub fn sign_pskt(
             Value::String(hex::encode(signature_script));
     }
     built.tx.finalize();
-    if (matches!(request.profile.as_deref(), Some("krc721-market-v1" | "kron-transfer-v1")) || (request.profile.as_deref()==Some("kaspacom-market-v1") && request.side.as_deref()==Some("cancel"))) && built.review.funding_deficit_sompi == 0 {
+    if (matches!(request.profile.as_deref(), Some("krc721-market-v1" | "kron-transfer-v1" | "kcc20-standard-transfer-v1" | "kron-swap-v1")) || (request.profile.as_deref()==Some("kaspacom-market-v1") && request.side.as_deref()==Some("cancel"))) && built.review.funding_deficit_sompi == 0 {
         crate::kcc20::simulate_all(&built.tx, &built.entries)
             .map_err(|e|CoreError::Transaction(format!("Local contract script validation failed: {e}")))?;
     }
@@ -662,6 +662,13 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         crate::nft_market::validate(request)?;
     } else if request.profile.as_deref() == Some("kaspacom-market-v1") {
         crate::kaspacom_market::validate(request)?;
+    } else if request.profile.as_deref() == Some("kcc20-standard-transfer-v1") {
+        crate::kcc20_standard::validate(request)?;
+    } else if request.profile.as_deref() == Some("kron-swap-v1") {
+        validate_kron_swap(request, &tx, &entries, &sighashes, &scripts)?;
+        // All non-selected inputs already contain their covenant witnesses;
+        // no additional party's signature is needed for this complete swap.
+        warnings.retain(|warning| warning != "This is a partial signature; other parties may add signatures.");
     } else if request.profile.as_deref() == Some("kron-transfer-v1") {
         if !request.sender.starts_with("kaspa:") || version != 1 || input_total < output_total {
             return Err(CoreError::InvalidRequest("KRON transfer requires a fully funded mainnet covenant transaction".into()));
@@ -809,6 +816,78 @@ fn validate_expected_sighashes(
             )));
         }
     }
+    Ok(())
+}
+
+fn validate_kron_swap(request: &PsktRequest, tx: &Transaction, entries: &[UtxoEntry], sighashes: &[(usize, SigHashType)], scripts: &HashMap<usize, PsktScriptInput>) -> Result<()> {
+    let fail = || CoreError::InvalidRequest("KRON swap differs from reviewed token, amount, recipient or fees".into());
+    let sender = Address::try_from(request.sender.as_str()).map_err(|_| fail())?;
+    let sender_script = pay_to_address_script(&sender);
+    if tx.version != 1 || !request.sender.starts_with("kaspa:") || sender.payload.len() != 32 || tx.payload != b"kron:r:kaspirewallet" || !scripts.is_empty() || sighashes.is_empty() { return Err(fail()); }
+    let token = Hash::from_str(request.token_id.as_deref().ok_or_else(fail)?).map_err(|_| fail())?;
+    let market = Hash::from_str(request.lp_covenant_id.as_deref().ok_or_else(fail)?).map_err(|_| fail())?;
+    let terms = request.trade_summary.as_ref().ok_or_else(fail)?;
+    let buy = request.side.as_deref() == Some("buy");
+    if !buy && request.side.as_deref() != Some("sell") { return Err(fail()); }
+    if token == market || terms["tokenId"].as_str() != request.token_id.as_deref() || terms["marketId"].as_str() != request.lp_covenant_id.as_deref() || terms["side"].as_str() != request.side.as_deref() || terms["ref"] != "kaspirewallet" { return Err(fail()); }
+    let mut funding = HashSet::new();
+    for (i, hash) in sighashes {
+        if hash.to_u8() != 1 || entries[*i].covenant_id.is_some() || entries[*i].script_public_key != sender_script { return Err(fail()); }
+        funding.insert(*i);
+    }
+    for (i, entry) in entries.iter().enumerate() {
+        if !funding.contains(&i) && (entry.covenant_id != Some(token) && entry.covenant_id != Some(market) || tx.inputs[i].signature_script.is_empty()) { return Err(fail()); }
+    }
+    if entries.first().and_then(|e| e.covenant_id) != Some(market) || entries.get(1).and_then(|e| e.covenant_id) != Some(token) { return Err(fail()); }
+    let trader = terms["traderInputs"].as_array().ok_or_else(fail)?;
+    if buy && !trader.is_empty() || !buy && trader.is_empty() || trader.len() > 3 || entries.len() != 2 + trader.len() + funding.len() { return Err(fail()); }
+    let mut owned = 0u64;
+    for (j, item) in trader.iter().enumerate() {
+        let i = item["index"].as_u64().ok_or_else(fail)? as usize;
+        if i != j + 2 || entries[i].covenant_id != Some(token) { return Err(fail()); }
+        let redeem = hex::decode(item["redeem"].as_str().ok_or_else(fail)?).map_err(|_| fail())?;
+        if pay_to_script_hash_script(&redeem) != entries[i].script_public_key { return Err(fail()); }
+        owned = owned.checked_add(crate::kron::owned_swap_state(&redeem, &sender.payload)?).ok_or_else(fail)?;
+    }
+    let roles = terms["outputRoles"].as_array().ok_or_else(fail)?;
+    if tx.outputs.len() != roles.len() + 1 || tx.outputs.last().ok_or_else(fail)?.script_public_key != sender_script || tx.outputs.last().ok_or_else(fail)?.covenant.is_some() { return Err(fail()); }
+    let mut received = 0u64;
+    let mut seen = HashSet::new();
+    for (i, role) in roles.iter().enumerate() {
+        let output = &tx.outputs[i];
+        let name = role["role"].as_str().ok_or_else(fail)?;
+        if role["index"].as_u64() != Some(i as u64) || !seen.insert(name) || output.value != u64_value(role.get("value"))? || hex::encode(output.script_public_key.script()) != role["script"].as_str().ok_or_else(fail)? { return Err(fail()); }
+        match name {
+            "pool" | "curve" => { if i != 0 || output.covenant.map(|c| c.covenant_id) != Some(market) { return Err(fail()); } },
+            "poolToken" | "inventory" => { if i != 1 || output.covenant.map(|c| c.covenant_id) != Some(token) { return Err(fail()); } },
+            "trader" | "recipient" | "seller" => {
+                let redeem = hex::decode(terms["traderOutputRedeem"].as_str().ok_or_else(fail)?).map_err(|_| fail())?;
+                if output.covenant.map(|c| c.covenant_id) != Some(token) || output.script_public_key != pay_to_script_hash_script(&redeem) { return Err(fail()); }
+                received = crate::kron::owned_swap_state(&redeem, &sender.payload)?;
+            },
+            "creatorFee" | "platformFee" | "devFundFee" => {
+                let (owner, fee) = match name { "creatorFee" => ("creatorOwner", "creatorFeeSompi"), "platformFee" => ("platformOwner", "platformFeeSompi"), _ => ("devFundOwner", "devFundFeeSompi") };
+                let pubkey = hex::decode(terms[owner].as_str().ok_or_else(fail)?).map_err(|_| fail())?;
+                if pubkey.len() != 32 { return Err(fail()); }
+                let address = Address::new(sender.prefix, kaspa_addresses::Version::PubKey, &pubkey);
+                if output.covenant.is_some() || output.script_public_key != pay_to_address_script(&address) || output.value != u64_value(terms.get(fee))? { return Err(fail()); }
+            },
+            _ => return Err(fail()),
+        }
+    }
+    if !seen.contains("creatorFee") || !seen.contains("platformFee") || !seen.contains(if terms["phase"] == "pool" { "pool" } else { "curve" }) { return Err(fail()); }
+    let amount = u64_value(terms.get("tokenAmount"))?;
+    let raw = u64_value(terms.get("rawAmount"))?;
+    let minimum = u64_value(terms.get("minimumReceive"))?;
+    let gross = u64_value(terms.get("grossKasSompi"))?;
+    let market_delta = if buy { tx.outputs[0].value.checked_sub(entries[0].amount) } else { entries[0].amount.checked_sub(tx.outputs[0].value) };
+    let fees = ["creatorFeeSompi", "platformFeeSompi", "devFundFeeSompi"].iter().try_fold(0u64, |total, field| total.checked_add(u64_value(terms.get(*field))?).ok_or_else(fail))?;
+    let net = if buy { gross.checked_add(fees) } else { gross.checked_sub(fees) };
+    if market_delta != Some(gross) || net != Some(u64_value(terms.get("netKasSompi"))?) { return Err(fail()); }
+    if amount == 0 || raw == 0 || (buy && (received != amount || received < minimum || raw != u64_value(terms.get("grossKasSompi"))?)) || (!buy && (amount != raw || owned.checked_sub(received) != Some(raw) || u64_value(terms.get("netKasSompi"))? < minimum)) { return Err(fail()); }
+    let input_total = entries.iter().try_fold(0u64, |s,e| s.checked_add(e.amount).ok_or_else(fail))?;
+    let output_total = tx.outputs.iter().try_fold(0u64, |s,e| s.checked_add(e.value).ok_or_else(fail))?;
+    if input_total.checked_sub(output_total) != Some(u64_value(terms.get("networkFeeSompi"))?) { return Err(fail()); }
     Ok(())
 }
 

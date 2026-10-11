@@ -5,6 +5,8 @@ import 'dotk_service.dart';
 import 'kasparocket_service.dart';
 import 'krc721_reads.dart';
 import 'kron_holdings.dart';
+import 'kcc20_standard_service.dart';
+import 'activity_store.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -68,6 +70,11 @@ class KaspaApi {
   final String kasvioBaseUrl;
   KronHoldings get kronHoldings =>
       KronHoldings(_client, indexer: kronIndexerBaseUrl, kasvio: kasvioBaseUrl);
+  Kcc20StandardService get standardKcc20 => Kcc20StandardService(_client,
+      base: '$kasvioBaseUrl/api/kcc20/v1', node: '$baseUrl/local-node');
+  Future<List<Kcc20CellRecord>> loadStandardKcc20SigningCells(
+          String address, String covenantId, int amount) =>
+      standardKcc20.signingCells(address, covenantId, amount);
   final String toccataBroadcastUrl;
   Future<Map<String, double>>? _floorPrices;
 
@@ -147,14 +154,15 @@ class KaspaApi {
                         : '',
                   ))
               .catchError((_) => null)
-          : _loadKcc20Wallet(address, onProgress: (value) {
+          : _loadKcc20Wallet(address, historyLimit: transactionLimit,
+              onProgress: (value) {
               progressiveCovenants = value;
               publish();
             }).then<Object?>((value) => value).catchError((_) => null),
       testnet
           ? Future<Object?>.value(const <WalletTransaction>[])
-          : _loadKronTrades(address)
-              .timeout(const Duration(seconds: 8))
+          : loadKronTransactions(address, limit: transactionLimit)
+              .timeout(const Duration(seconds: 20))
               .catchError((_) => const <WalletTransaction>[]),
       loadUtxos(address).then((value) {
         progressiveUtxos = (jsonDecode(value) as List).length;
@@ -854,14 +862,86 @@ class KaspaApi {
     return transactions;
   }
 
-  Future<List<WalletTransaction>> _loadKronTrades(String address) async {
+  Future<List<WalletTransaction>> loadKronTransactions(String address,
+      {int limit = 200}) async {
+    if (NetworkSettings.isTestnet) return [];
     final raw = _map(await _externalGet(
       kronIndexerBaseUrl,
       '/address/${Uri.encodeComponent(address)}/trades',
-      query: const {'offset': '0', 'limit': '200'},
+      query: {'offset': '0', 'limit': limit.toString()},
     ));
+    // KRON's address feed supplies KAS volume, NOT the number of tokens.
+    // Join exact raw token quantities from Kasvio by covenant, txid and wallet.
+    // Never divide KAS volume by a floating point spot price to invent units.
+    final exact = <String, WalletTransaction>{};
+    final tickers = _externalItems(raw)
+        .map((e) => (e['tick'] ?? e['ticker'] ?? '').toString())
+        .where((t) => RegExp(r'^[a-zA-Z0-9_-]{1,32}$').hasMatch(t))
+        .toSet();
+    await Future.wait(tickers.map((ticker) async {
+      try {
+        final metadata = _externalItems(_map(await _externalGet(
+            kronIndexerBaseUrl, '/token/${Uri.encodeComponent(ticker)}')));
+        for (final token in metadata) {
+          final covenant = token['covenantId']?.toString() ?? '';
+          final decimals = int.tryParse(token['dec'].toString());
+          if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(covenant) ||
+              decimals == null ||
+              decimals < 0 ||
+              decimals > 18) {
+            continue;
+          }
+          String? cursor;
+          var read = 0;
+          for (var page = 0; page < 5 && read < limit; page++) {
+            final data = _map(await _externalGet(
+                kasvioBaseUrl, '/api/kron/v2/tokens/$covenant/trades',
+                query: {'limit': '100', if (cursor != null) 'cursor': cursor}));
+            final rows = _externalItems(data);
+            for (final row in rows) {
+              final wallets = row['wallet_addresses'];
+              final id = row['txid']?.toString() ?? '';
+              final amount =
+                  BigInt.tryParse(row['token_amount_raw'].toString());
+              final time = int.tryParse(row['time_ms'].toString());
+              final side = row['side'];
+              if (wallets is! List ||
+                  !wallets.contains(address) ||
+                  row['token_id'] != covenant ||
+                  !RegExp(r'^[0-9a-f]{64}$').hasMatch(id) ||
+                  amount == null ||
+                  amount <= BigInt.zero ||
+                  time == null ||
+                  time < 1577836800000 ||
+                  time > DateTime.now().millisecondsSinceEpoch + 300000 ||
+                  !const ['buy', 'sell'].contains(side)) {
+                continue;
+              }
+              final tx = WalletTransaction(
+                  id: id,
+                  timestamp: DateTime.fromMillisecondsSinceEpoch(time),
+                  amountSompi: 0,
+                  incoming: side == 'buy',
+                  assetKind: 'KCC20',
+                  assetSymbol: ticker.toUpperCase(),
+                  tokenId: covenant,
+                  displayAmount: formatRawTokenAmount(amount, decimals),
+                  operationLabel: side == 'buy' ? 'KRON Buy' : 'KRON Sell',
+                  status: TransactionStatus.confirmed);
+              exact['$id|$covenant|$side'] = tx;
+            }
+            read += rows.length;
+            final next = _map(data['pagination'])['next_cursor']?.toString();
+            if (next == null || next == cursor || rows.isEmpty) break;
+            cursor = next;
+          }
+        }
+      } catch (_) {
+        /* One unavailable token source must not hide other activity. */
+      }
+    }));
     final now = DateTime.now();
-    final trades = <WalletTransaction>[];
+    final trades = <WalletTransaction>[...exact.values];
     for (final item in _externalItems(raw)) {
       final ticker =
           (item['tick'] ?? item['ticker'] ?? '').toString().toUpperCase();
@@ -869,6 +949,12 @@ class KaspaApi {
           .toString()
           .toLowerCase();
       final side = item['side']?.toString().toLowerCase();
+      if (exact.values.any((tx) =>
+          tx.id == txid &&
+          tx.assetSymbol == ticker &&
+          tx.incoming == (side == 'buy'))) {
+        continue;
+      }
       final market = item['kind']?.toString().toLowerCase();
       final volume = _asDouble(item['volume']);
       final price = _asDouble(item['price']);
@@ -968,16 +1054,21 @@ class KaspaApi {
 
   Future<_Kcc20Wallet> _loadKcc20Wallet(
     String address, {
+    int historyLimit = 20,
     void Function(_Kcc20Wallet)? onProgress,
   }) async {
     _Kcc20Wallet? primaryProgress;
     _Kcc20Wallet? fallbackProgress;
     _Kcc20Wallet? kronProgress;
+    _Kcc20Wallet? standardProgress;
     void publish() {
       var value = primaryProgress != null && fallbackProgress != null
           ? _mergeKcc20Wallets(primaryProgress!, fallbackProgress!)
           : primaryProgress ?? fallbackProgress;
       if (kronProgress != null) value = _withKronHoldings(value, kronProgress!);
+      if (standardProgress != null) {
+        value = _withStandardHoldings(value, standardProgress!);
+      }
       if (value != null) onProgress?.call(value);
     }
 
@@ -1006,10 +1097,26 @@ class KaspaApi {
         publish();
         return value;
       }).catchError((_) => null),
+      standardKcc20.load(address, historyLimit: historyLimit,
+          onProgress: (result) {
+        standardProgress = _Kcc20Wallet(
+            assets: result.assets,
+            transactions: result.transactions,
+            warning: result.warning);
+        publish();
+      }).then<_Kcc20Wallet?>((result) {
+        final value = _Kcc20Wallet(
+            assets: result.assets,
+            transactions: result.transactions,
+            warning: result.warning);
+        standardProgress = value;
+        publish();
+        return value;
+      }).catchError((_) => null),
     ]);
     final primary = results[0];
     final fallback = results[1];
-    if (primary == null && fallback == null && results[2] == null) {
+    if (results.every((value) => value == null)) {
       throw KaspaApiException(
         'Both KCC20 indexers are temporarily unavailable.',
       );
@@ -1017,9 +1124,29 @@ class KaspaApi {
     final existing = primary != null && fallback != null
         ? _mergeKcc20Wallets(primary, fallback)
         : primary ?? fallback;
-    return results[2] != null
+    final combined = results[2] != null
         ? _withKronHoldings(existing, results[2]!)
-        : existing!;
+        : existing;
+    return results[3] != null
+        ? _withStandardHoldings(combined, results[3]!)
+        : combined!;
+  }
+
+  _Kcc20Wallet _withStandardHoldings(
+      _Kcc20Wallet? existing, _Kcc20Wallet standard) {
+    final ids = standard.assets.map((asset) => asset.covenantId).toSet();
+    return _Kcc20Wallet(
+      assets: _alphabeticalAssets([
+        ...?existing?.assets.where((asset) => !ids.contains(asset.covenantId)),
+        ...standard.assets,
+      ]),
+      transactions: mergeWalletActivity(
+          existing?.transactions ?? const [], standard.transactions),
+      warning: [
+        if (existing?.warning.isNotEmpty == true) existing!.warning,
+        if (standard.warning.isNotEmpty) standard.warning
+      ].join(' '),
+    );
   }
 
   _Kcc20Wallet _withKronHoldings(_Kcc20Wallet? existing, _Kcc20Wallet kron) {
@@ -1110,7 +1237,9 @@ class KaspaApi {
       ...primary.transactions,
       ...fallback.transactions,
     ]) {
-      transactions.putIfAbsent(transaction.id, () => transaction);
+      transactions.putIfAbsent(
+          '${transaction.id}|${transaction.assetKind}|${transaction.assetSymbol}|${transaction.tokenId}|${transaction.incoming}',
+          () => transaction);
     }
     final mergedTransactions = transactions.values.toList()
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -1395,6 +1524,7 @@ class KaspaApi {
           incoming: incoming,
           assetKind: 'KCC20',
           assetSymbol: ticker,
+          tokenId: tokenId,
           displayAmount: formatRawTokenAmount(
             BigInt.from(delta.abs()),
             decimals,
@@ -1676,6 +1806,7 @@ class KaspaApi {
         incoming: incoming,
         assetKind: 'KCC20',
         assetSymbol: ticker,
+        tokenId: covenantId,
         displayAmount: formatRawTokenAmount(
           BigInt.from(_asInt(event['amount'])),
           decimals,

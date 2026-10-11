@@ -7,6 +7,7 @@ import '../services/dotk_service.dart';
 import '../services/network_settings.dart';
 import '../services/native_security.dart';
 import '../services/app_settings.dart';
+import '../services/activity_store.dart';
 import '../number_format.dart';
 import '../widgets/hub21_material.dart';
 
@@ -348,6 +349,24 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
         if (ready != true) return;
       }
       final id = await _service.broadcast(signed);
+      final terms = request['terms'] as Map;
+      final action = request['action'];
+      await ActivityStore().recordAssetTransfer(
+          wallet: widget.address,
+          transactionId: id,
+          timestamp: DateTime.now(),
+          incoming: action != 'list',
+          operation: {
+            'kind': 'dotk',
+            'name': '${terms['name']}.k',
+            'displayAmount': '1',
+            'recipient': terms['seller'],
+            'operationLabel': action == 'list'
+                ? 'Name Listed'
+                : action == 'buy'
+                    ? 'Name Purchase'
+                    : 'Name Listing Cancelled'
+          });
       if (!mounted) return;
       var published = false;
       if (request['action'] == 'list') {

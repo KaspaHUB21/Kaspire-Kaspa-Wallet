@@ -13,6 +13,7 @@ mod inscription;
 mod kaspacom_market;
 mod nft_market;
 mod kcc20;
+mod kcc20_standard;
 mod kron;
 mod policy_transaction;
 mod pskt;

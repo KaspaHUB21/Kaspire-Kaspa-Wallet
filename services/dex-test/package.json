@@ -1,0 +1,1 @@
+{"name":"kaspire-dex-test","private":true,"type":"module","scripts":{"test":"node --test *.test.mjs","start":"node server.mjs"},"dependencies":{"@kronsdk/kron-sdk":"0.19.0"}}

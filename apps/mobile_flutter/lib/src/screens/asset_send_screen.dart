@@ -11,6 +11,7 @@ import '../models/kaspa_payment_request.dart';
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
 import '../services/kaspa_api.dart';
+import '../services/kcc20_standard_service.dart';
 import '../services/activity_store.dart';
 import '../services/app_settings.dart';
 import '../services/native_security.dart';
@@ -255,11 +256,12 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         case _AssetKind.kcc20:
           final token = _covenantToken;
           if (token == null) throw StateError('Select a KCC20 token.');
-          if (token.standard != 'kron-native' &&
-              token.validationStatus != 'verified') {
+          final isStandard = token.standard == Kcc20StandardService.standard;
+          final dynamicCells = isStandard || token.standard == 'kron-native';
+          if (!dynamicCells && token.validationStatus != 'verified') {
             throw StateError('Only indexer-verified KCC20 tokens can be sent.');
           }
-          if (token.standard != 'kron-native' &&
+          if (!dynamicCells &&
               (!token.discoveryComplete || token.kcc20Cells.isEmpty)) {
             throw StateError(
                 'KCC20 cell discovery is incomplete. Refresh and verify the token before sending.');
@@ -269,10 +271,13 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             throw StateError(
                 'Invalid amount, too many decimals, or insufficient token balance.');
           }
-          final cells = token.standard == 'kron-native'
-              ? await _api.loadKronSigningCells(
+          final cells = isStandard
+              ? await _api.loadStandardKcc20SigningCells(
                   widget.address, token.covenantId!, int.parse(raw))
-              : token.kcc20Cells;
+              : token.standard == 'kron-native'
+                  ? await _api.loadKronSigningCells(
+                      widget.address, token.covenantId!, int.parse(raw))
+                  : token.kcc20Cells;
           if (token.standard != 'kron-native') {
             await _api.verifyKcc20CellsOnOwnNode(cells, token.covenantId!);
           }
@@ -291,7 +296,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           };
           Map<String, Object?> review;
           Map<String, Object?> signingRequest = request;
-          if (token.standard == 'kron-native') {
+          if (dynamicCells) {
             if (cells.any((cell) =>
                 cell.redeemScript == null || cell.redeemScript!.isEmpty)) {
               throw StateError(
@@ -329,7 +334,11 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
               'reviewHash': psktReview['reviewHash'],
               'networkFeeSompi': prepared['feeSompi'],
               'mass': prepared['feeMass'],
-              'kron': true,
+              'covenantId': token.covenantId,
+              'validation': dynamicCells
+                  ? 'Local node and native core'
+                  : 'Indexer verified',
+              'kron': token.standard == 'kron-native',
             };
           } else {
             review = await _security.prepareKcc20Transfer(request);
@@ -338,12 +347,13 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           operation['amount'] = raw;
           operation['displayAmount'] = _amount.text.trim();
           operation['covenantId'] = token.covenantId;
+          operation['standard'] = token.standard;
           if (mounted) {
             setState(() {
               _operation = operation;
               _kcc20Request = signingRequest;
               _kcc20Review = review;
-              _kronTransfer = token.standard == 'kron-native';
+              _kronTransfer = dynamicCells;
               _working = false;
             });
           }
@@ -435,7 +445,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           'revealTransactionId': transactionId,
           'revealFeeSompi': review['feeSompi'],
           'kcc20': true,
-          'kron': _kronTransfer,
+          'kron': operation['standard'] == 'kron-native',
           'mass': review['mass'],
           'templateHash': review['templateHash'],
         };
@@ -834,7 +844,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
               isDense: false,
               itemHeight: 86,
               decoration: const InputDecoration(
-                labelText: 'Verified token',
+                labelText: 'Token / covenant',
                 floatingLabelBehavior: FloatingLabelBehavior.always,
                 contentPadding: EdgeInsets.fromLTRB(14, 18, 10, 10),
                 constraints: BoxConstraints(minHeight: 86),
@@ -855,16 +865,20 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           const SizedBox(height: 10),
           if (_covenantToken != null)
             Text(
-              _covenantToken!.standard == 'kron-native'
-                  ? 'KRON balance · Signing cells are verified on the local node before review.'
-                  : _covenantToken!.discoveryComplete
-                      ? 'Indexer verified · ${_covenantToken!.kcc20Cells.length} spendable cell(s)'
-                      : 'Sending disabled: cell discovery is incomplete.',
+              _covenantToken!.standard == Kcc20StandardService.standard
+                  ? 'KCC20 Last Call · Signing cells are verified on the local node before review.'
+                  : _covenantToken!.standard == 'kron-native'
+                      ? 'KRON balance · Signing cells are verified on the local node before review.'
+                      : _covenantToken!.discoveryComplete
+                          ? 'Indexer verified · ${_covenantToken!.kcc20Cells.length} spendable cell(s)'
+                          : 'Sending disabled: cell discovery is incomplete.',
               style: TextStyle(
-                color: _covenantToken!.standard == 'kron-native' ||
-                        _covenantToken!.discoveryComplete
-                    ? KasVaultTheme.mint
-                    : const Color(0xFFFFB65C),
+                color:
+                    _covenantToken!.standard == Kcc20StandardService.standard ||
+                            _covenantToken!.standard == 'kron-native' ||
+                            _covenantToken!.discoveryComplete
+                        ? KasVaultTheme.mint
+                        : const Color(0xFFFFB65C),
                 fontSize: 12,
               ),
             ),
@@ -1046,7 +1060,8 @@ class _Kcc20Review extends StatelessWidget {
             )),
             const SizedBox(height: 18),
             _Card(children: [
-              const _Row('Validation', 'Indexer verified'),
+              _Row('Validation',
+                  review['validation']?.toString() ?? 'Indexer verified'),
               _Row('Token', operation['ticker'].toString()),
               _Row(
                 'Amount',
@@ -1074,10 +1089,14 @@ class _Kcc20Review extends StatelessWidget {
                   formatEnglishDecimal(review['mass'].toString())),
               _Row('Compute mass',
                   formatEnglishDecimal(review['computeMass'].toString())),
-              _Row('Storage mass (normalized)',
-                  formatEnglishDecimal(review['storageMass'].toString())),
-              _Row('Safe storage target',
-                  formatEnglishDecimal(review['storageMassTarget'].toString())),
+              if (review['storageMass'] != null)
+                _Row('Storage mass (normalized)',
+                    formatEnglishDecimal(review['storageMass'].toString())),
+              if (review['storageMassTarget'] != null)
+                _Row(
+                    'Safe storage target',
+                    formatEnglishDecimal(
+                        review['storageMassTarget'].toString())),
               _Row('Transient mass (normalized)',
                   formatEnglishDecimal(review['transientMass'].toString())),
               _Row('Fee mass',

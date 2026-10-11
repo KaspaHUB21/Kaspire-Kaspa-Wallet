@@ -85,9 +85,9 @@ class KronHoldings {
 
   Future<List<WalletAsset>> load(String address,
       {void Function(List<WalletAsset>)? onProgress}) async {
-    // One catalogue request, never one request per holding.
+    // Public KRON-v2 catalogue, never one request per holding.
     final marketsFuture =
-        get('$kasvio/api/dex?dex=kron&range=7d').catchError((_) => null);
+        get('$kasvio/api/kron/v2/tokens?limit=100').catchError((_) => null);
     final rows = await balances(address);
     List<WalletAsset> mapAssets(Map<String, dynamic> markets) =>
         rows.map((row) {
@@ -117,17 +117,38 @@ class KronHoldings {
           );
         }).toList();
     onProgress?.call(mapAssets({}));
-    final response = await marketsFuture;
+    var response = await marketsFuture;
     final markets = <String, dynamic>{};
-    if (response is Map &&
-        response['stale'] == false &&
-        response['source'] is Map &&
-        response['source']['available'] == true &&
-        response['tokens'] is List) {
-      for (final token in (response['tokens'] as List).whereType<Map>()) {
-        final id = token['id']?.toString().toLowerCase() ?? '';
-        if (RegExp(r'^[0-9a-f]{64}$').hasMatch(id)) markets[id] = token;
+    final needed =
+        rows.map((r) => r['covenantId'].toString().toLowerCase()).toSet();
+    final cursors = <String>{};
+    for (var page = 0; page < 10; page++) {
+      if (response is! Map ||
+          response['data'] is! List ||
+          response['meta'] is! Map ||
+          response['meta']['network'] != 'mainnet') {
+        break;
       }
+      final fresh = response['meta']['adapter_fresh'] == true &&
+          response['meta']['source_caught_up'] == true;
+      for (final token in (response['data'] as List).whereType<Map>()) {
+        final id = token['token_id']?.toString().toLowerCase() ?? '';
+        if (RegExp(r'^[0-9a-f]{64}$').hasMatch(id)) {
+          markets[id] = {
+            'logo': token['logo_uri'],
+            'price': fresh ? token['last_price_kas_per_raw_unit'] : null
+          };
+        }
+      }
+      if (needed.every(markets.containsKey)) break;
+      final pagination = response['pagination'];
+      final cursor = pagination is Map ? pagination['next_cursor'] : null;
+      if (cursor is! String || cursor.length > 2048 || !cursors.add(cursor)) {
+        break;
+      }
+      response = await get(
+              '$kasvio/api/kron/v2/tokens?limit=100&cursor=${Uri.encodeComponent(cursor)}')
+          .catchError((_) => null);
     }
     return mapAssets(markets);
   }
