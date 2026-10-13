@@ -30,10 +30,12 @@ class AssetSendScreen extends StatefulWidget {
     required this.address,
     required this.onDone,
     this.initialAsset,
+    this.api,
   });
   final String address;
   final VoidCallback onDone;
   final AssetSendIntent? initialAsset;
+  final KaspaApi? api;
   @override
   State<AssetSendScreen> createState() => _AssetSendScreenState();
 }
@@ -41,7 +43,7 @@ class AssetSendScreen extends StatefulWidget {
 class _AssetSendScreenState extends State<AssetSendScreen> {
   String get _pendingKey =>
       'kaspire_pending_inscription_v2_${widget.address.toLowerCase()}';
-  final _api = KaspaApi();
+  late final KaspaApi _api;
   final _security = NativeSecurity();
   final _signer = SignerService();
   final _preferences = PreferencesService();
@@ -66,11 +68,59 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
   String? _error;
   String? _status;
   bool _working = true;
+  bool _refreshing = false;
+  int _nftLoadGeneration = 0;
 
   @override
   void initState() {
     super.initState();
+    _api = widget.api ?? KaspaApi();
+    final intent = widget.initialAsset;
+    _kind = intent?.kind == 'krc721'
+        ? _AssetKind.krc721
+        : intent?.kind == 'kcc20'
+            ? _AssetKind.kcc20
+            : intent?.kind == 'kns'
+                ? _AssetKind.kns
+                : _AssetKind.krc20;
+    if (intent?.wallet != null) _applyWallet(intent!.wallet!);
+    if (intent?.nft != null) {
+      _nft = intent!.nft;
+      _nfts = [_nft!];
+    }
     _load();
+  }
+
+  void _applyWallet(WalletSnapshot wallet) {
+    final intent = widget.initialAsset;
+    final token = _token?.symbol ?? intent?.symbol;
+    final cid = _covenantToken?.covenantId ??
+        (_kind == _AssetKind.kcc20 ? intent?.assetId : null);
+    final collection = _collection?.symbol ?? intent?.symbol;
+    final domainId = _domain?.assetId ?? intent?.assetId;
+    _wallet = wallet;
+    _token = wallet.krc20Tokens
+            .where((a) => a.symbol.toLowerCase() == token?.toLowerCase())
+            .firstOrNull ??
+        wallet.krc20Tokens.firstOrNull;
+    // A ticker is not unique for covenant tokens. Never choose a different
+    // covenant just because its ticker matches the selected token.
+    _covenantToken = cid != null
+        ? wallet.kcc20Tokens
+            .where((a) => (a.covenantId ?? a.id) == cid)
+            .firstOrNull
+        : wallet.kcc20Tokens.firstOrNull;
+    _collection = wallet.krc721Collections
+            .where((a) => a.symbol.toLowerCase() == collection?.toLowerCase())
+            .firstOrNull ??
+        wallet.krc721Collections.firstOrNull;
+    _domain = wallet.knsDomains
+            .where((d) =>
+                d.assetId == domainId && domainId != null ||
+                d.name.toLowerCase() ==
+                    (_domain?.name ?? intent?.domainName)?.toLowerCase())
+            .firstOrNull ??
+        wallet.knsDomains.firstOrNull;
   }
 
   Future<void> _load() async {
@@ -91,47 +141,41 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           await prefs.remove(legacyPendingKey);
         }
       }
-      final wallet = await _api.loadWallet(widget.address);
       if (!mounted) return;
+      final hasDisplaySnapshot = _wallet != null;
       setState(() {
-        _wallet = wallet;
-        final intent = widget.initialAsset;
-        _kind = intent?.kind == 'krc721'
-            ? _AssetKind.krc721
-            : intent?.kind == 'kcc20'
-                ? _AssetKind.kcc20
-                : intent?.kind == 'kns'
-                    ? _AssetKind.kns
-                    : _AssetKind.krc20;
-        _token = wallet.krc20Tokens
-                .where((asset) =>
-                    asset.symbol.toLowerCase() == intent?.symbol?.toLowerCase())
-                .firstOrNull ??
-            wallet.krc20Tokens.firstOrNull;
-        _covenantToken = wallet.kcc20Tokens
-                .where((asset) =>
-                    asset.covenantId == intent?.assetId ||
-                    asset.symbol.toLowerCase() == intent?.symbol?.toLowerCase())
-                .firstOrNull ??
-            wallet.kcc20Tokens.firstOrNull;
-        _collection = wallet.krc721Collections
-                .where((asset) =>
-                    asset.symbol.toLowerCase() == intent?.symbol?.toLowerCase())
-                .firstOrNull ??
-            wallet.krc721Collections.firstOrNull;
-        _domain = wallet.knsDomains
-                .where((domain) =>
-                    domain.assetId == intent?.assetId ||
-                    domain.name.toLowerCase() ==
-                        intent?.domainName?.toLowerCase())
-                .firstOrNull ??
-            wallet.knsDomains.firstOrNull;
         _pending = pendingRaw == null
             ? null
             : (jsonDecode(pendingRaw) as Map).cast<String, Object?>();
         _working = false;
+        _refreshing = true;
       });
-      if (_collection != null) await _loadNfts(_collection!);
+      // Load NFT pages only for the NFT tab, not for every asset transfer.
+      if (_kind == _AssetKind.krc721 && _collection != null) {
+        unawaited(_loadNfts(_collection!));
+      }
+      void update(WalletSnapshot wallet) {
+        if (!mounted ||
+            _working ||
+            _operation != null ||
+            _kcc20Review != null) {
+          return;
+        }
+        final previous = _collection?.symbol;
+        setState(() => _applyWallet(wallet));
+        if (_kind == _AssetKind.krc721 &&
+            _collection != null &&
+            previous != _collection?.symbol) {
+          unawaited(_loadNfts(_collection!));
+        }
+      }
+
+      final wallet = await _api.loadWallet(widget.address,
+          includeNativeTransactions: false,
+          includeAssetHistory: false,
+          includeMarketData: false,
+          onProgress: hasDisplaySnapshot ? null : update);
+      update(wallet);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -139,6 +183,8 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           _error = '$e';
         });
       }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
     }
   }
 
@@ -169,10 +215,15 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
   }
 
   Future<void> _loadNfts(WalletAsset collection) async {
+    final generation = ++_nftLoadGeneration;
+    final selected =
+        _nft?.ticker.toLowerCase() == collection.symbol.toLowerCase()
+            ? _nft
+            : null;
     setState(() {
       _collection = collection;
-      _nfts = const [];
-      _nft = null;
+      _nfts = selected == null ? const [] : [selected];
+      _nft = selected;
     });
     try {
       final all = <WalletNft>[];
@@ -181,20 +232,29 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         final page = await _api.loadNftCollection(
             widget.address, collection.symbol,
             offset: offset);
+        if (!mounted || generation != _nftLoadGeneration) return;
         all.addAll(page.nfts);
         offset = page.nextOffset;
-      }
-      if (mounted) {
         setState(() {
-          _nfts = all;
-          _nft = all
-                  .where((nft) => nft.tokenId == widget.initialAsset?.tokenId)
+          _nfts = [
+            ...all,
+            if (selected != null &&
+                !all.any((n) => n.tokenId == selected.tokenId) &&
+                offset != null)
+              selected
+          ];
+          _nft = _nfts
+                  .where((nft) =>
+                      nft.tokenId ==
+                      (_nft?.tokenId ?? widget.initialAsset?.tokenId))
                   .firstOrNull ??
-              all.firstOrNull;
+              _nfts.firstOrNull;
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted && generation == _nftLoadGeneration) {
+        setState(() => _error = '$e');
+      }
     }
   }
 
@@ -791,6 +851,12 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
     return SafeArea(
       top: false,
       child: ListView(padding: const EdgeInsets.all(20), children: [
+        if (_refreshing) ...[
+          const LinearProgressIndicator(),
+          const SizedBox(height: 8),
+          const Text('Refreshing asset balances…'),
+          const SizedBox(height: 12),
+        ],
         Hub21Readable(
             child: Text(displayLabel('SEND ASSET'),
                 style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900))),
@@ -800,19 +866,30 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                 'KRC-20, KRC-721 and KNS use commit/reveal. KCC20 is signed locally and submitted directly to Kaspa mainnet.',
                 style: TextStyle(color: KasVaultTheme.muted))),
         const SizedBox(height: 20),
-        SegmentedButton<_AssetKind>(segments: const [
-          ButtonSegment(value: _AssetKind.krc20, label: Text('KRC-20')),
-          ButtonSegment(value: _AssetKind.kcc20, label: Text('KCC20')),
-          ButtonSegment(value: _AssetKind.krc721, label: Text('KRC-721')),
-          ButtonSegment(value: _AssetKind.kns, label: Text('KNS')),
-        ], selected: {
-          _kind
-        }, onSelectionChanged: (v) => setState(() => _kind = v.first)),
+        SegmentedButton<_AssetKind>(
+            segments: const [
+              ButtonSegment(value: _AssetKind.krc20, label: Text('KRC-20')),
+              ButtonSegment(value: _AssetKind.kcc20, label: Text('KCC20')),
+              ButtonSegment(value: _AssetKind.krc721, label: Text('KRC-721')),
+              ButtonSegment(value: _AssetKind.kns, label: Text('KNS')),
+            ],
+            selected: {
+              _kind
+            },
+            onSelectionChanged: (v) {
+              setState(() => _kind = v.first);
+              if (_kind == _AssetKind.krc721 &&
+                  _collection != null &&
+                  _nfts.isEmpty) {
+                unawaited(_loadNfts(_collection!));
+              }
+            }),
         const SizedBox(height: 18),
         if (_working && _wallet == null)
           const Center(child: CircularProgressIndicator()),
         if (_kind == _AssetKind.krc20) ...[
           DropdownButtonFormField<WalletAsset>(
+              key: ObjectKey(_wallet),
               initialValue: _token,
               isExpanded: true,
               isDense: false,
@@ -839,6 +916,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         ],
         if (_kind == _AssetKind.kcc20) ...[
           DropdownButtonFormField<WalletAsset>(
+              key: ObjectKey(_wallet),
               initialValue: _covenantToken,
               isExpanded: true,
               isDense: false,
@@ -885,6 +963,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         ],
         if (_kind == _AssetKind.krc721) ...[
           DropdownButtonFormField<WalletAsset>(
+              key: ObjectKey(_wallet),
               initialValue: _collection,
               decoration: const InputDecoration(labelText: 'Collection'),
               items: (_wallet?.krc721Collections ?? const [])
@@ -908,6 +987,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         ],
         if (_kind == _AssetKind.kns)
           DropdownButtonFormField<KnsDomain>(
+              key: ObjectKey(_wallet),
               initialValue: _domain,
               decoration: const InputDecoration(labelText: 'Domain'),
               items: (_wallet?.knsDomains ?? const [])

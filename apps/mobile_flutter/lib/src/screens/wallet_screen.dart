@@ -626,7 +626,7 @@ class _AssetOverview extends StatelessWidget {
                             fiatCode: data.fiatCode,
                             fiatSymbol: data.fiatSymbol,
                             onSend: () => onSendAsset(
-                              AssetSendIntent.krc20(asset.symbol),
+                              AssetSendIntent.krc20(asset.symbol, wallet: data),
                             ),
                           ),
                         ),
@@ -659,6 +659,7 @@ class _AssetOverview extends StatelessWidget {
                                 AssetSendIntent.kcc20(
                                   asset.symbol,
                                   asset.covenantId ?? asset.id ?? '',
+                                  wallet: data,
                                 ),
                               ),
                     ),
@@ -683,6 +684,8 @@ class _AssetOverview extends StatelessWidget {
                               AssetSendIntent.krc721(
                                 nft.ticker,
                                 tokenId: nft.tokenId,
+                                wallet: data,
+                                nft: nft,
                               ),
                             ),
                           ),
@@ -710,7 +713,8 @@ class _AssetOverview extends StatelessWidget {
                           ),
                           label: Text(domain.name),
                           onPressed: () => onSendAsset(
-                            AssetSendIntent.kns(domain.name, domain.assetId),
+                            AssetSendIntent.kns(domain.name, domain.assetId,
+                                wallet: data),
                           ),
                         ),
                       )

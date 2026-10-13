@@ -15,7 +15,8 @@ import '../theme.dart';
 import 'diagnostics_screen.dart';
 import 'tangem_rescue_screen.dart';
 import 'dotk_market_screen.dart';
-import 'kaspacom_market_screen.dart';
+import 'covenant_vault_screen.dart';
+import 'hidden_kas_screen.dart';
 import '../services/dotk_market_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -1050,15 +1051,27 @@ class _SettingsOverview extends StatelessWidget {
               title: 'HUB21 Toolbox',
               subtitle: 'Explorers, vaults and developer tools',
               children: [
-                _ToolAction(
-                  icon: Icons.storefront_outlined,
-                  title: 'KaspaCom Marketplace',
-                  subtitle: 'Internal test · KRC-721, KRC-20 and KNS',
-                  onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                          builder: (_) =>
-                              KaspaComMarketScreen(address: address))),
-                ),
+                if (const bool.fromEnvironment('KASPIRE_INTERNAL_TESTS'))
+                  _ToolAction(
+                    icon: Icons.shield_outlined,
+                    title: 'Public-key-hidden KAS',
+                    subtitle:
+                        'Internal test · separate experimental P2SH account',
+                    onTap: () =>
+                        Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => HiddenKasScreen(address: address),
+                    )),
+                  ),
+                if (const bool.fromEnvironment('KASPIRE_INTERNAL_TESTS'))
+                  _ToolAction(
+                    icon: Icons.lock_clock_outlined,
+                    title: 'Kaspire Covenant Vaults',
+                    subtitle: 'Internal test · Time Lock and Dead Man’s Switch',
+                    onTap: () =>
+                        Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => CovenantVaultScreen(address: address),
+                    )),
+                  ),
                 if (DotkMarketService.enabled)
                   _ToolAction(
                     icon: Icons.storefront_outlined,

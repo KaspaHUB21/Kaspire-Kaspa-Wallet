@@ -130,6 +130,23 @@ MockClient source(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('holdings-only lookup never requests per-token transaction history',
+      () async {
+    final paths = <String>[];
+    final upstream = source();
+    final client = MockClient((r) async {
+      paths.add(r.url.path);
+      final response = await upstream.get(r.url);
+      return response;
+    });
+    final wallet =
+        await Kcc20StandardService(client).load(address, historyLimit: 0);
+    expect(wallet.assets, hasLength(1));
+    expect(wallet.transactions, isEmpty);
+    expect(paths.any((path) => path.contains('/transactions')), isFalse);
+    client.close();
+    upstream.close();
+  });
   test('verified decimals and image, progressive holdings and exact activity',
       () async {
     var published = false;

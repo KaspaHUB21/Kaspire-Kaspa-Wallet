@@ -22,8 +22,17 @@ object SecureCore {
     external fun signEvmTransaction(secret: ByteArray, requestJson: String, reviewHash: String): String
     external fun deriveBackupKeyBytes(password: ByteArray, salt: ByteArray, version: Int): ByteArray
     external fun prepareTransaction(requestJson: String): String
+    external fun deriveHiddenKas(secret: ByteArray, branch: Int, start: Int, count: Int): String
+    external fun prepareHiddenKas(requestJson: String): String
+    external fun signHiddenKas(secret: ByteArray, requestJson: String, reviewHash: String): String
+    external fun verifySavedHiddenKas(secret: ByteArray, savedJson: String): String
     external fun signTransaction(phrase: ByteArray, requestJson: String, reviewHash: String): String
     external fun prepareWyrmGenesis(requestJson: String): String
+    external fun prepareCovenantVault(requestJson: String): String
+    external fun describeCovenantVault(termsJson: String): String
+    external fun signCovenantVault(secret: ByteArray, requestJson: String, reviewHash: String): String
+    external fun validateVaultRecord(recordJson: String): String
+    external fun vaultRecovery(password: ByteArray, data: String, seal: Boolean): String
     external fun signWyrmGenesis(secret: ByteArray, requestJson: String, reviewHash: String): String
     external fun prepareWyrmTransition(requestJson: String): String
     external fun signWyrmTransition(secret: ByteArray, requestJson: String, reviewHash: String): String

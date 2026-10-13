@@ -11,6 +11,44 @@ import 'package:http/http.dart' as http;
 import 'krc721_reads.dart';
 
 class NativeSecurity {
+  Future<Map<String, Object?>> hiddenKasState() async =>
+      (jsonDecode((await _channel.invokeMethod<String>('hiddenKasState'))!)
+              as Map)
+          .cast<String, Object?>();
+  Future<List<Map<String, Object?>>> deriveHiddenKas(
+          int branch, int start, int count) async =>
+      (jsonDecode((await _channel.invokeMethod<String>('deriveHiddenKas',
+              {'branch': branch, 'start': start, 'count': count}))!) as List)
+          .map((e) => (e as Map).cast<String, Object?>())
+          .toList();
+  Future<Map<String, Object?>> issueHiddenKas(int branch) async =>
+      (jsonDecode((await _channel.invokeMethod<String>(
+              'issueHiddenKas', {'branch': branch}))!) as Map)
+          .cast<String, Object?>();
+  Future<Map<String, Object?>> observeHiddenKas(
+          List<Map<String, Object?>> used) async =>
+      (jsonDecode((await _channel.invokeMethod<String>(
+              'observeHiddenKas', {'used': jsonEncode(used)}))!) as Map)
+          .cast<String, Object?>();
+  Future<Map<String, Object?>> prepareHiddenKas(
+          Map<String, Object?> request) async =>
+      (jsonDecode((await _channel.invokeMethod<String>(
+              'prepareHiddenKas', {'request': jsonEncode(request)}))!) as Map)
+          .cast<String, Object?>();
+  Future<Map<String, Object?>> signHiddenKas(
+      Map<String, Object?> request, String reviewHash) async {
+    final token = await _authorizeOperation(
+        operation: 'signHiddenKas', binding: reviewHash, fresh: true);
+    final raw = await _channel.invokeMethod<String>('signHiddenKas', {
+      'request': jsonEncode(request),
+      'reviewHash': reviewHash,
+      'authorizationToken': token
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<void> confirmHiddenKas(String transactionId) => _channel
+      .invokeMethod<void>('confirmHiddenKas', {'transactionId': transactionId});
   static bool internalNexusUnlocked = false;
   Future<void> setInternalNexusUnlocked(bool enabled) async {
     internalNexusUnlocked = enabled;
@@ -192,8 +230,10 @@ class NativeSecurity {
     required String operation,
     required String binding,
     bool fresh = false,
+    bool kaspacomReview = false,
   }) async {
-    final token = await _channel.invokeMethod<String>('authorizeOperation', {
+    final token = await _channel.invokeMethod<String>(
+        kaspacomReview ? 'authorizeKaspacomOperation' : 'authorizeOperation', {
       'operation': operation,
       'binding': binding,
       'sessionMinutes': fresh ? 0 : AppSettings.lockMinutes.value,
@@ -376,13 +416,26 @@ class NativeSecurity {
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
+  /// First-party review only. Android independently checks that this payment
+  /// funds the commit rebuilt from the exact listing inscription.
+  Future<Map<String, Object?>> prepareKaspacomCommit(
+      Map<String, Object?> request, Map<String, Object?> operation) async {
+    final raw = await _channel.invokeMethod<String>('prepareKaspacomCommit', {
+      'request': jsonEncode(request),
+      'operation': jsonEncode(operation),
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
   Future<Map<String, Object?>> signTransaction(
     Map<String, Object?> request,
-    String reviewHash,
-  ) async {
+    String reviewHash, {
+    bool kaspacomReview = false,
+  }) async {
     final token = await _authorizeOperation(
       operation: 'signTransaction',
       binding: reviewHash,
+      kaspacomReview: kaspacomReview,
     );
     final raw = await _channel.invokeMethod<String>('signTransaction', {
       'request': jsonEncode(request),
@@ -399,6 +452,68 @@ class NativeSecurity {
       "request": jsonEncode(request),
     });
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> prepareCovenantVault(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+        'prepareCovenantVault', {'request': jsonEncode(request)});
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> describeCovenantVault(
+      Map<String, Object?> terms) async {
+    final raw = await _channel.invokeMethod<String>(
+        'describeCovenantVault', {'terms': jsonEncode(terms)});
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> signCovenantVault(
+      Map<String, Object?> request, String reviewHash) async {
+    final token = await _authorizeOperation(
+        operation: 'signCovenantVault', binding: reviewHash);
+    final raw = await _channel.invokeMethod<String>('signCovenantVault', {
+      'request': jsonEncode(request),
+      'reviewHash': reviewHash,
+      'authorizationToken': token,
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> validateVaultRecord(
+      Map<String, Object?> record) async {
+    final raw = await _channel.invokeMethod<String>(
+        'validateVaultRecord', {'record': jsonEncode(record)});
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<List<Map<String, Object?>>> loadCovenantVaults() async {
+    final raw = await _channel.invokeMethod<String>('loadCovenantVaults');
+    return (jsonDecode(raw ?? '[]') as List)
+        .map((e) => (e as Map).cast<String, Object?>())
+        .toList();
+  }
+
+  Future<void> saveCovenantVaults(List<Map<String, Object?>> catalog) =>
+      _channel.invokeMethod<void>(
+          'saveCovenantVaults', {'catalog': jsonEncode(catalog)});
+
+  List<int> get _vaultDialogColors => [
+        KasVaultTheme.panel,
+        KasVaultTheme.detailText,
+        KasVaultTheme.mint
+      ].map((c) => c.toARGB32().toSigned(32)).toList();
+
+  Future<String?> exportVaultRecovery(Map<String, Object?> record) =>
+      _channel.invokeMethod<String>('exportVaultRecovery',
+          {'record': jsonEncode(record), 'dialogColors': _vaultDialogColors});
+
+  Future<Map<String, Object?>?> importVaultRecovery() async {
+    final raw = await _channel.invokeMethod<String>(
+        'importVaultRecovery', {'dialogColors': _vaultDialogColors});
+    return raw == null
+        ? null
+        : (jsonDecode(raw) as Map).cast<String, Object?>();
   }
 
   Future<Map<String, Object?>> signWyrmGenesis(
@@ -523,18 +638,21 @@ class NativeSecurity {
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
-  Future<Map<String, Object?>> prepareReveal(
-      Map<String, Object?> request) async {
+  Future<Map<String, Object?>> prepareReveal(Map<String, Object?> request,
+      {bool kaspacomReview = false}) async {
     final raw = await _channel.invokeMethod<String>(
-        'prepareReveal', {'request': jsonEncode(request)});
+        kaspacomReview ? 'prepareKaspacomReveal' : 'prepareReveal',
+        {'request': jsonEncode(request)});
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
   Future<Map<String, Object?>> signReveal(
-      Map<String, Object?> request, String reviewHash) async {
+      Map<String, Object?> request, String reviewHash,
+      {bool kaspacomReview = false}) async {
     final token = await _authorizeOperation(
       operation: 'signReveal',
       binding: reviewHash,
+      kaspacomReview: kaspacomReview,
     );
     final raw = await _channel.invokeMethod<String>('signReveal', {
       'request': jsonEncode(request),
@@ -638,9 +756,11 @@ class NativeSecurity {
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
-  Future<Map<String, Object?>> preparePskt(Map<String, Object?> request) async {
-    final raw = await _channel
-        .invokeMethod<String>('preparePskt', {'request': jsonEncode(request)});
+  Future<Map<String, Object?>> preparePskt(Map<String, Object?> request,
+      {bool kaspacomReview = false}) async {
+    final raw = await _channel.invokeMethod<String>(
+        kaspacomReview ? 'prepareKaspacomPskt' : 'preparePskt',
+        {'request': jsonEncode(request)});
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
@@ -652,10 +772,12 @@ class NativeSecurity {
   }
 
   Future<Map<String, Object?>> signPskt(
-      Map<String, Object?> request, String reviewHash) async {
+      Map<String, Object?> request, String reviewHash,
+      {bool kaspacomReview = false}) async {
     final token = await _authorizeOperation(
       operation: 'signPskt',
       binding: reviewHash,
+      kaspacomReview: kaspacomReview,
     );
     final raw = await _channel.invokeMethod<String>('signPskt', {
       'request': jsonEncode(request),

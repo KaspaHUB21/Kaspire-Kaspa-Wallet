@@ -1,13 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../services/dapp_browser_policy.dart';
 import '../services/dapp_session_service.dart';
 import '../services/dapp_browser_catalog.dart';
+import '../services/vault_recovery_download.dart';
 
 class DappBrowserScreen extends StatefulWidget {
   const DappBrowserScreen({super.key, required this.dapp});
@@ -25,6 +28,8 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
   int _progress = 0;
   String? _error;
   bool _connected = false;
+  String? _exportCapability;
+  bool _savingRecovery = false;
   StreamSubscription<void>? _sessionChanges;
 
   @override
@@ -33,8 +38,10 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
     final sessions = DappSessionService.instance;
     _sessionChanges = sessions.changes.listen((_) => _updateConnection());
     _updateConnection();
-    unawaited(sessions.initialize().then((_) => _updateConnection()).catchError(
-        (Object _) {
+    unawaited(sessions
+        .initialize()
+        .then((_) => _updateConnection())
+        .catchError((Object _) {
       /* Keep the connection hint on initialization failure. */
     }));
     unawaited(_initialize());
@@ -68,9 +75,15 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
       await android.setOnShowFileSelector((_) async => <String>[]);
       await android.setOnPlatformPermissionRequest((request) => request.deny());
       await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      if (VaultRecoveryDownload.allowedOrigin(widget.dapp.home)) {
+        await _controller.addJavaScriptChannel('KaspireVaultRecovery',
+            onMessageReceived: (message) =>
+                unawaited(_saveRecovery(message.message)));
+      }
       await _controller.setNavigationDelegate(NavigationDelegate(
         onNavigationRequest: _navigate,
         onPageStarted: (url) {
+          _exportCapability = null;
           final uri = Uri.tryParse(url);
           _trustedPage =
               uri != null && DappBrowserPolicy.sameDapp(uri, widget.dapp.home);
@@ -80,6 +93,17 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
         },
         onPageFinished: (url) async {
           final uri = Uri.tryParse(url);
+          if (_exportCapability == null &&
+              uri != null &&
+              VaultRecoveryDownload.allowedOrigin(uri) &&
+              VaultRecoveryDownload.allowedOrigin(widget.dapp.home)) {
+            final random = Random.secure();
+            final capability =
+                base64UrlEncode(List.generate(32, (_) => random.nextInt(256)));
+            _exportCapability = capability;
+            await _controller
+                .runJavaScript(VaultRecoveryDownload.script(capability));
+          }
           if (uri == null ||
               !DappBrowserPolicy.sameDapp(uri, widget.dapp.home) ||
               uri.host != 'gothdag.kaslab.space') {
@@ -116,6 +140,73 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
         setState(() => _error =
             'Could not start Android WebView. Check that Android System WebView is installed and up to date.');
       }
+    }
+  }
+
+  Future<void> _saveRecovery(String message) async {
+    if (_savingRecovery ||
+        !_trustedPage ||
+        _exportCapability == null ||
+        !VaultRecoveryDownload.allowedOrigin(widget.dapp.home) ||
+        message.length > VaultRecoveryDownload.maxBytes + 8192) {
+      return;
+    }
+    final capability = _exportCapability;
+    try {
+      final envelope = jsonDecode(message);
+      if (envelope is! Map || envelope['capability'] != capability) return;
+      final current = Uri.tryParse(await _controller.currentUrl() ?? '');
+      if (current == null || !VaultRecoveryDownload.allowedOrigin(current)) {
+        return;
+      }
+      final recovery = VaultRecoveryDownload.parse(message);
+      _savingRecovery = true;
+      if (!mounted) return;
+      final approved = await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+                  title: const Text('Save Vault recovery file'),
+                  content: Text(
+                      '${recovery.fileName}\n\nSave the Vault recovery metadata to Downloads/Kaspire-Vault-Recovery? Keep this file for future claims.'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(c, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(c, true),
+                        child: const Text('Save')),
+                  ]));
+      if (approved != true || !mounted || _exportCapability != capability) {
+        return;
+      }
+      final afterReview = Uri.tryParse(await _controller.currentUrl() ?? '');
+      if (afterReview == null ||
+          !VaultRecoveryDownload.allowedOrigin(afterReview)) {
+        return;
+      }
+      await const MethodChannel('space.kasvault/security')
+          .invokeMethod<String>('saveVaultRecovery', {
+        'fileName': recovery.fileName,
+        'json': recovery.json,
+      });
+      if (!mounted) return;
+      await showDialog<void>(
+          context: context,
+          builder: (c) => AlertDialog(
+                  title: const Text('Recovery file saved'),
+                  content: Text(
+                      'Downloads/Kaspire-Vault-Recovery/${recovery.fileName}'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(c),
+                        child: const Text('Done'))
+                  ]));
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = 'Could not save Vault recovery file: $e');
+      }
+    } finally {
+      _savingRecovery = false;
     }
   }
 

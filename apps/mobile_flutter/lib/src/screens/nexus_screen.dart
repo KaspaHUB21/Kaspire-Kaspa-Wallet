@@ -4,6 +4,7 @@ import '../services/nexus_service.dart';
 import '../services/krc721_reads.dart';
 import '../widgets/krc721_image.dart';
 import 'nft_market_screen.dart';
+import 'kaspacom_market_screen.dart';
 
 const nexusIntro =
     'Never miss the perfect NFT deal. Submit private offers. Negotiate directly with collectors. Receive instant alerts. Settle securely on Kaspire.';
@@ -285,7 +286,9 @@ class _NexusScreenState extends State<NexusScreen> {
       await showDialog<void>(
           context: context,
           builder: (ctx) => AlertDialog(
-                  title: Text(existing == null ? 'Offer created successfully' : 'Counter offer created successfully'),
+                  title: Text(existing == null
+                      ? 'Offer created successfully'
+                      : 'Counter offer created successfully'),
                   content: const Text(
                       'Your offer is non-binding. No funds were locked or spent.'),
                   actions: [
@@ -335,8 +338,40 @@ class _NexusScreenState extends State<NexusScreen> {
     }
   }
 
-  void _settle(Map<String, Object?> offer, {required bool seller}) {
+  Future<void> _settle(Map<String, Object?> offer,
+      {required bool seller}) async {
     final nft = nexusMap(offer['nftCache']);
+    if (!seller) {
+      setState(() => loading = true);
+      try {
+        final fresh = nexusMap(await service
+            .request('nft/${nft['collectionId']}/${nft['tokenId']}'));
+        if (!mounted) return;
+        final listing = nexusMap(fresh['marketplaceListing']);
+        if (listing.isEmpty) {
+          throw StateError(
+              'This NFT has no verified marketplace listing. Refresh and try again.');
+        }
+        if (listing['source'] == 'kaspacom') {
+          await Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                  builder: (_) => KaspaComMarketScreen(
+                      address: widget.address,
+                      initialTicker: listing['ticker']?.toString(),
+                      initialOrderId: listing['orderId']?.toString())));
+          return;
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() => error = e.toString().replaceFirst('Bad state: ', ''));
+        }
+        return;
+      } finally {
+        if (mounted) setState(() => loading = false);
+      }
+    }
+    if (!mounted) return;
     Navigator.push(
         context,
         MaterialPageRoute<void>(
@@ -426,7 +461,7 @@ class _NexusScreenState extends State<NexusScreen> {
                   if (!seller && state == 'RELIST_DETECTED')
                     FilledButton(
                         onPressed: () => _settle(row, seller: false),
-                        child: const Text('Buy on Kaspire · review PSKT')),
+                        child: const Text('Buy NFT · review PSKT')),
                   TextButton(
                       onPressed: () => _openNft(nft),
                       child: const Text('View NFT'))
@@ -448,10 +483,24 @@ class _NexusScreenState extends State<NexusScreen> {
                           'Current listing status: ${data['listingStatus'] ?? 'UNKNOWN'}'),
                       if (data['listingPriceSompi'] != null)
                         Text(
-                            'Kaspire listing price: ${nftKas(data['listingPriceSompi'])}'),
+                            '${data['kaspacomListing'] != null ? 'KaspaCom' : 'Kaspire'} listing price: ${nftKas(data['listingPriceSompi'])}'),
                       if (data['listingPriceUnavailable'] == true)
-                        const Text(
-                            'Kaspire listing price is temporarily unavailable.'),
+                        const Text('Listing price is temporarily unavailable.'),
+                      if (data['kaspacomListing'] != null)
+                        FilledButton(
+                            onPressed: () {
+                              final listing = nexusMap(data['kaspacomListing']);
+                              Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                      builder: (_) => KaspaComMarketScreen(
+                                          address: widget.address,
+                                          initialTicker:
+                                              listing['ticker']?.toString(),
+                                          initialOrderId:
+                                              listing['orderId']?.toString())));
+                            },
+                            child: const Text('Open KaspaCom listing')),
                       if (data['kaspireListing'] != null)
                         FilledButton(
                             onPressed: () => Navigator.push(

@@ -14,6 +14,79 @@ use crate::{
 };
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveHiddenKas(mut env: JNIEnv, _class: JClass, secret: JByteArray, branch: jni::sys::jint, start: jni::sys::jint, count: jni::sys::jint) -> jstring {
+    let result=(||{let secret=read_secret(&mut env,&secret)?;
+        if branch<0 || start<0 || count<0 {return Err("Invalid hidden-account range".into());}
+        crate::hidden_kas::derive(&secret,branch as u32,start as u32,count as u32)
+            .and_then(|v|serde_json::to_string(&v).map_err(|_|crate::CoreError::Serialization)).map_err(|e|e.to_string())})();
+    output(&mut env,result.unwrap_or_else(error_json))
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareHiddenKas(mut env: JNIEnv, _class: JClass, request: JString) -> jstring {
+    let result=read(&mut env,&request).and_then(|r| {
+        if r.len()>1024*1024 {return Err("Hidden KAS request too large".into());}
+        let r=serde_json::from_str(&r).map_err(|e|format!("Invalid hidden KAS request: {e}"))?;
+        crate::hidden_kas::prepare(&r).map(|v|v.to_string()).map_err(|e|e.to_string())});
+    output(&mut env,result.unwrap_or_else(error_json))
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signHiddenKas(mut env: JNIEnv, _class: JClass, secret: JByteArray, request: JString, hash: JString) -> jstring {
+    let result=(||{let secret=read_secret(&mut env,&secret)?;let raw=read(&mut env,&request)?;let hash=read(&mut env,&hash)?;
+        if raw.len()>1024*1024 {return Err("Hidden KAS request too large".into());}
+        let r=serde_json::from_str(&raw).map_err(|e|format!("Invalid hidden KAS request: {e}"))?;
+        crate::hidden_kas::sign(&secret,&r,&hash).map(|v|v.to_string()).map_err(|e|e.to_string())})();
+    output(&mut env,result.unwrap_or_else(error_json))
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_verifySavedHiddenKas(mut env: JNIEnv, _class: JClass, secret: JByteArray, saved: JString) -> jstring {
+    let result=(||{let secret=read_secret(&mut env,&secret)?;let raw=read(&mut env,&saved)?;
+        if raw.len()>1024*1024 {return Err("Saved payment too large".into());}
+        let saved=serde_json::from_str(&raw).map_err(|e|format!("Invalid saved payment: {e}"))?;
+        crate::hidden_kas::verify_saved(&secret,&saved).map(|_|"{\"valid\":true}".into()).map_err(|e|e.to_string())})();
+    output(&mut env,result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_describeCovenantVault(mut env: JNIEnv, _class: JClass, terms: JString) -> jstring {
+    let result=read(&mut env,&terms).and_then(|raw| {
+        if raw.len()>16384 {return Err("Vault terms too large".into());}
+        let terms=serde_json::from_str(&raw).map_err(|e|format!("Invalid vault terms: {e}"))?;
+        crate::covenant_vault::descriptor(&terms).map(|v|v.to_string()).map_err(|e|e.to_string())
+    });output(&mut env,result.unwrap_or_else(error_json))
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareCovenantVault(mut env: JNIEnv, _class: JClass, request: JString) -> jstring {
+    let result=read(&mut env,&request).and_then(|r| {
+        if r.len()>1024*1024 {return Err("Vault request too large".into());}
+        let request=serde_json::from_str(&r).map_err(|e|format!("Invalid vault request: {e}"))?;
+        crate::covenant_vault::prepare(&request).map(|v|v.to_string()).map_err(|e|e.to_string())
+    });output(&mut env,result.unwrap_or_else(error_json))
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signCovenantVault(mut env: JNIEnv, _class: JClass, secret: JByteArray, request: JString, hash: JString) -> jstring {
+    let result=(||{let secret=read_secret(&mut env,&secret)?;let raw=read(&mut env,&request)?;let hash=read(&mut env,&hash)?;
+        if raw.len()>1024*1024 {return Err("Vault request too large".into());}
+        let request=serde_json::from_str(&raw).map_err(|e|format!("Invalid vault request: {e}"))?;
+        crate::covenant_vault::sign(&secret,&request,&hash).map(|v|v.to_string()).map_err(|e|e.to_string())})();
+    output(&mut env,result.unwrap_or_else(error_json))
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_validateVaultRecord(mut env: JNIEnv, _class: JClass, record: JString) -> jstring {
+    let result=read(&mut env,&record).and_then(|raw|crate::vault_recovery::validate_record(&raw).map(|v|v.to_string()).map_err(|e|e.to_string()));
+    output(&mut env,result.unwrap_or_else(error_json))
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_vaultRecovery(mut env: JNIEnv, _class: JClass, password: JByteArray, data: JString, seal: jni::sys::jboolean) -> jstring {
+    let result=(|| {
+        let mut bytes=zeroize::Zeroizing::new(env.convert_byte_array(&password).map_err(|_|"Invalid password buffer".to_string())?);
+        let zeros=vec![0i8;bytes.len()];env.set_byte_array_region(&password,0,&zeros).map_err(|_|"Cannot clear JNI password".to_string())?;
+        let data=read(&mut env,&data)?;
+        let result=if seal!=0 {crate::vault_recovery::seal(&bytes,&data)}else{crate::vault_recovery::open(&bytes,&data)};
+        bytes.zeroize();result.map(|v|serde_json::json!({"data":v}).to_string()).map_err(|e|e.to_string())})();
+    output(&mut env,result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_addressWithPrefix(
     mut env: JNIEnv,
     _class: JClass,
@@ -267,7 +340,7 @@ use jni::{
     JNIEnv,
 };
 use serde_json::json;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 fn output(env: &mut JNIEnv, value: String) -> jstring {
     let value = Zeroizing::new(value);

@@ -49,7 +49,51 @@ class FakeNexus extends NexusService {
   }
 }
 
+class FakeKaspaComNexus extends FakeNexus {
+  @override
+  Future<Object?> request(String path,
+      {Map<String, String> query = const {},
+      Map<String, Object?>? body,
+      bool private = false}) async {
+    if (path.startsWith('nft/')) {
+      return {
+        'tokenId': '12',
+        'collectionId': 'hash',
+        'currentOwnerWallet': 'kaspa:owner',
+        'listingStatus': 'LISTED',
+        'listingPriceSompi': '125000000',
+        'kaspacomListing': {
+          'source': 'kaspacom',
+          'ticker': 'HASH',
+          'orderId': 'bbbbbbbbbbbbbbbbbbbbbbbb',
+          'tokenId': '12'
+        },
+        'attributes': [],
+        'bestOffers': []
+      };
+    }
+    return super.request(path, query: query, body: body, private: private);
+  }
+}
+
 void main() {
+  testWidgets(
+      'verified KaspaCom listing has its own price and marketplace action',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        home: NexusScreen(
+            address: 'kaspa:test',
+            initialView: 'nft',
+            collectionId: 'hash',
+            tokenId: '12',
+            service: FakeKaspaComNexus())));
+    await tester.pumpAndSettle();
+    expect(find.text('KaspaCom listing price: 1.25 KAS'), findsOneWidget);
+    expect(find.text('Open KaspaCom listing'), findsOneWidget);
+    expect(find.text('Open Kaspire listing'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
   testWidgets('Nexus home uses the requested intro and native search',
       (tester) async {
     final fake = FakeNexus();

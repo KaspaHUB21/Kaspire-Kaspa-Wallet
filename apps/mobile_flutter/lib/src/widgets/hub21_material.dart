@@ -154,8 +154,11 @@ class _GlacierGlassPainter extends BoxPainter {
   @override
   void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
     final rect = offset & configuration.size!;
-    final outer =
-        RRect.fromRectAndRadius(rect, Radius.circular(decoration.radius));
+    // RRect clamps capsule radii automatically, but the manually drawn facets
+    // below must use the same effective radius. A radius of 999 on a short pill
+    // otherwise paints huge triangles far outside its glass frame.
+    final radius = decoration.radius.clamp(0.0, rect.shortestSide / 2);
+    final outer = RRect.fromRectAndRadius(rect, Radius.circular(radius));
     if (decoration.shadow) {
       canvas.drawShadow(
           Path()..addRRect(outer), const Color(0x663A7181), 9, true);
@@ -287,8 +290,8 @@ class _GlacierGlassPainter extends BoxPainter {
     canvas.drawPath(
       Path()
         ..moveTo(rect.left + 4, rect.top + facet)
-        ..lineTo(rect.left + 4, rect.top + decoration.radius)
-        ..lineTo(rect.left + decoration.radius, rect.top + 4)
+        ..lineTo(rect.left + 4, rect.top + radius)
+        ..lineTo(rect.left + radius, rect.top + 4)
         ..lineTo(rect.left + facet, rect.top + 4)
         ..close(),
       Paint()..color = const Color(0x77FFFFFF),
@@ -296,8 +299,8 @@ class _GlacierGlassPainter extends BoxPainter {
     canvas.drawPath(
       Path()
         ..moveTo(rect.right - 4, rect.bottom - facet)
-        ..lineTo(rect.right - 4, rect.bottom - decoration.radius)
-        ..lineTo(rect.right - decoration.radius, rect.bottom - 4)
+        ..lineTo(rect.right - 4, rect.bottom - radius)
+        ..lineTo(rect.right - radius, rect.bottom - 4)
         ..lineTo(rect.right - facet, rect.bottom - 4)
         ..close(),
       Paint()..color = const Color(0x4A819FE1),

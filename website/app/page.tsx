@@ -64,7 +64,7 @@ const highlights = [
   {
     number: "10",
     title: "NFTs meet K-Agora.",
-    copy: "Choose NFT Market, dot.k Market or Nexus Offers inside K-Agora. List, buy and cancel KRC721 NFT listings through decentralized seller-signed PSKTs, without operator escrow. Submit private, non-binding offers, negotiate counter offers and receive wallet notifications without locking funds. Search collections, filter traits and sort by price, recency or collection rarity rank with ten items per page. Images and available rarity ranks come from Kaspire's read-only NFT gateway with an official-indexer emergency fallback; transaction checks continue through the official indexer. Kaspire settlements include a 2.1% marketplace fee; network fees are separate.",
+    copy: "Choose NFT Market, dot.k Market or Nexus Offers inside K-Agora. Android now also brings KaspaCom Marketplace directly into K-Agora for KRC721, KRC20 and KNS, with its own orders and fees. List, buy and cancel Kaspire KRC721 NFT listings through decentralized seller-signed PSKTs, without operator escrow. Submit private, non-binding offers, negotiate counter offers and receive wallet notifications without locking funds. Android Nexus Offers recognizes both Kaspire and KaspaCom PSKT listings, with cached price lookups. Search collections, filter traits and sort by price, recency or collection rarity rank with ten items per page. Images and available rarity ranks come from Kaspire's read-only NFT gateway with an official-indexer emergency fallback; transaction checks continue through the official indexer. Kaspire settlements include a 2.1% marketplace fee; network fees are separate.",
     tags: ["NFT Market", "PSKT listings", "Collection filters", "Rarity ranks"],
   },
   {

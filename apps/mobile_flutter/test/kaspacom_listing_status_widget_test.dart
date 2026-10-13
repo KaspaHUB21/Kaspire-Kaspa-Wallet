@@ -109,9 +109,16 @@ void main() {
 
 class _KnsApi extends KaspaApi {
   @override
+  Future<List<KnsDomain>> loadKnsHoldings(String address,
+          {void Function(List<KnsDomain>)? onProgress,
+          void Function(String)? onWarning}) async =>
+      [const KnsDomain(name: 'example.kas', status: 'listed', assetId: 'id')];
+  @override
   Future<WalletSnapshot> loadWallet(String address,
           {int transactionLimit = 20,
           bool includeNativeTransactions = true,
+          bool includeAssetHistory = true,
+          bool includeMarketData = true,
           void Function(WalletSnapshot)? onProgress}) async =>
       const WalletSnapshot(
           balanceSompi: 1000000000,

@@ -3,12 +3,14 @@ import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {randomBytes} from 'node:crypto';
 import {spawn} from 'node:child_process';
+import {createNexusPriceReader} from './kaspacom-nexus-prices.mjs';
 import {family,wallet,page,orderId,browseBody,issueToken,readToken,writeBody,purchaseOutcome,rankedKrc20,rankedKrc721,historyFilters,sellerTransportMetadata} from './kaspacom-market-protocol.mjs';
 const upstream='https://api.kaspa.com',keyFile=process.env.KASPACOM_KEY_FILE??'/srv/kaspire/private/kaspacom/api-key';
 const binary=process.env.KASPACOM_NATIVE_BINARY??'/srv/kaspire/source/target/release/kaspacom_market_descriptor';
 const secret=randomBytes(32),challenges=new Map(),rates=new Map();let cookie='',cookieUntil=0,login;
 const publications=new Map();
 const displayCache=new Map();
+const nexusPrice = createNexusPriceReader((path,body)=>api(path,body));
 async function display(key,load){const hit=displayCache.get(key);if(hit&&hit.until>Date.now())return hit.value;const value=await load();if(displayCache.size>=128)displayCache.delete(displayCache.keys().next().value);displayCache.set(key,{until:Date.now()+60000,value});return value;}
 function ticker(q){const t=(q.get('ticker')??'').trim().toUpperCase();if(!/^[A-Z0-9]{1,10}$/.test(t))throw Error('Invalid ticker');return t;}
 async function rankedCatalog(offset){return display('ranked-catalog:'+offset,async()=>{
@@ -96,6 +98,7 @@ const server=http.createServer(async(req,res)=>{res.setHeader('Content-Type','ap
   else if(req.method==='GET'&&url.pathname==='/catalog'){const kind=url.searchParams.get('kind');family(kind);value=kind==='krc20'?await rankedCatalog(page(url.searchParams.get('offset'))):kind==='krc721'?await nftCatalog(page(url.searchParams.get('offset'))):await api('/api/kns/trade-stats?timeFrame=1d');}
   else if(req.method==='GET'&&url.pathname==='/krc20/summary'){const t=ticker(url.searchParams);value=await display('token:'+t,async()=>{const [logos,floor]=await Promise.all([api('/api/tokens-logos?ticker='+t),api('/p2p-v2/floor-price/'+t)]);return {ticker:t,imageUrl:logos.find(l=>l.ticker===t)?.logo??null,floorPrice:floor.floorPrice};});}
   else if(req.method==='GET'&&url.pathname==='/krc721/traits'){value=await traitOptions(ticker(url.searchParams));}
+  else if(req.method==='GET'&&url.pathname==='/krc721/nexus-price'){value={order:await nexusPrice(ticker(url.searchParams),url.searchParams.get('tokenId')??'')};}
   else if(parts.length===4&&req.method==='GET'&&parts[0]==='krc20'&&parts[1]==='orders'&&parts[3]==='proof'){value=await krc20Proof(parts[2]);}
   else if(parts.length===2&&req.method==='GET'&&parts[1]==='browse'){const kind=parts[0],f=family(kind),b=browseBody(kind,url.searchParams),ticker=(url.searchParams.get('search')??'').trim().toUpperCase();if(kind!=='kns'&&!/^[A-Z0-9]{1,10}$/.test(ticker))throw Error('Select a ticker or NFT collection first');value=await api('/'+f+'/sell-orders'+(kind==='kns'?'':'?ticker='+ticker),b);}
   else if(parts.length===2&&req.method==='GET'&&parts[1]==='history'){const a=session(req),f=family(parts[0]);value=await api('/'+f+'/user-orders',{sort:{direction:'desc',field:'createdAt'},pagination:{limit:10,offset:page(url.searchParams.get('offset'))},filters:historyFilters(url.searchParams.get('role')??'all')},a);}

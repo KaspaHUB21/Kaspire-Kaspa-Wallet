@@ -19,6 +19,16 @@ mod policy_transaction;
 mod pskt;
 mod tangem_rescue;
 mod transaction;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod hidden_kas;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod hidden_kas_tests;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod covenant_vault;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod vault_recovery;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod covenant_vault_tests;
 
 #[cfg(target_arch = "wasm32")]
 mod wasm;

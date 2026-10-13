@@ -899,7 +899,7 @@ void main() {
       expect(find.text('Check / resume saved transaction'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('KASZOMBIES'), 100,
           scrollable: find.byType(Scrollable).first);
-      expect(find.text('Floor Price: 100 KAS · 25 holders'), findsOneWidget);
+      expect(find.text('Floor Price: 100 KAS'), findsOneWidget);
       expect(tester.takeException(), isNull, reason: theme.name);
       await tester.pumpWidget(const SizedBox.shrink());
     }
@@ -1011,9 +1011,20 @@ class _DescriptorSecurity extends NativeSecurity {
 
 class _AssetApi extends KaspaApi {
   @override
+  Future<List<WalletAsset>> loadKrc20Holdings(String address) async => [
+        const WalletAsset(
+            symbol: 'KASBTC',
+            balance: 4,
+            kind: 'KRC-20',
+            decimals: 8,
+            rawBalance: '400000000')
+      ];
+  @override
   Future<WalletSnapshot> loadWallet(String address,
           {int transactionLimit = 20,
           bool includeNativeTransactions = true,
+          bool includeAssetHistory = true,
+          bool includeMarketData = true,
           void Function(WalletSnapshot)? onProgress}) async =>
       const WalletSnapshot(
           balanceSompi: 1000000000,
@@ -1056,12 +1067,13 @@ class _RecoverySecurity extends _DescriptorSecurity {
               'networkFeeSompi': 100
             };
   @override
-  Future<Map<String, Object?>> preparePskt(
-          Map<String, Object?> request) async =>
+  Future<Map<String, Object?>> preparePskt(Map<String, Object?> request,
+          {bool kaspacomReview = false}) async =>
       {'outputs': [], 'reviewHash': 'review'};
   @override
   Future<Map<String, Object?>> signPskt(
-      Map<String, Object?> request, String hash) async {
+      Map<String, Object?> request, String hash,
+      {bool kaspacomReview = false}) async {
     signCalls++;
     throw StateError('Must not sign without approval');
   }

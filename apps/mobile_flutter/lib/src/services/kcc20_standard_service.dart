@@ -165,6 +165,9 @@ class Kcc20StandardService {
           failures++;
         }
         // History is independent of current holdings, including fully sold tokens.
+        // Send forms request holdings only; never scan the global token history
+        // before allowing an already selected asset to be displayed.
+        if (historyLimit <= 0) return;
         try {
           String? cursor;
           final pageSize = historyLimit.clamp(1, 50);

@@ -1,0 +1,43 @@
+// Kaspire experimental vault. Compile with official Silverscript v1.0.0.
+// A heartbeat respends the SAME singleton family without reducing its balance.
+// The new UTXO's age resets the inactivity timer at consensus, not in the UI.
+pragma silverscript ^0.1.0;
+contract KaspireDeadManSwitch(byte[32] owner, byte[32] beneficiary,
+                            int inactivityDaa, byte[32] instance) {
+    byte[32] identity = instance;
+    entry heartbeat(sig approval) {
+        require(identity.length == 32);
+        require(this.activeInputIndex == 0);
+        require(tx.inputs.length == 2);
+        require(tx.outputs.length == 2);
+        byte[32] id = OpInputCovenantId(0);
+        require(OpCovInputCount(id) == 1);
+        require(OpCovOutputCount(id) == 1);
+        require(OpCovOutputIdx(id, 0) == 0);
+        require(OpAuthOutputCount(0) == 1);
+        require(OpAuthOutputIdx(0, 0) == 0);
+        require(approval.length == 65);
+        require(byte[1](approval.slice(64, 65)) == byte[1](0x01));
+        require(checkSig(approval, pubkey(owner)));
+        require(tx.outputs[0].scriptPubKey == tx.inputs[0].scriptPubKey);
+        require(tx.outputs[0].value == tx.inputs[0].value);
+        byte[36] ownerScript = new ScriptPubKeyP2PK(pubkey(owner));
+        require(tx.inputs[1].scriptPubKey == byte[](ownerScript));
+        require(tx.outputs[1].scriptPubKey == byte[](ownerScript));
+    }
+    entry claim(sig approval) {
+        require(identity.length == 32);
+        require(this.activeInputIndex == 0);
+        require(tx.inputs.length == 1);
+        require(tx.outputs.length == 1);
+        byte[32] id = OpInputCovenantId(0);
+        require(OpCovInputCount(id) == 1);
+        require(OpCovOutputCount(id) == 0);
+        require(approval.length == 65);
+        require(byte[1](approval.slice(64, 65)) == byte[1](0x01));
+        require(checkSig(approval, pubkey(beneficiary)));
+        require(this.ageDaa >= inactivityDaa);
+        byte[36] beneficiaryScript = new ScriptPubKeyP2PK(pubkey(beneficiary));
+        require(tx.outputs[0].scriptPubKey == byte[](beneficiaryScript));
+    }
+}

@@ -119,6 +119,7 @@ class MainActivity : FlutterFragmentActivity() {
         val operation: String,
         val text: String,
         val expiresAt: Long,
+        val kaspacomInApp: Boolean = false,
     )
     private data class SavedBackup(
         val uri: android.net.Uri,
@@ -165,9 +166,11 @@ class MainActivity : FlutterFragmentActivity() {
     private val operationAuthorizations = mutableMapOf<String, OperationAuthorization>()
     private val nativeReviewSummaries = mutableMapOf<String, NativeReviewSummary>()
     private val nativeReviewOperations = setOf(
+        "signHiddenKas",
         "signTransaction",
         "signEvmTransaction",
         "signWyrmGenesis",
+        "signCovenantVault",
         "signWyrmTransition",
         "signKcc20Transfer",
         "signReveal",
@@ -180,6 +183,18 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingDeviceCredentialAuthorization:
         Triple<String, String, MethodChannel.Result>? = null
     private var selectedRestoreBackupUri: android.net.Uri? = null
+    private var pendingVaultImport: Pair<List<Int>?, MethodChannel.Result>? = null
+    private val vaultRecoveryPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val pending = pendingVaultImport ?: return@registerForActivityResult
+        pendingVaultImport = null
+        if (uri == null) { pending.second.success(null); return@registerForActivityResult }
+        try {
+            val raw = readBackup(uri)
+            check(raw.length <= 512 * 1024) { "Vault recovery file is too large" }
+            check(JSONObject(raw).optString("format") == "kaspire-vault-recovery-pq-v1") { "Choose an encrypted Kaspire vault recovery file" }
+            vaultRecoveryDialog(raw, false, pending.first, pending.second)
+        } catch (e: Exception) { pending.second.error("VAULT_RECOVERY", e.message, null) }
+    }
     private var restoreBackupSelector: AutoCompleteTextView? = null
     private var restoreBackupStatus: TextView? = null
     private val backupPicker = registerForActivityResult(
@@ -313,6 +328,44 @@ class MainActivity : FlutterFragmentActivity() {
                         }
                         resultFromCoreArray(raw, result)
                     }
+                    "hiddenKasState" -> result.success(hiddenKasStore.load().toString())
+                    "deriveHiddenKas" -> result.success(hiddenKasStore.derive(
+                        call.argument<Int>("branch") ?: error("Missing branch"),
+                        call.argument<Int>("start") ?: error("Missing index"),
+                        call.argument<Int>("count") ?: error("Missing count")
+                    ).toString())
+                    "issueHiddenKas" -> result.success(hiddenKasStore.issue(call.argument<Int>("branch") ?: error("Missing branch")).toString())
+                    "observeHiddenKas" -> result.success(hiddenKasStore.observe(JSONArray(call.argument<String>("used") ?: "[]")).toString())
+                    "prepareHiddenKas" -> resultPreparedFromCore(hiddenKasStore.prepare(call.argument<String>("request") ?: error("Missing request")), "signHiddenKas", result)
+                    "signHiddenKas" -> {
+                        val hash = call.argument<String>("reviewHash") ?: error("Missing review hash")
+                        requireAuthorization(call, "signHiddenKas", hash)
+                        result.success(hiddenKasStore.sign(call.argument<String>("request") ?: error("Missing request"), hash))
+                    }
+                    "confirmHiddenKas" -> {
+                        val id = call.argument<String>("transactionId") ?: error("Missing transaction id")
+                        check(id.matches(Regex("[0-9a-f]{64}"))) { "Invalid transaction id" }
+                        val owner = activeWalletId() ?: error("No wallet")
+                        Thread {
+                            try {
+                                val connection = java.net.URL("https://kaspire.kaslab.space/api/local-node/transactions/$id").openConnection() as java.net.HttpURLConnection
+                                val confirmed = try {
+                                    connection.connectTimeout = 12000; connection.readTimeout = 12000
+                                    connection.instanceFollowRedirects = false
+                                    check(connection.responseCode == 200) { "Confirmation unavailable. Saved transaction retained." }
+                                    val text = connection.inputStream.bufferedReader().use { it.readText() }
+                                    check(text.length <= 1024 * 1024) { "Confirmation too large" }
+                                    val tx = JSONObject(text)
+                                    tx.optBoolean("is_accepted", false) && tx.optString("transaction_id") == id
+                                } finally { connection.disconnect() }
+                                check(confirmed) { "Awaiting node confirmation. Saved transaction retained." }
+                                runOnUiThread {
+                                    try { hiddenKasStore.confirm(id, owner); result.success(null) }
+                                    catch (e: Exception) { result.error("SECURITY_ERROR", e.message, null) }
+                                }
+                            } catch (e: Exception) { runOnUiThread { result.error("CONFIRMATION_PENDING", e.message, null) } }
+                        }.start()
+                    }
                     "deriveEvmAddress" -> resultFromCore(
                         withDecryptedSecret { SecureCore.deriveEvmAddress(it) },
                         result,
@@ -337,14 +390,31 @@ class MainActivity : FlutterFragmentActivity() {
                         internalNexusUnlocked = call.argument<Boolean>("enabled") == true
                         result.success(null)
                     }
-                    "authorizeOperation" -> authorizeOperation(
+                    "authorizeOperation", "authorizeKaspacomOperation" -> authorizeOperation(
                         call.argument<String>("operation") ?: error("Missing operation"),
                         call.argument<String>("binding") ?: error("Missing operation binding"),
                         call.argument<Int>("sessionMinutes") ?: 0,
                         result,
                         call.argument<List<Int>>("dialogColors"),
+                        call.method == "authorizeKaspacomOperation",
                     )
                     "verifyPin" -> verifyPinDialog(call.argument<String>("reason") ?: "Authorize Kaspire", result)
+                    "saveVaultRecovery" -> {
+                        val fileName = call.argument<String>("fileName") ?: error("Missing recovery filename")
+                        val json = call.argument<String>("json") ?: error("Missing recovery metadata")
+                        check(fileName.matches(Regex("kascoven-(time_lock|dead_man_switch)-[a-z0-9-]{1,160}\\.json")) &&
+                            json.toByteArray(Charsets.UTF_8).size <= 512 * 1024) { "Invalid recovery filename or size" }
+                        val record = JSONObject(json)
+                        check(record.optString("protocol") == "kascoven-vault-recovery-v1" &&
+                            record.optString("network") == "kaspa-mainnet" &&
+                            record.optString("type") in setOf("time_lock", "dead_man_switch") &&
+                            fileName.startsWith("kascoven-${record.getString("type")}-") &&
+                            record.optString("vaultAddress").matches(Regex("kaspa:[a-z0-9]{40,80}"))) {
+                            "Unsupported Vault recovery metadata"
+                        }
+                        result.success(saveBackup(fileName, json,
+                            "${Environment.DIRECTORY_DOWNLOADS}/Kaspire-Vault-Recovery/").toString())
+                    }
                     "configurePin" -> configurePinDialog(result)
                     "removePin" -> { clearPin(); result.success(null) }
                     "createWallet" -> createWallet(result)
@@ -400,6 +470,19 @@ class MainActivity : FlutterFragmentActivity() {
                             result,
                         )
                     }
+                    "prepareKaspacomCommit" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        val operation = call.argument<String>("operation") ?: error("Missing listing operation")
+                        val inscription = JSONObject(operation)
+                        requireKaspacomListing(inscription)
+                        val plan = parseCore(SecureCore.prepareInscription(operation))
+                        val payment = JSONObject(request)
+                        check(payment.getString("sender") == inscription.getString("sender") &&
+                            payment.getString("recipient") == plan.getString("commitAddress") &&
+                            payment.getLong("amountSompi") == plan.getLong("commitAmountSompi") &&
+                            !payment.optBoolean("sendAll")) { "KaspaCom commit differs from rebuilt listing" }
+                        resultPreparedFromCore(SecureCore.prepareTransaction(request), "signTransaction", result, true)
+                    }
                     "prepareEvmTransaction" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         resultPreparedFromCore(
@@ -426,6 +509,40 @@ class MainActivity : FlutterFragmentActivity() {
                             "signWyrmGenesis",
                             result,
                         )
+                    }
+                    "prepareCovenantVault" -> resultPreparedFromCore(
+                        SecureCore.prepareCovenantVault(call.argument<String>("request") ?: error("Missing request")),
+                        "signCovenantVault", result,
+                    )
+                    "describeCovenantVault" -> resultFromCore(
+                        SecureCore.describeCovenantVault(call.argument<String>("terms") ?: error("Missing vault terms")), result,
+                    )
+                    "signCovenantVault" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        val hash = call.argument<String>("reviewHash") ?: error("Missing review hash")
+                        requireAuthorization(call, "signCovenantVault", hash)
+                        val sender = JSONObject(request).getString("sender")
+                        check(controlsAddress(activeWalletId() ?: error("No active wallet"), sender)) { "The active wallet does not control this vault action address" }
+                        resultFromCore(withDecryptedSecret(sender) {
+                            SecureCore.signCovenantVault(it, request, hash)
+                        }, result)
+                    }
+                    "validateVaultRecord" -> resultFromCore(
+                        SecureCore.validateVaultRecord(call.argument<String>("record") ?: error("Missing vault")), result,
+                    )
+                    "loadCovenantVaults" -> result.success(loadCovenantVaults().toString())
+                    "saveCovenantVaults" -> {
+                        saveCovenantVaults(call.argument<String>("catalog") ?: error("Missing catalog"))
+                        result.success(null)
+                    }
+                    "exportVaultRecovery" -> vaultRecoveryDialog(
+                        parseCore(SecureCore.validateVaultRecord(call.argument<String>("record") ?: error("Missing vault"))).toString(),
+                        true, call.argument<List<Int>>("dialogColors"), result,
+                    )
+                    "importVaultRecovery" -> {
+                        check(pendingVaultImport == null) { "Recovery picker is already open" }
+                        pendingVaultImport = Pair(call.argument<List<Int>>("dialogColors"), result)
+                        vaultRecoveryPicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
                     }
                     "signWyrmGenesis" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
@@ -493,12 +610,15 @@ class MainActivity : FlutterFragmentActivity() {
                         val signatures = call.argument<String>("signatures") ?: error("Missing Tangem signatures")
                         resultFromCore(SecureCore.finalizeTangemReveal(request, reviewHash, signatures), result)
                     }
-                    "prepareReveal" -> {
+                    "prepareReveal", "prepareKaspacomReveal" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
+                        val inApp = call.method == "prepareKaspacomReveal"
+                        if (inApp) requireKaspacomListing(JSONObject(request).getJSONObject("operation"))
                         resultPreparedFromCore(
                             SecureCore.prepareReveal(request),
                             "signReveal",
                             result,
+                            inApp,
                         )
                     }
                     "preparePolicyTransaction" -> {
@@ -509,12 +629,18 @@ class MainActivity : FlutterFragmentActivity() {
                             result,
                         )
                     }
-                    "preparePskt" -> {
+                    "preparePskt", "prepareKaspacomPskt" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
+                        val raw = SecureCore.preparePskt(request)
+                        val inApp = call.method == "prepareKaspacomPskt"
+                        if (inApp) check(parseCore(raw).optString("profile") == "kaspacom-market-v1") {
+                            "Only locally validated KaspaCom PSKTs support in-app marketplace review"
+                        }
                         resultPreparedFromCore(
-                            SecureCore.preparePskt(request),
+                            raw,
                             "signPskt",
                             result,
+                            inApp,
                         )
                     }
                     "signPskt" -> {
@@ -1795,7 +1921,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun readBackup(uri: android.net.Uri): String {
-        val limit = 2 * 1024 * 1024
+        // A wallet backup can now include its bounded encrypted vault journal.
+        val limit = 8 * 1024 * 1024
         val output = java.io.ByteArrayOutputStream()
         contentResolver.openInputStream(uri).use { input ->
             check(input != null) { "Backup file is unavailable" }
@@ -1866,11 +1993,11 @@ class MainActivity : FlutterFragmentActivity() {
         uri.lastPathSegment ?: "Selected backup"
     }
 
-    private fun saveBackup(fileName: String, backup: String): android.net.Uri {
+    private fun saveBackup(fileName: String, backup: String, relativePath: String = backupRelativePath): android.net.Uri {
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, fileName)
             put(MediaStore.Downloads.MIME_TYPE, "application/json")
-            put(MediaStore.Downloads.RELATIVE_PATH, backupRelativePath)
+            put(MediaStore.Downloads.RELATIVE_PATH, relativePath)
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
@@ -1930,6 +2057,8 @@ class MainActivity : FlutterFragmentActivity() {
                         put("secret", secret)
                         put("address", activeWalletAddress())
                         put("addresses", hdAddresses(walletId))
+                        put("covenantVaults", loadCovenantVaults())
+                        put("hiddenKas", hiddenKasStore.load())
                         put("createdAt", System.currentTimeMillis())
                     }.toString().toByteArray(Charsets.UTF_8)
                     val encrypted = try { cipher.doFinal(plaintext) } finally { plaintext.fill(0) }
@@ -2111,7 +2240,7 @@ class MainActivity : FlutterFragmentActivity() {
                             "Choose a backup file or paste a complete Kaspire backup JSON."
                         )).trim()
                     }
-                    check(backupText.toByteArray(Charsets.UTF_8).size <= 2 * 1024 * 1024) {
+                    check(backupText.toByteArray(Charsets.UTF_8).size <= 8 * 1024 * 1024) {
                         "Backup is too large"
                     }
                     val backup = JSONObject(backupText)
@@ -2124,7 +2253,7 @@ class MainActivity : FlutterFragmentActivity() {
                     val ivText = backup.getString("iv")
                     val ciphertextText = backup.getString("ciphertext")
                     check(saltText.length <= 128 && ivText.length <= 128 &&
-                        ciphertextText.length <= 3 * 1024 * 1024) { "Backup is too large" }
+                        ciphertextText.length <= 8 * 1024 * 1024) { "Backup is too large" }
                     val salt = Base64.decode(saltText, Base64.NO_WRAP)
                     check(salt.size == 32) { "Invalid backup salt" }
                     val iv = Base64.decode(ivText, Base64.NO_WRAP)
@@ -2171,8 +2300,19 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     val address = material.getString("address")
                     check(address == decoded.getString("address")) { "Backup address verification failed" }
+                    decoded.optJSONArray("covenantVaults")?.let { validateCovenantCatalog(it) }
+                    decoded.optJSONObject("hiddenKas")?.let { hiddenKasStore.validate(it) }
                     storeWallet(secret, address)
                     decoded.optJSONArray("addresses")?.let { registerHdAddresses(it.toString()) }
+                    decoded.optJSONObject("hiddenKas")?.let { hiddenKasStore.restore(it) }
+                    decoded.optJSONArray("covenantVaults")?.let { restored ->
+                        val merged = loadCovenantVaults()
+                        val known = (0 until merged.length()).map { merged.getJSONObject(it).getJSONObject("record").getString("covenantId") }.toSet()
+                        for (i in 0 until restored.length()) {
+                            if (!known.contains(restored.getJSONObject(i).getJSONObject("record").getString("covenantId"))) merged.put(restored.getJSONObject(i))
+                        }
+                        saveCovenantVaults(merged.toString())
+                    }
                     clearRestorePickerState()
                     backupInput.text.clear(); password.text.clear(); dialog.dismiss()
                     result.success(address)
@@ -2196,14 +2336,152 @@ class MainActivity : FlutterFragmentActivity() {
         result.success(json.toString())
     }
 
+    // Additive encrypted metadata journal. A missing network response must never
+    // erase a vault or a signed-but-not-yet-confirmed transaction.
+    private fun loadCovenantVaults(): JSONArray {
+        val id = activeWalletId() ?: error("No active wallet")
+        val raw = preferences().getString(walletKey(id, "covenant_vaults"), null) ?: return JSONArray()
+        val box = JSONObject(raw)
+        val encrypted = Base64.decode(box.getString("ciphertext"), Base64.NO_WRAP)
+        val iv = Base64.decode(box.getString("iv"), Base64.NO_WRAP)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, ensureVaultKey(), GCMParameterSpec(128, iv))
+        cipher.updateAAD("kaspire-covenant-vaults:$id".toByteArray(Charsets.UTF_8))
+        val plain = try { cipher.doFinal(encrypted) } finally { encrypted.fill(0); iv.fill(0) }
+        return try { JSONArray(plain.toString(Charsets.UTF_8)) } finally { plain.fill(0) }
+    }
+
+    private fun validateCovenantCatalog(list: JSONArray) {
+        check(list.length() <= 2000) { "Too many vault records" }
+        val seen = mutableSetOf<String>()
+        for (i in 0 until list.length()) {
+            val item = list.getJSONObject(i)
+            check(item.keys().asSequence().all { it == "record" || it == "pending" }) { "Unsupported vault journal field" }
+            val record = parseCore(SecureCore.validateVaultRecord(item.getJSONObject("record").toString()))
+            check(seen.add(record.getString("covenantId"))) { "Duplicate vault identity" }
+            item.optJSONObject("pending")?.let {
+                check(it.keys().asSequence().all { k -> k in setOf("transactionId", "wrpcJson", "submitJson", "action", "submitted") }) { "Unsupported pending vault field" }
+                check(!it.has("submitted") || it.get("submitted") is Boolean) { "Invalid vault submission state" }
+                check(it.getString("transactionId").matches(Regex("[0-9a-f]{64}"))) { "Invalid pending transaction" }
+                check(it.getString("wrpcJson").length <= 512 * 1024) { "Pending transaction too large" }
+            }
+        }
+    }
+
+    private fun saveCovenantVaults(raw: String) {
+        check(raw.length <= 4 * 1024 * 1024) { "Vault journal too large" }
+        val id = activeWalletId() ?: error("No active wallet")
+        val list = JSONArray(raw)
+        validateCovenantCatalog(list)
+        val ids = (0 until list.length()).map { list.getJSONObject(it).getJSONObject("record").getString("covenantId") }.toSet()
+        val existing = loadCovenantVaults()
+        check((0 until existing.length()).all { ids.contains(existing.getJSONObject(it).getJSONObject("record").getString("covenantId")) }) { "Vault records cannot be silently removed" }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, ensureVaultKey())
+        cipher.updateAAD("kaspire-covenant-vaults:$id".toByteArray(Charsets.UTF_8))
+        val plain = raw.toByteArray(Charsets.UTF_8)
+        val encrypted = try { cipher.doFinal(plain) } finally { plain.fill(0) }
+        val box = JSONObject().put("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .put("ciphertext", Base64.encodeToString(encrypted, Base64.NO_WRAP))
+        try { check(preferences().edit().putString(walletKey(id, "covenant_vaults"), box.toString()).commit()) { "Vault journal could not be updated. Keep the recovery file and any existing saved transaction; do not create a replacement vault." } }
+        finally { encrypted.fill(0) }
+    }
+
+    private fun vaultRecoveryDialog(data: String, seal: Boolean, colors: List<Int>?, result: MethodChannel.Result) {
+        val walletId = activeWalletId() ?: error("No active wallet")
+        val foreground = colors?.getOrNull(1) ?: Color.WHITE
+        val first = passwordField("Recovery password (at least 12 characters)")
+        val second = passwordField("Confirm recovery password")
+        val errorText = TextView(this).apply { setTextColor(Color.rgb(240, 120, 120)) }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(36, 16, 36, 16)
+            setBackgroundColor(colors?.getOrNull(0) ?: Color.rgb(16, 30, 29))
+            addView(TextView(this@MainActivity).apply {
+                text = if (seal) "Encrypt public vault recovery data with Argon2id, XChaCha20-Poly1305, ML-KEM-1024 and ML-DSA-87. This post-quantum protection scheme is experimental and not independently audited. Use a strong password. No seed or private key is included. Keep this file and password safe; both are required to recover its data. Your wallet still authorizes vault transactions; their signatures are unchanged."
+                    else "Enter the recovery file password. Importing vault data does not unlock funds or change the owner or beneficiary."
+                setTextColor(foreground)
+            })
+            first.setTextColor(foreground); first.setHintTextColor(foreground); addView(first)
+            if (seal) { second.setTextColor(foreground); second.setHintTextColor(foreground); addView(second) }
+            addView(errorText)
+        }
+        val dialog = AlertDialog.Builder(this).setTitle(if (seal) "Export vault recovery" else "Import vault recovery")
+            .setView(ScrollView(this).apply { addView(content) })
+            .setNegativeButton("Cancel") { _, _ -> first.text.clear(); second.text.clear(); result.success(null) }
+            .setPositiveButton(if (seal) "Encrypt & save" else "Import", null).setCancelable(false).create()
+        dialog.setOnShowListener {
+            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            if (colors?.size == 3) {
+                dialog.window?.setBackgroundDrawable(android.graphics.drawable.GradientDrawable().apply {
+                    setColor(colors[0]); cornerRadius = dp(24).toFloat(); setStroke(dp(1), colors[2])
+                })
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(colors[2])
+                dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(colors[1])
+            }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val chars = backupPasswordChars(first)
+                val confirmation = backupPasswordChars(second)
+                if (chars.size < 12 || (seal && !chars.contentEquals(confirmation))) {
+                    chars.fill('\u0000'); confirmation.fill('\u0000')
+                    errorText.text = "Use at least 12 characters and matching passwords."; return@setOnClickListener
+                }
+                confirmation.fill('\u0000')
+                val encoded = java.nio.ByteBuffer.allocate(chars.size * 3)
+                var passwordBytes: ByteArray? = null
+                try {
+                    check(chars.size <= 1024) { "Password too long" }
+                    val encoder = Charsets.UTF_8.newEncoder()
+                    check(!encoder.encode(java.nio.CharBuffer.wrap(chars), encoded, true).isError) { "Invalid password" }
+                    encoder.flush(encoded)
+                    passwordBytes = encoded.array().copyOf(encoded.position())
+                } catch (e: Exception) {
+                    errorText.text = e.message; return@setOnClickListener
+                } finally { chars.fill('\u0000'); encoded.array().fill(0); first.text.clear(); second.text.clear() }
+                val bytes = passwordBytes!!
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = false
+                errorText.text = "Processing encrypted recovery file…"
+                Thread {
+                    try {
+                        val value = parseCore(SecureCore.vaultRecovery(bytes, data, seal)).getString("data")
+                        if (!seal) parseCore(SecureCore.validateVaultRecord(value))
+                        runOnUiThread {
+                            try {
+                                check(activeWalletId() == walletId) { "Wallet changed; try again" }
+                                val answer = if (seal) {
+                                    val record = JSONObject(data)
+                                    val fileName = "Kaspire-Vault_${record.getString("covenantId").take(16)}_${System.currentTimeMillis()}.json"
+                                    saveBackup(fileName, value, "Download/Kaspire-Vault-Recovery/")
+                                    "Downloads/Kaspire-Vault-Recovery/$fileName"
+                                } else value
+                                dialog.dismiss(); result.success(answer)
+                            } catch (e: Exception) { dialog.dismiss(); result.error("VAULT_RECOVERY", e.message, null) }
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread { errorText.text = e.message ?: "Recovery failed"
+                            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = true }
+                    } finally { bytes.fill(0) }
+                }.start()
+            }
+        }
+        dialog.show()
+    }
+
     private fun resultPreparedFromCore(
         raw: String,
         operation: String,
         result: MethodChannel.Result,
+        kaspacomInApp: Boolean = false,
     ) {
         val json = parseCore(raw)
         val reviewHash = json.getString("reviewHash")
         val summary = when (operation) {
+            "signHiddenKas" ->
+                "Public-key-hidden KAS · Kaspa Mainnet · experimental\n" +
+                    "Recipient ${json.getString("recipient")}\nAmount ${json.getLong("amountSompi")} sompi\n" +
+                    "Fee ${json.getLong("feeSompi")} sompi\nFresh change ${json.getString("changeAddress")}\n" +
+                    "Signing reveals input public keys. Input addresses will be retired before signing.\nNot a post-quantum signature scheme."
             "signDotkMarket" ->
                 "dot.k ${json.getString("action")} · ${json.getString("name")}\n" +
                     "Seller ${json.getString("seller")}\n" +
@@ -2215,6 +2493,16 @@ class MainActivity : FlutterFragmentActivity() {
                     "Network fee ${json.getLong("feeSompi")} sompi\n" +
                     "Account ${json.getString("sender")}\n" +
                     "Sale covenant ${json.getString("covenantId")}"
+            "signCovenantVault" -> {
+                val terms = json.getJSONObject("terms")
+                "Covenant Vault · ${json.getString("action")}\n${terms.getString("name")}\n" +
+                    "Owner ${terms.getString("owner")}\n" +
+                    "Beneficiary ${terms.getString("beneficiary")}\n" +
+                    "${if (terms.getString("kind") == "timeLock") "Unlock" else "Inactivity"} DAA ${terms.getLong("limitDaa")}\n" +
+                    "Amount ${json.getLong("amountSompi")} sompi\nNetwork fee ${json.getLong("feeSompi")} sompi\n" +
+                    "Beneficiary notice ${json.getLong("beneficiaryNoticeSompi")} sompi (not a fee)\n" +
+                    "Recipient ${json.getString("recipient")}\nCovenant ${json.getString("covenantId")}"
+            }
             "signTransaction" ->
                 "Recipient ${json.getString("recipient")}\n" +
                     "Amount ${json.getLong("amountSompi")} sompi · " +
@@ -2304,7 +2592,7 @@ class MainActivity : FlutterFragmentActivity() {
             val now = System.currentTimeMillis()
             nativeReviewSummaries.entries.removeIf { it.value.expiresAt <= now }
             nativeReviewSummaries[reviewHash] =
-                NativeReviewSummary(operation, summary, now + 5 * 60_000L)
+                NativeReviewSummary(operation, summary, now + 5 * 60_000L, kaspacomInApp)
         }
         result.success(json.toString())
     }
@@ -2548,6 +2836,11 @@ class MainActivity : FlutterFragmentActivity() {
         return try { block(secret) } finally { secret.fill(0) }
     }
 
+    private val hiddenKasStore by lazy { HiddenKasStore(
+        { preferences() }, { activeWalletId() ?: error("No active wallet") },
+        { ensureVaultKey() }, { block -> withDecryptedSecret { block(it) } }
+    ) }
+
     /** Explicit reveal/import paths must render text; routine signing never calls this. */
     private fun decryptedSecretForExplicitUse(address: String? = null): String =
         withDecryptedSecret(address) { it.toString(Charsets.UTF_8) }
@@ -2592,6 +2885,7 @@ class MainActivity : FlutterFragmentActivity() {
             .remove(walletKey(id, "name"))
             .remove(walletKey(id, "kind"))
             .remove(walletKey(id, "addresses"))
+            .remove("wallet.$id.hidden_kas")
             .putString(walletIdsKey, JSONArray(ids).toString())
             .apply {
                 if (ids.isEmpty()) remove(activeWalletIdKey)
@@ -2699,6 +2993,7 @@ class MainActivity : FlutterFragmentActivity() {
         sessionMinutes: Int,
         result: MethodChannel.Result,
         dialogColors: List<Int>? = null,
+        kaspacomInApp: Boolean = false,
     ) {
         check(sessionMinutes == 0 || sessionMinutes == 5 ||
             sessionMinutes == 10 || sessionMinutes == 15) {
@@ -2708,6 +3003,22 @@ class MainActivity : FlutterFragmentActivity() {
         if (promptText == null || binding.isEmpty() || binding.length > 16_384) {
             result.error("INVALID_AUTHORIZATION", "Invalid operation authorization request", null)
             return
+        }
+        if (kaspacomInApp) {
+            check(synchronized(authorizationLock) {
+                nativeReviewSummaries[binding]?.let {
+                    it.kaspacomInApp && it.operation == operation &&
+                        it.expiresAt >= System.currentTimeMillis()
+                } == true
+            }) { "No locally verified KaspaCom review for this operation" }
+            // The theme-specific first-party screen is the explicit approval.
+            // Reuse only a still-authenticated session; otherwise biometrics/PIN
+            // are required below. Other signing profiles keep native approval.
+            if (sessionMinutes > 0 &&
+                System.currentTimeMillis() - lastSessionAuthenticationAtMs < sessionMinutes * 60_000L) {
+                result.success(issueAuthorization(operation, binding))
+                return
+            }
         }
         if (operation == "signPersonalMessage") {
             showPersonalMessageReview(
@@ -2727,6 +3038,13 @@ class MainActivity : FlutterFragmentActivity() {
             sessionMinutes,
             dialogColors,
         )
+    }
+
+    private fun requireKaspacomListing(operation: JSONObject) {
+        check(operation.optString("kind") in setOf("krc20-list", "krc721-list", "kns-list") &&
+            operation.getString("sender") == operation.getString("recipient")) {
+            "Only KaspaCom listing inscriptions support this review"
+        }
     }
 
     private fun showPersonalMessageReview(

@@ -47,6 +47,7 @@ class SignerService {
     String? walletAddress,
     List<Map<String, Object?>> signers = const [],
     bool sendAll = false,
+    Map<String, Object?>? kaspacomListing,
   }) async {
     final request = <String, Object?>{
       'sender': sender,
@@ -58,7 +59,9 @@ class SignerService {
       'utxosJson': utxosJson,
       'sendAll': sendAll,
     };
-    final result = await _security.prepareTransaction(request);
+    final result = kaspacomListing == null
+        ? await _security.prepareTransaction(request)
+        : await _security.prepareKaspacomCommit(request, kaspacomListing);
     int integer(String key) => (result[key] as num).toInt();
     return PreparedPayment(
       request: request,
@@ -72,10 +75,12 @@ class SignerService {
     );
   }
 
-  Future<SignedPayment> sign(PreparedPayment payment) async {
+  Future<SignedPayment> sign(PreparedPayment payment,
+      {bool kaspacomReview = false}) async {
     final result = await _security.signTransaction(
       payment.request,
       payment.reviewHash,
+      kaspacomReview: kaspacomReview,
     );
     return SignedPayment(
       transactionId: result['transactionId']! as String,

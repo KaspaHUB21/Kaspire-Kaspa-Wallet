@@ -94,6 +94,8 @@ class KaspaApi {
     String address, {
     int transactionLimit = 20,
     bool includeNativeTransactions = true,
+    bool includeAssetHistory = true,
+    bool includeMarketData = true,
     void Function(WalletSnapshot)? onProgress,
   }) async {
     final testnet = NetworkSettings.isTestnet;
@@ -129,7 +131,7 @@ class KaspaApi {
       _getReadOnlyWithFallback(
         '/addresses/${Uri.encodeComponent(address)}/balance',
       ),
-      testnet
+      testnet || !includeMarketData
           ? Future<Object?>.value(null)
           : _getReadOnlyWithFallback('/info/price'),
       includeNativeTransactions
@@ -139,7 +141,8 @@ class KaspaApi {
           : Future<Object?>.value(const <Object?>[]),
       testnet
           ? Future<Object?>.value(null)
-          : _loadTokenWallet(address, onProgress: (value) {
+          : _loadTokenWallet(address, includeHistory: includeAssetHistory,
+              onProgress: (value) {
               progressiveTokens = value;
               publish();
             }).catchError((_) => null),
@@ -154,12 +157,13 @@ class KaspaApi {
                         : '',
                   ))
               .catchError((_) => null)
-          : _loadKcc20Wallet(address, historyLimit: transactionLimit,
+          : _loadKcc20Wallet(address,
+              historyLimit: includeAssetHistory ? transactionLimit : 0,
               onProgress: (value) {
               progressiveCovenants = value;
               publish();
             }).then<Object?>((value) => value).catchError((_) => null),
-      testnet
+      testnet || !includeAssetHistory
           ? Future<Object?>.value(const <WalletTransaction>[])
           : loadKronTransactions(address, limit: transactionLimit)
               .timeout(const Duration(seconds: 20))
@@ -169,7 +173,10 @@ class KaspaApi {
         publish();
         return value;
       }).catchError((_) => '[]'),
-      _loadUsdExchangeRate(AppSettings.fiatCurrency.value).catchError(
+      (includeMarketData
+              ? _loadUsdExchangeRate(AppSettings.fiatCurrency.value)
+              : Future<double>.value(double.nan))
+          .catchError(
         (_) => double.nan,
       ),
       testnet
@@ -229,9 +236,10 @@ class KaspaApi {
         'KRC/KNS activity was rejected: ${error.message}',
       );
     }
-    final krc20 = await Future.wait(
-      assets.krc20.map((asset) => _withTokenMarket(asset, kasUsd)),
-    );
+    final krc20 = includeMarketData
+        ? await Future.wait(
+            assets.krc20.map((asset) => _withTokenMarket(asset, kasUsd)))
+        : assets.krc20.toList();
     krc20.sort((a, b) => a.symbol.compareTo(b.symbol));
     final assetWarnings = <String>[
       if (dotkWarning != null) dotkWarning!,
@@ -442,15 +450,21 @@ class KaspaApi {
   Future<Object?> _loadTokenWallet(
     String addressOrDomain, {
     void Function(Object?)? onProgress,
+    bool includeHistory = true,
   }) async {
     // Query the protocol indexers directly. KaspaToken remains an independent
     // compatibility source for metadata and activity that an upstream does
     // not expose, but wallet discovery no longer depends on that aggregator.
     final results = await Future.wait<Object?>([
-      _loadTokenWalletFromUpstreams(addressOrDomain, onProgress: onProgress)
+      _loadTokenWalletFromUpstreams(addressOrDomain,
+              includeHistory: includeHistory, onProgress: onProgress)
           .then<Object?>((value) => value)
           .catchError((_) => null),
-      _loadTokenWalletFromKaspaToken(addressOrDomain)
+      // The aggregator supplies optional history/metadata. A holdings-only
+      // send form does not need to wait for that extra request.
+      (includeHistory
+              ? _loadTokenWalletFromKaspaToken(addressOrDomain)
+              : Future<Object?>.value(null))
           .then<Object?>((value) => value)
           .timeout(const Duration(seconds: 8))
           .catchError((_) => null),
@@ -486,6 +500,7 @@ class KaspaApi {
   Future<Object?> _loadTokenWalletFromUpstreams(
     String addressOrDomain, {
     void Function(Object?)? onProgress,
+    bool includeHistory = true,
   }) async {
     var address = addressOrDomain.trim().toLowerCase();
     if (_isKnsName(address)) {
@@ -535,14 +550,10 @@ class KaspaApi {
     // Kasplex is authoritative while it is healthy. The authenticated mirror
     // is deliberately cold: do not contact it unless the primary request
     // fails or returns an unusable response.
-    final tokenList = _loadKrc20WalletTokens(kasplexBaseUrl, address)
-        .timeout(const Duration(seconds: 8))
-        .catchError(
-          (_) => _loadKrc20WalletTokens(kccKrc20BaseUrl, address)
-              .timeout(const Duration(seconds: 8)),
-        );
-    final transactionList =
-        _loadKrc20WalletTransactions(kasplexBaseUrl, address)
+    final tokenList = _loadKrc20HoldingsRows(address);
+    final transactionList = !includeHistory
+        ? Future<List<Map<String, Object?>>>.value([])
+        : _loadKrc20WalletTransactions(kasplexBaseUrl, address)
             .timeout(const Duration(seconds: 8))
             .catchError(
               (_) => _loadKrc20WalletTransactions(kccKrc20BaseUrl, address)
@@ -663,6 +674,49 @@ class KaspaApi {
       }
     }
     return merged.values.toList();
+  }
+
+  /// Holdings-only reads for marketplaces. Never wait for unrelated protocols,
+  /// transaction history, native balance or market metadata.
+  Future<List<WalletAsset>> loadKrc20Holdings(String address) async {
+    address = _holdingsAddress(address);
+    final rows = await _loadKrc20HoldingsRows(address);
+    return _parseAssets({
+      'data': {'tokens': rows}
+    }).krc20;
+  }
+
+  Future<List<Map<String, Object?>>> _loadKrc20HoldingsRows(String address) =>
+      _loadKrc20WalletTokens(kasplexBaseUrl, address)
+          .timeout(const Duration(seconds: 8))
+          .catchError((_) => _loadKrc20WalletTokens(kccKrc20BaseUrl, address)
+              .timeout(const Duration(seconds: 8)));
+
+  Future<List<KnsDomain>> loadKnsHoldings(String address,
+      {void Function(List<KnsDomain>)? onProgress,
+      void Function(String)? onWarning}) async {
+    address = _holdingsAddress(address);
+    List<KnsDomain> parse(List<Map<String, Object?>> rows) => _parseAssets({
+          'data': {'domains': rows}
+        }).domains;
+    String? warning;
+    final rows = await _loadKnsWalletDomains(address,
+        onProgress: (rows) => onProgress?.call(parse(rows)),
+        onWarning: (value) {
+          warning = value;
+          onWarning?.call(value);
+        });
+    // A failed first page is not evidence of an empty wallet.
+    if (rows.isEmpty && warning != null) throw KaspaApiException(warning!);
+    return parse(rows);
+  }
+
+  String _holdingsAddress(String value) {
+    final address = value.trim().toLowerCase();
+    if (!RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(address)) {
+      throw KaspaApiException('Invalid Kaspa holdings address.');
+    }
+    return address;
   }
 
   Future<List<Map<String, Object?>>> _loadKrc20WalletTokens(

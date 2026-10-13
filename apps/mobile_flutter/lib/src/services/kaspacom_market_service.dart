@@ -11,6 +11,7 @@ import 'signer_service.dart';
 import 'kns_holdings_loader.dart';
 import 'activity_store.dart';
 import 'nft_market_service.dart';
+import '../models/wallet_snapshot.dart';
 
 typedef KaspaComReview = Future<bool> Function(
     String title, Map<String, Object?> details);
@@ -242,6 +243,39 @@ class KaspaComMarketService {
       }
       item['marketplaceListed'] = listed;
     }));
+  }
+
+  Future<List<Map<String, Object?>>> ownedAssets(String kind,
+      {void Function(List<Map<String, Object?>>)? onProgress,
+      void Function(String)? onWarning}) async {
+    await guard();
+    if (kind == 'krc20') {
+      final assets = await api.loadKrc20Holdings(address);
+      await guard();
+      return assets
+          .map((a) => <String, Object?>{
+                'ticker': a.symbol,
+                'balance': a.balance,
+                'rawBalance': a.rawBalance,
+                'decimals': a.decimals,
+                'imageUrl': a.imageUrl,
+              })
+          .toList();
+    }
+    if (kind != 'kns') throw StateError('Unsupported holdings type.');
+    List<Map<String, Object?>> rows(List<KnsDomain> domains) => domains
+        .map((a) => <String, Object?>{
+              'asset': a.name,
+              'assetId': a.assetId,
+              'status': a.status,
+              'marketplaceListed': a.status == 'listed',
+            })
+        .toList();
+    final domains = await api.loadKnsHoldings(address,
+        onProgress: (domains) => onProgress?.call(rows(domains)),
+        onWarning: onWarning);
+    await guard();
+    return rows(domains);
   }
 
   /// Archive only when an accepted conflicting spend makes every saved buyer
@@ -551,10 +585,15 @@ class KaspaComMarketService {
     await api.broadcast(json);
   }
 
-  Future<String> waitCells(String target, String id) async {
+  Future<String> waitCells(String target, String id,
+      {bool ownNode = false}) async {
     for (var i = 0; i < 16; i++) {
       await guard();
-      final raw = await api.loadUtxos(target);
+      final raw = ownNode
+          ? jsonEncode(await reads.get(
+              '${NftNode.base}/addresses/${Uri.encodeComponent(target)}/utxos'))
+          : await api.loadUtxos(target);
+      if (ownNode) KaspaApi.validateUtxos(jsonDecode(raw) as List, target);
       if (kcRows(jsonDecode(raw)).any((c) =>
           kcMap(c['outpoint'])['transactionId'] == id &&
           kcMap(c['outpoint'])['index'] == 0)) {
@@ -703,7 +742,7 @@ class KaspaComMarketService {
     if (buy) args['walletUtxosJson'] = await api.loadUtxos(address);
     final built = await security.prepareKaspacomMarket(args),
         req = kcMap(built['request']),
-        review = await security.preparePskt(req);
+        review = await security.preparePskt(req, kaspacomReview: true);
     if (!await approve(buy ? 'Buy on KaspaCom' : 'Cancel KaspaCom listing', {
       'Asset': fresh['asset'] ??
           '${fresh['ticker']}${kind == 'krc721' ? ' #${fresh['tokenId']}' : ' · ${fresh['quantity']} tokens'}',
@@ -735,8 +774,8 @@ class KaspaComMarketService {
             'The purchase quote changed. Review the updated offer again.');
       }
     }
-    final signed =
-        await security.signPskt(req, review['reviewHash']! as String);
+    final signed = await security.signPskt(req, review['reviewHash']! as String,
+        kaspacomReview: true);
     // Display metadata only: never inserted into the signed PSKT or request.
     return {...signed, 'receiptNetworkFeeSompi': built['networkFeeSompi']};
   }
@@ -749,9 +788,8 @@ class KaspaComMarketService {
       await requireKnsOwner(address, asset['assetId']! as String);
     }
     if (kind == 'krc20') {
-      final snapshot =
-          await api.loadWallet(address, includeNativeTransactions: false);
-      final matches = snapshot.krc20Tokens.where((a) =>
+      final assets = await api.loadKrc20Holdings(address);
+      final matches = assets.where((a) =>
           a.symbol.toUpperCase() == asset['ticker'].toString().toUpperCase());
       if (matches.isEmpty ||
           matches.first.rawBalance == null ||
@@ -778,9 +816,10 @@ class KaspaComMarketService {
             sender: address,
             recipient: plan['commitAddress']! as String,
             amountSompi: (plan['commitAmountSompi'] as num).toInt(),
+            kaspacomListing: operation,
             feeRate: await api.loadFeeRate(),
             utxosJson: await api.loadUtxos(address));
-    if (!await approve('List on KaspaCom', {
+    if (!await approve('1 of 3 · Commit listing', {
       'Asset': asset['asset'] ??
           '${asset['ticker']}${kind == 'krc721' ? ' #${asset['tokenId']}' : ' · $quantity tokens'}',
       'Seller': address,
@@ -794,7 +833,7 @@ class KaspaComMarketService {
       throw const KaspaComCancelled();
     }
     await guard();
-    final signed = await signer.sign(payment);
+    final signed = await signer.sign(payment, kaspacomReview: true);
     final record = <String, Object?>{
       ...asset,
       'localId': signed.transactionId,
@@ -931,8 +970,8 @@ class KaspaComMarketService {
         'commitUtxosJson': cells,
         'feeRate': await api.loadFeeRate()
       };
-      final review = await security.prepareReveal(req);
-      if (!await approve('Confirm KaspaCom listing', {
+      final review = await security.prepareReveal(req, kaspacomReview: true);
+      if (!await approve('2 of 3 · Reveal listing', {
         'Asset': r['asset'] ?? '${r['ticker']} ${r['tokenId'] ?? ''}',
         'Price (sompi)': r['priceSompi'],
         'Reveal network fee (sompi)': review['feeSompi'],
@@ -941,8 +980,9 @@ class KaspaComMarketService {
         throw const KaspaComCancelled();
       }
       await guard();
-      final signed =
-          await security.signReveal(req, review['reviewHash']! as String);
+      final signed = await security.signReveal(
+          req, review['reviewHash']! as String,
+          kaspacomReview: true);
       r.addAll({
         'listingTransactionId': signed['transactionId'],
         'revealSubmitJson': signed['submitJson'],
@@ -963,23 +1003,30 @@ class KaspaComMarketService {
       args.addAll({
         'listingTransactionId': r['listingTransactionId'],
         'listingUtxosJson': await waitCells(d['listingAddress']! as String,
-            r['listingTransactionId']! as String),
+            r['listingTransactionId']! as String,
+            ownNode: true),
         'priceSompi': r['priceSompi']
       });
       final built = await security.prepareKaspacomMarket(args),
           req = kcMap(built['request']),
-          review = await security.preparePskt(req);
-      if (!await approve('Authorize seller PSKT', {
+          review = await security.preparePskt(req, kaspacomReview: true);
+      if (!await approve('3 of 3 · Confirm listing', {
         'Asset': r['asset'] ?? '${r['ticker']} ${r['tokenId'] ?? ''}',
         'Price (sompi)': r['priceSompi'],
         'Signature': 'SINGLE|ANYONECANPAY · buyer adds funding',
-        'Seller': address
+        'Seller': address,
+        'Verification': 'Listing output checked against the Kaspire node',
+        'Outputs': review['outputs'],
       })) {
         throw const KaspaComCancelled();
       }
       await guard();
-      final signed =
-          await security.signPskt(req, review['reviewHash']! as String);
+      // Recheck spendability on our node after review, before signing.
+      await waitCells(
+          d['listingAddress']! as String, r['listingTransactionId']! as String,
+          ownNode: true);
+      final signed = await security
+          .signPskt(req, review['reviewHash']! as String, kaspacomReview: true);
       r.addAll({'sellerPskt': kcSignedPskt(signed), 'stage': 'publish'});
       await save(r);
     }

@@ -16,6 +16,8 @@ import {storedCollectionRanks} from '@/lib/market-provider/stored-rarity';
 import {rateLimit} from '@/lib/security/rate-limit';
 import {startExpiryWorker} from '@/worker/expiry-worker';
 import {validateOffer,createNexusToken,readNexusToken,buildInternalNexusChallenge} from './nexus-protocol.mjs';
+import {matchingNexusOrder} from './kaspacom-nexus-prices.mjs';
+import {kasToSompi} from '@/lib/offers/money';
 
 const market='https://kaspire.kaslab.space/nft-market-test-v1';
 const image=(ticker:string,id:string)=>`https://kaspire.kaslab.space/krc721-read-v1/images/${encodeURIComponent(ticker)}/${encodeURIComponent(id)}`;
@@ -42,6 +44,22 @@ async function loadOwnListing(ticker:string,id:string,owner:string|null) {
   const data=await response.json();
   return data.offers?.find((r:any)=>r.ticker===ticker.toUpperCase()&&String(r.tokenId)===id&&r.seller===owner&&r.status==='active')??null;
 }
+async function marketListing(ticker:string,id:string,snapshot:{currentOwnerWallet:string|null;listingId:string|null;listingStatus:string}) {
+  if(snapshot.listingStatus!=='LISTED')return null;
+  let ownError:unknown;
+  try {
+    const own=await ownListing(ticker,id,snapshot.currentOwnerWallet);
+    if(own&&own.listingTransactionId===snapshot.listingId)return {...own,source:'kaspire'};
+  }catch(error){ownError=error;}
+  const q=new URLSearchParams({ticker:ticker.toUpperCase(),tokenId:id});
+  const r=await fetch('http://127.0.0.1:8161/krc721/nexus-price?'+q,{redirect:'error',signal:AbortSignal.timeout(12000)});
+  if(!r.ok)throw Error('Listing price is temporarily unavailable.');
+  const d=await r.json();
+  const order=matchingNexusOrder(d.order,{ticker,tokenId:id,owner:snapshot.currentOwnerWallet,listingId:snapshot.listingId,listingStatus:snapshot.listingStatus});
+  if(order)return {source:'kaspacom',orderId:order.orderId,ticker:ticker.toUpperCase(),tokenId:id,seller:order.sellerWalletAddress,listingTransactionId:order.listingTransactionId,priceSompi:kasToSompi(String(order.totalPrice)).toString()};
+  if(ownError||d.order)throw Error('Listing price is temporarily unavailable.');
+  return null;
+}
 async function reconcile(wallet:string) {
   const candidates=await prisma.offerThread.findMany({where:{status:{in:['OPEN','COUNTERED','AGREED_WAITING_RELIST','RELIST_DETECTED']},OR:[{buyerWalletAccount:{walletAddress:wallet}},{currentSellerWallet:wallet}]},include:{nftCache:true},orderBy:{updatedAt:'desc'},take:50});
   for(const offer of candidates) {
@@ -57,15 +75,16 @@ async function reconcile(wallet:string) {
         continue;
       }
       if(snapshot.listingStatus!=='LISTED')continue;
-      const listing=await ownListing(offer.nftCache.collectionId,offer.nftCache.tokenId,snapshot.currentOwnerWallet);
+      const listing=await marketListing(offer.nftCache.collectionId,offer.nftCache.tokenId,snapshot);
       if(!listing)continue;
-      await prisma.notification.upsert({where:{dedupeKey:`nexus-listing:${offer.id}:${listing.listingTransactionId}`},update:{},create:{walletAccountId:offer.buyerWalletAccountId,type:'NFT_LISTED',channel:'IN_APP',dedupeKey:`nexus-listing:${offer.id}:${listing.listingTransactionId}`,payloadJson:{title:'NFT listed on Kaspire',message:`${offer.nftCache.name} now has an active Kaspire listing.`,offerId:offer.id,collectionId:offer.nftCache.collectionId,tokenId:offer.nftCache.tokenId}}});
+      const venue=listing.source==='kaspacom'?'KaspaCom':'Kaspire';
+      await prisma.notification.upsert({where:{dedupeKey:`nexus-listing:${offer.id}:${listing.listingTransactionId}`},update:{},create:{walletAccountId:offer.buyerWalletAccountId,type:'NFT_LISTED',channel:'IN_APP',dedupeKey:`nexus-listing:${offer.id}:${listing.listingTransactionId}`,payloadJson:{title:`NFT listed on ${venue}`,message:`${offer.nftCache.name} now has an active ${venue} listing.`,offerId:offer.id,collectionId:offer.nftCache.collectionId,tokenId:offer.nftCache.tokenId}}});
       if(BigInt(listing.priceSompi)!==offer.currentAmountSompi||offer.status!=='AGREED_WAITING_RELIST')continue;
       await prisma.$transaction(async tx=>{
         const updated=await tx.offerThread.updateMany({where:{id:offer.id,status:'AGREED_WAITING_RELIST'},data:{status:'RELIST_DETECTED'}});
         if(!updated.count)return;
         await tx.offerRevision.create({data:{offerThreadId:offer.id,actorWalletAddress:'system',type:'RELIST_DETECTED',amountSompi:BigInt(listing.priceSompi)}});
-        await tx.notification.upsert({where:{dedupeKey:`relist-detected:${offer.id}`},update:{},create:{walletAccountId:offer.buyerWalletAccountId,type:'RELIST_DETECTED',channel:'IN_APP',dedupeKey:`relist-detected:${offer.id}`,payloadJson:{title:'NFT relisted at your agreed price',message:`${offer.nftCache.name} is listed on Kaspire at your agreed price. Another buyer may buy it first.`,offerId:offer.id,collectionId:offer.nftCache.collectionId,tokenId:offer.nftCache.tokenId}}});
+        await tx.notification.upsert({where:{dedupeKey:`relist-detected:${offer.id}`},update:{},create:{walletAccountId:offer.buyerWalletAccountId,type:'RELIST_DETECTED',channel:'IN_APP',dedupeKey:`relist-detected:${offer.id}`,payloadJson:{title:'NFT relisted at your agreed price',message:`${offer.nftCache.name} is listed on ${venue} at your agreed price. Another buyer may buy it first.`,offerId:offer.id,collectionId:offer.nftCache.collectionId,tokenId:offer.nftCache.tokenId}}});
       });
     }catch{/* A failed listing check must not become a false relist alert. */}
   }
@@ -136,10 +155,10 @@ async function handler(req:http.IncomingMessage,res:http.ServerResponse) {
     }
     if(method==='GET'&&path[0]==='nft'&&path.length===3) {
       const nft=await getDisplayNftSnapshot(ref(path[1],path[2]));if(!nft)return send(404,{error:'NFT not found.'});
-      let listing=null,listingError=false;try{listing=await ownListing(path[1],path[2],nft.currentOwnerWallet);}catch{listingError=true;}
+      let listing=null,listingError=false;try{listing=await marketListing(path[1],path[2],nft);}catch{listingError=true;}
       const best=await prisma.offerThread.findMany({where:{nftCache:{collectionId:nft.collectionId,tokenId:nft.tokenId},status:{in:['OPEN','COUNTERED']},expiresAt:{gt:new Date()}},orderBy:{currentAmountSompi:'desc'},take:3});
       const token=await privateToken(path[1].toUpperCase(),path[2]);
-      return send(200,{...nft,imageUrl:image(path[1].toUpperCase(),path[2]),listingPriceSompi:listing?.priceSompi??null,kaspireListing:listing,listingPriceUnavailable:listingError,attributes:token?.metadata?.attributes??[],bestOffers:best.map(r=>({id:r.id,status:r.status,currentAmountSompi:r.currentAmountSompi,expiresAt:r.expiresAt}))});
+      return send(200,{...nft,imageUrl:image(path[1].toUpperCase(),path[2]),listingPriceSompi:listing?.priceSompi??null,marketplaceListing:listing,kaspireListing:listing?.source==='kaspire'?listing:null,kaspacomListing:listing?.source==='kaspacom'?listing:null,listingPriceUnavailable:listingError,attributes:token?.metadata?.attributes??[],bestOffers:best.map(r=>({id:r.id,status:r.status,currentAmountSompi:r.currentAmountSompi,expiresAt:r.expiresAt}))});
     }
     if(method==='GET'&&path[0]==='dashboard') {
       const address=authenticated();scheduleReconcile(address);

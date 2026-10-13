@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/kaspacom_market_service.dart';
@@ -5,13 +6,20 @@ import '../services/nft_market_service.dart';
 import '../services/krc721_reads.dart';
 import '../widgets/krc20_order_card.dart';
 
-/// Internal test entry only. KaspaCom's fees and orders are independent of Agora.
+/// KaspaCom's fees and orders are independent of Kaspire's marketplaces.
 class KaspaComMarketScreen extends StatefulWidget {
   const KaspaComMarketScreen(
-      {super.key, required this.address, this.service, this.nftService});
+      {super.key,
+      required this.address,
+      this.service,
+      this.nftService,
+      this.initialTicker,
+      this.initialOrderId});
   final String address;
   final KaspaComMarketService? service;
   final NftMarketService? nftService;
+  final String? initialTicker;
+  final String? initialOrderId;
   @override
   State<KaspaComMarketScreen> createState() => _KaspaComMarketScreenState();
 }
@@ -28,6 +36,10 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
   Map<String, List<String>> traitOptions = {};
   Map<String, Object?> tokenSummary = {};
   final Map<String, Map<String, Object?>> tokenSummaries = {};
+  final Map<String, List<Map<String, Object?>>> _ownedCache = {};
+  final Map<String, DateTime> _ownedFetchedAt = {};
+  bool _remainingNamesLoading = false;
+  String? _holdingsWarning;
   String? metadataTicker, traitWarning;
   List<Map<String, Object?>> rows = [], catalog = [], recovery = [];
   bool loading = false, working = false, more = false, catalogMore = false;
@@ -36,7 +48,12 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
   @override
   void initState() {
     super.initState();
-    load();
+    search.text = widget.initialTicker ?? '';
+    load().then((_) {
+      if (mounted && widget.initialOrderId != null) {
+        openOrder({'orderId': widget.initialOrderId});
+      }
+    });
   }
 
   @override
@@ -47,7 +64,7 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
     super.dispose();
   }
 
-  Future<void> load({bool append = false}) async {
+  Future<void> load({bool append = false, bool refreshAssets = false}) async {
     if ((kind != 'krc721' || search.text.trim().isEmpty) &&
         sort.startsWith('rank')) {
       sort = 'recent';
@@ -63,6 +80,8 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
     setState(() {
       loading = true;
       error = null;
+      _remainingNamesLoading = false;
+      _holdingsWarning = null;
       if (!append) {
         if (metadataTicker != s.toUpperCase()) {
           traits = {};
@@ -169,36 +188,57 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
         cursor = data['next'] as String?;
         hasMore = cursor != null;
       } else {
-        final wallet = await market.api
-            .loadWallet(widget.address, includeNativeTransactions: false);
-        final all = k == 'krc20'
-            ? wallet.krc20Tokens
-                .map((a) => <String, Object?>{
-                      'ticker': a.symbol,
-                      'balance': a.balance,
-                      'rawBalance': a.rawBalance,
-                      'decimals': a.decimals,
-                      'imageUrl': a.imageUrl
-                    })
-                .toList()
-            : wallet.knsDomains
-                .map((a) => <String, Object?>{
-                      'asset': a.name,
-                      'assetId': a.assetId,
-                      'status': a.status
-                    })
-                .toList();
-        final filtered = all
-            .where((a) =>
-                s.isEmpty ||
-                (a['ticker'] ?? a['asset'])
-                    .toString()
-                    .toLowerCase()
-                    .contains(s.toLowerCase()))
-            .toList();
-        items = filtered.skip(offset).take(10).toList();
-        if (k == 'kns') await market.decorateKnsListingStates(items);
-        hasMore = offset + items.length < filtered.length;
+        final pageOffset = offset;
+        final extras = <String, Future<Map<String, Object?>>>{};
+        void show(List<Map<String, Object?>> all, {bool partial = false}) {
+          if (gen != revision || !mounted) return;
+          final filtered = all
+              .where((a) =>
+                  s.isEmpty ||
+                  (a['ticker'] ?? a['asset'])
+                      .toString()
+                      .toLowerCase()
+                      .contains(s.toLowerCase()))
+              .toList();
+          final page = filtered
+              .skip(pageOffset)
+              .take(10)
+              .map((r) => Map<String, Object?>.of(r))
+              .toList();
+          for (final row in page) {
+            if (k == 'kns') row['listingStatusLoading'] = true;
+          }
+          setState(() {
+            rows = append ? [...rows.take(pageOffset), ...page] : page;
+            offset = pageOffset + page.length;
+            more = offset < filtered.length;
+            loading = false;
+            _remainingNamesLoading = partial;
+          });
+          // Metadata and local-order reconciliation must never hold up the
+          // verified holdings themselves. Each row is updated independently.
+          unawaited(_enrichOwnedRows(k, gen, page, extras));
+        }
+
+        final fetchedAt = _ownedFetchedAt[k];
+        final fresh = fetchedAt != null &&
+            DateTime.now().difference(fetchedAt) < const Duration(seconds: 30);
+        final cached = !refreshAssets && fresh ? _ownedCache[k] : null;
+        final all = cached ??
+            await market.ownedAssets(k, onProgress: (rows) {
+              if (rows.isNotEmpty) show(rows, partial: true);
+            }, onWarning: (warning) {
+              if (gen == revision && mounted) {
+                setState(() => _holdingsWarning = warning);
+              }
+            });
+        if (gen != revision || !mounted) return;
+        if (cached == null) {
+          _ownedCache[k] = all;
+          _ownedFetchedAt[k] = DateTime.now();
+        }
+        show(all);
+        return;
       }
       if (k == 'krc20' && t == 'history') {
         await Future.wait(items
@@ -226,6 +266,49 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
           error = message(e);
         });
       }
+    }
+  }
+
+  Future<void> _enrichOwnedRows(
+      String k,
+      int gen,
+      List<Map<String, Object?>> page,
+      Map<String, Future<Map<String, Object?>>> extras) async {
+    // Bound optional requests to two rows at a time, not every held token.
+    final batch = k == 'kns' ? 10 : 2;
+    for (var start = 0; start < page.length; start += batch) {
+      if (gen != revision || !mounted) return;
+      await Future.wait(page.skip(start).take(batch).map((row) async {
+        final key =
+            (row['ticker'] ?? row['assetId'] ?? row['asset']).toString();
+        try {
+          final details = await extras.putIfAbsent(key, () async {
+            if (k == 'kns') {
+              final copy = Map<String, Object?>.of(row);
+              await market.decorateKnsListingStates([copy]);
+              return copy;
+            }
+            return tokenSummaries[key] ?? await market.tokenSummary(key);
+          });
+          if (gen != revision || !mounted) return;
+          setState(() {
+            if (k == 'kns') {
+              row.addAll(details);
+              row['listingStatusLoading'] = false;
+            } else {
+              tokenSummaries[key] = details;
+              row['imageUrl'] ??= details['imageUrl'];
+            }
+          });
+        } catch (_) {
+          if (gen == revision && mounted && k == 'kns') {
+            setState(() {
+              row['listingStatusLoading'] = false;
+              row['listingStatusUnavailable'] = true;
+            });
+          }
+        }
+      }));
     }
   }
 
@@ -271,7 +354,7 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
                           child: const Text('Done'))
                     ]));
       }
-      await load();
+      await load(refreshAssets: true);
     } on KaspaComCancelled {
       await load();
     } catch (e) {
@@ -532,7 +615,8 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: const Text('KaspaCom Marketplace'), actions: [
         IconButton(
-            onPressed: loading || working ? null : () => load(),
+            onPressed:
+                loading || working ? null : () => load(refreshAssets: true),
             icon: const Icon(Icons.refresh))
       ]),
       body: SafeArea(
@@ -775,6 +859,15 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
                         child: SelectableText(error!,
                             style: TextStyle(
                                 color: Theme.of(context).colorScheme.error)))),
+              if (_holdingsWarning != null)
+                Card(
+                    child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(_holdingsWarning!))),
+              if (_remainingNamesLoading)
+                const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Text('Loading remaining names…')),
               for (final r in recovery) ...[
                 Card(
                     child: Padding(
@@ -806,8 +899,9 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
                       child: ListTile(
                           leading: image(c, 44),
                           title: Text(c['ticker'].toString()),
-                          subtitle: Text(
-                              '${kind == 'krc721' ? 'Floor Price: ' : ''}${kcPrice(c['price'])} KAS · ${c['totalHolders'] ?? '—'} holders'),
+                          subtitle: Text(kind == 'krc721'
+                              ? 'Floor Price: ${kcPrice(c['price'])} KAS'
+                              : '${kcPrice(c['price'])} KAS · ${c['totalHolders'] ?? '—'} holders'),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: working
                               ? null
@@ -878,9 +972,12 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
                                                   (tab == 'assets' &&
                                                       (kind == 'krc721' ||
                                                           kind == 'kns') &&
-                                                      (r['marketplaceListed'] ==
-                                                              true ||
+                                                      (r['marketplaceListed'] == true ||
                                                           r['listingPending'] ==
+                                                              true ||
+                                                          r['listingStatusLoading'] ==
+                                                              true ||
+                                                          r['listingStatusUnavailable'] ==
                                                               true))
                                               ? null
                                               : () => tab == 'assets'
@@ -897,12 +994,20 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
                                                           r['listingPending'] ==
                                                               true
                                                       ? 'Listing in progress'
-                                                      : 'List on KaspaCom'
+                                                      : r['listingStatusLoading'] ==
+                                                              true
+                                                          ? 'Checking listing status…'
+                                                          : r['listingStatusUnavailable'] ==
+                                                                  true
+                                                              ? 'Status unavailable · Reload'
+                                                              : 'List on KaspaCom'
                                               : 'View order'))),
                                 ]))),
                 if (more && !loading)
                   OutlinedButton(
-                      onPressed: () => load(append: true),
+                      onPressed: _remainingNamesLoading
+                          ? null
+                          : () => load(append: true),
                       child: const Text('Load more')),
                 if (rows.isEmpty && !loading)
                   const Padding(
