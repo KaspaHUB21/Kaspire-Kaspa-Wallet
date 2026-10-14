@@ -1,0 +1,145 @@
+name: Windows desktop build
+
+on:
+  push:
+    branches: [windows-desktop-build]
+    paths: [.github/workflows/windows-desktop.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Fetch the reviewed source snapshot
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Archive = Join-Path $env:RUNNER_TEMP 'kaspire-source.zip'
+          Invoke-WebRequest -UseBasicParsing 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-source-0.1.0.zip' -OutFile $Archive
+          $Expected = 'a1716925b85bf192dae4d7d955f43ed6d1c61614820c839148e932923ca33b51'
+          if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) {
+            throw 'Source snapshot hash mismatch; refusing to build.'
+          }
+          Expand-Archive $Archive -DestinationPath $env:GITHUB_WORKSPACE
+          $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          $Manifest = Get-Content (Join-Path $Source 'SOURCE-SHA256.json') -Raw | ConvertFrom-Json
+          foreach ($Entry in $Manifest.files) {
+            if ((Get-FileHash (Join-Path $Source $Entry.file) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Entry.sha256) {
+              throw "Source file hash mismatch: $($Entry.file)"
+            }
+          }
+
+      - name: Install the pinned Flutter SDK
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Sdk = Join-Path $env:RUNNER_TEMP 'flutter'
+          git clone --depth 1 --branch 3.47.5 https://github.com/flutter/flutter.git $Sdk
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter clone failed.' }
+          $Revision = git -C $Sdk rev-parse HEAD
+          if ($Revision -ne '6a19cca56475dbfba1478ee68d7bd0c2ef891da1') { throw 'Unexpected Flutter revision.' }
+          Add-Content $env:GITHUB_PATH (Join-Path $Sdk 'bin')
+          & (Join-Path $Sdk 'bin\flutter.bat') config --enable-windows-desktop --no-analytics
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter setup failed.' }
+
+      - name: Run native tests and build the complete wallet
+        run: |
+          $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          & (Join-Path $Source 'desktop\Build-Windows.ps1')
+
+      - name: Bundle the C++ runtime and Windows instructions
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          $Bundle = Join-Path $Source 'dist\Kaspire-Windows-0.1.0'
+          $VsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $VsPath = & $VsWhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $Runtime = Get-ChildItem (Join-Path $VsPath 'VC\Redist\MSVC') -Directory |
+            Sort-Object Name -Descending | ForEach-Object {
+              Get-ChildItem (Join-Path $_.FullName 'x64') -Directory -Filter 'Microsoft.VC*.CRT'
+            } | Select-Object -First 1
+          if (-not $Runtime) { throw 'MSVC redistributable files not found.' }
+          Copy-Item (Join-Path $Runtime.FullName '*.dll') $Bundle
+          @'
+          Kaspire for Windows 0.1.0 (x64)
+
+          Extract this entire folder, then double-click kaspire.exe.
+          Keep all DLLs and the data folder next to the EXE. No compilation is needed.
+          Requires Windows 10 1809 or newer / Windows 11 and Microsoft Edge WebView2
+          Runtime for the integrated dApp browser.
+
+          This first Windows build is unsigned. Windows may show an unknown-publisher
+          warning. Native and widget tests run in CI, but real-device acceptance and
+          a dedicated desktop security review are still required. First use a NEW,
+          disposable wallet. Do not import your main seed or use real funds yet.
+
+          Wallet data: %LOCALAPPDATA%\Kaspire (encrypted for your Windows user).
+          Export an encrypted backup before moving computers or deleting user data.
+          DPAPI is not Android StrongBox; it does not protect a compromised Windows
+          user session. NFC/Tangem and experimental P2SH/covenant vault screens are
+          not enabled. Android APK updates are not offered on Windows.
+          '@ | Set-Content (Join-Path $Bundle 'README.txt') -Encoding UTF8
+
+      - name: Check EXE startup without creating a wallet
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          $Bundle = Join-Path $Source 'dist\Kaspire-Windows-0.1.0'
+          $Exe = Join-Path $Bundle 'kaspire.exe'
+          $Process = Start-Process $Exe -WorkingDirectory $Bundle -PassThru -RedirectStandardOutput (Join-Path $Source 'desktop\startup-out.log') -RedirectStandardError (Join-Path $Source 'desktop\startup-error.log')
+          try {
+            Start-Sleep -Seconds 15
+            $Process.Refresh()
+            if ($Process.HasExited) { throw "EXE exited during startup: $($Process.ExitCode)" }
+            if ($Process.MainWindowHandle -eq 0 -or $Process.MainWindowTitle -ne 'Kaspire') { throw 'Kaspire window not found.' }
+            Add-Type -AssemblyName System.Drawing
+            Add-Type -AssemblyName System.Windows.Forms
+            $Bounds = [Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $Shot = New-Object Drawing.Bitmap $Bounds.Width, $Bounds.Height
+            $Graphics = [Drawing.Graphics]::FromImage($Shot)
+            try {
+              $Graphics.CopyFromScreen($Bounds.Location, [Drawing.Point]::Empty, $Bounds.Size)
+              $Shot.Save((Join-Path $Source 'desktop\windows-startup.png'), [Drawing.Imaging.ImageFormat]::Png)
+            } finally { $Graphics.Dispose(); $Shot.Dispose() }
+            "EXE running; window title=$($Process.MainWindowTitle); native tests and Flutter checks passed." |
+              Set-Content (Join-Path $Bundle 'BUILD-CHECKS.txt') -Encoding UTF8
+          } finally {
+            if (-not $Process.HasExited) { Stop-Process -Id $Process.Id }
+          }
+          $Errors = Get-Content (Join-Path $Source 'desktop\startup-error.log') -Raw
+          if ($Errors -match 'Unhandled exception|Failed to load kaspa_secure_core|MissingPluginException') {
+            throw "Startup failed: $Errors"
+          }
+          Get-ChildItem $Bundle -Recurse -File | Where-Object Name -ne 'SHA256SUMS.txt' |
+            ForEach-Object {
+              (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.FullName.Substring($Bundle.Length + 1).Replace('\', '/')
+            } | Set-Content (Join-Path $Bundle 'SHA256SUMS.txt') -Encoding UTF8
+          Compress-Archive -Path $Bundle -DestinationPath (Join-Path $Source 'dist\Kaspire-Windows-0.1.0-x64.zip')
+
+      - name: Upload the ready-to-run Windows bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Kaspire-Windows-0.1.0-x64
+          path: Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.0-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Keep build logs and startup screenshot
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Windows-build-diagnostics
+          path: |
+            Kaspire-Windows-source-0.1.0/desktop/*.log
+            Kaspire-Windows-source-0.1.0/desktop/windows-startup.png
+          if-no-files-found: ignore
+          retention-days: 14
