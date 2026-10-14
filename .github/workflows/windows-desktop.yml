@@ -51,10 +51,28 @@ jobs:
           & (Join-Path $Sdk 'bin\flutter.bat') config --enable-windows-desktop --no-analytics
           if ($LASTEXITCODE -ne 0) { throw 'Flutter setup failed.' }
 
+      - name: Restore native compilation cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            Kaspire-Windows-source-0.1.0/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: windows-native-1.97.1-a1716925b85bf192
+
       - name: Run native tests and build the complete wallet
+        id: build
         run: |
           $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
-          & (Join-Path $Source 'desktop\Build-Windows.ps1')
+          # Test the exact release target as well as building it. This preserves
+          # every native test but avoids compiling all dependencies twice.
+          $BuildPath = Join-Path $Source 'desktop\Build-Windows.ps1'
+          $BuildScript = [IO.File]::ReadAllText($BuildPath)
+          $Original = "@('test', '--locked', '-p', 'kaspa_secure_core', '--features', 'desktop')"
+          $ReleaseTests = "@('test', '--locked', '--release', '--target', 'x86_64-pc-windows-msvc', '-p', 'kaspa_secure_core', '--features', 'desktop')"
+          if (-not $BuildScript.Contains($Original)) { throw 'Unexpected source build script.' }
+          [IO.File]::WriteAllText($BuildPath, $BuildScript.Replace($Original, $ReleaseTests))
+          & $BuildPath
 
       - name: Bundle the C++ runtime and Windows instructions
         run: |
@@ -65,7 +83,10 @@ jobs:
           $VsPath = & $VsWhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           $Runtime = Get-ChildItem (Join-Path $VsPath 'VC\Redist\MSVC') -Directory |
             Sort-Object Name -Descending | ForEach-Object {
-              Get-ChildItem (Join-Path $_.FullName 'x64') -Directory -Filter 'Microsoft.VC*.CRT'
+              $X64 = Join-Path $_.FullName 'x64'
+              if (Test-Path $X64) {
+                Get-ChildItem $X64 -Directory -Filter 'Microsoft.VC*.CRT'
+              }
             } | Select-Object -First 1
           if (-not $Runtime) { throw 'MSVC redistributable files not found.' }
           Copy-Item (Join-Path $Runtime.FullName '*.dll') $Bundle
@@ -143,3 +164,12 @@ jobs:
             Kaspire-Windows-source-0.1.0/desktop/windows-startup.png
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Preserve compiled wallet if packaging or startup fails
+        if: failure() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Windows-compiled-wallet-recovery
+          path: Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.0/
+          if-no-files-found: error
+          retention-days: 7
