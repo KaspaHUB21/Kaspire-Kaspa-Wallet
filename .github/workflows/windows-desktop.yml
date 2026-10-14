@@ -19,8 +19,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 90
     env:
-      # Fresh build: dashboard routing and native input rendering changed.
-      RECOVERY_RUN_ID: ''
+      # Only diagnostics changed; preserve the exact compiled 0.1.2 application.
+      RECOVERY_RUN_ID: '38592788930'
     defaults:
       run:
         shell: powershell
@@ -30,7 +30,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $Archive = Join-Path $env:RUNNER_TEMP 'kaspire-source.zip'
           Invoke-WebRequest -UseBasicParsing 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-source-0.1.2.zip' -OutFile $Archive
-          $Expected = '6ca9496e65659339b88ea3f0b6af7f8582b992858b41f180c7a77d3d3157e9e3'
+          $Expected = 'e2e7c5505b4e8f56245d21553f0399584f447c3b7009ffd16d6b9576a20fb11b'
           if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) {
             throw 'Source snapshot hash mismatch; refusing to build.'
           }
@@ -97,9 +97,9 @@ jobs:
         run: |
           $Bundle = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0\dist\Kaspire-Windows-0.1.2'
           $Expected = @{
-            'kaspire.exe' = '89e845a658a82895d1c73485d2d49ae021c4fa2586b73d2a41b81bc2fd978d11'
-            'kaspa_secure_core.dll' = '1701aceb221526528038ba99c88e0c8ca9426048c9e707d32b3bf307130e17c8'
-            'data\app.so' = '6dbc89e92bced82183c66a99a762be55af950f43e9322cb0b4ec7fe961123fa5'
+            'kaspire.exe' = '83ee16a46297f28c3140ab8303b7112d6efbc4f9d9222edc7a3f574aa720625d'
+            'kaspa_secure_core.dll' = 'e3c8dab8502599398e19aea97c2377f6f22bb43018943edc443d34b57b7894f6'
+            'data\app.so' = '36502f31b109d97efec8a3acf49d3d3a1f2407335adea1d596a824b11e76d25e'
           }
           foreach ($Entry in $Expected.GetEnumerator()) {
             if ((Get-FileHash (Join-Path $Bundle $Entry.Key) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Entry.Value) {
@@ -199,6 +199,8 @@ jobs:
           path: |
             Kaspire-Windows-source-0.1.0/desktop/*.log
             Kaspire-Windows-source-0.1.0/desktop/windows-startup.png
+            Kaspire-Windows-source-0.1.0/desktop/windows-dashboard.png
+            Kaspire-Windows-source-0.1.0/desktop/windows-dashboard-buttons.txt
             Kaspire-Windows-source-0.1.0/desktop/windows-dialog-checks.txt
           if-no-files-found: ignore
           retention-days: 14
