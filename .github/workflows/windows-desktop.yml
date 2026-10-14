@@ -25,8 +25,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $Archive = Join-Path $env:RUNNER_TEMP 'kaspire-source.zip'
-          Invoke-WebRequest -UseBasicParsing 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-source-0.1.0.zip' -OutFile $Archive
-          $Expected = 'a1716925b85bf192dae4d7d955f43ed6d1c61614820c839148e932923ca33b51'
+          Invoke-WebRequest -UseBasicParsing 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-source-0.1.1.zip' -OutFile $Archive
+          $Expected = '8513079d8371749a5075a1987e68066fac4e11af46bf56bba0812fafda1ff8b3'
           if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) {
             throw 'Source snapshot hash mismatch; refusing to build.'
           }
@@ -58,7 +58,8 @@ jobs:
             Kaspire-Windows-source-0.1.0/target
             ~/.cargo/registry
             ~/.cargo/git
-          key: windows-native-1.97.1-a1716925b85bf192
+          key: windows-native-1.97.1-8513079d8371749a
+          restore-keys: windows-native-1.97.1-
 
       - name: Run native tests and build the complete wallet
         id: build
@@ -78,7 +79,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
-          $Bundle = Join-Path $Source 'dist\Kaspire-Windows-0.1.0'
+          $Bundle = Join-Path $Source 'dist\Kaspire-Windows-0.1.1'
           $VsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           $VsPath = & $VsWhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           $Runtime = Get-ChildItem (Join-Path $VsPath 'VC\Redist\MSVC') -Directory |
@@ -91,7 +92,7 @@ jobs:
           if (-not $Runtime) { throw 'MSVC redistributable files not found.' }
           Copy-Item (Join-Path $Runtime.FullName '*.dll') $Bundle
           @'
-          Kaspire for Windows 0.1.0 (x64)
+          Kaspire for Windows 0.1.1 (x64)
 
           Extract this entire folder, then double-click kaspire.exe.
           Keep all DLLs and the data folder next to the EXE. No compilation is needed.
@@ -114,7 +115,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
-          $Bundle = Join-Path $Source 'dist\Kaspire-Windows-0.1.0'
+          $Bundle = Join-Path $Source 'dist\Kaspire-Windows-0.1.1'
           $Exe = Join-Path $Bundle 'kaspire.exe'
           $Process = Start-Process $Exe -WorkingDirectory $Bundle -PassThru -RedirectStandardOutput (Join-Path $Source 'desktop\startup-out.log') -RedirectStandardError (Join-Path $Source 'desktop\startup-error.log')
           try {
@@ -140,17 +141,20 @@ jobs:
           if ($Errors -match 'Unhandled exception|Failed to load kaspa_secure_core|MissingPluginException') {
             throw "Startup failed: $Errors"
           }
+          & (Join-Path $Source 'desktop\Test-WindowsDialogs.ps1') -Exe $Exe -DiagnosticRoot (Join-Path $Source 'desktop')
+          Get-Content (Join-Path $Source 'desktop\windows-dialog-checks.txt') |
+            Add-Content (Join-Path $Bundle 'BUILD-CHECKS.txt')
           Get-ChildItem $Bundle -Recurse -File | Where-Object Name -ne 'SHA256SUMS.txt' |
             ForEach-Object {
               (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.FullName.Substring($Bundle.Length + 1).Replace('\', '/')
             } | Set-Content (Join-Path $Bundle 'SHA256SUMS.txt') -Encoding UTF8
-          Compress-Archive -Path $Bundle -DestinationPath (Join-Path $Source 'dist\Kaspire-Windows-0.1.0-x64.zip')
+          Compress-Archive -Path $Bundle -DestinationPath (Join-Path $Source 'dist\Kaspire-Windows-0.1.1-x64.zip')
 
       - name: Upload the ready-to-run Windows bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Kaspire-Windows-0.1.0-x64
-          path: Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.0-x64.zip
+          name: Kaspire-Windows-0.1.1-x64
+          path: Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.1-x64.zip
           if-no-files-found: error
           retention-days: 30
 
@@ -162,6 +166,7 @@ jobs:
           path: |
             Kaspire-Windows-source-0.1.0/desktop/*.log
             Kaspire-Windows-source-0.1.0/desktop/windows-startup.png
+            Kaspire-Windows-source-0.1.0/desktop/windows-dialog-checks.txt
           if-no-files-found: ignore
           retention-days: 14
 
@@ -170,6 +175,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Windows-compiled-wallet-recovery
-          path: Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.0/
+          path: Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.1/
           if-no-files-found: error
           retention-days: 7
