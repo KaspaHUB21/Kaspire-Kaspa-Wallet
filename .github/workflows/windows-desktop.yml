@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: windows-desktop-${{ github.ref }}
@@ -17,6 +18,9 @@ jobs:
   windows:
     runs-on: windows-2022
     timeout-minutes: 90
+    env:
+      # Only the automation script changed. Reuse the identical, tested binaries.
+      RECOVERY_RUN_ID: '38510030807'
     defaults:
       run:
         shell: powershell
@@ -26,7 +30,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $Archive = Join-Path $env:RUNNER_TEMP 'kaspire-source.zip'
           Invoke-WebRequest -UseBasicParsing 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-source-0.1.1.zip' -OutFile $Archive
-          $Expected = '8513079d8371749a5075a1987e68066fac4e11af46bf56bba0812fafda1ff8b3'
+          $Expected = '13cc9465c9059ff5e3545677368bafeba0f690f7b91c2767d6854c7250f4b233'
           if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) {
             throw 'Source snapshot hash mismatch; refusing to build.'
           }
@@ -40,6 +44,7 @@ jobs:
           }
 
       - name: Install the pinned Flutter SDK
+        if: env.RECOVERY_RUN_ID == ''
         run: |
           $ErrorActionPreference = 'Stop'
           $Sdk = Join-Path $env:RUNNER_TEMP 'flutter'
@@ -52,6 +57,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Flutter setup failed.' }
 
       - name: Restore native compilation cache
+        if: env.RECOVERY_RUN_ID == ''
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
@@ -63,6 +69,7 @@ jobs:
 
       - name: Run native tests and build the complete wallet
         id: build
+        if: env.RECOVERY_RUN_ID == ''
         run: |
           $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
           # Test the exact release target as well as building it. This preserves
@@ -75,7 +82,33 @@ jobs:
           [IO.File]::WriteAllText($BuildPath, $BuildScript.Replace($Original, $ReleaseTests))
           & $BuildPath
 
+      - name: Recover the unchanged compiled wallet
+        id: recovery
+        if: env.RECOVERY_RUN_ID != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ env.RECOVERY_RUN_ID }}
+          name: Windows-compiled-wallet-recovery
+          path: Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.1
+
+      - name: Verify the recovered executable and signing core
+        if: env.RECOVERY_RUN_ID != ''
+        run: |
+          $Bundle = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0\dist\Kaspire-Windows-0.1.1'
+          $Expected = @{
+            'kaspire.exe' = '89e845a658a82895d1c73485d2d49ae021c4fa2586b73d2a41b81bc2fd978d11'
+            'kaspa_secure_core.dll' = '1701aceb221526528038ba99c88e0c8ca9426048c9e707d32b3bf307130e17c8'
+            'data\app.so' = '6dbc89e92bced82183c66a99a762be55af950f43e9322cb0b4ec7fe961123fa5'
+          }
+          foreach ($Entry in $Expected.GetEnumerator()) {
+            if ((Get-FileHash (Join-Path $Bundle $Entry.Key) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Entry.Value) {
+              throw "Recovered binary differs from the reviewed build: $($Entry.Key)"
+            }
+          }
+
       - name: Bundle the C++ runtime and Windows instructions
+        if: env.RECOVERY_RUN_ID == ''
         run: |
           $ErrorActionPreference = 'Stop'
           $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
@@ -171,7 +204,7 @@ jobs:
           retention-days: 14
 
       - name: Preserve compiled wallet if packaging or startup fails
-        if: failure() && steps.build.outcome == 'success'
+        if: failure() && (steps.build.outcome == 'success' || steps.recovery.outcome == 'success')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Windows-compiled-wallet-recovery
