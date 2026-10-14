@@ -30,7 +30,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $Archive = Join-Path $env:RUNNER_TEMP 'kaspire-source.zip'
           Invoke-WebRequest -UseBasicParsing 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-source-0.1.2.zip' -OutFile $Archive
-          $Expected = 'e2e7c5505b4e8f56245d21553f0399584f447c3b7009ffd16d6b9576a20fb11b'
+          $Expected = 'd001a2e77a982a67c9083b25d100d9fe083e75d5cdddfc081697798d2ae72995'
           if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) {
             throw 'Source snapshot hash mismatch; refusing to build.'
           }
