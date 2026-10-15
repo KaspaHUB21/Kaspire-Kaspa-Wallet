@@ -779,6 +779,7 @@ fn dispatch(h: &Host, method: &str, a: &Value, v: &mut Vault, s: &mut Session) -
         && !matches!(
             method,
             "prepareInscription"
+                | "prepareDesktopUpdate"
                 | "prepareKronTransfer"
                 | "prepareNftMarket"
                 | "prepareKaspacomMarket"
@@ -1145,6 +1146,32 @@ mod tests {
             &json!({"request":request.to_string()})
         )
         .is_err());
+    }
+    #[test]
+    fn desktop_update_preparation_reaches_the_signed_update_verifier() {
+        unsafe extern "C" fn no_prompt(_: u32, _: *const c_char, _: *const c_char) -> *mut c_char {
+            std::ptr::null_mut()
+        }
+        unsafe extern "C" fn no_answer(_: *mut c_char) {}
+        let h = Host {
+            prompt: no_prompt,
+            free: no_answer,
+            directory: std::env::temp_dir().join("kaspire-update-routing-regression"),
+            cancellation: CANCELLATION.load(Ordering::SeqCst),
+        };
+        let mut v = Vault::default();
+        let mut s = Session::default();
+        let failure = dispatch(
+            &h,
+            "prepareDesktopUpdate",
+            &json!({"payload":"!","signature":"!"}),
+            &mut v,
+            &mut s,
+        )
+        .unwrap_err();
+        assert!(failure.contains("Invalid update payload"), "{failure}");
+        assert!(s.reviews.is_empty());
+        assert!(s.tokens.is_empty());
     }
     #[test]
     fn untrusted_hd_metadata_cannot_register_a_different_wallet() {
