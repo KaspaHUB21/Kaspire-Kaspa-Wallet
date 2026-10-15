@@ -1,0 +1,106 @@
+name: Windows desktop 0.1.4 update routing fix
+on:
+  push:
+    branches: [windows-desktop-build]
+    paths: [.github/workflows/windows-desktop-014-fix.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Fetch unchanged checked Flutter program
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: '38824626635'
+          name: Kaspire-Windows-0.1.4-x64
+          path: original
+      - name: Fetch the pinned corrected native source
+        run: |
+          $ErrorActionPreference='Stop'
+          $ProgressPreference='SilentlyContinue'
+          $Archive=Join-Path $env:RUNNER_TEMP 'source.zip'
+          Invoke-WebRequest -UseBasicParsing 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-source-0.1.4-r2.zip' -OutFile $Archive
+          if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '313127e43418ce4d265a56f484f744b536eb32949302eeebc383d04ff4491e77') { throw 'Source archive hash mismatch.' }
+          Expand-Archive $Archive $env:GITHUB_WORKSPACE
+          $Source=Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          $Manifest=Get-Content (Join-Path $Source 'SOURCE-SHA256.json') -Raw | ConvertFrom-Json
+          foreach ($Entry in $Manifest.files) {
+            if ((Get-FileHash (Join-Path $Source $Entry.file) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Entry.sha256) { throw "Source file hash mismatch: $($Entry.file)" }
+          }
+      - name: Restore native compilation cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            Kaspire-Windows-source-0.1.0/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: windows-native-014-update-routing-fix
+          restore-keys: windows-native-014-ed25519-vaults
+      - name: Rebuild and test the corrected Windows core
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:RUSTUP_TOOLCHAIN='1.97.1'
+          $env:CARGO_NET_GIT_FETCH_WITH_CLI='true'
+          $env:CARGO_BUILD_JOBS='2'
+          $env:GIT_CONFIG_COUNT='1'
+          $env:GIT_CONFIG_KEY_0='core.longpaths'
+          $env:GIT_CONFIG_VALUE_0='true'
+          $VsWhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $VsPath=& $VsWhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          Import-Module (Join-Path $VsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $VsPath -SkipAutomaticLocation -DevCmdArguments '-arch=amd64 -host_arch=amd64'
+          rustup toolchain install 1.97.1 --profile minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Rust setup failed.' }
+          $Source=Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          Push-Location $Source
+          try {
+            $ErrorActionPreference='Continue'
+            cargo test --locked --release --target x86_64-pc-windows-msvc -p kaspa_secure_core --features desktop 2>&1 | Tee-Object (Join-Path $Source 'desktop\native-fix.log')
+            if ($LASTEXITCODE -ne 0) { throw 'Native regression tests failed.' }
+            cargo build --locked --release --target x86_64-pc-windows-msvc -p kaspa_secure_core --features desktop
+            if ($LASTEXITCODE -ne 0) { throw 'Native build failed.' }
+          } finally { Pop-Location }
+      - name: Package the checked UI with the corrected native core
+        run: |
+          $ErrorActionPreference='Stop'
+          $Source=Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          $Dist=Join-Path $Source 'dist'
+          Expand-Archive (Join-Path $env:GITHUB_WORKSPACE 'original\Kaspire-Windows-0.1.4-x64.zip') $Dist
+          $Bundle=Join-Path $Dist 'Kaspire-Windows-0.1.4'
+          Copy-Item (Join-Path $Source 'target\x86_64-pc-windows-msvc\release\kaspa_secure_core.dll') $Bundle -Force
+          Get-ChildItem $Bundle -Recurse -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object {
+            (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.FullName.Substring($Bundle.Length+1).Replace('\','/')
+          } | Set-Content (Join-Path $Bundle 'SHA256SUMS.txt') -Encoding UTF8
+          $Compiler=Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          & $Compiler '/DAppVersion=0.1.4' (Join-Path $Source 'desktop\Kaspire.iss')
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
+          Compress-Archive $Bundle (Join-Path $Dist 'Kaspire-Windows-0.1.4-x64.zip')
+      - name: Recheck actual desktop dialogs and all nine actions
+        run: |
+          $Source=Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          & (Join-Path $Source 'desktop\Test-WindowsDialogs.ps1') -Exe (Join-Path $Source 'dist\Kaspire-Windows-0.1.4\kaspire.exe') -DiagnosticRoot (Join-Path $Source 'desktop')
+      - name: Upload corrected installer and portable program
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Kaspire-Windows-0.1.4-fixed-x64
+          path: |
+            Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.4-x64-Setup.exe
+            Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.4-x64.zip
+          if-no-files-found: error
+      - name: Keep diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Windows-014-fixed-diagnostics
+          path: |
+            Kaspire-Windows-source-0.1.0/desktop/*.log
+            Kaspire-Windows-source-0.1.0/desktop/windows-*.txt
+            Kaspire-Windows-source-0.1.0/desktop/windows-*.png
+          if-no-files-found: ignore
