@@ -234,7 +234,10 @@ fn build(r: &Request) -> Result<Built> {
             .ok_or_else(|| invalid("UTXO belongs to an unreviewed address"))?;
         let e = &row["utxoEntry"];
         if e["isCoinbase"] != false
-            || e["scriptPublicKey"]["version"] != 0
+            // RPC/REST omits protobuf default-valued fields. A missing script
+            // version means version 0, not an unknown script. The actual P2SH
+            // program is still matched byte-for-byte by parse_utxos below.
+            || e["scriptPublicKey"].get("version").is_some_and(|v| v.as_u64() != Some(0))
             || (!e["covenantId"].is_null())
             || (!e["covenant"].is_null())
         {

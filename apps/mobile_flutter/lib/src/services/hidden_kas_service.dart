@@ -41,6 +41,16 @@ class HiddenKasService {
     }
   }
 
+  Future<bool> supportsHdWallet() async {
+    await guard();
+    final wallets = await security.listWallets();
+    for (final wallet in wallets) {
+      if (wallet.active) return wallet.kind != 'private-key';
+    }
+    throw StateError(
+        'No active signing wallet. Create or restore a seed-based HD wallet to use P2SH.');
+  }
+
   Future<Object?> get(String url) async {
     final response =
         await client.get(Uri.parse(url)).timeout(const Duration(seconds: 15));

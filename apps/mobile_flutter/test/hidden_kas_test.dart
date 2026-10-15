@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -18,6 +19,8 @@ const signedId =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 class HiddenSecurity extends NativeSecurity {
+  String kind = 'mnemonic';
+  int derivations = 0;
   String active = owner;
   Map<String, Object?> state = {
     'descriptor': HiddenKasService.descriptor,
@@ -32,20 +35,33 @@ class HiddenSecurity extends NativeSecurity {
   @override
   Future<String?> getNativeAddress() async => active;
   @override
+  Future<List<NativeWalletInfo>> listWallets() async => [
+        NativeWalletInfo(
+            id: 'test',
+            address: active,
+            name: 'Test wallet',
+            kind: kind,
+            active: true,
+            addresses: [])
+      ];
+  @override
   Future<Map<String, Object?>> hiddenKasState() async => clone(state);
   @override
   Future<List<Map<String, Object?>>> deriveHiddenKas(
-          int branch, int start, int count) async =>
-      List.generate(
-          count,
-          (i) => {
-                'branch': branch,
-                'index': start + i,
-                'address': branch == 0 && start + i == 0
-                    ? p2sh
-                    : 'kaspa:p-test-$branch-${start + i}',
-                'keyHash': '00' * 32
-              });
+      int branch, int start, int count) async {
+    derivations++;
+    return List.generate(
+        count,
+        (i) => {
+              'branch': branch,
+              'index': start + i,
+              'address': branch == 0 && start + i == 0
+                  ? p2sh
+                  : 'kaspa:p-test-$branch-${start + i}',
+              'keyHash': '00' * 32
+            });
+  }
+
   @override
   Future<Map<String, Object?>> observeHiddenKas(
       List<Map<String, Object?>> used) async {
@@ -94,6 +110,38 @@ class HiddenSecurity extends NativeSecurity {
 void main() {
   setUp(() {
     NetworkSettings.network.value = KaspaNetwork.mainnet;
+  });
+  testWidgets(
+      'private key wallets get an informational HD requirement before discovery',
+      (tester) async {
+    final native = HiddenSecurity()..kind = 'private-key';
+    await tester.pumpWidget(MaterialApp(
+        home: HiddenKasScreen(
+            address: owner,
+            service: HiddenKasService(owner, security: native))));
+    await tester.pumpAndSettle();
+    expect(find.text('Seed-based HD wallet required'), findsOneWidget);
+    expect(find.text(hiddenKasHdRequired), findsOneWidget);
+    expect(find.byType(CheckboxListTile), findsNothing);
+    expect(find.text('Review payment'), findsNothing);
+    expect(find.textContaining('PlatformException'), findsNothing);
+    expect(native.derivations, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+  test('native errors keep the useful cause without Java/platform wrappers',
+      () {
+    expect(
+        hiddenKasUserMessage(PlatformException(
+            code: 'SECURITY_ERROR',
+            message:
+                'IllegalStateException: invalid transaction request: Hidden KAS requires a root mnemonic wallet')),
+        hiddenKasHdRequired);
+    expect(
+        hiddenKasUserMessage(PlatformException(
+            code: 'SECURITY_ERROR',
+            message:
+                'IllegalStateException: invalid transaction request: Insufficient KAS including network fee')),
+        'Insufficient KAS including network fee');
   });
   test(
       'scan covers both branches and does not publish keys or create addresses',
@@ -227,6 +275,7 @@ void main() {
           home: HiddenKasScreen(
               address: owner,
               service: HiddenKasService(owner, security: HiddenSecurity()))));
+      await tester.pumpAndSettle();
       expect(find.text('Experimental P2SH account'), findsOneWidget);
       expect(find.textContaining('NOT a post-quantum'), findsOneWidget);
       expect(find.text('Copy address'), findsNothing);

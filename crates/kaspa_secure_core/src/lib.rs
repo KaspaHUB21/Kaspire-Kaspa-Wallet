@@ -36,6 +36,9 @@ mod wasm;
 #[cfg(target_os = "android")]
 mod android;
 
+#[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
+mod desktop;
+
 use argon2::{Algorithm, Argon2, Params, Version as ArgonVersion};
 use kaspa_addresses::{Address, Prefix, Version};
 use kaspa_bip32::{

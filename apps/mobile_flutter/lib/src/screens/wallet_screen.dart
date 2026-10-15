@@ -1,8 +1,11 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'covenant_vault_screen.dart';
 import '../widgets/hub21_material.dart';
 import '../widgets/neptune_material.dart';
+import '../widgets/wallet_responsive_layout.dart';
+import '../platform.dart';
 
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
@@ -42,6 +45,8 @@ class WalletScreen extends StatefulWidget {
     required this.onSendAsset,
     required this.onSwitchWallet,
     required this.onSettings,
+    this.desktopNavigator,
+    this.refreshRevision = 0,
   });
   final String address;
   final VoidCallback onSend;
@@ -50,6 +55,8 @@ class WalletScreen extends StatefulWidget {
   final ValueChanged<AssetSendIntent> onSendAsset;
   final VoidCallback onSwitchWallet;
   final VoidCallback onSettings;
+  final GlobalKey<NavigatorState>? desktopNavigator;
+  final int refreshRevision;
 
   @override
   State<WalletScreen> createState() => _WalletScreenState();
@@ -69,6 +76,23 @@ class _WalletScreenState extends State<WalletScreen> {
   int _historyLimit = 20;
   bool _compounding = false;
 
+  NavigatorState get _navigator =>
+      widget.desktopNavigator?.currentState ?? Navigator.of(context);
+
+  Future<T?> _openFeature<T>(Widget page) {
+    final navigator = _navigator;
+    if (widget.desktopNavigator != null) {
+      navigator.popUntil((route) => route.isFirst);
+    }
+    return navigator.push<T>(MaterialPageRoute<T>(builder: (_) => page));
+  }
+
+  @override
+  void didUpdateWidget(covariant WalletScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshRevision != widget.refreshRevision) _refresh();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -85,12 +109,10 @@ class _WalletScreenState extends State<WalletScreen> {
 
   Future<void> _openAgora() async {
     if (NetworkSettings.network.value == KaspaNetwork.mainnet) {
-      await Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) => KAgoraScreen(address: widget.address)));
+      await _openFeature<void>(KAgoraScreen(address: widget.address));
     } else if (NetworkSettings.network.value == KaspaNetwork.tn10) {
-      await Navigator.of(context).push(MaterialPageRoute<bool>(
-          builder: (_) => KaspaRocketScreen(
-              address: NetworkSettings.addressForNetwork(widget.address))));
+      await _openFeature<bool>(KaspaRocketScreen(
+          address: NetworkSettings.addressForNetwork(widget.address)));
       if (mounted) _refresh();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -366,9 +388,8 @@ class _WalletScreenState extends State<WalletScreen> {
           onRefresh: () async => _refresh(),
           child: FutureBuilder<WalletSnapshot>(
             future: _snapshot,
-            builder: (context, snapshot) => ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+            builder: (context, snapshot) => WalletResponsiveLayout(
+              desktopNavigator: widget.desktopNavigator,
               children: [
                 Row(
                   children: [
@@ -423,7 +444,9 @@ class _WalletScreenState extends State<WalletScreen> {
                       ),
                     ),
                     if (NetworkSettings.network.value == KaspaNetwork.mainnet)
-                      NexusBell(address: widget.address),
+                      NexusBell(
+                          address: widget.address,
+                          navigatorKey: widget.desktopNavigator),
                   ],
                 ),
                 SizedBox(
@@ -454,14 +477,11 @@ class _WalletScreenState extends State<WalletScreen> {
                 WalletDashboardActions(
                   onSend: widget.onSend,
                   onReceive: widget.onReceive,
-                  onVaults: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                          builder: (_) =>
-                              const UpcomingFeatureScreen(vaults: true))),
-                  onSwap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                          builder: (_) =>
-                              DexSelectionScreen(address: widget.address))),
+                  onVaults: () => _openFeature<void>(isWindowsDesktop
+                      ? CovenantVaultScreen(address: widget.address)
+                      : const UpcomingFeatureScreen(vaults: true)),
+                  onSwap: () => _openFeature<void>(
+                      DexSelectionScreen(address: widget.address)),
                   onBrowser: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                           builder: (_) => const DappBrowserSelectionScreen())),
@@ -1055,13 +1075,15 @@ class WalletDashboardActions extends StatelessWidget {
       (Icons.arrow_downward_rounded, 'RECEIVE', onReceive),
       (Icons.lock_person_outlined, 'VAULTS', onVaults),
       (Icons.swap_horiz_rounded, 'SWAP', onSwap),
-      (Icons.public_rounded, 'BROWSER', onBrowser),
-      (Icons.qr_code_scanner_rounded, 'PAIR DAPP', onPairDapp),
+      if (!isWindowsDesktop) (Icons.public_rounded, 'BROWSER', onBrowser),
+      if (!isWindowsDesktop)
+        (Icons.qr_code_scanner_rounded, 'PAIR DAPP', onPairDapp),
       (Icons.account_balance_rounded, 'K-AGORA', onAgora),
       (Icons.tune_rounded, 'SETTINGS', onSettings),
     ];
+    final columns = isWindowsDesktop ? 3 : 4;
     Widget row(int start) => Row(children: [
-          for (var i = start; i < start + 4; i++) ...[
+          for (var i = start; i < start + columns; i++) ...[
             if (i > start) const SizedBox(width: 8),
             Expanded(
                 child: SizedBox(
@@ -1072,7 +1094,7 @@ class WalletDashboardActions extends StatelessWidget {
                         onTap: actions[i].$3))),
           ],
         ]);
-    return Column(children: [row(0), const SizedBox(height: 8), row(4)]);
+    return Column(children: [row(0), const SizedBox(height: 8), row(columns)]);
   }
 }
 
@@ -1082,38 +1104,41 @@ class _Action extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => KasVaultTheme.isDecorative
-      ? Hub21Action(icon: icon, label: label, onTap: onTap)
-      : InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
-            decoration: BoxDecoration(
-              color: KasVaultTheme.panel,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: KasVaultTheme.line),
+  Widget build(BuildContext context) {
+    final action = KasVaultTheme.isDecorative
+        ? Hub21Action(icon: icon, label: label, onTap: onTap)
+        : InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(18),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
+              decoration: BoxDecoration(
+                color: KasVaultTheme.panel,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: KasVaultTheme.line),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(height: 7),
+                  FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        buttonLabel(label),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: .2,
+                        ),
+                      )),
+                ],
+              ),
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(height: 7),
-                FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      buttonLabel(label),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: .2,
-                      ),
-                    )),
-              ],
-            ),
-          ),
-        );
+          );
+    return isWindowsDesktop ? Semantics(button: true, child: action) : action;
+  }
 }
 
 class _UtxoCard extends StatelessWidget {

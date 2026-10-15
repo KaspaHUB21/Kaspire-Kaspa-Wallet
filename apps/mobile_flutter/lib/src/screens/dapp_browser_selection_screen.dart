@@ -6,6 +6,8 @@ import '../services/app_settings.dart';
 import '../services/dapp_browser_catalog.dart';
 import '../widgets/hub21_material.dart';
 import 'dapp_browser_screen.dart';
+import 'windows_dapp_browser_screen.dart';
+import '../platform.dart';
 
 class DappBrowserSelectionScreen extends StatelessWidget {
   const DappBrowserSelectionScreen({super.key});
@@ -34,7 +36,9 @@ class DappBrowserSelectionScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                   onTap: () =>
                       Navigator.of(context).push(MaterialPageRoute<void>(
-                    builder: (_) => DappBrowserScreen(dapp: dapp),
+                    builder: (_) => isWindowsDesktop
+                        ? WindowsDappBrowserScreen(dapp: dapp)
+                        : DappBrowserScreen(dapp: dapp),
                   )),
                   child: _panel(Row(children: [
                     SizedBox(

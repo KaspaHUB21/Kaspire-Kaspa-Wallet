@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'platform.dart';
 import 'dart:convert';
 
 import 'package:app_links/app_links.dart';
@@ -23,6 +24,8 @@ import 'services/network_settings.dart';
 import 'services/evm_api.dart';
 import 'theme.dart';
 import 'widgets/hub21_material.dart';
+import 'widgets/desktop_frame.dart';
+import 'widgets/windows_security_dialog.dart';
 
 class KasVaultApp extends StatefulWidget {
   const KasVaultApp({super.key});
@@ -56,6 +59,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   bool _unlocking = false;
 
   void _lockWallet() {
+    unawaited(_security.lockWindowsSession());
     unawaited(_security.setInternalNexusUnlocked(false));
     setState(() => _locked = true);
   }
@@ -63,6 +67,8 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WindowsSecurityDialogs.install(_navigatorKey,
+        onInteraction: _recordActivity);
     WidgetsBinding.instance.addObserver(this);
     _address = _loadInitialAddress();
     _proposalSubscription = _dapps.proposals.listen(
@@ -87,6 +93,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    WindowsSecurityDialogs.dispose();
     unawaited(_security.setInternalNexusUnlocked(false));
     WidgetsBinding.instance.removeObserver(this);
     _inactivityTimer?.cancel();
@@ -208,6 +215,15 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         now.difference(_lastPersistedActivity!) > const Duration(seconds: 15)) {
       _lastPersistedActivity = now;
       unawaited(AppSettings.recordBackgroundedAt(now));
+      if (isWindowsDesktop &&
+          !_locked &&
+          NativeSecurity.internalNexusUnlocked) {
+        unawaited(_security.refreshWindowsUnlock().then((valid) {
+          if (!valid && mounted && !_locked) _lockWallet();
+        }).catchError((Object _) {
+          if (mounted && !_locked) _lockWallet();
+        }));
+      }
     }
   }
 
@@ -2368,7 +2384,8 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       }
       final lastActive = await AppSettings.lastBackgroundedAt();
       final minutes = AppSettings.lockMinutes.value;
-      _locked = minutes == 0 ||
+      _locked = isWindowsDesktop ||
+          minutes == 0 ||
           lastActive == null ||
           DateTime.now().difference(lastActive) >= Duration(minutes: minutes);
       await _security.setInternalNexusUnlocked(!_locked);
@@ -2408,7 +2425,9 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
           builder: (context, child) => Listener(
             behavior: HitTestBehavior.translucent,
             onPointerDown: (_) => _recordActivity(),
-            child: Hub21Backdrop(child: child ?? const SizedBox.shrink()),
+            child: DesktopFrame(
+                onInteraction: _recordActivity,
+                child: Hub21Backdrop(child: child ?? const SizedBox.shrink())),
           ),
           home: FutureBuilder<String?>(
             future: _address,

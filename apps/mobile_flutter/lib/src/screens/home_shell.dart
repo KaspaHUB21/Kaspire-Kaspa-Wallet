@@ -20,6 +20,8 @@ import '../services/network_settings.dart';
 import '../services/dapp_session_service.dart';
 import '../services/evm_api.dart';
 import '../theme.dart';
+import '../platform.dart';
+import '../widgets/windows_update_dialog.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({
@@ -37,27 +39,90 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  final _announcedUpdates = <int>{};
+  @override
+  void initState() {
+    super.initState();
+    if (isWindowsDesktop) {
+      UpdateService.instance.state.addListener(_updateChanged);
+      _updateChanged();
+    }
+  }
+
+  void _updateChanged() {
+    final update = UpdateService.instance.state.value.update;
+    if (!mounted ||
+        update == null ||
+        !update.isDesktop ||
+        !_announcedUpdates.add(update.build)) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) showWindowsUpdate(context, update);
+    });
+  }
+
+  @override
+  void dispose() {
+    UpdateService.instance.state.removeListener(_updateChanged);
+    super.dispose();
+  }
+
   int _index = 0;
   int _sendRevision = 0;
   int _walletRevision = 0;
   AssetSendIntent? _sendIntent;
   EvmToken? _evmSendToken;
   DateTime? _exitRequestedAt;
+  final _desktopNavigator = GlobalKey<NavigatorState>();
+  NavigatorState get _navigator =>
+      _desktopNavigator.currentState ?? Navigator.of(context);
 
-  void _openKasSend() => setState(() {
-        _sendIntent = null;
-        _sendRevision++;
-        _index = 1;
-      });
+  void _openDesktop(Widget page) {
+    final navigator = _desktopNavigator.currentState;
+    if (navigator == null) return;
+    navigator.popUntil((route) => route.isFirst);
+    navigator.push(MaterialPageRoute<void>(builder: (_) => page));
+  }
 
-  void _openAssetSend(AssetSendIntent intent) => setState(() {
-        _sendIntent = intent;
-        _sendRevision++;
-        _index = 1;
-      });
+  void _desktopTransactionDone() {
+    _desktopNavigator.currentState?.popUntil((route) => route.isFirst);
+    if (mounted) setState(() => _walletRevision++);
+  }
+
+  void _openKasSend() {
+    if (isWindowsDesktop && !NetworkSettings.isEvm) {
+      _openDesktop(SendScreen(
+          key: UniqueKey(),
+          address: NetworkSettings.addressForNetwork(widget.address),
+          onDone: _desktopTransactionDone));
+      return;
+    }
+    setState(() {
+      _sendIntent = null;
+      _sendRevision++;
+      _index = 1;
+    });
+  }
+
+  void _openAssetSend(AssetSendIntent intent) {
+    if (isWindowsDesktop && !NetworkSettings.isEvm) {
+      _openDesktop(SendScreen(
+          key: UniqueKey(),
+          address: NetworkSettings.addressForNetwork(widget.address),
+          initialAsset: intent,
+          onDone: _desktopTransactionDone));
+      return;
+    }
+    setState(() {
+      _sendIntent = intent;
+      _sendRevision++;
+      _index = 1;
+    });
+  }
 
   Future<void> _openWalletManager() async {
-    final selected = await Navigator.of(context).push<String>(
+    final selected = await _navigator.push<String>(
       MaterialPageRoute<String>(
         builder: (_) => WalletManagerScreen(
           currentAddress: NetworkSettings.storageAddress(widget.address),
@@ -76,13 +141,13 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _openDappSessions() {
-    Navigator.of(context).push(
+    _navigator.push(
       MaterialPageRoute<void>(builder: (_) => const DappSessionsScreen()),
     );
   }
 
   void _openAddressBook() {
-    Navigator.of(context).push(
+    _navigator.push(
       MaterialPageRoute<void>(builder: (_) => const AddressBookScreen()),
     );
   }
@@ -210,6 +275,30 @@ class _HomeShellState extends State<HomeShell> {
         ),
       );
     }
+    if (isWindowsDesktop) {
+      return Scaffold(
+          body: WalletScreen(
+        key: ValueKey(
+            'desktop-${widget.address}-${NetworkSettings.network.value.name}'),
+        address: activeAddress,
+        desktopNavigator: _desktopNavigator,
+        refreshRevision: _walletRevision,
+        onSend: _openKasSend,
+        onSendAsset: _openAssetSend,
+        onReceive: () => _openDesktop(ReceiveScreen(
+          address: activeAddress,
+          onAccountChanged: () => setState(() => _walletRevision++),
+        )),
+        onPairDapps: _openDappSessions,
+        onSwitchWallet: _openWalletManager,
+        onSettings: () => _openDesktop(SettingsScreen(
+          address: activeAddress,
+          onManageWallets: _openWalletManager,
+          onManageDapps: _openDappSessions,
+          onManageAddressBook: _openAddressBook,
+        )),
+      ));
+    }
     final pages = [
       WalletScreen(
         key: ValueKey('$_walletRevision-${NetworkSettings.network.value.name}'),
@@ -321,10 +410,12 @@ class _HomeShellState extends State<HomeShell> {
                             ),
                           ),
                           TextButton(
-                            onPressed: () => launchUrl(
-                              update.apkUrl,
-                              mode: LaunchMode.externalApplication,
-                            ),
+                            onPressed: () => update.isDesktop
+                                ? showWindowsUpdate(context, update)
+                                : launchUrl(
+                                    update.apkUrl,
+                                    mode: LaunchMode.externalApplication,
+                                  ),
                             child: Text(buttonLabel('DOWNLOAD')),
                           ),
                           IconButton(

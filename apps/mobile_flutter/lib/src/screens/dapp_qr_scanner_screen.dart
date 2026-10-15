@@ -6,6 +6,8 @@ import 'package:qr_code_scanner_plus/qr_code_scanner_plus.dart';
 import '../services/dapp_session_service.dart';
 import '../theme.dart';
 import '../services/app_settings.dart';
+import '../platform.dart';
+import '../widgets/desktop_qr_input.dart';
 
 class DappQrScannerScreen extends StatefulWidget {
   const DappQrScannerScreen({super.key});
@@ -51,78 +53,89 @@ class _DappQrScannerScreenState extends State<DappQrScannerScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Scan dApp QR code')),
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            QRView(
-              key: _scannerKey,
-              onQRViewCreated: _onScannerCreated,
-              formatsAllowed: const [BarcodeFormat.qrcode],
-            ),
-            Center(
-              child: Container(
-                width: 260,
-                height: 260,
-                decoration: BoxDecoration(
-                  border: Border.all(color: KasVaultTheme.mint, width: 3),
-                  borderRadius: BorderRadius.circular(30),
-                ),
+  Widget build(BuildContext context) => isWindowsDesktop
+      ? DesktopQrInput(
+          title: 'Connect dApp',
+          validate: (value) {
+            try {
+              DappSessionService.pairingUriFromQrPayload(value);
+              return true;
+            } on FormatException {
+              return false;
+            }
+          })
+      : Scaffold(
+          appBar: AppBar(title: const Text('Scan dApp QR code')),
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              QRView(
+                key: _scannerKey,
+                onQRViewCreated: _onScannerCreated,
+                formatsAllowed: const [BarcodeFormat.qrcode],
               ),
-            ),
-            Positioned(
-              top: 18,
-              right: 18,
-              child: SafeArea(
-                child: FilledButton.tonalIcon(
-                  onPressed: _controller == null ? null : _toggleTorch,
-                  icon: Icon(
-                    _torchOn ? Icons.flashlight_off : Icons.flashlight_on,
-                  ),
-                  label: Text(
-                    buttonLabel(_torchOn ? 'LIGHT OFF' : 'LIGHT ON'),
-                  ),
-                ),
-              ),
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: SafeArea(
+              Center(
                 child: Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.all(20),
-                  padding: const EdgeInsets.all(16),
+                  width: 260,
+                  height: 260,
                   decoration: BoxDecoration(
-                    color: KasVaultTheme.panel.withValues(alpha: 0.96),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: KasVaultTheme.line),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'Scan the WalletConnect QR code shown by the dApp.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _error ??
-                            'Kaspire accepts WalletConnect v2 and verified Kaspire pairing links.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: _error == null
-                              ? KasVaultTheme.muted
-                              : const Color(0xFFFFB65C),
-                        ),
-                      ),
-                    ],
+                    border: Border.all(color: KasVaultTheme.mint, width: 3),
+                    borderRadius: BorderRadius.circular(30),
                   ),
                 ),
               ),
-            ),
-          ],
-        ),
-      );
+              Positioned(
+                top: 18,
+                right: 18,
+                child: SafeArea(
+                  child: FilledButton.tonalIcon(
+                    onPressed: _controller == null ? null : _toggleTorch,
+                    icon: Icon(
+                      _torchOn ? Icons.flashlight_off : Icons.flashlight_on,
+                    ),
+                    label: Text(
+                      buttonLabel(_torchOn ? 'LIGHT OFF' : 'LIGHT ON'),
+                    ),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: SafeArea(
+                  child: Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: KasVaultTheme.panel.withValues(alpha: 0.96),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: KasVaultTheme.line),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Scan the WalletConnect QR code shown by the dApp.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _error ??
+                              'Kaspire accepts WalletConnect v2 and verified Kaspire pairing links.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: _error == null
+                                ? KasVaultTheme.muted
+                                : const Color(0xFFFFB65C),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
 }

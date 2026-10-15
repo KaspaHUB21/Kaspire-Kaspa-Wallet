@@ -24,6 +24,8 @@ dependencies:
   url_launcher: ^6.3.0
   webview_flutter: ^4.14.1
   webview_flutter_android: ^4.13.0
+  webview_windows:
+    path: ../windows_webview
 
 dev_dependencies:
   flutter_test:

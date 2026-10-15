@@ -18,6 +18,8 @@ import 'dotk_market_screen.dart';
 import 'covenant_vault_screen.dart';
 import 'hidden_kas_screen.dart';
 import '../services/dotk_market_service.dart';
+import '../platform.dart';
+import '../widgets/windows_update_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -730,12 +732,16 @@ class _SettingsOverview extends StatelessWidget {
                   future: hardware,
                   builder: (context, snapshot) => _SettingTile(
                     icon: Icons.memory_rounded,
-                    title: 'Hardware-backed encryption',
-                    detail: snapshot.connectionState != ConnectionState.done
-                        ? 'Checking…'
-                        : snapshot.data == true
-                            ? 'Encrypted at rest'
-                            : 'Software-backed encryption',
+                    title: isWindowsDesktop
+                        ? 'Wallet encryption'
+                        : 'Hardware-backed encryption',
+                    detail: isWindowsDesktop
+                        ? 'Windows DPAPI · encrypted for your Windows user account'
+                        : snapshot.connectionState != ConnectionState.done
+                            ? 'Checking…'
+                            : snapshot.data == true
+                                ? 'Encrypted at rest'
+                                : 'Software-backed encryption',
                     color: KasVaultTheme.mint,
                   ),
                 ),
@@ -890,15 +896,16 @@ class _SettingsOverview extends StatelessWidget {
                     ),
                   ),
                 ),
-                InkWell(
-                  onTap: onManageDapps,
-                  child: _SettingTile(
-                    icon: Icons.link_rounded,
-                    title: 'dApp sessions',
-                    detail: 'Reown WalletKit · Kaspa Mainnet',
-                    color: KasVaultTheme.cyan,
+                if (!isWindowsDesktop)
+                  InkWell(
+                    onTap: onManageDapps,
+                    child: _SettingTile(
+                      icon: Icons.link_rounded,
+                      title: 'dApp sessions',
+                      detail: 'Reown WalletKit · Kaspa Mainnet',
+                      color: KasVaultTheme.cyan,
+                    ),
                   ),
-                ),
                 InkWell(
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -923,7 +930,9 @@ class _SettingsOverview extends StatelessWidget {
             _SettingsSection(
               icon: Icons.backup_outlined,
               title: 'Backups',
-              subtitle: 'Encrypted backup and recovery exports',
+              subtitle: isWindowsDesktop
+                  ? 'Argon2id · AES-256-GCM · Android-compatible backups'
+                  : 'Encrypted backup and recovery exports',
               children: [
                 FutureBuilder<bool>(
                   future: nativeWallet,
@@ -931,13 +940,17 @@ class _SettingsOverview extends StatelessWidget {
                     children: [
                       _FullAction(
                         icon: Icons.enhanced_encryption_rounded,
-                        label: 'EXPORT ENCRYPTED BACKUP',
+                        label: isWindowsDesktop
+                            ? 'EXPORT ARGON2ID BACKUP'
+                            : 'EXPORT ENCRYPTED BACKUP',
                         onPressed:
                             snapshot.data == true ? onExportBackup : null,
                       ),
                       _FullAction(
                         icon: Icons.restore_rounded,
-                        label: 'RESTORE ENCRYPTED BACKUP',
+                        label: isWindowsDesktop
+                            ? 'RESTORE ARGON2ID BACKUP'
+                            : 'RESTORE ENCRYPTED BACKUP',
                         onPressed: onRestoreBackup,
                       ),
                       _FullAction(
@@ -1024,9 +1037,13 @@ class _SettingsOverview extends StatelessWidget {
                         if (update != null) ...[
                           const SizedBox(height: 8),
                           OutlinedButton.icon(
-                            onPressed: () => _open(update.apkUrl.toString()),
+                            onPressed: () => update.isDesktop
+                                ? showWindowsUpdate(context, update)
+                                : _open(update.apkUrl.toString()),
                             icon: const Icon(Icons.download_rounded),
-                            label: Text(buttonLabel('DOWNLOAD UPDATE')),
+                            label: Text(buttonLabel(update.isDesktop
+                                ? 'DOWNLOAD & INSTALL'
+                                : 'DOWNLOAD UPDATE')),
                           ),
                           TextButton.icon(
                             onPressed: () =>
@@ -1051,7 +1068,8 @@ class _SettingsOverview extends StatelessWidget {
               title: 'HUB21 Toolbox',
               subtitle: 'Explorers, vaults and developer tools',
               children: [
-                if (const bool.fromEnvironment('KASPIRE_INTERNAL_TESTS'))
+                if (!isWindowsDesktop &&
+                    const bool.fromEnvironment('KASPIRE_INTERNAL_TESTS'))
                   _ToolAction(
                     icon: Icons.shield_outlined,
                     title: 'Public-key-hidden KAS',
@@ -1062,7 +1080,8 @@ class _SettingsOverview extends StatelessWidget {
                       builder: (_) => HiddenKasScreen(address: address),
                     )),
                   ),
-                if (const bool.fromEnvironment('KASPIRE_INTERNAL_TESTS'))
+                if (!isWindowsDesktop &&
+                    const bool.fromEnvironment('KASPIRE_INTERNAL_TESTS'))
                   _ToolAction(
                     icon: Icons.lock_clock_outlined,
                     title: 'Kaspire Covenant Vaults',
@@ -1072,7 +1091,7 @@ class _SettingsOverview extends StatelessWidget {
                       builder: (_) => CovenantVaultScreen(address: address),
                     )),
                   ),
-                if (DotkMarketService.enabled)
+                if (!isWindowsDesktop && DotkMarketService.enabled)
                   _ToolAction(
                     icon: Icons.storefront_outlined,
                     title: 'dot.k Marketplace',
@@ -1082,28 +1101,30 @@ class _SettingsOverview extends StatelessWidget {
                       builder: (_) => DotkMarketScreen(address: address),
                     )),
                   ),
-                _ToolAction(
-                  icon: Icons.nfc_rounded,
-                  title: 'Tangem Rescue',
-                  subtitle: 'Recover KRC-721 NFTs with a Tangem card',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const TangemRescueScreen(),
+                if (!isWindowsDesktop)
+                  _ToolAction(
+                    icon: Icons.nfc_rounded,
+                    title: 'Tangem Rescue',
+                    subtitle: 'Recover KRC-721 NFTs with a Tangem card',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const TangemRescueScreen(),
+                      ),
                     ),
                   ),
-                ),
                 _ToolLink(
                   icon: Icons.token_outlined,
                   title: 'Token Explorer',
                   url: 'https://kaspatoken.kaslab.space/',
                   onOpen: _open,
                 ),
-                _ToolLink(
-                  icon: Icons.shield_outlined,
-                  title: 'KasCoven Vaults',
-                  url: 'https://vaults.kaslab.space/',
-                  onOpen: _open,
-                ),
+                if (!isWindowsDesktop)
+                  _ToolLink(
+                    icon: Icons.shield_outlined,
+                    title: 'KasCoven Vaults',
+                    url: 'https://vaults.kaslab.space/',
+                    onOpen: _open,
+                  ),
                 _ToolLink(
                   icon: Icons.code_rounded,
                   title: 'Kaspa Dev Tools',

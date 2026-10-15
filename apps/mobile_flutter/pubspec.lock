@@ -1085,6 +1085,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.27.0"
+  webview_windows:
+    dependency: "direct main"
+    description:
+      path: "../windows_webview"
+      relative: true
+    source: path
+    version: "0.4.0"
   win32:
     dependency: transitive
     description:

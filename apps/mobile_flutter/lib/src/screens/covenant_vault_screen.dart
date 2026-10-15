@@ -6,6 +6,7 @@ import '../number_format.dart';
 import '../services/covenant_vault_service.dart';
 import '../widgets/hub21_material.dart';
 import '../widgets/cascoven_vault_header.dart';
+import '../platform.dart';
 
 String vaultKas(Object? amount) =>
     '${formatRawTokenAmount(BigInt.from(vaultInt(amount)), 8)} KAS';
@@ -492,9 +493,12 @@ class _CovenantVaultScreenState extends State<CovenantVaultScreen> {
               isExpanded: true,
               initialValue: _duration,
               decoration: const InputDecoration(labelText: 'Duration estimate'),
-              items: const [
+              items: [
                 DropdownMenuItem(
-                    value: 1200, child: Text('2 minutes (internal test)')),
+                    value: 1200,
+                    child: Text(isWindowsDesktop
+                        ? '2 minutes'
+                        : '2 minutes (internal test)')),
                 DropdownMenuItem(value: 36000, child: Text('1 hour')),
                 DropdownMenuItem(value: 864000, child: Text('1 day')),
                 DropdownMenuItem(value: 6048000, child: Text('7 days')),

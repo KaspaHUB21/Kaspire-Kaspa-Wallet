@@ -4,7 +4,37 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
 import '../services/hidden_kas_service.dart';
+import '../services/kaspa_api.dart';
 import '../widgets/hub21_material.dart';
+
+const hiddenKasHdRequired =
+    'P2SH requires a seed-based HD wallet. An imported private key cannot generate this account. '
+    'Create or restore an HD wallet using a recovery phrase (seed), then open P2SH again. '
+    'Your existing private-key wallet remains unchanged.';
+
+String hiddenKasUserMessage(Object error) {
+  String message;
+  if (error is PlatformException) {
+    if (['AUTH_CANCELLED', 'AUTH_FAILED', 'USER_CANCELLED']
+        .contains(error.code)) {
+      return 'Authorization was cancelled. No new payment was submitted.';
+    }
+    message = error.message ??
+        'This action could not be completed. Please try again.';
+  } else if (error is StateError) {
+    message = error.message;
+  } else if (error is KaspaApiException) {
+    message = error.message;
+  } else {
+    return 'The account could not be checked. Please refresh and try again. Saved data remains preserved.';
+  }
+  if (message.contains('requires a root mnemonic wallet')) {
+    return hiddenKasHdRequired;
+  }
+  return message
+      .replaceFirst(RegExp(r'^(?:java\.lang\.)?IllegalStateException:\s*'), '')
+      .replaceFirst(RegExp(r'^invalid transaction request:\s*'), '');
+}
 
 String hiddenKasAmount(Object? value) =>
     '${formatRawTokenAmount(BigInt.from(hiddenInt(value)), 8)} KAS';
@@ -37,7 +67,24 @@ class _HiddenKasScreenState extends State<HiddenKasScreen> {
   List<WalletTransaction> transactions = [];
   String? error;
   bool busy = false, accepted = false, completed = false;
+  bool eligibilityChecked = false, requiresHd = false;
   int checked = 0;
+  @override
+  void initState() {
+    super.initState();
+    run(checkWalletSupport);
+  }
+
+  Future<void> checkWalletSupport() async {
+    final supported = await service.supportsHdWallet();
+    if (mounted) {
+      setState(() {
+        eligibilityChecked = true;
+        requiresHd = !supported;
+      });
+    }
+  }
+
   @override
   void dispose() {
     service.close();
@@ -57,7 +104,15 @@ class _HiddenKasScreenState extends State<HiddenKasScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          error = e.toString();
+          final message = hiddenKasUserMessage(e);
+          if (message == hiddenKasHdRequired) {
+            requiresHd = true;
+            eligibilityChecked = true;
+            error = null;
+            snapshot = null;
+          } else {
+            error = message;
+          }
           prepared = null;
           receive = null;
         });
@@ -98,7 +153,10 @@ class _HiddenKasScreenState extends State<HiddenKasScreen> {
       final history = await service.activity(next);
       if (mounted) setState(() => transactions = history);
     } catch (e) {
-      if (mounted) setState(() => error = 'Activity lookup unavailable: $e');
+      if (mounted) {
+        setState(() =>
+            error = 'Activity lookup unavailable: ${hiddenKasUserMessage(e)}');
+      }
     }
   }
 
@@ -150,7 +208,14 @@ class _HiddenKasScreenState extends State<HiddenKasScreen> {
                       Text(
                           'Descriptor: kaspire-hidden-kas-v1\nDerivation: m/1214346033\'/111111\'/0\'/branch\'/index\'\nReceive branch 0 · change branch 1 · discovery gap 20.\n\nThis experimental format is not supported by other wallets. Seed discovery finds used addresses, but a seed alone cannot recover the history of signatures never broadcast. Keep a current Kaspire encrypted backup, which includes issued/retired addresses and saved transactions. Never use the same account on multiple devices at once.\n\nAll available account outputs are spent together, with fresh P2SH change. Retired addresses still track late payments, but must not be reused for receiving. A network failure never means “safe” or “zero balance”.'),
                     ]),
-                if (!accepted) ...[
+                if (requiresHd) ...[
+                  const SizedBox(height: 16),
+                  const Icon(Icons.account_tree_outlined, size: 36),
+                  Text('Seed-based HD wallet required',
+                      style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 10),
+                  const Text(hiddenKasHdRequired),
+                ] else if (eligibilityChecked && !accepted) ...[
                   CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text(
@@ -178,7 +243,11 @@ class _HiddenKasScreenState extends State<HiddenKasScreen> {
                       style: TextStyle(
                           color: Theme.of(context).colorScheme.error)),
                   const Text(
-                      'Saved addresses and signed payments remain preserved. Refresh before trying again.')
+                      'Saved addresses and signed payments remain preserved. Refresh before trying again.'),
+                  if (!eligibilityChecked)
+                    OutlinedButton(
+                        onPressed: busy ? null : () => run(checkWalletSupport),
+                        child: const Text('Check wallet again')),
                 ]),
               if (pending != null)
                 panel([

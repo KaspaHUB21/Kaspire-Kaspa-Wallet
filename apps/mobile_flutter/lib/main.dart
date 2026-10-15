@@ -5,12 +5,15 @@ import 'src/app.dart';
 import 'src/services/network_settings.dart';
 import 'src/services/privacy_settings.dart';
 import 'src/services/app_settings.dart';
+import 'src/platform.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Keep system-bar handling consistent across OEM skins, gesture navigation,
   // tablets, foldables and Android's enforced edge-to-edge mode.
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  if (!isWindowsDesktop) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
   await NetworkSettings.initialize();
   await PrivacySettings.initialize();
   await AppSettings.initialize();

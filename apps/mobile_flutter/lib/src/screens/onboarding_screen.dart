@@ -9,6 +9,7 @@ import '../services/hd_discovery_service.dart';
 import '../theme.dart';
 import '../services/app_settings.dart';
 import '../widgets/kaspire_brand.dart';
+import '../platform.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key, required this.onConnected});
@@ -339,7 +340,7 @@ class _SecurityNotice extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                'Wallet secrets are encrypted with Android Keystore. During approved operations, decrypted material is passed to the Rust signer through short-lived wipeable buffers.',
+                walletStorageNotice,
                 style: TextStyle(color: KasVaultTheme.muted, height: 1.35),
               ),
             ),
@@ -347,3 +348,7 @@ class _SecurityNotice extends StatelessWidget {
         ),
       );
 }
+
+String get walletStorageNotice => isWindowsDesktop
+    ? 'Seeds are generated and validated by the native Rust wallet core. Wallet secrets are encrypted with Windows DPAPI for your Windows user and protected by your Kaspire PIN. Secret inputs stay outside Flutter/Dart memory. This protection is bound to your Windows user, not a hardware security enclave.'
+    : 'Wallet secrets are encrypted with Android Keystore. During approved operations, decrypted material is passed to the Rust signer through short-lived wipeable buffers.';

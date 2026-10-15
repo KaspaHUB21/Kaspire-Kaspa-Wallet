@@ -18,6 +18,30 @@ fn fixture() -> Request {
     }
 }
 #[test]
+fn hidden_kas_rpc_default_script_version_can_be_spent_and_recovered() {
+    let mut r = fixture();
+    let mut rows: Value = serde_json::from_str(&r.utxos_json).unwrap();
+    for row in rows.as_array_mut().unwrap() {
+        row["utxoEntry"]["scriptPublicKey"].as_object_mut().unwrap().remove("version");
+    }
+    r.utxos_json = rows.to_string();
+    let review = prepare(&r).unwrap();
+    let mut signed = sign(SEED, &r, review["reviewHash"].as_str().unwrap()).unwrap();
+    signed["request"] = serde_json::to_value(&r).unwrap();
+    verify_saved(SEED, &signed).unwrap();
+    for version in [json!(1), json!(-1), json!(null), json!("0")] {
+        let mut invalid = rows.clone();
+        invalid[0]["utxoEntry"]["scriptPublicKey"]["version"] = version;
+        let mut altered = r.clone();
+        altered.utxos_json = invalid.to_string();
+        assert!(prepare(&altered).is_err());
+    }
+    let mut invalid = rows.clone();
+    invalid[0]["utxoEntry"]["scriptPublicKey"]["scriptPublicKey"] = json!("00");
+    r.utxos_json = invalid.to_string();
+    assert!(prepare(&r).is_err());
+}
+#[test]
 fn hidden_kas_single_seed_p2sh_spend_executes_consensus_vm() {
     let r = fixture();
     let p = prepare(&r).unwrap();

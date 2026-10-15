@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -6,6 +7,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'native_security.dart';
+import '../platform.dart';
+import 'security_channel.dart';
 
 class KaspireUpdate {
   const KaspireUpdate({
@@ -17,6 +20,10 @@ class KaspireUpdate {
     required this.apkUrl,
     required this.sha256,
     required this.releaseNotesUrl,
+    this.isDesktop = false,
+    this.signedPayload = '',
+    this.signature = '',
+    this.sizeBytes = 0,
   });
 
   final String version;
@@ -27,6 +34,9 @@ class KaspireUpdate {
   final Uri apkUrl;
   final String sha256;
   final Uri releaseNotesUrl;
+  final bool isDesktop;
+  final String signedPayload, signature;
+  final int sizeBytes;
 }
 
 class UpdateCheckState {
@@ -61,12 +71,16 @@ class UpdateService {
   static final instance = UpdateService();
   static final manifestUri =
       Uri.parse('https://kaspire.kaslab.space/updates/android.json');
-  static const _automaticKey = 'updates_automatic_v1';
-  static const _lastCheckedKey = 'updates_last_checked_v1';
-  static const _remindBuildKey = 'updates_remind_build_v1';
-  static const _remindAfterKey = 'updates_remind_after_v1';
-  static const _highestBuildKey = 'updates_highest_signed_build_v1';
-  static const _highestPublishedKey = 'updates_highest_signed_published_v1';
+  static final windowsManifestUri =
+      Uri.parse('https://kaspire.kaslab.space/updates/windows.json');
+  String get _prefix => isWindowsDesktop ? 'windows_' : '';
+  String get _automaticKey => '${_prefix}updates_automatic_v1';
+  String get _lastCheckedKey => '${_prefix}updates_last_checked_v1';
+  String get _remindBuildKey => '${_prefix}updates_remind_build_v1';
+  String get _remindAfterKey => '${_prefix}updates_remind_after_v1';
+  String get _highestBuildKey => '${_prefix}updates_highest_signed_build_v1';
+  String get _highestPublishedKey =>
+      '${_prefix}updates_highest_signed_published_v1';
 
   final http.Client _client;
   final Future<bool> Function(String payload, String signature) _verify;
@@ -111,7 +125,8 @@ class UpdateService {
       lastCheckedAt: state.value.lastCheckedAt,
     );
     try {
-      final requestUri = manifestUri.replace(
+      final requestUri =
+          (isWindowsDesktop ? windowsManifestUri : manifestUri).replace(
         queryParameters: {
           'check': DateTime.now().toUtc().millisecondsSinceEpoch.toString(),
         },
@@ -143,24 +158,29 @@ class UpdateService {
       }
       final data = (jsonDecode(utf8.decode(payloadBytes)) as Map)
           .cast<String, Object?>();
-      final update = _parse(data);
+      final update = isWindowsDesktop
+          ? _parseWindows(data, payloadBase64, signature)
+          : _parse(data);
       final installed = int.parse((await _packageInfo()).buildNumber);
       final preferences = await SharedPreferences.getInstance();
       final highestBuild = preferences.getInt(_highestBuildKey);
       final highestPublished = preferences.getInt(_highestPublishedKey);
       final publishedMillis = update.publishedAt.millisecondsSinceEpoch;
       if (highestBuild != null && update.build < highestBuild) {
-        throw StateError('The signed update manifest is older than a previously verified release.');
+        throw StateError(
+            'The signed update manifest is older than a previously verified release.');
       }
       if (highestBuild == update.build &&
           highestPublished != null &&
           publishedMillis < highestPublished) {
-        throw StateError('The signed update manifest publication time moved backwards.');
+        throw StateError(
+            'The signed update manifest publication time moved backwards.');
       }
       if (highestBuild == null || update.build > highestBuild) {
         await preferences.setInt(_highestBuildKey, update.build);
         await preferences.setInt(_highestPublishedKey, publishedMillis);
-      } else if (highestPublished == null || publishedMillis > highestPublished) {
+      } else if (highestPublished == null ||
+          publishedMillis > highestPublished) {
         await preferences.setInt(_highestPublishedKey, publishedMillis);
       }
       final now = DateTime.now().toUtc();
@@ -196,6 +216,108 @@ class UpdateService {
           .millisecondsSinceEpoch,
     );
     state.value = UpdateCheckState(lastCheckedAt: state.value.lastCheckedAt);
+  }
+
+  KaspireUpdate _parseWindows(
+      Map<String, Object?> data, String payload, String signature) {
+    final version = data['version']?.toString() ?? '';
+    final build = data['build'],
+        minimum = data['minimumBuild'],
+        size = data['sizeBytes'];
+    final date = DateTime.tryParse('${data['publishedAt']}');
+    final expected =
+        'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/windows-v$version/Kaspire-Windows-$version-x64-Setup.exe';
+    final notes =
+        'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/windows-v$version';
+    final hash = '${data['sha256']}';
+    if (data['platform'] != 'windows-x64' ||
+        !RegExp(r'^\d+\.\d+\.\d+$').hasMatch(version) ||
+        build is! int ||
+        build <= 0 ||
+        minimum is! int ||
+        minimum <= 0 ||
+        minimum > build ||
+        size is! int ||
+        size < 1024 ||
+        size > 512 * 1024 * 1024 ||
+        date == null ||
+        data['installerUrl'] != expected ||
+        data['releaseNotesUrl'] != notes ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(hash)) {
+      throw StateError('The signed Windows update contains invalid fields.');
+    }
+    return KaspireUpdate(
+        version: version,
+        build: build,
+        minimumBuild: minimum,
+        critical: data['critical'] == true,
+        publishedAt: date.toUtc(),
+        apkUrl: Uri.parse(expected),
+        sha256: hash,
+        releaseNotesUrl: Uri.parse(notes),
+        isDesktop: true,
+        signedPayload: payload,
+        signature: signature,
+        sizeBytes: size);
+  }
+
+  /// The native core re-verifies the signed terms and hashes the complete file
+  /// immediately before starting the installer. Flutter cannot choose an EXE.
+  Future<void> installWindows(
+      KaspireUpdate update, void Function(double?) progress) async {
+    if (!isWindowsDesktop || !update.isDesktop) {
+      throw StateError('Not a Windows update.');
+    }
+    const channel = SecurityChannel();
+    final raw = await channel.invokeMethod<Map>('prepareDesktopUpdate',
+        {'payload': update.signedPayload, 'signature': update.signature});
+    final prepared = raw!.cast<String, Object?>();
+    final token = prepared['token'] as String;
+    try {
+      if (prepared['installerUrl'] != update.apkUrl.toString() ||
+          prepared['sizeBytes'] != update.sizeBytes) {
+        throw StateError('Verified update terms changed.');
+      }
+      final response = await _client
+          .send(http.Request('GET', update.apkUrl))
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200 ||
+          (response.contentLength != null &&
+              response.contentLength != update.sizeBytes)) {
+        throw StateError('Update download unavailable or incomplete.');
+      }
+      final file = File(prepared['path'] as String);
+      // No append/resume: never mix bytes from different release downloads.
+      final sink = file.openWrite(mode: FileMode.writeOnly);
+      var received = 0;
+      try {
+        await for (final chunk
+            in response.stream.timeout(const Duration(seconds: 30))) {
+          received += chunk.length;
+          if (received > update.sizeBytes) {
+            throw StateError('Update download exceeds the signed size.');
+          }
+          sink.add(chunk);
+          progress(received / update.sizeBytes);
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      if (received != update.sizeBytes) {
+        throw StateError('Update download was interrupted. Please retry.');
+      }
+      progress(null);
+      await NativeSecurity().lockWindowsSession();
+      await channel
+          .invokeMethod<bool>('installDesktopUpdate', {'token': token});
+    } catch (_) {
+      try {
+        await channel
+            .invokeMethod<void>('cancelDesktopUpdate', {'token': token});
+      } catch (_) {}
+      rethrow;
+    }
   }
 
   KaspireUpdate _parse(Map<String, Object?> data) {
