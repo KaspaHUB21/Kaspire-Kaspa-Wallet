@@ -22,7 +22,7 @@ const highlights = [
   {
     number: "03",
     title: "Built for real wallet history.",
-    copy: "A rich activity feed opens every transfer in-app with sender, recipient, asset data, fees, inputs, outputs, DAA score and transaction ID.",
+    copy: "A rich activity feed opens every transfer in-app with sender, recipient, asset data, fees, inputs, outputs, DAA score and transaction ID. Extension swaps show your wallet's actual KAS balance change, with pool and covenant movements separated into expandable transaction details.",
     tags: ["Activity", "TX details", "Local node"],
   },
   {
@@ -64,7 +64,7 @@ const highlights = [
   {
     number: "10",
     title: "NFTs meet K-Agora.",
-    copy: "Choose NFT Market, dot.k Market or Nexus Offers inside K-Agora. Android now also brings KaspaCom Marketplace directly into K-Agora for KRC721, KRC20 and KNS, with its own orders and fees. List, buy and cancel Kaspire KRC721 NFT listings through decentralized seller-signed PSKTs, without operator escrow. Submit private, non-binding offers, negotiate counter offers and receive wallet notifications without locking funds. Android Nexus Offers recognizes both Kaspire and KaspaCom PSKT listings, with cached price lookups. Search collections, filter traits and sort by price, recency or collection rarity rank with ten items per page. Images and available rarity ranks come from Kaspire's read-only NFT gateway with an official-indexer emergency fallback; transaction checks continue through the official indexer. Kaspire settlements include a 2.1% marketplace fee; network fees are separate.",
+    copy: "Choose NFT Market, dot.k Market or Nexus Offers inside K-Agora. Android also brings KaspaCom Marketplace directly into K-Agora for KRC721, KRC20 and KNS, with its own orders and fees. List, buy and cancel Kaspire KRC721 NFT listings through decentralized seller-signed PSKTs, without operator escrow. Submit private, non-binding offers, negotiate counter offers and receive wallet notifications without locking funds. Nexus Offers on Android and the browser extension recognizes both Kaspire and KaspaCom PSKT listings, with cached price lookups. The extension links KaspaCom listings to the specific NFT on KaspaCom. Search collections, filter traits and sort by price, recency or collection rarity rank with ten items per page. Images and available rarity ranks come from Kaspire's read-only NFT gateway with an official-indexer emergency fallback; transaction checks continue through the official indexer. Kaspire settlements include a 2.1% marketplace fee; network fees are separate.",
     tags: ["NFT Market", "PSKT listings", "Collection filters", "Rarity ranks"],
   },
   {
@@ -76,7 +76,7 @@ const highlights = [
   {
     number: "12",
     title: "Trade KRON tokens inside Kaspire.",
-    copy: "Open KRON DEX from Swap on Android to buy and sell supported mainnet launchpad and pool tokens. Review covenant IDs, minimum receive, deposits and fees before approving. Signed transactions stay available for recovery.",
+    copy: "Open KRON DEX from Swap on Android or the browser extension to buy and sell supported mainnet launchpad and pool tokens. Review covenant IDs, minimum receive, deposits and fees before approving. Signed transactions stay available for recovery, and interrupted extension swaps can resume the same signed transaction without creating a second purchase or sale.",
     tags: ["KRON DEX", "Mainnet swaps", "Launchpad and pools"],
   },
 ];
@@ -658,17 +658,21 @@ export default function Home() {
               <p>
                 Kaspire Wallet is live in the Chrome Web Store. Chrome installs
                 approved updates automatically through the official listing.
-                Neptune and NFT Market are now available in the Store. Version
+                Version
                 {" "}{extensionRelease.version} is available below as a ZIP
                 {extensionRelease.storeReviewPending
-                  ? " and has been submitted for Chrome Web Store review."
+                  ? ". Chrome Web Store review and rollout of this version are pending; the Store may still serve the previous approved version."
                   : "."}
               </p>
               <p>
-                <a href={`https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/${extensionRelease.releaseTag}/kaspire-extension-${extensionRelease.version}.zip`}>
+                <a href={extensionRelease.downloadUrl}>
                   Download extension {extensionRelease.version} ZIP
                 </a>.
               </p>
+              <div className="checksum">
+                <span>Extension ZIP SHA-256</span>
+                <code>{extensionRelease.sha256}</code>
+              </div>
             </div>
           </div>
         </section>

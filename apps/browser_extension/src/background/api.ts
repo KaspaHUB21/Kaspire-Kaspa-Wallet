@@ -72,6 +72,66 @@ export async function spendingData(
     throw new Error("Node returned an invalid fee estimate.");
   return { utxosJson: JSON.stringify(utxos), feeRate: Math.max(100, raw) };
 }
+// Integer arithmetic matters here: pool reserves can dwarf the wallet's trade.
+function historySompi(value: unknown): bigint {
+  if (typeof value === "number" && !Number.isSafeInteger(value))
+    throw new Error("Transaction history contains an imprecise KAS amount.");
+  const text = String(value ?? 0);
+  if (!/^\d+$/.test(text)) throw new Error("Transaction history contains an invalid KAS amount.");
+  return BigInt(text);
+}
+function historyAmount(value: bigint): number | string {
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER)
+    ? Number(value) : value.toString();
+}
+function historyDisplay(value: bigint): string {
+  const fraction = (value % 100_000_000n).toString().padStart(8, "0").replace(/0+$/, "");
+  return `${value / 100_000_000n}${fraction ? `.${fraction}` : ""}`;
+}
+function walletKasMovement(item: any, owned: Set<string>) {
+  // Rebuild from raw rows, including unresolved addresses, rather than a filtered
+  // party list: an unknown counterparty must never become a wallet-owned input.
+  const from = (item.inputs ?? []).map((row: any) => ({
+    address: String(row?.previous_outpoint_address ?? ""),
+    amountSompi: historyAmount(historySompi(row?.previous_outpoint_amount)),
+    ownerId: String(row?.covenant_id ?? ""),
+    isWallet: owned.has(String(row?.previous_outpoint_address ?? "").toLowerCase()),
+  }));
+  const to = (item.outputs ?? []).map((row: any) => ({
+    address: String(row?.script_public_key_address ?? ""),
+    amountSompi: historyAmount(historySompi(row?.amount)),
+    ownerId: String(row?.covenant_id ?? ""),
+    isWallet: owned.has(String(row?.script_public_key_address ?? "").toLowerCase()),
+  }));
+  const sum = (rows: any[]) => rows.reduce((total: bigint, row: any) => total + historySompi(row.amountSompi), 0n);
+  const totalInput = sum(from), totalOutput = sum(to);
+  const walletInput = sum(from.filter((row: any) => row.isWallet));
+  const walletOutput = sum(to.filter((row: any) => row.isWallet));
+  const delta = walletOutput - walletInput;
+  const hasExternalInputs = from.some((row: any) => !row.isWallet);
+  const involvesCovenants = [...from, ...to].some((row: any) => row.ownerId);
+  const amountIsWalletChange = walletInput > 0n && (hasExternalInputs || involvesCovenants);
+  const incoming = delta > 0n;
+  const externalOutputs = to.filter((row: any) => !row.isWallet);
+  // Ordinary sends retain their transfer amount (fee separate). Multi-party and
+  // covenant transactions show the exact wallet delta; global fees cannot safely
+  // be attributed to one participant, nor may pool outputs count as wallet spend.
+  const amount = amountIsWalletChange ? (delta < 0n ? -delta : delta)
+    : incoming ? walletOutput : sum(externalOutputs);
+  return {
+    incoming, amountSompi: historyAmount(amount), displayAmount: historyDisplay(amount),
+    amountIsWalletChange, hasExternalInputs, involvesCovenants,
+    selfTransfer: walletInput > 0n && !amountIsWalletChange && externalOutputs.length === 0,
+    walletInputSompi: historyAmount(walletInput), walletOutputSompi: historyAmount(walletOutput),
+    walletBalanceChangeSompi: historyAmount(delta),
+    counterparty: amountIsWalletChange ? "" : String((incoming
+      ? from.find((row: any) => !row.isWallet && row.address)
+      : externalOutputs.find((row: any) => row.address))?.address ?? ""),
+    from, to,
+    feeSompi: historyAmount(totalInput > totalOutput ? totalInput - totalOutput : 0n),
+    totalInputSompi: historyAmount(totalInput), totalOutputSompi: historyAmount(totalOutput),
+  };
+}
 export async function walletHistory(
   address: string,
   network: KaspaNetwork,
@@ -93,79 +153,21 @@ export async function walletHistory(
     .map((item: any) => {
       const inputs = Array.isArray(item.inputs) ? item.inputs : [],
         outputs = Array.isArray(item.outputs) ? item.outputs : [];
-      const inputTotal = inputs.reduce(
-          (sum: number, row: any) =>
-            sum + Number(row?.previous_outpoint_amount ?? 0),
-          0,
-        ),
-        outputTotal = outputs.reduce(
-          (sum: number, row: any) => sum + Number(row?.amount ?? 0),
-          0,
-        );
-      const walletInput = inputs
-          .filter((row: any) => row?.previous_outpoint_address === address)
-          .reduce(
-            (sum: number, row: any) =>
-              sum + Number(row?.previous_outpoint_amount ?? 0),
-            0,
-          ),
-        walletOutput = outputs
-          .filter((row: any) => row?.script_public_key_address === address)
-          .reduce((sum: number, row: any) => sum + Number(row?.amount ?? 0), 0);
-      const incoming = walletInput === 0 && walletOutput > 0;
-      const feeSompi = Math.max(0, inputTotal - outputTotal);
-      const externalOutputs = outputs.filter(
-        (row: any) => row?.script_public_key_address !== address,
-      );
-      const amountSompi = incoming
-        ? walletOutput
-        : externalOutputs.reduce(
-            (sum: number, row: any) => sum + Number(row?.amount ?? 0),
-            0,
-          );
       return {
         transactionId: String(
           item.transaction_id ?? item.transactionId ?? item.id,
         ),
         blockTime: Number(item.block_time ?? item.blockTime ?? 0),
         isAccepted: item.is_accepted !== false,
-        incoming,
         assetKind: "KAS",
         assetSymbol: "KAS",
-        amountSompi,
-        displayAmount: `${amountSompi / 100_000_000}`,
-        counterparty: incoming
-          ? String(
-              inputs.find((row: any) => row?.previous_outpoint_address)
-                ?.previous_outpoint_address ?? "",
-            )
-          : String(
-              externalOutputs.find((row: any) => row?.script_public_key_address)
-                ?.script_public_key_address ?? "",
-            ),
-        from: inputs
-          .map((row: any) => ({
-            address: String(row?.previous_outpoint_address ?? ""),
-            amountSompi: Number(row?.previous_outpoint_amount ?? 0),
-            ownerId: String(row?.covenant_id ?? ""),
-          }))
-          .filter((row: any) => row.address),
-        to: outputs
-          .map((row: any) => ({
-            address: String(row?.script_public_key_address ?? ""),
-            amountSompi: Number(row?.amount ?? 0),
-            ownerId: String(row?.covenant_id ?? ""),
-          }))
-          .filter((row: any) => row.address),
-        feeSompi,
-        totalInputSompi: inputTotal,
-        totalOutputSompi: outputTotal,
         inputCount: inputs.length,
         outputCount: outputs.length,
         blockDaaScore: Number(item.accepting_block_blue_score ?? 0),
         isCoinbase: inputs.length === 0,
         inputs,
         outputs,
+        ...walletKasMovement({ inputs, outputs }, new Set([address.toLowerCase()])),
         mass: Number(item.mass ?? 0),
         payload: String(item.payload ?? ""),
       };
@@ -209,25 +211,9 @@ export async function walletHistoryForAddresses(
     if (!merged.has(item.transactionId)) merged.set(item.transactionId, item);
   }
   return [...merged.values()].map((item) => {
-    const from = Array.isArray(item.from) ? item.from : [];
-    const to = Array.isArray(item.to) ? item.to : [];
-    const ownedInput = from.filter((row: any) => owned.has(String(row.address).toLowerCase()))
-      .reduce((sum: number, row: any) => sum + Number(row.amountSompi ?? 0), 0);
-    const ownedOutput = to.filter((row: any) => owned.has(String(row.address).toLowerCase()))
-      .reduce((sum: number, row: any) => sum + Number(row.amountSompi ?? 0), 0);
-    const external = to.filter((row: any) => !owned.has(String(row.address).toLowerCase()));
-    const incoming = ownedInput === 0 && ownedOutput > 0;
-    const amountSompi = incoming
-      ? ownedOutput
-      : external.reduce((sum: number, row: any) => sum + Number(row.amountSompi ?? 0), 0);
     return {
       ...item,
-      incoming,
-      amountSompi,
-      displayAmount: String(amountSompi / 100_000_000),
-      counterparty: incoming
-        ? String(from.find((row: any) => row?.address)?.address ?? "")
-        : String(external.find((row: any) => row?.address)?.address ?? ""),
+      ...walletKasMovement(item, owned),
     };
   });
 }

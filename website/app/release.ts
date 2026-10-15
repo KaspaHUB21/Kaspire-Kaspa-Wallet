@@ -5,8 +5,8 @@ export const currentRelease = {
 } as const;
 
 export const extensionRelease = {
-  version: "0.5.7.10",
-  releaseTag: "v0.11.50",
+  version: "0.5.8.2",
+  downloadUrl: "https://kaspire.kaslab.space/downloads/kaspire-extension-0.5.8.2.zip",
   storeReviewPending: true,
-  sha256: "b81bbbb17490c73035a5023327163dbda9afae3f6cb1f568660076daf5922cb5",
+  sha256: "6a198e6edd02c939e2d463526abe080ad6bdc765fc350724ca8c4480e845e5a2",
 } as const;

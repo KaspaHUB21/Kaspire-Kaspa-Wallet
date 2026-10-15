@@ -21,3 +21,4 @@
 .nexus-token{cursor:pointer}.nexus-token img,.nexus-detail>img{width:100%;height:auto;max-height:280px;object-fit:contain}
 .nexus-notification span{display:block;white-space:normal;margin:6px 0}.nexus-screen details{margin:12px 0}.nexus-screen select{margin:12px 0}
 @media(prefers-reduced-motion:reduce){.nexus-ring svg{animation:none}}
+.nexus-market-link { display:block; margin-top:12px; padding:14px; border:1px solid currentColor; border-radius:14px; text-align:center; color:inherit; text-decoration:none; font-weight:600; }

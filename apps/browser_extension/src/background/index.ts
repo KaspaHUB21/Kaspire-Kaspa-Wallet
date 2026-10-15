@@ -1,5 +1,6 @@
 import { loadState, saveState } from "./state";
 import { core } from "./core";
+import { clearKronDexReviews, kronTokens, kronTokenContext, getKronQuote, prepareKronSwap, submitKronSwap, resumeKronSwap, type KronContext } from './kronDex';
 import {nftBrowse, nftOwned, nftOwnedCollections, nftMyListings, nftOperation, nftPublishPending} from "./nftMarket";
 import {nexusConnected,nexusDisconnect,nexusRequest,nexusSetSession,nexusRestoreSession,validateNexusChallenge} from "./nexus";
 import {configureDotkDeriver, resolveDotkName} from "./dotk";
@@ -302,6 +303,8 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
   if (port.name !== "wallet-operation") return;
+  const disconnected = new AbortController();
+  port.onDisconnect.addListener(() => disconnected.abort());
   port.onMessage.addListener((message) => {
     if (message?.channel !== "wallet") return;
     const progress = (stage: string) => {
@@ -309,14 +312,16 @@ chrome.runtime.onConnect.addListener((port) => {
         port.postMessage({ progress: stage });
       } catch {}
     };
-    void walletCommand(message, progress)
-      .then((result) => port.postMessage({ result }))
-      .catch((error) => port.postMessage({ error: normalize(error) }));
+    const respond = (response: unknown) => { try { port.postMessage(response); } catch { /* The operation view has closed. */ } };
+    void walletCommand(message, progress, disconnected.signal)
+      .then((result) => respond({ result }))
+      .catch((error) => respond({ error: normalize(error) }));
   });
 });
 async function walletCommand(
   message: { command: string; [key: string]: unknown },
   progress: (stage: string) => void = () => {},
+  operationSignal?: AbortSignal,
 ) {
   await hydrateSession();
   const state = await loadState();
@@ -793,6 +798,40 @@ async function walletCommand(
       String(message.tokenId ?? ""),
       String(message.symbol ?? ""),
     );
+  if (String(message.command).startsWith('kronDex')) {
+    if (state.network !== 'mainnet' || !state.selectedAddress) throw Error('Kron DEX is available on Kaspa Mainnet only.');
+    const address = state.selectedAddress;
+    const balance = async () => String((await walletBalance(address, 'mainnet')).balanceSompi);
+    if (message.command === 'kronDexTokens') return kronTokens();
+    if (message.command === 'kronDexContext') return kronTokenContext(address, String(message.tokenId), balance);
+    if (message.command === 'kronDexQuote') return getKronQuote(address, String(message.tokenId), String(message.side) as 'buy' | 'sell', String(message.amount), balance);
+    const generation = sessionGeneration, revision = nftContextRevision;
+    const entry = state.addresses.find(item => item.address === address);
+    const guard = async () => {
+      operationSignal?.throwIfAborted();
+      await hydrateSession();
+      const fresh = await loadState(); await expireSessionIfNeeded(fresh);
+      if (!sessionVault || generation !== sessionGeneration) throw Error('Wallet locked. Unlock and review the swap again.');
+      if (fresh.network !== 'mainnet' || fresh.selectedAddress !== address || revision !== nftContextRevision) throw Error('Account or network changed. Review the swap again.');
+      const selected = fresh.addresses.find(item => item.address === address);
+      if (!selected || selected.watchOnly || selected.walletId !== entry?.walletId || !sessionVault.wallets.some(item => item.id === selected.walletId)) throw Error('Select an unlocked signing wallet.');
+      operationSignal?.throwIfAborted();
+    };
+    const context: KronContext = { address, binding: `${generation}:${revision}:${entry?.walletId}`, balance, guard, signal: operationSignal,
+      prepare: async request => JSON.parse((await core()).preparePskt(JSON.stringify(request))),
+      sign: async (request, hash) => {
+        const wasm = await core(); await guard();
+        const wallet = sessionVault!.wallets.find(item => item.id === entry!.walletId)!;
+        return JSON.parse(wasm.signPskt(signingSecret(wallet, entry!), JSON.stringify(request), hash));
+      },
+      approve: (title, details, rawJson) => approve({ origin: 'Kaspire Wallet', title, description: 'Verify the KRON swap reconstructed by the local Rust security core.', details, rawJson }, operationSignal),
+      broadcast: broadcastKron, record: recordWalletActivity,
+    };
+    if (message.command === 'kronDexPrepare') return prepareKronSwap(context, String(message.quoteId));
+    if (message.command === 'kronDexSubmit') return submitKronSwap(context, String(message.id));
+    if (message.command === 'kronDexResume') return resumeKronSwap(context);
+    throw Error('Unknown KRON command.');
+  }
   if (message.command === "rocketTokens") {
     if (state.network !== "testnet-10")
       throw new Error("KaspaRocket swaps are available on TN10 only.");
@@ -2332,6 +2371,7 @@ async function lockSession(state: Awaited<ReturnType<typeof loadState>>) {
   rejectApprovals();
   preparedEvmTransfers.clear();
   preparedRocketSwaps.clear();
+  clearKronDexReviews();
   sessionVault = null;
   sessionPassword = null;
   lastActivity = 0;
@@ -3981,6 +4021,7 @@ async function broadcastKron(
   const localId = String(
     transaction.id ?? transaction.getId?.() ?? "",
   ).toLowerCase();
+  transaction.free();
   if (localId && localId !== expectedTransactionId.toLowerCase())
     throw new Error("KRON signed transaction ID changed after approval.");
   const safe = JSON.parse(signedTxJson),
@@ -4953,7 +4994,8 @@ async function finishPendingInscription(
   };
 }
 
-async function approve(input: Omit<ApprovalView, "id">) {
+async function approve(input: Omit<ApprovalView, "id">, signal?: AbortSignal) {
+  if (signal?.aborted) return false;
   if (approvals.size >= 4)
     throw new Error("Too many wallet approvals are already pending.");
   if ([...approvals.values()].some((item) => item.view.origin === input.origin))
@@ -4961,16 +5003,23 @@ async function approve(input: Omit<ApprovalView, "id">) {
   const id = crypto.randomUUID();
   const view = { id, ...input };
   return new Promise<boolean>(async (resolve) => {
-    const timer = setTimeout(() => {
+    const finish = (approved: boolean) => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       approvals.delete(id);
-      resolve(false);
+      resolve(approved);
+    };
+    const abort = () => finish(false);
+    const timer = setTimeout(() => {
+      finish(false);
     }, 600_000) as unknown as number;
     approvals.set(id, {
       view,
-      resolve,
+      resolve: finish,
       timer,
       generation: sessionVault ? sessionGeneration : null,
     });
+    signal?.addEventListener('abort', abort, { once: true });
     if (input.origin === "Kaspire Wallet") return;
     try {
       await chrome.windows.create({
@@ -4983,9 +5032,7 @@ async function approve(input: Omit<ApprovalView, "id">) {
         focused: true,
       });
     } catch {
-      clearTimeout(timer);
-      approvals.delete(id);
-      resolve(false);
+      finish(false);
     }
   });
 }

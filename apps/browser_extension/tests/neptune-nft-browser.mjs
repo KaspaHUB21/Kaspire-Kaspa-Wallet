@@ -93,7 +93,9 @@ try{
   await evaluate('const ns=document.querySelector("#nexus-sort");ns.value="rarityRank";ns.dispatchEvent(new Event("change"))');await wait('window.lastNexusRequest.query?.sort==="rarityRank"');await shot('nexus-collection');
   await click('[data-token="0"]');await wait('!!document.querySelector(".nexus-detail")');
   assert.match(await evaluate('document.querySelector(".nexus-detail").textContent'),/Current listing status: LISTED/);
-  assert(!/Kaspire listing price:/.test(await evaluate('document.querySelector(".nexus-detail").textContent')));await shot('nexus-nft');
+  assert(!/Kaspire listing price:/.test(await evaluate('document.querySelector(".nexus-detail").textContent')));
+  assert.match(await evaluate('document.querySelector(".nexus-detail").textContent'),/KaspaCom listing price: 11 KAS/);
+  assert.equal(await evaluate('document.querySelector(".nexus-market-link").href'),'https://kaspa.com/nft/collections/KASZOMBIES/55');await shot('nexus-nft');
   await click('[data-nexus-action=offer]');await wait('!!document.querySelector("#nexus-duration")');
   assert.equal(await evaluate('document.querySelector("#nexus-duration").value'),'30');assert.equal(await evaluate('document.querySelector("#nexus-offer-submit").disabled'),true);
   await evaluate('const na=document.querySelector("#nexus-amount");na.value="12.5";na.dispatchEvent(new Event("input"));const nc=document.querySelector("#nexus-ack");nc.checked=true;nc.dispatchEvent(new Event("change"))');await shot('nexus-offer');await click('#nexus-offer-submit');await wait('!document.querySelector("#nexus-offer-submit")');
@@ -106,6 +108,50 @@ try{
   assert.equal(await evaluate('parseFloat(getComputedStyle(document.documentElement).width)'),420);
   assert.equal(await evaluate('parseFloat(getComputedStyle(document.body).width)'),420);
   await cdp('Emulation.setDeviceMetricsOverride',{width:420,height:700,deviceScaleFactor:1,mobile:false});
+  await cdp('Page.reload');await wait('!!document.querySelector("#swap")');await click('#swap');await wait('!!document.querySelector("#kron-open")');
+  await click('#kron-open');await wait('!!document.querySelector("[data-kron-token]")');await click('[data-kron-token]');await wait('document.querySelector(".available")?.textContent.includes("100 KAS")');
+  await click('[data-kron-side=sell]');assert.match(await evaluate('document.querySelector(".available").textContent'),/420\.29 ROCKET/);
+  await evaluate('const ka=document.querySelector("#kron-amount");ka.value="420.29";ka.dispatchEvent(new Event("input"))');await click('#kron-quote');await wait('!!document.querySelector(".form .review-card")');
+  assert.match(await evaluate('document.querySelector(".form .review-card").textContent'),/420\.29 ROCKET/);
+  for(const theme of ['midnight','hub21','glacier','neptune']) {
+    await evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+    assert.equal(await evaluate('document.body.getBoundingClientRect().width'),420);
+    assert(await evaluate('(()=>{const h=document.querySelector(".kron-screen .market-title h1").getBoundingClientRect(),r=document.querySelector("#kron-reload").getBoundingClientRect();return h.right<r.left&&r.right<=420&&h.height<50})()'),theme+' KRON title and reload alignment');
+    assert(await evaluate('Array.from(document.querySelectorAll(".kron-detail-row b")).every(e=>e.getBoundingClientRect().right<=420)'),theme+' quote fits popup');await shot(theme+'-kron-swap');
+  }
+  await click('#kron-review');await wait('!!document.querySelector("#kron-submit")');assert.match(await evaluate('document.querySelector(".approval-sheet").textContent'),/420\.29 ROCKET/);
+  await click('#kron-submit');await wait('!!document.querySelector("#accept-approval")');
+  assert.equal(await evaluate('window.kronFixtureSigned'),0,'No signing before visible security approval');
+  assert.match(await evaluate('document.querySelector(".approval-modal").textContent'),/Secure KRON swap/);
+  await click('#reject-approval');await wait('!!document.querySelector(".kron-screen .error")');
+  assert.equal(await evaluate('window.kronFixtureSigned'),0,'Rejecting approval never signs');
+  await click('#kron-quote');await wait('!!document.querySelector(".form .review-card")');
+  await click('#kron-review');await wait('!!document.querySelector("#kron-submit")');await click('#kron-submit');
+  await wait('!!document.querySelector("#accept-approval")');await click('#accept-approval');
+  await wait('!!document.querySelector("#kron-return")');assert.match(await evaluate('document.querySelector(".receipt-screen").textContent'),/Sold ROCKET[\s\S]*420\.29 ROCKET/);
+  assert.equal(await evaluate('window.kronFixtureSigned'),1,'Exactly the explicitly approved swap is signed');
+  assert.equal(await evaluate('!!document.querySelector("#kron-resume")'),false);await shot('kron-receipt');await click('#kron-return');await wait('!!document.querySelector("[data-kron-token]")');
+  await cdp('Page.reload');await wait('!!document.querySelector("#activity")');
+  await evaluate(`window.swapActivityFixture=[{
+    transactionId:'a'.repeat(64),blockTime:1792024147269,isAccepted:true,incoming:false,assetKind:'KAS',assetSymbol:'KAS',
+    amountSompi:927320000,amountIsWalletChange:true,walletInputSompi:8362180460120,walletOutputSompi:8361253140120,walletBalanceChangeSompi:-927320000,
+    from:[{address:'kaspa:pool',amountSompi:50760024000000,ownerId:'pool-covenant'},{address:fixtureAddress,amountSompi:8362180460120,isWallet:true}],
+    to:[{address:'kaspa:pool',amountSompi:50760824000000,ownerId:'pool-covenant'},{address:fixtureAddress,amountSompi:8361253140120,isWallet:true}],
+    feeSompi:37320000,totalInputSompi:59122254460120,totalOutputSompi:59122217140120,inputCount:3,outputCount:6,
+  },{transactionId:'b'.repeat(64),blockTime:1792024020128,isAccepted:true,incoming:true,assetKind:'KAS',assetSymbol:'KAS',amountSompi:1101480000,amountIsWalletChange:true,walletInputSompi:8361078980120,walletOutputSompi:8362180460120,walletBalanceChangeSompi:1101480000,from:[],to:[]}];`);
+  await click('#activity');await wait('document.querySelectorAll(".activity-row").length===2');
+  assert.match(await evaluate('document.querySelectorAll(".activity-row")[0].innerText'),/Sent[\s\S]*Wallet balance change[\s\S]*-9\.2732 KAS/);
+  assert.match(await evaluate('document.querySelectorAll(".activity-row")[1].innerText'),/Received[\s\S]*\+11\.0148 KAS/);
+  assert.doesNotMatch(await evaluate('document.querySelector("#history").innerText'),/50760/);
+  await click('[data-tx="0"]');await wait('!!document.querySelector(".wallet-movement")');
+  assert.match(await evaluate('document.querySelector(".tx-detail-head").innerText'),/-9\.2732 KAS/);
+  assert.match(await evaluate('document.querySelector(".detail-section").innerText'),/Wallet balance change[\s\S]*9\.2732 KAS[\s\S]*Confirmed/);
+  assert.match(await evaluate('document.querySelector(".wallet-movement").innerText'),/KAS balance change[\s\S]*-9\.2732 KAS/);
+  assert.equal(await evaluate('document.querySelector(".full-transaction").open'),false);
+  assert.doesNotMatch(await evaluate('document.querySelector(".transaction-detail").innerText'),/507600\.24 KAS/);
+  await shot('swap-wallet-activity');await click('.full-transaction summary');
+  assert.match(await evaluate('document.querySelector(".full-transaction").innerText'),/not the amount sent by your wallet[\s\S]*507600\.24 KAS[\s\S]*507608\.24 KAS/);
+  await shot('swap-full-transaction');
   await cdp('Page.reload');await wait('!!document.querySelector("#receive")');await click('#receive');await wait('document.querySelector("#receive-qr")?.complete');assert.equal(await evaluate('getComputedStyle(document.querySelector("#receive-qr")).filter'),'none');await shot('receive');
-  console.log('Neptune/NFT browser checks passed: theme selection, collection thumbnails, vertical gallery with horizontal Send + List in four themes, terminal/remote/pending listings, intrinsic popup width, orb placement, pagination, filters and QR visibility.');
+  console.log('Neptune/NFT/KRON browser checks passed: four themes, popup sizing, gallery, listings, Nexus KaspaCom price/link, KRON decimals, quote, review, receipt, pagination, filters and QR visibility.');
 }finally{browser.kill('SIGTERM');await new Promise(r=>{browser.once('exit',r);setTimeout(r,3000);});server.close();await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});}

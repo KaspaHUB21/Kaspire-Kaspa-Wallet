@@ -6,7 +6,7 @@ Manifest V3 counterpart to Kaspire Android. Websites communicate with an injecte
 
 The extension compiles Kaspire's existing `kaspa_secure_core` to WebAssembly. Seed generation, BIP-39 import and passphrases, HD derivation, KIP-5 signatures, transaction construction, PSKT analysis, KasCoven policy recognition, inscription reveals and KCC20 covenant execution therefore share the reviewed Rust implementation used by Kaspire Android.
 
-Secrets are stored only inside a versioned Argon2id-derived AES-256-GCM vault. While unlocked, the decrypted vault is held in Chrome's memory-only session storage so normal Manifest V3 worker suspension does not interrupt an active wallet session. It is discarded on explicit locking, configured inactivity or browser-session termination. Recovery phrases and private keys require the vault password plus a separate high-risk approval window.
+Secrets are stored only inside a versioned Argon2id-derived AES-256-GCM vault. While unlocked, the decrypted vault is held in the extension's memory-only offscreen session so normal Manifest V3 worker suspension does not interrupt an active wallet session. Chrome session storage contains the random session-channel token, not the decrypted vault. The unlocked session is discarded on explicit locking, configured inactivity or browser-session termination. Recovery phrases and private keys require the vault password plus a separate high-risk approval window.
 
 Websites receive `window.kaspire`. Requests cross an origin-bound content bridge and a bounded, declared method registry. Connecting, switching networks, signing messages, sending assets and signing reviewed PSKTs or recognized vault policies opens an extension-owned approval window. A website cannot supply the text displayed for a transaction review: Kaspire derives it from the Rust core's reconstructed transaction and binds approval to `reviewHash`.
 
@@ -65,7 +65,7 @@ npm run package
 
 Load `dist/` at `chrome://extensions` → Developer mode → Load unpacked.
 
-## Neptune and NFT Market test build
+## Neptune and NFT Market
 
 Neptune reuses Android's local ocean, water-glass and moon-orb artwork, including
 the corrected logo placement. Select it in Settings → Wallet display.
@@ -87,7 +87,7 @@ listing. A seller's SINGLE|ANYONECANPAY signature binds the seller payout but
 cannot make the fee unavoidable for an external PSKT consumer. The approval
 screen discloses this limitation. No operator escrow or server-held keys are used.
 
-The 0.5.7.1 test revision restores collection thumbnails from held NFT IDs,
+The 0.5.7.1 revision restores collection thumbnails from held NFT IDs,
 places Send and List below each gallery image, and hides recovery/publication
 controls on sold or cancelled listings. Remote app listings without a local
 extension recovery stage are not considered incomplete. Genuine pending local
@@ -99,3 +99,36 @@ Additional checks: `npm test`, `node tests/neptune-nft-browser.mjs` and
 actual Chromium browser action repeatedly, including persisted Neptune settings.
 Browser fixtures and synthetic WASM settlement tests do not broadcast transactions;
 real-wallet acceptance testing is still required before a public release.
+
+## 0.5.8.2 KRON DEX and Nexus Offers
+
+Swap opens the DEX selection on Mainnet, with Kron DEX for bonding-curve and
+DEX trades. It uses Android's unsigned planner, pinned own-node input/origin
+verification and the locally reviewed `kron-swap-v1` Rust PSKT profile. Token
+amounts use the token's decimals in balances, quotes, reviews, receipts and
+Activity. Partner attribution is `kaspirewallet` and does not add a fee.
+Lock, wallet and network changes invalidate prepared signing approvals.
+Signed swaps are saved before submission and can resume the same bytes.
+
+Nexus Offers recognizes Kaspire and KaspaCom PSKT listings using the shared
+cached resolver, including venue-labelled prices and listing notifications.
+KaspaCom links open the specific NFT on the official KaspaCom site; its full
+marketplace is not embedded in this extension. Private offers and negotiation
+remain inside Kaspire, with no funds locked. KaspaCom credentials are never
+included in the package. Package and display names do not use a testing suffix.
+
+The swap approval stays visible inside Kaspire. Closing or rejecting the review
+ends the pending authorization instead of leaving a permanent in-progress lock.
+Broadcast timeouts retain the signed transaction; Resume submits those same bytes.
+
+KAS Activity derives swap direction and amount from the inputs and change of all
+controlled account addresses, not the pool's total transaction outputs. Purchases
+show the wallet debit and sales the wallet credit, including fees and reserve
+changes in that balance change. Full pool/covenant movements remain expandable
+technical details. Ordinary KAS transfers retain their separate transfer amount
+and network fee. Existing transactions use the corrected calculation on reload.
+
+Validation for 0.5.8.2: 105 automated tests, TypeScript checks, themed browser
+fixtures and the real Chromium extension smoke test. The smoke test covers
+onboarding, dApp approvals, signing, backups and pending reveal recovery; it does
+not broadcast a real mainnet swap.

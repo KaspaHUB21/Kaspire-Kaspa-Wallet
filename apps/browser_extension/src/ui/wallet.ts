@@ -1,6 +1,7 @@
 import QRCode from "qrcode";
 import {agoraChooser, openNftMarket, nftImageFallback} from "./nftMarket";
 import {openNexus,mountNexusBell} from './nexus';
+import {openDexSelection} from './kronDex';
 import { sortedAssets, assetTicker, sameAsset } from "../shared/assetPresentation";
 const root = document.querySelector<HTMLElement>("#app")!;
 // This port lets the background distinguish an open wallet UI from a closed
@@ -78,11 +79,13 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}) {
         port.disconnect();
         reject(
           new Error(
-            "The secure operation did not respond within 45 seconds. Try again.",
+            name.startsWith('kronDex')
+              ? "Swap interrupted. Check for a saved swap before starting another trade."
+              : "The secure operation did not respond within 45 seconds. Try again.",
           ),
         );
       }
-    }, ["resumeInscription", "nftMarketOperation"].includes(name) ? 600_000 : 45_000);
+    }, name.startsWith('kronDex') || ["resumeInscription", "nftMarketOperation"].includes(name) ? 600_000 : 45_000);
     const close = () => {
       if (!finished) {
         finished = true;
@@ -420,7 +423,8 @@ async function render() {
   if (status.recoveryVerified === false)
     return recovery(await command("pendingRecovery"));
   if (view === "home") return home();
-  if (view === 'swap' || view === 'vaults') return upcomingFeature(view === 'vaults');
+  if (view === 'swap') return openDexSelection({command, shell, address:()=>String(status.selectedAddress)}, status.network, () => void rocketMarketplace());
+  if (view === 'vaults') return upcomingFeature(true);
   if (view === "pending-reveal") return pendingReveal();
   if (view === "wallets") return wallets();
   if (
@@ -2023,9 +2027,10 @@ function recipientPicker() {
 }
 function sompiLabel(value: any) {
   if (value == null) return "—";
-  const digits = BigInt(String(value)).toString().padStart(9, "0");
+  const raw = BigInt(String(value));
+  const digits = (raw < 0n ? -raw : raw).toString().padStart(9, "0");
   const fraction = digits.slice(-8).replace(/0+$/g, "");
-  return `${digits.slice(0, -8)}${fraction ? `.${fraction}` : ""} KAS`;
+  return `${raw < 0n ? "-" : ""}${digits.slice(0, -8)}${fraction ? `.${fraction}` : ""} KAS`;
 }
 function prettyJson(value: unknown) {
   return JSON.stringify(
@@ -2057,7 +2062,7 @@ async function activity() {
               item.counterparty = item.incoming ? item.from : item.to;
               item.from = [{address:item.from}]; item.to = [{address:item.to}];
             }
-            const direction = item.incoming ? "Received" : "Sent";
+            const direction = item.selfTransfer ? "Internal transfer" : item.incoming ? "Received" : "Sent";
             if (!isL2() && ["KRC20", "KRC721", "KCC20"].includes(String(item.assetKind).replaceAll("-", "").toUpperCase())) {
               item.assetSymbol = ticker(item.assetSymbol);
             }
@@ -2065,7 +2070,7 @@ async function activity() {
               !isL2() && item.assetKind === "KAS"
                 ? sompiLabel(item.amountSompi)
                 : `${item.displayAmount ? `${esc(item.displayAmount)} ` : ""}${esc(item.assetSymbol ?? item.assetKind)}${item.tokenId ? ` #${esc(item.tokenId)}` : ""}`;
-            return `<button class="activity-row" data-tx="${index}"><span class="activity-direction ${item.incoming ? "incoming" : "outgoing"}">${item.incoming ? "↙" : "↗"}</span><span><b>${direction}</b><small>${esc(item.assetKind)}${item.assetSymbol && item.assetSymbol !== item.assetKind ? ` · ${esc(item.assetSymbol)}` : ""}</small><em>${item.blockTime ? new Date(item.blockTime).toLocaleString() : "Pending"} · ${short(item.transactionId)}</em>${item.counterparty ? `<em>${item.incoming ? "From" : "To"} ${short(item.counterparty)}</em>` : ""}</span><strong>${status.settings.hideBalances ? "••••••" : `${item.incoming ? "+" : "-"}${amount}`}</strong><i>›</i></button>`;
+            return `<button class="activity-row" data-tx="${index}"><span class="activity-direction ${item.incoming ? "incoming" : "outgoing"}">${item.incoming ? "↙" : "↗"}</span><span><b>${direction}</b><small>${esc(item.assetKind)}${item.assetSymbol && item.assetSymbol !== item.assetKind ? ` · ${esc(item.assetSymbol)}` : ""}${item.amountIsWalletChange ? " · Wallet balance change" : ""}</small><em>${item.blockTime ? new Date(item.blockTime).toLocaleString() : "Pending"} · ${short(item.transactionId)}</em>${item.counterparty ? `<em>${item.incoming ? "From" : "To"} ${short(item.counterparty)}</em>` : ""}</span><strong>${status.settings.hideBalances ? "••••••" : `${item.selfTransfer ? "" : item.incoming ? "+" : "-"}${amount}`}</strong><i>›</i></button>`;
           })
           .join("")
       : '<div class="empty">No transactions yet.</div>';
@@ -2529,13 +2534,13 @@ function evmReview(prepared:any){return new Promise<boolean>(resolve=>{const ove
 function transactionReceipt(result:any,symbol:string,amount:string){shell(`<section class="transaction-detail"><header class="tx-detail-head"><span class="activity-direction outgoing">✓</span><span><h1>Transaction sent</h1><b>${esc(amount)} ${esc(symbol)}</b></span></header><section class="detail-section"><h3>Network</h3>${detailRow("Network",networkLabel())}${detailRow("Status","Confirmed")}</section><section class="copy-detail"><label>Transaction ID</label><code>${esc(result.transactionId)}</code><button id="copy-detail">Copy transaction ID</button></section><details class="raw-json"><summary>Raw JSON output</summary><pre>${esc(prettyJson(result))}</pre></details><button id="done">Done</button></section>`,"Transaction details",true);document.querySelector<HTMLButtonElement>("#copy-detail")!.onclick=()=>copy(result.transactionId,"Transaction ID copied");document.querySelector<HTMLButtonElement>("#done")!.onclick=()=>{view="home";void render();};}
 function transactionDetail(item: any) {
   context.returnView = "activity";
-  const direction = item.incoming ? "Received" : "Sent",
+  const direction = item.selfTransfer ? "Internal transfer" : item.incoming ? "Received" : "Sent",
     amount =
       item.assetKind === "KAS"
         ? sompiLabel(item.amountSompi)
         : `${item.displayAmount ?? ""} ${item.assetSymbol ?? item.assetKind}${item.tokenId && item.assetKind !== "KCC20" ? ` #${item.tokenId}` : ""}`;
   const parties = (title: string, rows: any[]) =>
-    `<section class="detail-section"><h3>${title}</h3>${rows?.length ? rows.map((row) => `<div class="party"><code>${esc(row.address)}</code>${row.amountSompi != null ? `<b>${sompiLabel(row.amountSompi)}</b>` : ""}${row.ownerId ? `<small>Owner / Covenant: <span>${esc(row.ownerId)}</span></small>` : ""}</div>`).join("") : "<p>Not available</p>"}</section>`;
+    `<section class="detail-section"><h3>${title}</h3>${rows?.length ? rows.map((row) => `<div class="party"><code>${esc(row.address || "Address unavailable")}</code>${row.isWallet ? "<small>Your wallet</small>" : ""}${row.amountSompi != null ? `<b>${sompiLabel(row.amountSompi)}</b>` : ""}${row.ownerId ? `<small>Owner / Covenant: <span>${esc(row.ownerId)}</span></small>` : ""}</div>`).join("") : "<p>Not available</p>"}</section>`;
   const kcc =
     item.assetKind === "KCC20" && item.covenantId
       ? `<section class="detail-section"><h3>KCC20 covenant</h3>${detailRow("Covenant ID", item.covenantId)}${item.templateHash ? detailRow("Template hash", item.templateHash) : ""}${item.inputCount != null ? detailRow("Covenant inputs", fmt(item.inputCount, 0)) : ""}${item.outputCount != null ? detailRow("Covenant outputs", fmt(item.outputCount, 0)) : ""}${item.lockedKasSompi != null ? detailRow("KAS in token inputs", sompiLabel(item.lockedKasSompi)) : ""}${Number(item.lockedKasTopUpSompi) ? detailRow("KAS reserve top-up", sompiLabel(item.lockedKasTopUpSompi)) : ""}${Number(item.lockedKasReleasedSompi) ? detailRow("KAS returned to wallet", sompiLabel(item.lockedKasReleasedSompi)) : ""}${item.lockedKasOutputSompi != null ? detailRow("KAS in new token cells", sompiLabel(item.lockedKasOutputSompi)) : ""}${item.computeMass != null ? detailRow("Compute mass", fmt(item.computeMass, 0)) : ""}${item.storageMass != null ? detailRow("Storage mass", fmt(item.storageMass, 0)) : ""}${item.transientMass != null ? detailRow("Transient mass", fmt(item.transientMass, 0)) : ""}${item.feeMass != null ? detailRow("Fee mass", fmt(item.feeMass, 0)) : ""}</section>${Number(item.lockedKasTopUpSompi) ? '<p class="reserve-note">The reserve top-up adds only the KAS needed to keep the new token cells spendable. It is not a network fee.</p>' : ""}`
@@ -2559,6 +2564,28 @@ function transactionDetail(item: any) {
   document
     .querySelector(".transaction-detail")!
     .insertAdjacentHTML("beforeend", rawOutput);
+  if (item.assetKind === "KAS" && item.walletBalanceChangeSompi != null) {
+    const detail = document.querySelector(".transaction-detail")!;
+    if (item.amountIsWalletChange) {
+      detail.querySelector(".detail-section .detail-row:nth-of-type(3) span")!.textContent = "Wallet balance change";
+    }
+    const summary = document.createElement("section");
+    summary.className = "detail-section wallet-movement";
+    summary.innerHTML = `<h3>Your wallet</h3>${detailRow("Wallet inputs", sompiLabel(item.walletInputSompi))}${detailRow("Returned to wallet", sompiLabel(item.walletOutputSompi))}${detailRow("KAS balance change", sompiLabel(item.walletBalanceChangeSompi))}${item.amountIsWalletChange ? '<p>The balance change already includes fees and reserve changes paid or received by your wallet. Do not add the network fee again.</p>' : ""}`;
+    detail.querySelector(".detail-section")!.after(summary);
+    if (item.amountIsWalletChange) {
+      const full = document.createElement("details");
+      full.className = "raw-json full-transaction";
+      full.innerHTML = '<summary>Full transaction details</summary><p>These totals include other participants, pool reserves and covenant cells. They are not the amount sent by your wallet. The network fee is for the complete transaction.</p>';
+      // Keep all original chain data available, but separate it from wallet spend.
+      const sections = Array.from(detail.querySelectorAll<HTMLElement>(":scope > .detail-section"))
+        .filter((section) => ["From", "To", "Network"].includes(section.querySelector("h3")?.textContent ?? ""));
+      summary.after(full);
+      full.append(...sections);
+    }
+    if (item.selfTransfer && !status.settings.hideBalances)
+      detail.querySelector(".tx-detail-head b")!.textContent = amount;
+  }
   document.querySelector<HTMLButtonElement>("#copy-detail")!.onclick = () =>
     copy(item.transactionId, "Transaction ID copied");
 }
@@ -2579,12 +2606,16 @@ async function command(name: string, values: Record<string, unknown> = {}) {
     "nexusConnect",
     "submitRocketSwap",
     "prepareRocketSwap",
+    "kronDexPrepare",
+    "kronDexSubmit",
+    "kronDexResume",
   ].includes(name);
   return guarded
     ? withInAppApprovals(persistentCommand(name, values))
     : rawCommand(name, values);
 }
 async function withInAppApprovals<T>(task: Promise<T>) {
+  const completed = new AbortController();
   let settled = false,
     result: T | undefined,
     failure: unknown;
@@ -2592,31 +2623,39 @@ async function withInAppApprovals<T>(task: Promise<T>) {
     .then((value) => {
       result = value;
       settled = true;
+      completed.abort();
     })
     .catch((error) => {
       failure = error;
       settled = true;
+      completed.abort();
     });
   while (!settled) {
     const pending = await rawCommand("pendingApproval");
+    if (settled) break;
     if (pending) {
-      const approved = await approvalModal(pending);
+      const approved = await approvalModal(pending, completed.signal);
+      if (settled) break;
       await rawCommand("resolveWalletApproval", { id: pending.id, approved });
     } else await new Promise((resolve) => setTimeout(resolve, 80));
   }
   if (failure) throw failure;
   return result as T;
 }
-function approvalModal(item: any) {
+function approvalModal(item: any, signal?: AbortSignal) {
   return new Promise<boolean>((resolve) => {
+    if (signal?.aborted) { resolve(false); return; }
     const overlay = document.createElement("div");
     overlay.className = "kaspire-modal approval-modal";
     overlay.innerHTML = `<section class="approval-sheet"><p class="eyebrow">SECURE APPROVAL</p><h1>${esc(item.title)}</h1><h2>${esc(item.origin)}</h2><p>${esc(item.description)}</p><div class="approval-details">${item.details.map((detail: string) => `<p>${esc(detail)}</p>`).join("")}</div>${item.rawJson != null ? `<details class="raw-json"><summary>Raw JSON output</summary><pre>${esc(prettyJson(item.rawJson))}</pre></details>` : ""}${item.recoveryCode ? '<button id="copy-recovery-code" class="outline">COPY RECOVERY CODE</button>' : ""}<div class="approval-actions"><button id="reject-approval" class="outline">REJECT</button><button id="accept-approval">APPROVE</button></div><small>Verify every detail. Kaspire never signs silently.</small></section>`;
     document.body.append(overlay);
     const finish = (approved: boolean) => {
+      signal?.removeEventListener('abort', abort);
       overlay.remove();
       resolve(approved);
     };
+    const abort = () => finish(false);
+    signal?.addEventListener('abort', abort, { once: true });
     overlay.querySelector<HTMLButtonElement>("#reject-approval")!.onclick =
       () => finish(false);
     overlay.querySelector<HTMLButtonElement>("#accept-approval")!.onclick =

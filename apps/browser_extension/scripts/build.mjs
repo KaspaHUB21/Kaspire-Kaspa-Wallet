@@ -19,7 +19,7 @@ await cp("manifest.json", "dist/manifest.json");
 if (process.env.KASPIRE_TEST_BUILD === "hub21") {
   const manifest = JSON.parse(await readFile("dist/manifest.json", "utf8"));
   manifest.version = "0.4.7.1";
-  manifest.version_name = "0.4.7.1 HUB21 test";
+  manifest.version_name = "0.4.7.1 HUB21";
   await writeFile("dist/manifest.json", JSON.stringify(manifest, null, 2) + "\n");
 }
 await cp("static", "dist", { recursive: true });

@@ -1,0 +1,13 @@
+.kron-screen { padding-bottom: 28px; }
+.kron-screen .market-title { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.kron-screen .market-title h1 { min-width:0; }
+.kron-detail-row { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:7px 0; }
+.kron-detail-row span { flex:1; min-width:0; }
+.kron-detail-row b { flex:1; min-width:0; text-align:right; overflow-wrap:anywhere; }
+.kron-coming { text-align:center; margin:20px 0; }
+.kron-recovery { border:2px solid var(--accent,var(--mint,#40d8c0)); }
+.kron-recovery code { display:block; overflow-wrap:anywhere; margin-bottom:12px; }
+.kron-screen .receipt-screen { min-width:0; }
+.kron-screen .rocket-token code { overflow-wrap:anywhere; }
+.kron-screen .rocket-token span { min-width:0; }
+.kron-screen .token-detail h1 { overflow-wrap:anywhere; }

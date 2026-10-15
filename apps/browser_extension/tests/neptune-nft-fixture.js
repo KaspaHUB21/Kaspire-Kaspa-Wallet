@@ -1,14 +1,43 @@
 fixtureState.settings.theme='neptune';
-chrome.runtime.connect=()=>({onMessage:{addListener(){}},onDisconnect:{addListener(){}},postMessage(){},disconnect(){}});
+chrome.runtime.connect=()=>{
+  const listeners=[], disconnectListeners=[];let closed=false;
+  return {onMessage:{addListener(fn){listeners.push(fn)}},onDisconnect:{addListener(fn){disconnectListeners.push(fn)}},
+    postMessage(message){Promise.resolve(chrome.runtime.sendMessage(message)).then(response=>{if(!closed)listeners.forEach(fn=>fn(response))})},
+    disconnect(){if(closed)return;closed=true;disconnectListeners.forEach(fn=>fn())}};
+};
 chrome.runtime.getURL=path=>new URL(path,location.href).href;
 fixtureState.addresses[0].name='Neptune Test Wallet';
 fixtureAssets.krc721=fixtureAssets.krc721.map(row=>({...row,image_url:'https://kaspire.kaslab.space/krc721-read-v1/images/KASZOMBIES/55'}));
 const nftRows=Array.from({length:12},(_,index)=>({ticker:'KASZOMBIES',tokenId:String(55+index),imageUrl:'https://kaspire.kaslab.space/krc721-read-v1/images/KASZOMBIES/'+(55+index),rarityRank:114+index,priceSompi:(index+10)*100000000,seller:'kaspa:seller-fixture',listingTransactionId:index.toString(16).padStart(64,'0'),status:'active',traits:{Background:'Blue'}}));
 const baseSend=chrome.runtime.sendMessage;
 let nexusRead=false,nexusOfferStatus='OPEN';
+const kronFixtureToken={covenantId:'a'.repeat(64),ticker:'ROCKET',name:'Rocket',decimals:3,phase:'pool',image:'https://kron.technology/icon-512.png',priceKas:'1.2'};
+let kronFixtureQuote=null,kronFixtureApproval=null,kronFixtureResolve=null;
+window.kronFixtureSigned=0;
 chrome.runtime.sendMessage=async message=>{
   window.lastNftRequest=message;
   switch(message.command){
+    case 'history':return {result:window.swapActivityFixture??[]};
+    case 'pendingApproval':return {result:kronFixtureApproval};
+    case 'resolveWalletApproval': {
+      if(!kronFixtureApproval || message.id!==kronFixtureApproval.id)throw Error('Approval expired');
+      const resolve=kronFixtureResolve;kronFixtureApproval=null;kronFixtureResolve=null;
+      resolve(message.approved ? (window.kronFixtureSigned++,{result:{token:kronFixtureToken,summary:kronFixtureQuote,transactionId:'c'.repeat(64)}}) : {error:{message:'Swap rejected.'}});
+      return {result:true};
+    }
+    case 'kronDexTokens':return {result:[kronFixtureToken]};
+    case 'kronDexContext':return {result:{token:kronFixtureToken,balanceSompi:'10000000000',holdingRaw:'420290',holdingDisplay:'420.29',pending:null}};
+    case 'kronDexQuote': {
+      window.lastKronQuote=message;
+      const raw=String(Math.round(Number(message.amount)*1000));
+      kronFixtureQuote={quoteId:'fixture-quote',side:message.side,tokenAmount:message.side==='sell'?raw:'1000',grossKasSompi:'100000000',netKasSompi:'101000000',creatorFeeSompi:'250000',platformFeeSompi:'750000',devFundFeeSompi:'0',lpFeeSompi:'0'};
+      return {result:kronFixtureQuote};
+    }
+    case 'kronDexPrepare':return {result:{id:'fixture-swap',token:kronFixtureToken,summary:{...kronFixtureQuote,marketId:'b'.repeat(64),networkFeeSompi:'10000',walletKasChangeSompi:'-101010000'},rawPlan:{profile:'kron-swap-v1'}}};
+    case 'kronDexSubmit': {
+      kronFixtureApproval={id:'kron-fixture-approval',title:'Secure KRON swap',origin:'Kaspire Wallet',description:'Local Rust core swap review',details:['Token amount: 420.29 ROCKET'],rawJson:{profile:'kron-swap-v1'}};
+      return new Promise(resolve=>{kronFixtureResolve=resolve});
+    }
     case 'nexusStatus': case 'nexusConnect': return {result:{connected:true}};
     case 'nexusPoll':return {result:{connected:true,notifications:nexusRead?[]:[{id:'notice',readAt:null,payloadJson:{title:'New private offer',collectionId:'kaszombies',tokenId:'55'}}]}};
     case 'nexusRequest': {
@@ -16,7 +45,7 @@ chrome.runtime.sendMessage=async message=>{
       const path=message.path;
       if(path==='search')return {result:message.query.q.includes('#')?{kind:'nft',collectionId:'kaszombies',tokenId:'55'}:{kind:'collection',collectionId:'kaszombies'}};
       if(path.startsWith('collection/'))return {result:{tokens:nftRows.slice(0,2),catalog:[{traitType:'Background',values:[{value:'Blue',count:12,rarity:2.1}]}],nextOffset:null}};
-      if(path.startsWith('nft/'))return {result:{collectionId:'kaszombies',tokenId:'55',imageUrl:nftRows[0].imageUrl,rarityRank:114,currentOwnerWallet:'kaspa:another-owner',listingStatus:'LISTED',listingPriceSompi:null,bestOffers:[{currentAmountSompi:'1000000000',status:'OPEN'}],attributes:[]}};
+      if(path.startsWith('nft/'))return {result:{collectionId:'kaszombies',tokenId:'55',imageUrl:nftRows[0].imageUrl,rarityRank:114,currentOwnerWallet:'kaspa:another-owner',listingStatus:'LISTED',listingPriceSompi:'1100000000',marketplaceListing:{source:'kaspacom',ticker:'KASZOMBIES',tokenId:'55',orderId:'fixture-order',priceSompi:'1100000000'},bestOffers:[{currentAmountSompi:'1000000000',status:'OPEN'}],attributes:[]}};
       if(path==='offers/active')return {result:{offers:nftRows.slice(0,10).map(row=>({...row,collectionId:'kaszombies',amountKas:'10',statusLabel:'Open'})),nextOffset:null}};
       if(path==='dashboard/received')return {result:[{id:'ctestoffer0123456789',nftCache:{collectionId:'kaszombies',tokenId:'55'},currentAmountSompi:'1000000000',status:nexusOfferStatus,expiresAt:new Date(Date.now()+86400000).toISOString(),revisions:[]}]};
       if(path==='dashboard/notifications')return {result:[{id:'notice',createdAt:new Date().toISOString(),readAt:null,payloadJson:{title:'New private offer',message:'NFT received an offer for 10 KAS.',collectionId:'kaszombies',tokenId:'55'}}]};
