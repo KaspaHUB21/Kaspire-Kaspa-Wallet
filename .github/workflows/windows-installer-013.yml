@@ -1,0 +1,61 @@
+name: Windows installer 0.1.3 verification
+on:
+  push:
+    branches: [windows-desktop-build]
+    paths: [.github/workflows/windows-installer-013.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  installer:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Download the successfully built installer
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: '38819664470'
+          name: Kaspire-Windows-0.1.3-x64
+          path: wallet
+      - name: Verify installer and extracted program files
+        run: |
+          $ErrorActionPreference='Stop'
+          $Installer=Join-Path $env:GITHUB_WORKSPACE 'wallet\Kaspire-Windows-0.1.3-x64-Setup.exe'
+          if ((Get-FileHash $Installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'ce18b5f42a802e1bfe4e4cc880eb2c9d1b44b720a96b290f7f124c74ca17664c') { throw 'Installer hash mismatch.' }
+          $Portable=Join-Path $env:RUNNER_TEMP 'portable'
+          Expand-Archive (Join-Path $env:GITHUB_WORKSPACE 'wallet\Kaspire-Windows-0.1.3-x64.zip') $Portable
+          $Data=Join-Path $env:LOCALAPPDATA 'Kaspire'
+          if (Test-Path $Data) { throw 'Refusing installer check: wallet data already exists.' }
+          New-Item -ItemType Directory $Data | Out-Null
+          $Marker=Join-Path $Data 'installer-preservation.txt'
+          [IO.File]::WriteAllText($Marker,'Disposable CI preservation marker, not a wallet.')
+          $Before=(Get-FileHash $Marker -Algorithm SHA256).Hash
+          $Log=Join-Path $env:RUNNER_TEMP 'installer.log'
+          $Setup=Start-Process $Installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$Log") -PassThru
+          if (-not $Setup.WaitForExit(120000)) { throw 'Installer did not complete.' }
+          if ($Setup.ExitCode -ne 0) { throw "Installer failed: $($Setup.ExitCode)" }
+          $Installed=Join-Path $env:LOCALAPPDATA 'Programs\Kaspire'
+          foreach ($File in @('kaspire.exe','kaspa_secure_core.dll','data\app.so')) {
+            $Expected=(Get-FileHash (Join-Path $Portable "Kaspire-Windows-0.1.3\$File") -Algorithm SHA256).Hash
+            if ((Get-FileHash (Join-Path $Installed $File) -Algorithm SHA256).Hash -ne $Expected) { throw "Installed file differs: $File" }
+          }
+          if ((Get-FileHash $Marker -Algorithm SHA256).Hash -ne $Before) { throw 'Installer changed the wallet data directory.' }
+          Start-Sleep -Seconds 8
+          $Wallet=Get-Process kaspire -ErrorAction Stop | Select-Object -First 1
+          if ($Wallet.HasExited -or $Wallet.MainWindowHandle -eq 0 -or $Wallet.MainWindowTitle -ne 'Kaspire') { throw 'Installed wallet did not start correctly.' }
+          Stop-Process -Id $Wallet.Id
+          'PASSED: installer completed without admin rights; installed EXE, Rust DLL and Flutter payload match the reviewed bundle; wallet-data marker unchanged; installed application opens.' | Tee-Object (Join-Path $env:GITHUB_WORKSPACE 'installer-checks.txt')
+      - name: Retain installer verification
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Windows-013-installer-checks
+          path: |
+            installer-checks.txt
+            ${{ runner.temp }}/installer.log
+          if-no-files-found: ignore
+          retention-days: 14
