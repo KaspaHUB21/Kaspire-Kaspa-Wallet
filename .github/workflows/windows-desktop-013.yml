@@ -1,0 +1,110 @@
+name: Windows desktop 0.1.3
+on:
+  push:
+    branches: [windows-desktop-build]
+    paths: [.github/workflows/windows-desktop-013.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: windows-desktop-013
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Fetch the pinned source snapshot
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Archive = Join-Path $env:RUNNER_TEMP 'kaspire-source.zip'
+          Invoke-WebRequest -UseBasicParsing 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-source-0.1.3.zip' -OutFile $Archive
+          $Expected = 'b5dd0faea9f63ed245c00b4cefb5ef475b697aa19d76462e4d0bcb9014876e63'
+          if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) { throw 'Source snapshot hash mismatch.' }
+          Expand-Archive $Archive -DestinationPath $env:GITHUB_WORKSPACE
+          $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          $Manifest = Get-Content (Join-Path $Source 'SOURCE-SHA256.json') -Raw | ConvertFrom-Json
+          foreach ($Entry in $Manifest.files) {
+            if ((Get-FileHash (Join-Path $Source $Entry.file) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Entry.sha256) { throw "Source file hash mismatch: $($Entry.file)" }
+          }
+      - name: Install the pinned Flutter SDK
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Sdk = Join-Path $env:RUNNER_TEMP 'flutter'
+          git clone --depth 1 --branch 3.47.5 https://github.com/flutter/flutter.git $Sdk
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter clone failed.' }
+          if ((git -C $Sdk rev-parse HEAD) -ne '6a19cca56475dbfba1478ee68d7bd0c2ef891da1') { throw 'Unexpected Flutter revision.' }
+          Add-Content $env:GITHUB_PATH (Join-Path $Sdk 'bin')
+          & (Join-Path $Sdk 'bin\flutter.bat') config --enable-windows-desktop --no-analytics
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter setup failed.' }
+      - name: Restore native compilation cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            Kaspire-Windows-source-0.1.0/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: windows-native-013-ed25519-vaults
+          restore-keys: windows-native-1.97.1-
+      - name: Validate and compile the wallet
+        id: build
+        run: |
+          & (Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0\desktop\Build-Windows.ps1')
+          if ($LASTEXITCODE -ne 0) { throw 'Wallet build failed.' }
+      - name: Bundle runtime and create installer
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          $Bundle = Join-Path $Source 'dist\Kaspire-Windows-0.1.3'
+          $VsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $VsPath = & $VsWhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $Runtime = Get-ChildItem (Join-Path $VsPath 'VC\Redist\MSVC') -Directory | Sort-Object Name -Descending | ForEach-Object {
+            $X64 = Join-Path $_.FullName 'x64'
+            if (Test-Path $X64) { Get-ChildItem $X64 -Directory -Filter 'Microsoft.VC*.CRT' }
+          } | Select-Object -First 1
+          if (-not $Runtime) { throw 'MSVC runtime files not found.' }
+          Copy-Item (Join-Path $Runtime.FullName '*.dll') $Bundle
+          $Compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $Compiler)) { throw 'Inno Setup compiler is unavailable on this runner.' }
+          & $Compiler '/DAppVersion=0.1.3' (Join-Path $Source 'desktop\Kaspire.iss')
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
+          Get-ChildItem $Bundle -Recurse -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object {
+            (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.FullName.Substring($Bundle.Length+1).Replace('\','/')
+          } | Set-Content (Join-Path $Bundle 'SHA256SUMS.txt') -Encoding UTF8
+          Compress-Archive -Path $Bundle -DestinationPath (Join-Path $Source 'dist\Kaspire-Windows-0.1.3-x64.zip')
+      - name: Check native dialogs and persistent desktop navigation
+        run: |
+          $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          & (Join-Path $Source 'desktop\Test-WindowsDialogs.ps1') -Exe (Join-Path $Source 'dist\Kaspire-Windows-0.1.3\kaspire.exe') -DiagnosticRoot (Join-Path $Source 'desktop')
+      - name: Upload installer and portable wallet
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Kaspire-Windows-0.1.3-x64
+          path: |
+            Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.3-x64-Setup.exe
+            Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.3-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+      - name: Keep diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Windows-013-diagnostics
+          path: |
+            Kaspire-Windows-source-0.1.0/desktop/*.log
+            Kaspire-Windows-source-0.1.0/desktop/windows-*.txt
+            Kaspire-Windows-source-0.1.0/desktop/windows-*.png
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Preserve compiled wallet on packaging failure
+        if: failure() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Windows-013-compiled-wallet
+          path: Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.3/
+          if-no-files-found: ignore
+          retention-days: 14
