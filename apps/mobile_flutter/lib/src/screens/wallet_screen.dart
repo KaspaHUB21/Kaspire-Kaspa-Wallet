@@ -63,6 +63,7 @@ class WalletScreen extends StatefulWidget {
 }
 
 class _WalletScreenState extends State<WalletScreen> {
+  String _desktopSection = 'assets';
   final KaspaApi _api = KaspaApi();
   late Future<HdAccountScope> _account;
   late Future<WalletSnapshot> _snapshot;
@@ -85,6 +86,14 @@ class _WalletScreenState extends State<WalletScreen> {
       navigator.popUntil((route) => route.isFirst);
     }
     return navigator.push<T>(MaterialPageRoute<T>(builder: (_) => page));
+  }
+
+  void _showDesktopSection(String section) {
+    setState(() {
+      _desktopSection = section;
+      if (section == 'activity') _activityExpanded = true;
+    });
+    widget.desktopNavigator?.currentState?.popUntil((route) => route.isFirst);
   }
 
   @override
@@ -390,64 +399,59 @@ class _WalletScreenState extends State<WalletScreen> {
             future: _snapshot,
             builder: (context, snapshot) => WalletResponsiveLayout(
               desktopNavigator: widget.desktopNavigator,
+              desktopSection: _desktopSection,
+              onDesktopOverview: () => _showDesktopSection('assets'),
               children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: KaspireWordmark(height: 19),
-                    ),
-                    KaspireHeaderIconFrame(
-                        child: IconButton(
-                      onPressed: widget.onSwitchWallet,
-                      tooltip: 'Switch wallet',
-                      icon: const Icon(Icons.account_balance_wallet_outlined),
-                    )),
-                    Tooltip(
-                      message: 'Switch network',
-                      child: InkWell(
-                        onTap: _chooseNetwork,
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 7,
-                          ),
-                          decoration: KasVaultTheme.isDecorative
-                              ? kaspireDecorativeDecoration(
-                                  radius: 20, rim: 2, gold: true)
-                              : BoxDecoration(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .primary
-                                      .withValues(alpha: .14),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.circle,
-                                  size: 8,
-                                  color: Theme.of(context).colorScheme.primary),
-                              const SizedBox(width: 7),
-                              Text(
-                                NetworkSettings.label,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                WalletDashboardHeader(
+                  onSwitchWallet: widget.onSwitchWallet,
+                  onReload: _refresh,
+                  networkSelector: Tooltip(
+                    message: 'Switch network',
+                    child: InkWell(
+                      onTap: _chooseNetwork,
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 7,
+                        ),
+                        decoration: KasVaultTheme.isDecorative
+                            ? kaspireDecorativeDecoration(
+                                radius: 20, rim: 2, gold: true)
+                            : BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primary
+                                    .withValues(alpha: .14),
+                                borderRadius: BorderRadius.circular(20),
                               ),
-                              const SizedBox(width: 3),
-                              const Icon(Icons.expand_more_rounded, size: 16),
-                            ],
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.circle,
+                                size: 8,
+                                color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 7),
+                            Text(
+                              NetworkSettings.label,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(width: 3),
+                            const Icon(Icons.expand_more_rounded, size: 16),
+                          ],
                         ),
                       ),
                     ),
-                    if (NetworkSettings.network.value == KaspaNetwork.mainnet)
-                      NexusBell(
-                          address: widget.address,
-                          navigatorKey: widget.desktopNavigator),
-                  ],
+                  ),
+                  notifications:
+                      NetworkSettings.network.value == KaspaNetwork.mainnet
+                          ? NexusBell(
+                              address: widget.address,
+                              navigatorKey: widget.desktopNavigator)
+                          : null,
                 ),
                 SizedBox(
                     height: KasVaultTheme.isNeptune
@@ -493,9 +497,17 @@ class _WalletScreenState extends State<WalletScreen> {
                       : widget.onPairDapps,
                   onAgora: _openAgora,
                   onSettings: widget.onSettings,
+                  onAssets: () => _showDesktopSection('assets'),
+                  onActivity: () => _showDesktopSection('activity'),
+                  onUtxos: () => _showDesktopSection('utxos'),
                 ),
                 const SizedBox(height: 32),
-                if (snapshot.hasData || _progress != null) ...[
+                if (isWindowsDesktop && !snapshot.hasData && _progress == null)
+                  snapshot.hasError
+                      ? _ErrorCard(error: snapshot.error, onRetry: _refresh)
+                      : const Center(child: CircularProgressIndicator()),
+                if ((!isWindowsDesktop || _desktopSection == 'assets') &&
+                    (snapshot.hasData || _progress != null)) ...[
                   Hub21Readable(
                       child: Text(
                     displayLabel('ASSETS & NAMES'),
@@ -513,6 +525,9 @@ class _WalletScreenState extends State<WalletScreen> {
                     hideAmounts: hideAmounts,
                   ),
                   const SizedBox(height: 12),
+                ],
+                if ((!isWindowsDesktop || _desktopSection == 'utxos') &&
+                    (snapshot.hasData || _progress != null)) ...[
                   _UtxoCard(
                     count: (snapshot.data ?? _progress!).utxoCount,
                     working: _compounding,
@@ -520,69 +535,74 @@ class _WalletScreenState extends State<WalletScreen> {
                   ),
                   const SizedBox(height: 32),
                 ],
-                InkWell(
-                  onTap: _toggleActivity,
-                  borderRadius: BorderRadius.circular(14),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Hub21Readable(
-                              child: Text(
-                            displayLabel('ACTIVITY'),
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 1.2,
+                if (!isWindowsDesktop || _desktopSection == 'activity') ...[
+                  InkWell(
+                    onTap: isWindowsDesktop ? null : _toggleActivity,
+                    borderRadius: BorderRadius.circular(14),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Hub21Readable(
+                                child: Text(
+                              displayLabel('ACTIVITY'),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.2,
+                              ),
+                            )),
+                          ),
+                          if (!isWindowsDesktop)
+                            Icon(
+                              _activityExpanded
+                                  ? Icons.expand_less_rounded
+                                  : Icons.expand_more_rounded,
                             ),
-                          )),
-                        ),
-                        Icon(
-                          _activityExpanded
-                              ? Icons.expand_less_rounded
-                              : Icons.expand_more_rounded,
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                if (_activityExpanded) ...[
-                  const SizedBox(height: 12),
-                  FutureBuilder<List<WalletTransaction>>(
-                    future: _activity,
-                    builder: (context, activity) => Column(
-                      children: [
-                        if (activity.connectionState == ConnectionState.waiting)
-                          const Padding(
-                            padding: EdgeInsets.all(36),
-                            child: CircularProgressIndicator(),
-                          ),
-                        if (activity.hasError)
-                          _ErrorCard(error: activity.error, onRetry: _refresh),
-                        if (activity.hasData && activity.data!.isEmpty)
-                          const _EmptyActivity(),
-                        if (activity.hasData)
-                          ...activity.data!.map(
-                            (tx) => _TransactionTile(
-                              transaction: tx,
-                              walletAddress: widget.address,
-                              hideAmounts: hideAmounts,
+                  if (_activityExpanded || isWindowsDesktop) ...[
+                    const SizedBox(height: 12),
+                    FutureBuilder<List<WalletTransaction>>(
+                      future: _activity,
+                      builder: (context, activity) => Column(
+                        children: [
+                          if (activity.connectionState ==
+                              ConnectionState.waiting)
+                            const Padding(
+                              padding: EdgeInsets.all(36),
+                              child: CircularProgressIndicator(),
                             ),
-                          ),
-                        if (activity.hasData &&
-                            activity.data!.length >= _historyLimit)
-                          OutlinedButton.icon(
-                            onPressed: () => setState(() {
-                              _historyLimit += 20;
-                              _activity = _loadActivity();
-                            }),
-                            icon: const Icon(Icons.expand_more_rounded),
-                            label: Text(buttonLabel('LOAD MORE ACTIVITY')),
-                          ),
-                      ],
+                          if (activity.hasError)
+                            _ErrorCard(
+                                error: activity.error, onRetry: _refresh),
+                          if (activity.hasData && activity.data!.isEmpty)
+                            const _EmptyActivity(),
+                          if (activity.hasData)
+                            ...activity.data!.map(
+                              (tx) => _TransactionTile(
+                                transaction: tx,
+                                walletAddress: widget.address,
+                                hideAmounts: hideAmounts,
+                              ),
+                            ),
+                          if (activity.hasData &&
+                              activity.data!.length >= _historyLimit)
+                            OutlinedButton.icon(
+                              onPressed: () => setState(() {
+                                _historyLimit += 20;
+                                _activity = _loadActivity();
+                              }),
+                              icon: const Icon(Icons.expand_more_rounded),
+                              label: Text(buttonLabel('LOAD MORE ACTIVITY')),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ],
             ),
@@ -1049,6 +1069,54 @@ class _BalanceCard extends StatelessWidget {
   }
 }
 
+/// The same wallet controls, kept inside the persistent pane on Windows.
+class WalletDashboardHeader extends StatelessWidget {
+  const WalletDashboardHeader(
+      {super.key,
+      required this.onSwitchWallet,
+      required this.onReload,
+      required this.networkSelector,
+      this.notifications});
+  final VoidCallback onSwitchWallet, onReload;
+  final Widget networkSelector;
+  final Widget? notifications;
+
+  @override
+  Widget build(BuildContext context) {
+    final controls = <Widget>[
+      KaspireHeaderIconFrame(
+          child: IconButton(
+              onPressed: onSwitchWallet,
+              tooltip: 'Switch wallet',
+              icon: const Icon(Icons.account_balance_wallet_outlined))),
+      if (isWindowsDesktop) const SizedBox(width: 8),
+      if (isWindowsDesktop)
+        Expanded(
+            child:
+                Align(alignment: Alignment.centerLeft, child: networkSelector))
+      else
+        networkSelector,
+      if (notifications != null) notifications!,
+      if (isWindowsDesktop)
+        KaspireHeaderIconFrame(
+            child: IconButton(
+                onPressed: onReload,
+                tooltip: 'Reload',
+                icon: const Icon(Icons.refresh_rounded))),
+    ];
+    return isWindowsDesktop
+        ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const KaspireWordmark(height: 19),
+            const SizedBox(height: 12),
+            Row(children: controls),
+          ])
+        : Row(children: [
+            const Expanded(child: KaspireWordmark(height: 19)),
+            ...controls
+          ]);
+  }
+}
+
 class WalletDashboardActions extends StatelessWidget {
   const WalletDashboardActions(
       {super.key,
@@ -1059,7 +1127,11 @@ class WalletDashboardActions extends StatelessWidget {
       required this.onBrowser,
       required this.onPairDapp,
       required this.onAgora,
-      required this.onSettings});
+      required this.onSettings,
+      required this.onAssets,
+      required this.onActivity,
+      required this.onUtxos});
+  final VoidCallback onAssets, onActivity, onUtxos;
   final VoidCallback onSend,
       onReceive,
       onVaults,
@@ -1080,6 +1152,11 @@ class WalletDashboardActions extends StatelessWidget {
         (Icons.qr_code_scanner_rounded, 'PAIR DAPP', onPairDapp),
       (Icons.account_balance_rounded, 'K-AGORA', onAgora),
       (Icons.tune_rounded, 'SETTINGS', onSettings),
+      if (isWindowsDesktop) ...[
+        (Icons.layers_outlined, 'ASSETS', onAssets),
+        (Icons.history_rounded, 'ACTIVITY', onActivity),
+        (Icons.join_inner_rounded, 'UTXOs', onUtxos),
+      ],
     ];
     final columns = isWindowsDesktop ? 3 : 4;
     Widget row(int start) => Row(children: [
@@ -1094,7 +1171,12 @@ class WalletDashboardActions extends StatelessWidget {
                         onTap: actions[i].$3))),
           ],
         ]);
-    return Column(children: [row(0), const SizedBox(height: 8), row(columns)]);
+    return Column(children: [
+      for (var start = 0; start < actions.length; start += columns) ...[
+        if (start > 0) const SizedBox(height: 8),
+        row(start),
+      ],
+    ]);
   }
 }
 

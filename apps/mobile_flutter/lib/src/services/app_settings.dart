@@ -149,6 +149,7 @@ String displayLabel(String uppercase) {
     'PIN': 'PIN',
     'QR': 'QR',
     'TX': 'TX',
+    'UTXOs': 'UTXOs',
     'DAPP': 'dApp',
     'KASPIRE': 'Kaspire',
     'K-AGORA': 'K-Agora',

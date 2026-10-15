@@ -158,11 +158,12 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
   for (final theme in KaspireTheme.values) {
-    testWidgets('Desktop $theme has exactly the six requested actions',
+    testWidgets('Desktop $theme has the nine requested actions in three rows',
         (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.windows;
       AppSettings.theme.value = theme;
       void noop() {}
+      final opened = <String>[];
       await tester.pumpWidget(MaterialApp(
           theme: KasVaultTheme.forTheme(theme),
           home: Scaffold(
@@ -177,6 +178,9 @@ void main() {
                   onPairDapp: noop,
                   onAgora: noop,
                   onSettings: noop,
+                  onAssets: () => opened.add('assets'),
+                  onActivity: () => opened.add('activity'),
+                  onUtxos: () => opened.add('utxos'),
                 )),
           )));
       for (final label in [
@@ -185,7 +189,10 @@ void main() {
         'Vaults',
         'Swap',
         'K-Agora',
-        'Settings'
+        'Settings',
+        'Assets',
+        'Activity',
+        'UTXOs'
       ]) {
         expect(find.text(label), findsOneWidget);
       }
@@ -195,6 +202,47 @@ void main() {
           tester.getTopLeft(find.text('Vaults')).dy);
       expect(tester.getTopLeft(find.text('Swap')).dy,
           greaterThan(tester.getTopLeft(find.text('Send')).dy));
+      expect(tester.getTopLeft(find.text('Assets')).dy,
+          greaterThan(tester.getTopLeft(find.text('Settings')).dy));
+      expect(tester.getTopLeft(find.text('Assets')).dy,
+          tester.getTopLeft(find.text('UTXOs')).dy);
+      for (final label in ['Assets', 'Activity', 'UTXOs']) {
+        await tester.tap(find.text(label));
+      }
+      expect(opened, ['assets', 'activity', 'utxos']);
+      expect(tester.takeException(), isNull);
+      debugDefaultTargetPlatformOverride = null;
+    });
+    testWidgets('Desktop $theme header controls fit the left pane and reload',
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      AppSettings.theme.value = theme;
+      var reloads = 0, switches = 0;
+      await tester.pumpWidget(MaterialApp(
+          theme: KasVaultTheme.forTheme(theme),
+          home: Scaffold(
+              body: Align(
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(
+                      width: 330,
+                      child: WalletDashboardHeader(
+                        onSwitchWallet: () => switches++,
+                        onReload: () => reloads++,
+                        networkSelector: const Text('Layer 1'),
+                        notifications: const Icon(Icons.notifications_outlined),
+                      ))))));
+      for (final control in [
+        find.byTooltip('Switch wallet'),
+        find.text('Layer 1'),
+        find.byIcon(Icons.notifications_outlined),
+        find.byTooltip('Reload')
+      ]) {
+        expect(tester.getRect(control).right, lessThanOrEqualTo(330));
+      }
+      await tester.tap(find.byTooltip('Reload'));
+      await tester.tap(find.byTooltip('Switch wallet'));
+      expect(reloads, 1);
+      expect(switches, 1);
       expect(tester.takeException(), isNull);
       debugDefaultTargetPlatformOverride = null;
     });
@@ -225,10 +273,12 @@ void main() {
             ])));
     await tester.pumpWidget(dashboard('Original assets'));
     final position = tester.getTopLeft(find.text('Persistent balance'));
+    expect(tester.getTopLeft(find.text('Header')).dx, position.dx);
     await tester.drag(find.byKey(const PageStorageKey('desktop-assets-pane')),
         const Offset(0, -600));
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.text('Persistent balance')), position);
+    expect(find.text('Header').hitTestable(), findsOneWidget);
     navigator.currentState!.push(MaterialPageRoute<void>(
         builder: (_) => Scaffold(
                 body: Column(children: [
@@ -345,17 +395,17 @@ void main() {
     var requests = 0;
     final payload = {
       'platform': 'windows-x64',
-      'version': '0.1.3',
-      'build': 4,
+      'version': '0.1.4',
+      'build': 5,
       'minimumBuild': 1,
       'critical': false,
       'publishedAt': '2026-10-16T00:00:00Z',
       'installerUrl':
-          'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/windows-v0.1.3/Kaspire-Windows-0.1.3-x64-Setup.exe',
+          'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/windows-v0.1.4/Kaspire-Windows-0.1.4-x64-Setup.exe',
       'sha256': 'ab' * 32,
       'sizeBytes': 100000,
       'releaseNotesUrl':
-          'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/windows-v0.1.3'
+          'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/windows-v0.1.4'
     };
     final updates = UpdateService(
         client: MockClient((request) async {
@@ -372,11 +422,11 @@ void main() {
         packageInfo: () async => PackageInfo(
             appName: 'Kaspire',
             packageName: 'space.kaspire.wallet',
-            version: '0.1.2',
-            buildNumber: '3'));
+            version: '0.1.3',
+            buildNumber: '4'));
     final update = await updates.checkNow();
     expect(update?.isDesktop, true);
-    expect(update?.build, 4);
+    expect(update?.build, 5);
     expect(requests, 1);
     expect(update?.apkUrl.path, endsWith('-Setup.exe'));
     expect(updates.state.value.error, isNull);

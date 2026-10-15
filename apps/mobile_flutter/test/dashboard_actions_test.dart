@@ -37,6 +37,9 @@ void main() {
                         onPairDapp: () => selected = 'Pair dApp',
                         onAgora: () => selected = 'K-Agora',
                         onSettings: () => selected = 'Settings',
+                        onAssets: () => selected = 'Assets',
+                        onActivity: () => selected = 'Activity',
+                        onUtxos: () => selected = 'UTXOs',
                       ))))));
       await tester.pumpAndSettle();
       const labels = [

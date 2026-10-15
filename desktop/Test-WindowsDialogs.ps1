@@ -40,12 +40,13 @@ public static class KaspireUi {
     double scale=GetDpiForWindow(root)/96.0, width=(client.Right-client.Left)/scale;
     if(width<900)throw new InvalidOperationException("CI window is too narrow for dashboard anchors");
     double left=(width-64)*5/11, column=(left-16)/3, x,y;
-    if(label=="Wallet overview"){x=width-40;y=104;}
+    if(label=="Wallet overview"){x=width-40;y=40;}
     else {
-      int col;bool second=false;
-      if(label=="Send")col=0;else if(label=="Receive")col=1;else if(label=="Settings"){col=2;second=true;}
+      int col,row=0;
+      if(label=="Send")col=0;else if(label=="Receive")col=1;else if(label=="Settings"){col=2;row=1;}
+      else if(label=="Assets"){col=0;row=2;}else if(label=="Activity"){col=1;row=2;}else if(label=="UTXOs"){col=2;row=2;}
       else throw new InvalidOperationException("Coordinate action is not an approved PUBLIC navigation action");
-      x=20+column/2+col*(column+8);y=326+(second?84:0);
+      x=20+column/2+col*(column+8);y=357+row*84;
     }
     SetCursorPos(origin.X+(int)Math.Round(x*scale),origin.Y+(int)Math.Round(y*scale));
     mouse_event(0x0002,0,0,0,UIntPtr.Zero);mouse_event(0x0004,0,0,0,UIntPtr.Zero);
@@ -279,7 +280,7 @@ try {
       } finally { $PublicGraphics.Dispose(); $PublicShot.Dispose() }
     }
     [KaspireUi]::Buttons($Window) | Set-Content (Join-Path $DiagnosticRoot 'windows-dashboard-buttons.txt') -Encoding UTF8
-    foreach ($Destination in @('Send', 'Receive', 'Settings')) {
+    foreach ($Destination in @('Send', 'Receive', 'Settings', 'Assets', 'Activity', 'UTXOs')) {
       [KaspireUi]::PublicNavigation($Window, $Destination)
       Start-Sleep -Seconds 2
       $PageLabels = [KaspireUi]::Buttons($Window)
@@ -287,13 +288,19 @@ try {
       if ($Destination -eq 'Send' -and ($PageLabels -join "`n") -notmatch 'Send KAS') {
         throw 'The pointer click did not open Send in the content pane.'
       }
+      if ($Destination -eq 'Activity' -and ($PageLabels -join "`n") -notmatch 'Activity') {
+        throw 'Activity did not open in the content pane.'
+      }
+      if ($Destination -eq 'UTXOs' -and ($PageLabels -join "`n") -notmatch 'spendable output') {
+        throw 'UTXOs did not open in the content pane.'
+      }
       [KaspireUi]::PublicNavigation($Window, 'Wallet overview')
       Start-Sleep -Seconds 1
       if (([KaspireUi]::Buttons($Window) -join "`n") -notmatch 'Assets & Names') {
         throw 'Home did not return the right content pane to the asset overview.'
       }
     }
-    'PASSED: stable masked native PIN field; visible Continue/Cancel actions; PIN setup; private-key input/cancel; recovery import/cancel; 24-word creation/verification; native fields; right-pane Send/Receive/Settings and return to wallet.' |
+    'PASSED: stable masked native PIN field; visible Continue/Cancel actions; PIN setup; private-key input/cancel; recovery import/cancel; 24-word creation/verification; native fields; right-pane Send/Receive/Settings/Assets/Activity/UTXOs and return to wallet.' |
         Set-Content (Join-Path $DiagnosticRoot 'windows-dialog-checks.txt') -Encoding UTF8
 } finally {
     if (-not $Process.HasExited) { Stop-Process -Id $Process.Id }

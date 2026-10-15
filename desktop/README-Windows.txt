@@ -1,9 +1,9 @@
-Kaspire for Windows 0.1.3 (x64)
+Kaspire for Windows 0.1.4 (x64)
 ==============================
 
 Installation
 ------------
-Run Kaspire-Windows-0.1.3-x64-Setup.exe. Kaspire installs for your Windows user,
+Run Kaspire-Windows-0.1.4-x64-Setup.exe. Kaspire installs for your Windows user,
 without requiring administrator access, and creates a desktop shortcut.
 Windows 10 1809 or newer / Windows 11 x64 is required.
 The installer does not yet have a Windows publisher certificate; Windows may
