@@ -99,6 +99,7 @@ class _WindowsSecurityDialogState extends State<WindowsSecurityDialog>
   final _cancel = FocusNode();
   String? _error;
   bool _busy = false, _focused = false;
+  bool _passwordVisible = false, _togglingVisibility = false;
   bool _layoutScheduled = false;
   List<Object>? _lastLayout;
 
@@ -191,6 +192,21 @@ class _WindowsSecurityDialogState extends State<WindowsSecurityDialog>
       showError(error.message ?? 'Please check the field and try again.');
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _togglePasswordVisibility() async {
+    if (_busy || _togglingVisibility) return;
+    final visible = !_passwordVisible;
+    setState(() => _togglingVisibility = true);
+    try {
+      await WindowsSecurityDialogs.channel.invokeMethod<void>(
+          'setPromptVisibility', {'id': widget.id, 'visible': visible});
+      if (mounted) setState(() => _passwordVisible = visible);
+    } catch (_) {
+      showError('Could not change password visibility. Please try again.');
+    } finally {
+      if (mounted) setState(() => _togglingVisibility = false);
     }
   }
 
@@ -291,6 +307,23 @@ class _WindowsSecurityDialogState extends State<WindowsSecurityDialog>
           border: Border.all(color: KasVaultTheme.line),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        child: SizedBox.expand(key: _input),
+        child: widget.mode == 1
+            ? Row(children: [
+                Expanded(child: SizedBox.expand(key: _input)),
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: _passwordVisible ? 'Hide password' : 'Show password',
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints.tightFor(width: 36, height: 36),
+                  onPressed: _busy || _togglingVisibility
+                      ? null
+                      : _togglePasswordVisibility,
+                  icon: Icon(_passwordVisible
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined),
+                ),
+              ])
+            : SizedBox.expand(key: _input),
       );
 }

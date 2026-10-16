@@ -85,6 +85,8 @@ public static class KaspireUi {
         if(string.Equals(label,"Send",StringComparison.OrdinalIgnoreCase) ||
            string.Equals(label,"Receive",StringComparison.OrdinalIgnoreCase) ||
            string.Equals(label,"Settings",StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(label,"Show password",StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(label,"Hide password",StringComparison.OrdinalIgnoreCase) ||
            string.Equals(label,"Wallet overview",StringComparison.OrdinalIgnoreCase)) {
           SetCursorPos(left+width/2,top+height/2);
           mouse_event(0x0002,0,0,0,UIntPtr.Zero);mouse_event(0x0004,0,0,0,UIntPtr.Zero);return true;
@@ -194,8 +196,9 @@ try {
         throw "Embedded in-app input not found: $Title"
     }
     # Only disposable CI input; never log values or capture recovery words.
+    $TestPassword = 'Kaspire-Ui!42'
     Press 'Create 24-word Wallet'
-    $PinField = Input 'Set Kaspire PIN' '123456'
+    $PinField = Input 'Set Kaspire password' $TestPassword
     $PinFont = [KaspireUi]::SendMessage($PinField, 0x0031, [IntPtr]::Zero, $null)
     for ($Frame=0; $Frame -lt 40; $Frame++) {
         # No screenshots or plaintext values: verify the same masked native
@@ -204,30 +207,36 @@ try {
         $Length = [KaspireUi]::SendMessage($PinField, 0x000E, [IntPtr]::Zero, $null)
         $Mask = [KaspireUi]::SendMessage($PinField, 0x00D2, [IntPtr]::Zero, $null)
         if (-not [KaspireUi]::IsWindowVisible($PinField) -or $CurrentFont -ne $PinFont -or
-            $Length.ToInt32() -ne 6 -or $Mask.ToInt32() -eq 0) {
+            $Length.ToInt32() -ne $TestPassword.Length -or $Mask.ToInt32() -eq 0) {
             throw 'The masked PIN field changed visibility, font or content during entry.'
         }
         Start-Sleep -Milliseconds 100
     }
+    Press 'Show password'
+    if (([KaspireUi]::SendMessage($PinField, 0x00D2, [IntPtr]::Zero, $null)).ToInt32() -ne 0) { throw 'Eye did not reveal the native password field.' }
+    if (([KaspireUi]::SendMessage($PinField, 0x000E, [IntPtr]::Zero, $null)).ToInt32() -ne $TestPassword.Length) { throw 'Visibility toggle changed password content.' }
+    Press 'Hide password'
+    if (([KaspireUi]::SendMessage($PinField, 0x00D2, [IntPtr]::Zero, $null)).ToInt32() -eq 0) { throw 'Eye did not mask the native password field.' }
     Press 'Continue'
-    Input 'Confirm Kaspire PIN' '123456' | Out-Null
+    $ConfirmationField = Input 'Confirm Kaspire password' $TestPassword
+    if (([KaspireUi]::SendMessage($ConfirmationField, 0x00D2, [IntPtr]::Zero, $null)).ToInt32() -eq 0) { throw 'Password confirmation did not start masked.' }
     Press 'Continue'
     Input 'BIP39 passphrase (optional)' '' | Out-Null
     Press 'Cancel'
     Press 'Import Private Key'
-    Input 'Unlock Kaspire' '123456' | Out-Null
+    Input 'Unlock Kaspire' $TestPassword | Out-Null
     Press 'Continue'
     Input 'Import private key' '' | Out-Null
     Press 'Cancel'
     Press 'Import 12 / 24 Words'
-    Input 'Unlock Kaspire' '123456' | Out-Null
+    Input 'Unlock Kaspire' $TestPassword | Out-Null
     Press 'Continue'
     Input 'BIP39 passphrase (optional)' '' | Out-Null
     Press 'Continue'
     Input 'Import recovery phrase' '' | Out-Null
     Press 'Cancel'
     Press 'Create 24-word Wallet'
-    Input 'Unlock Kaspire' '123456' | Out-Null
+    Input 'Unlock Kaspire' $TestPassword | Out-Null
     Press 'Continue'
     Input 'BIP39 passphrase (optional)' '' | Out-Null
     Press 'Continue'
@@ -262,6 +271,29 @@ try {
         [Array]::Clear($CatalogueBytes, 0, $CatalogueBytes.Length)
         $Catalogue = $null
     }
+    # A cold start must lock, a wrong-case password must show an error, and
+    # cancellation/retry must work without closing the application again.
+    Stop-Process -Id $Process.Id
+    $Process = Start-Process $Exe -WorkingDirectory (Split-Path $Exe -Parent) -PassThru -RedirectStandardOutput (Join-Path $DiagnosticRoot 'restart-out.log') -RedirectStandardError (Join-Path $DiagnosticRoot 'restart-error.log')
+    Start-Sleep -Seconds 5
+    $Process.Refresh(); $Window = $Process.MainWindowHandle
+    if ($Window -eq 0) { throw 'Wallet did not reopen after creation.' }
+    [KaspireUi]::ShowWindow($Window, 3) | Out-Null
+    $Root = [Windows.Automation.AutomationElement]::FromHandle($Window)
+    Press 'Unlock Kaspire'
+    Input 'Unlock Kaspire' $TestPassword.ToLowerInvariant() | Out-Null
+    Press 'Continue'
+    Start-Sleep -Seconds 2
+    if (([KaspireUi]::Buttons($Window) -join "`n") -notmatch 'Incorrect password') { throw 'Wrong password did not show a clear error.' }
+    Press 'Unlock Kaspire'
+    Input 'Unlock Kaspire' '' | Out-Null
+    Press 'Cancel'
+    Press 'Unlock Kaspire'
+    Input 'Unlock Kaspire' $TestPassword | Out-Null
+    Press 'Continue'
+    Start-Sleep -Seconds 3
+    if (([KaspireUi]::Buttons($Window) -join "`n") -notmatch 'Assets & Names') { throw 'Correct password did not unlock after wrong password/cancel.' }
+    $TestPassword = $null
     # Capture public dashboard chrome only, never an open native secret field.
     $SecureFieldOpen = $false
     [KaspireUi]::EnumChildWindows($Window, { param($Handle, $Data)
@@ -300,7 +332,7 @@ try {
         throw 'Home did not return the right content pane to the asset overview.'
       }
     }
-    'PASSED: stable masked native PIN field; visible Continue/Cancel actions; PIN setup; private-key input/cancel; recovery import/cancel; 24-word creation/verification; native fields; right-pane Send/Receive/Settings/Assets/Activity/UTXOs and return to wallet.' |
+    'PASSED: mixed-case/symbol password setup; stable masked native field; native eye show/hide without content changes; confirmation starts masked; private-key/recovery input; 24-word creation; restart locks; wrong-case password shows an error; cancellation and correct retry unlock without restart; right-pane Send/Receive/Settings/Assets/Activity/UTXOs.' |
         Set-Content (Join-Path $DiagnosticRoot 'windows-dialog-checks.txt') -Encoding UTF8
 } finally {
     if (-not $Process.HasExited) { Stop-Process -Id $Process.Id }

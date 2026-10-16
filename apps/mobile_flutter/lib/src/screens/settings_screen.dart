@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../services/native_security.dart';
+import '../widgets/wallet_unlock_screen.dart';
 import '../services/kaspa_api.dart';
 import '../services/hd_discovery_service.dart';
 import '../services/network_settings.dart';
@@ -58,13 +59,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _configurePin() async {
-    final authenticated = await _security.authenticate(
-      context,
-      'Authorize Kaspire PIN setup',
-    );
-    if (!authenticated || !mounted) return;
-    final saved = await _security.configurePin();
-    if (saved && mounted) setState(() => _pinEnabled = Future.value(true));
+    try {
+      final authenticated = await _security.authenticate(
+        context,
+        isWindowsDesktop
+            ? 'Authorize password change'
+            : 'Authorize Kaspire PIN setup',
+      );
+      if (!authenticated || !mounted) return;
+      final saved = await _security.configurePin();
+      if (saved && mounted) setState(() => _pinEnabled = Future.value(true));
+    } catch (error) {
+      if (!mounted) return;
+      final message = authenticationErrorMessage(error);
+      if (message != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
+      }
+    }
   }
 
   Future<void> _removePin() async {
@@ -320,9 +332,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? Icons.pin_rounded
                     : Icons.fingerprint_rounded,
                 title: 'Transaction approval',
-                detail: snapshot.data == true
-                    ? 'Biometrics or 4–8 digit Kaspire PIN'
-                    : 'Biometrics · optional Kaspire PIN available',
+                detail: isWindowsDesktop
+                    ? 'Case-sensitive Kaspire password'
+                    : snapshot.data == true
+                        ? 'Biometrics or 4–8 digit Kaspire PIN'
+                        : 'Biometrics · optional Kaspire PIN available',
                 color: KasVaultTheme.mint,
               ),
             ),
@@ -496,16 +510,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: const Icon(Icons.pin_rounded),
                     label: Text(
                       buttonLabel(
-                        snapshot.data == true
-                            ? 'CHANGE KASPIRE PIN'
-                            : 'CREATE 4–8 DIGIT PIN',
+                        isWindowsDesktop
+                            ? 'CHANGE KASPIRE PASSWORD'
+                            : snapshot.data == true
+                                ? 'CHANGE KASPIRE PIN'
+                                : 'CREATE 4–8 DIGIT PIN',
                       ),
                     ),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                     ),
                   ),
-                  if (snapshot.data == true) ...[
+                  if (snapshot.data == true && !isWindowsDesktop) ...[
                     const SizedBox(height: 10),
                     TextButton.icon(
                       onPressed: _removePin,
@@ -754,9 +770,11 @@ class _SettingsOverview extends StatelessWidget {
                             ? Icons.pin_rounded
                             : Icons.fingerprint_rounded,
                         title: 'Transaction approval',
-                        detail: snapshot.data == true
-                            ? 'Biometrics or Kaspire PIN'
-                            : 'Biometrics · optional Kaspire PIN',
+                        detail: isWindowsDesktop
+                            ? 'Case-sensitive password · letters, numbers and symbols'
+                            : snapshot.data == true
+                                ? 'Biometrics or Kaspire PIN'
+                                : 'Biometrics · optional Kaspire PIN',
                         color: KasVaultTheme.mint,
                       ),
                       OutlinedButton.icon(
@@ -766,12 +784,14 @@ class _SettingsOverview extends StatelessWidget {
                                 : null,
                         icon: const Icon(Icons.pin_rounded),
                         label: Text(buttonLabel(
-                          snapshot.data == true
-                              ? 'CHANGE KASPIRE PIN'
-                              : 'CREATE 4–8 DIGIT PIN',
+                          isWindowsDesktop
+                              ? 'CHANGE KASPIRE PASSWORD'
+                              : snapshot.data == true
+                                  ? 'CHANGE KASPIRE PIN'
+                                  : 'CREATE 4–8 DIGIT PIN',
                         )),
                       ),
-                      if (snapshot.data == true)
+                      if (snapshot.data == true && !isWindowsDesktop)
                         TextButton.icon(
                           onPressed: onRemovePin,
                           icon: const Icon(Icons.remove_circle_outline_rounded),

@@ -90,7 +90,7 @@ try {
         Invoke-BuildCommand 'flutter' @('pub', 'get')
         if (-not $SkipChecks) {
             Invoke-BuildCommand 'flutter' @('analyze')
-            Invoke-BuildCommand 'flutter' @('test', 'test/desktop_test.dart')
+            Invoke-BuildCommand 'flutter' @('test', 'test/desktop_test.dart', 'test/windows_unlock_test.dart')
         }
         Invoke-BuildCommand 'flutter' @('build', 'windows', '--release', "--build-name=$DesktopVersion", "--build-number=$DesktopBuild")
     } finally { Pop-Location }

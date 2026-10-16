@@ -138,7 +138,6 @@ struct SecurityBridge::State {
       const int count = GetWindowTextLengthW(input->edit); answer.resize(static_cast<size_t>(count) + 1);
       GetWindowTextW(input->edit, answer.data(), count + 1); answer.resize(static_cast<size_t>(count));
       if (answer.empty() && input->title != L"BIP39 passphrase (optional)") return "Please complete the field before continuing.";
-      if (input->title.find(L"PIN") != std::wstring::npos && (answer.size() < 6 || answer.size() > 32 || !std::all_of(answer.begin(), answer.end(), [](wchar_t c) { return c >= L'0' && c <= L'9'; }))) { wipe(answer); return "Use a PIN with 6–32 digits."; }
     } else if (accepted) { answer = L"1"; }
     Finish(input, accepted, &answer); return {};
   }
@@ -146,6 +145,16 @@ struct SecurityBridge::State {
     auto input = Current(); if (input) Finish(input, false);
     std::deque<std::unique_ptr<Work>> abandoned; { std::lock_guard<std::mutex> guard(mutex); abandoned.swap(queued); }
     for (auto& task : abandoned) task->result->Error("SECURITY_ERROR", "Wallet locked. Review the operation again.");
+  }
+  bool SetPasswordVisibility(int64_t id, bool visible) {
+    if (id <= 0) return false;
+    auto input = Current(id);
+    if (!input || input->done || input->mode != 1 || !input->edit) return false;
+    // Only the mask changes. No text or keystroke crosses the Flutter channel.
+    SendMessageW(input->edit, EM_SETPASSWORDCHAR, visible ? 0 : 0x2022, 0);
+    RedrawWindow(input->edit, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+    SetFocus(input->edit);
+    return true;
   }
   void Show(int64_t id) {
     auto input = Current(id); if (!input) return;
@@ -266,6 +275,13 @@ SecurityBridge::SecurityBridge(flutter::BinaryMessenger* messenger, HWND owner) 
     if (!frame) { result->Error("SECURITY_ERROR", "Invalid native frame."); return; }
     if (method.method_name() == "layoutPrompt") { state.Position(*frame); result->Success(); return; }
     if (method.method_name() == "finishPrompt") { auto error = state.Complete(integer(*frame, "id"), bool_field(*frame, "accepted")); if (error.empty()) result->Success(); else result->Error("INPUT_REQUIRED", error); return; }
+    if (method.method_name() == "setPromptVisibility") {
+      const auto visible = field(*frame, "visible");
+      if (!visible || !std::get_if<bool>(visible) || !state.SetPasswordVisibility(integer(*frame, "id"), std::get<bool>(*visible))) {
+        result->Error("INPUT_UNAVAILABLE", "The password field is not available.");
+      } else result->Success();
+      return;
+    }
     if (method.method_name() != "call") { result->NotImplemented(); return; }
     if (!state.call || !state.release || !state.cancel || !state.lock_session) { result->Error("SECURITY_ERROR", "The native Rust signing core could not be loaded."); return; }
     if (bool_field(*frame, "lock")) { state.generation.fetch_add(1); if (bool_field(*frame, "forgetPin")) state.lock_session(); else state.cancel(); state.Cancel(); result->Success(Value("{\"result\":null}")); return; }

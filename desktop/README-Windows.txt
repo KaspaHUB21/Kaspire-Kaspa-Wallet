@@ -1,9 +1,9 @@
-Kaspire for Windows 0.1.4 (x64)
+Kaspire for Windows 0.1.5 (x64)
 ==============================
 
 Installation
 ------------
-Run Kaspire-Windows-0.1.4-x64-Setup.exe. Kaspire installs for your Windows user,
+Run Kaspire-Windows-0.1.5-x64-Setup.exe. Kaspire installs for your Windows user,
 without requiring administrator access, and creates a desktop shortcut.
 Windows 10 1809 or newer / Windows 11 x64 is required.
 The installer does not yet have a Windows publisher certificate; Windows may
@@ -16,7 +16,10 @@ Keep all DLLs and the data folder beside it. No compilation is needed.
 Wallet protection
 -----------------
 Wallet secrets are encrypted with Windows DPAPI for your Windows user account.
-The Kaspire PIN authorizes access in the app; it is not a second encryption key.
+The case-sensitive Kaspire password authorizes access in the app; it is not a
+second encryption key. Letters, numbers, spaces and symbols are supported
+(6-128 characters). Existing numeric PINs remain valid. An eye button can show
+or hide the native password input without sending its contents to Flutter.
 There is no separate TPM-backed key store. Malware running as your Windows user
 is outside this protection boundary. Signing and review use the native Rust core.
 
@@ -38,8 +41,8 @@ update dialog. The installer is downloaded from the official GitHub release.
 The native core verifies the pinned Ed25519 manifest signature, platform, release
 URL, signed file size and SHA-256 before launching the installer. Kaspire closes
 during installation and opens again afterward. Android updates are separate.
-The first upgrade from Windows 0.1.2 must be installed manually because that older
-version does not contain the Windows updater.
+Windows 0.1.2 and 0.1.3 require one manual installer upgrade. The corrected
+Windows updater is included in 0.1.4 and newer.
 
 Data location
 -------------

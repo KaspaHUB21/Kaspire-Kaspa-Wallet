@@ -321,14 +321,17 @@ fn refresh_unlock(s: &mut Session, a: &Value) -> bool {
 }
 fn verify_pin(h: &Host, v: &mut Vault, s: &mut Session) -> R<bool> {
     if v.retry_after > now() {
-        return Err("Too many incorrect PIN attempts. Please wait before trying again.".into());
+        return Err(
+            "Too many incorrect password attempts. Please wait one minute before trying again."
+                .into(),
+        );
     }
     if v.pin_hash.is_empty() {
         configure_pin(h, v)?;
         s.until = now() + 5 * 60000;
         return Ok(true);
     }
-    let pin = h.ask(1, "Unlock Kaspire", "Enter your Kaspire PIN.")?;
+    let pin = h.ask(1, "Unlock Kaspire", "Enter your Kaspire password. Passwords are case-sensitive. Existing numeric PINs still work.")?;
     let salt = hex::decode(&v.pin_salt).map_err(|_| "PIN data damaged")?;
     let password = Zeroizing::new(format!("Kaspire Windows PIN:{}", pin.as_str()));
     let key = crate::derive_backup_key_v3_bytes(password.as_bytes(), &salt).map_err(error)?;
@@ -345,7 +348,7 @@ fn verify_pin(h: &Host, v: &mut Vault, s: &mut Session) -> R<bool> {
             v.retry_after = now() + 60000;
         }
         save(h, v)?;
-        return Err("Incorrect Kaspire PIN. No transaction was signed.".into());
+        return Err("Incorrect Kaspire password. No transaction was signed.".into());
     }
     v.failures = 0;
     v.retry_after = 0;
@@ -356,17 +359,23 @@ fn verify_pin(h: &Host, v: &mut Vault, s: &mut Session) -> R<bool> {
 fn configure_pin(h: &Host, v: &mut Vault) -> R<()> {
     let one = h.ask(
         1,
-        "Set Kaspire PIN",
-        "Choose a Kaspire PIN with 6–32 digits. It is required to unlock the Windows wallet.",
+        "Set Kaspire password",
+        "Choose a case-sensitive Kaspire password with 6–128 characters. Letters, numbers, spaces and symbols are supported. It is required to unlock the Windows wallet.",
     )?;
-    if one.len() < 6 || one.len() > 32 || !one.bytes().all(|b| b.is_ascii_digit()) {
-        return Err("Use 6–32 digits for the PIN".into());
+    if !(6..=128).contains(&one.chars().count()) {
+        return Err("Use a password with 6–128 characters".into());
     }
-    let two = h.ask(1, "Confirm Kaspire PIN", "Enter the same PIN again.")?;
+    let two = h.ask(
+        1,
+        "Confirm Kaspire password",
+        "Enter the same password again. Uppercase and lowercase letters must match.",
+    )?;
     if *one != *two {
-        return Err("PINs do not match".into());
+        return Err("Passwords do not match".into());
     }
     let salt = random::<32>()?;
+    // Preserve the legacy KDF domain and vault fields: existing numeric PINs
+    // must remain valid without migrating or re-encrypting wallet secrets.
     let password = Zeroizing::new(format!("Kaspire Windows PIN:{}", one.as_str()));
     let hash = crate::derive_backup_key_v3_bytes(password.as_bytes(), &salt).map_err(error)?;
     v.pin_salt = hex::encode(salt);
@@ -923,7 +932,7 @@ fn dispatch(h: &Host, method: &str, a: &Value, v: &mut Vault, s: &mut Session) -
         "verifyPin"=>{verify_pin(h,v,s)?;s.until=now()+unlock_minutes(a)*60000;Ok(json!(true))},
         "refreshWindowsUnlock"=>Ok(json!(refresh_unlock(s,a))),
         "configurePin"=>{if !v.pin_hash.is_empty(){verify_pin(h,v,s)?;}configure_pin(h,v)?;invalidate(s);Ok(json!(true))},
-        "removePin"=>Err("The Windows signing wallet requires a Kaspire PIN. You can change it, but cannot disable it.".into()),
+        "removePin"=>Err("The Windows signing wallet requires a Kaspire password. You can change it, but cannot disable it.".into()),
         "setInternalNexusUnlocked"=>{let enabled=a["enabled"]==true;if !enabled{let authenticated_until=s.until;invalidate(s);s.until=authenticated_until;}else{if s.until<now(){return Err("Unlock Kaspire before accessing Nexus Offers.".into())}s.nexus=true;}Ok(Value::Null)},
         "lockWindowsSession"=>{invalidate(s);Ok(Value::Null)},
         "hasNativeWallet"=>{let address=a["address"].as_str();Ok(json!(v.wallets.iter().any(|w|address.is_none_or(|a|w.addresses.iter().any(|r|r["address"]==a)))))},
@@ -1301,6 +1310,55 @@ mod tests {
             answers(&[]);
             assert!(verify_pin(h, &mut vault, &mut session).is_err());
             assert_eq!(session.until, 0);
+            answers(&["123456"]);
+            assert!(verify_pin(h, &mut vault, &mut session).unwrap());
+            assert!(session.until > now());
+        }
+        #[test]
+        fn unicode_password_is_case_sensitive_preserves_spaces_and_survives_restart() {
+            let _guard = NATIVE_TESTS.lock().unwrap();
+            let f = Fixture::new();
+            let h = &f.0;
+            let mut vault = Vault::default();
+            let password = " Kaspire Äa!42🌊 ";
+            answers(&[password, password]);
+            configure_pin(h, &mut vault).unwrap();
+            let mut reloaded = load(h).unwrap();
+            let mut session = Session::default();
+            answers(&[" kaspire äa!42🌊 "]);
+            assert!(verify_pin(h, &mut reloaded, &mut session)
+                .unwrap_err()
+                .contains("Incorrect"));
+            assert_eq!(session.until, 0);
+            answers(&[password.trim()]);
+            assert!(verify_pin(h, &mut reloaded, &mut session).is_err());
+            answers(&[password]);
+            assert!(verify_pin(h, &mut reloaded, &mut session).unwrap());
+            assert_eq!(reloaded.failures, 0);
+            let original_hash = reloaded.pin_hash.clone();
+            answers(&["short"]);
+            assert!(configure_pin(h, &mut reloaded).is_err());
+            answers(&["Another!42", "another!42"]);
+            assert!(configure_pin(h, &mut reloaded).is_err());
+            answers(&[&"x".repeat(129)]);
+            assert!(configure_pin(h, &mut reloaded).is_err());
+            assert_eq!(reloaded.pin_hash, original_hash);
+        }
+        #[test]
+        fn legacy_numeric_pin_keeps_the_original_kdf_domain() {
+            let _guard = NATIVE_TESTS.lock().unwrap();
+            let f = Fixture::new();
+            let h = &f.0;
+            let salt = [7u8; 32];
+            let hash =
+                crate::derive_backup_key_v3_bytes(b"Kaspire Windows PIN:123456", &salt).unwrap();
+            let mut vault = Vault {
+                pin_salt: hex::encode(salt),
+                pin_hash: hex::encode(hash.as_slice()),
+                ..Default::default()
+            };
+            save(h, &vault).unwrap();
+            let mut session = Session::default();
             answers(&["123456"]);
             assert!(verify_pin(h, &mut vault, &mut session).unwrap());
             assert!(session.until > now());
