@@ -1,4 +1,8 @@
-param([switch]$SkipChecks)
+param(
+    [switch]$SkipChecks,
+    [string]$SigningCertificateThumbprint = '',
+    [switch]$RequireAuthenticode
+)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
@@ -10,6 +14,9 @@ $DesktopRelease = Get-Content (Join-Path $PSScriptRoot 'version.json') -Raw | Co
 $DesktopVersion = [string]$DesktopRelease.version
 $DesktopBuild = [string]$DesktopRelease.build
 $LogFile = Join-Path $PSScriptRoot 'build-windows.log'
+if ($RequireAuthenticode -and -not $SigningCertificateThumbprint) {
+    throw 'A trusted code-signing certificate is required. Do not label an unsigned build as Authenticode-signed.'
+}
 
 function Invoke-BuildCommand([string]$Program, [string[]]$Arguments) {
     Write-Host ("`n> " + $Program + ' ' + ($Arguments -join ' '))
@@ -56,6 +63,9 @@ $env:GIT_CONFIG_COUNT = '1'
 $env:GIT_CONFIG_KEY_0 = 'core.longpaths'
 $env:GIT_CONFIG_VALUE_0 = 'true'
 $env:CARGO_BUILD_JOBS = '2'
+# Target-local flags, including dependencies and release tests. Runtime CFG
+# enforcement is required; metadata-only "nochecks" is explicitly not used.
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = '-Ccontrol-flow-guard=yes -Clink-arg=/GUARD:CF -Clink-arg=/DYNAMICBASE -Clink-arg=/HIGHENTROPYVA -Clink-arg=/NXCOMPAT'
 Push-Location $ProjectRoot
 try {
     # Format conversion only: reuse Android's Kaspire icon exactly.
@@ -99,6 +109,12 @@ try {
     if (-not (Test-Path (Join-Path $Release 'kaspire.exe'))) { throw 'Flutter did not produce kaspire.exe.' }
     if (-not (Test-Path $CoreDll)) { throw 'The native Rust signing DLL is missing.' }
     Copy-Item $CoreDll (Join-Path $Release 'kaspa_secure_core.dll') -Force
+    & (Join-Path $PSScriptRoot 'Test-WindowsHardening.ps1') -Bundle $Release
+    if ($SigningCertificateThumbprint) {
+        & (Join-Path $PSScriptRoot 'Sign-Windows.ps1') -Path @((Join-Path $Release 'kaspire.exe'), (Join-Path $Release 'kaspa_secure_core.dll')) -CertificateThumbprint $SigningCertificateThumbprint
+    } else {
+        Write-Warning 'No Authenticode certificate configured. This build has no verified Windows publisher signature; the separate signed update manifest is still required.'
+    }
     $Output = Join-Path $ProjectRoot "dist\Kaspire-Windows-$DesktopVersion"
     if (Test-Path $Output) {
         $Output = Join-Path $ProjectRoot ("dist\Kaspire-Windows-$DesktopVersion-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))

@@ -752,7 +752,7 @@ class _SettingsOverview extends StatelessWidget {
                         ? 'Wallet encryption'
                         : 'Hardware-backed encryption',
                     detail: isWindowsDesktop
-                        ? 'Windows DPAPI · encrypted for your Windows user account'
+                        ? 'Argon2id + AES-256-GCM · Windows DPAPI'
                         : snapshot.connectionState != ConnectionState.done
                             ? 'Checking…'
                             : snapshot.data == true

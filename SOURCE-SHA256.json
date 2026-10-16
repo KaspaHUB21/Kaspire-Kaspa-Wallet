@@ -1,0 +1,1257 @@
+{
+  "version": "0.1.6",
+  "files": [
+    {
+      "file": "apps/browser_extension/tests/fixtures/kaspacom-seller-offer.json",
+      "sha256": "b0758decdbbcfc308fbd793273fb60a0d80b98928c90d91f88a64c114113c5a6"
+    },
+    {
+      "file": "apps/mobile_flutter/analysis_options.yaml",
+      "sha256": "48b19d9c4e11efe7492effbdf3a5ba8dd7da275e19ea0a872c71fd6f6e31d14a"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/branding/hub21_wordmark.png",
+      "sha256": "d80508647b3154cfdd89b87cbe3646e7acd2267c93139cd7c72ca3f70333d6ad"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/branding/kaspacom.png",
+      "sha256": "5c9716ef447a68e60cab6823869e4a598bc454422fff9de942e72171b2838db3"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/branding/kaspire_app_icon_v4.png",
+      "sha256": "c326810b980e7542096e3c97af067c834627f76ac4577f325549f40b6c2d41f7"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/branding/kaspire_app_icon.png",
+      "sha256": "73252bbe23e3dc514a9c9d1e8330bcc828655f2c314a522cb5c255232cc39f1b"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/branding/kaspire_wordmark.png",
+      "sha256": "727ee43081dc3f1cb09bbb43d68945a727d4853a730b3ba7ce020d4bb7019639"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/browser/devtools.png",
+      "sha256": "9b1c9e08d397c85b91d050b8b21cde1bf95001ea47c57c5133d69211308894a1"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/browser/dotk.png",
+      "sha256": "2428f8350d780c90357f75a11cc43ebad8ed91f2e63fcbe04f0c8c2e171f83c0"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/browser/gothdag.png",
+      "sha256": "dd42f4b5f3cf3d3fb4f56cf66fc86412fcf6e27ace858bd21cb48a6868d2e555"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/browser/kasvio.svg",
+      "sha256": "7ee85fcb99a0babdbc89c83834c639cb8ad35063020c453d602ea688c55e6563"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/browser/vaults.png",
+      "sha256": "aaccb8881403341b1c2884f5178d97541bb0782b66ea6d4f3b2d0ced18755fa3"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/kcc20_standard_template.json",
+      "sha256": "68326cb976909fd2d39c0a45f488ec3c6bae3a24ebf30afcb16391a8db278f9d"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/themes/glacier/aurora-glacier.png",
+      "sha256": "d939bd5a150f8895ca90dfbf97c3b08657b8908fc44aa65445d52fb97711e0de"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/themes/hub21/brushed-metal.png",
+      "sha256": "34d1fc8f3d62195141f8b5e5e3ba16df4808633063b5447a2ea49bb85f228b0e"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/themes/hub21/relief.png",
+      "sha256": "bdf9795d4e907944b2a0235097f36af87941074f7d243b6a24329eedd41a616a"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/themes/neptune/Allura-OFL.txt",
+      "sha256": "c8cb4c94a558b6cb82ac5dc981a73a0b8aee35a5c52c8a7832fc0280c289ad49"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/themes/neptune/Allura-Regular.ttf",
+      "sha256": "9c142b2e515832c0dfc4ff8b8ea18f40314943bf937b72e2b23c4661bac14cc6"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/themes/neptune/assets-ornament.png",
+      "sha256": "1c74546c74c909c70bcbd9f9818ba27463b5ffb4ea15caa1676314046bff2bdb"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/themes/neptune/ocean.png",
+      "sha256": "88cc16cd84284b6f8203672496f6cbffa54f01b80c5636cd55a4eaa819c65bde"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/themes/neptune/orb.png",
+      "sha256": "0e22d5e98be7ed102d0f9611ce7f1865abfc1efc3be6c45b1090a561b21f1ad2"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/themes/neptune/water-glass.png",
+      "sha256": "8eff97235da201b8f1d0411e684fb4b639f3812931ff65abe3e189f2a8c84c31"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/vaults/deadmansswitch.png",
+      "sha256": "ef47871922ef24a80d26951828713feefb52ebae5334064c0bbbdcb67015fa32"
+    },
+    {
+      "file": "apps/mobile_flutter/assets/vaults/timelockedvault.png",
+      "sha256": "6960a651691ac8ada70c3ac10426551a0bbf2c1acfdd683c13b2277524ba7fbd"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/main.dart",
+      "sha256": "c5bbf2b0dd3c152789443b15154b2d514fe749c2c22976f0cafdd773fb85d4be"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/app.dart",
+      "sha256": "b3e93237ddf3d27d4556aba413c5f881be2f3b986283ae7017d98918541e8ab3"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/decimal_input_formatter.dart",
+      "sha256": "9260e66e35cf5b24c25685fe1dd133c83c5b2f99846ddeab3eeb13f04aa4b626"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/kaspa_address.dart",
+      "sha256": "bcf5cbd51c8ffe094ae1643f0341e665e8efa0d207816d88d9d8da21700cf169"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/models/asset_send_intent.dart",
+      "sha256": "2e417867ed19e1cfaa98196fcdea3003d4d9478c0475c6864a1d5ba27404f9a0"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/models/kaspa_payment_request.dart",
+      "sha256": "de2d79750cccf0a88e2cc5d2c2e0a87893104a46152c72197b0c6fb196886576"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/models/network_diagnostics.dart",
+      "sha256": "fad3966ffd5610f766981532b6ca171850702dd70b24c822b6111d1190eb57c9"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/models/wallet_snapshot.dart",
+      "sha256": "73611ff218ee410e8e64a3d3763ee3f8e67c031e5f06561e01e38d7f81f39060"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/number_format.dart",
+      "sha256": "65903dbb136d175c4f7a437d6441dd23f8e73827564f0a93c5ee22f6dc096bec"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/platform.dart",
+      "sha256": "b661e8640540fed6caa20df09269ed30687142f96220ba0bc8a1015287e935a5"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/address_book_screen.dart",
+      "sha256": "29f0e76b5dd16c4f77a53fd3430aa6527b6b01c10de890aea4796556982f3878"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/asset_send_screen.dart",
+      "sha256": "cbbfde567101be7beb3de0329c34038520274128fffcdb9dbb0e0917ff11a818"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/covenant_vault_screen.dart",
+      "sha256": "04ed2b8729449ae0e95c15552f967d5a3d09e9c93be1cddfe01cd078e68381d9"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/dapp_browser_screen.dart",
+      "sha256": "03c7a16d77f637e6ce1ad3363dc0d947063509083e7eaae63bb3bf04fd9ffeb0"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/dapp_browser_selection_screen.dart",
+      "sha256": "6f4f055a4adeda22d0c3714d1f771fd2c047d02ea242ae3bea2d6abec17dde9d"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/dapp_qr_scanner_screen.dart",
+      "sha256": "2c357a040728e8258b0942df90c90aae86275d02a3861cfddfe514e6715e20f0"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/dapp_sessions_screen.dart",
+      "sha256": "1e3eeec45199d9c833ef63f0e79f577b3e315eb4d9a8a7652d8e307579684703"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/diagnostics_screen.dart",
+      "sha256": "2e389f4b3fe24520384176656099c7c51c97c6538e8918c7d3be47fa3c3946e3"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/dotk_market_screen.dart",
+      "sha256": "3e530d357b101c588dd1ac30ed502f3d7db8c4398619a856c89ace1ad3b4572b"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/dotk_name_screen.dart",
+      "sha256": "abaa67efaab16bf448c1aa100bc58909a602ea7fa2daf0d100a02dc253c9e680"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/evm_receive_screen.dart",
+      "sha256": "9540ebc9b69242e863225e61cace7420ba3de4502c25d272e2b5205859820366"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/evm_send_screen.dart",
+      "sha256": "825028b92369cae483edadba3b1d065ffdeadb13b1bb1fbc2cd6b57a3f575aae"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/evm_wallet_screen.dart",
+      "sha256": "6677f2b0283d76d11cd6c04f404cc0d3a64e64f5af254cb55ec11a63f3215c3c"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/hidden_kas_screen.dart",
+      "sha256": "f9ec697fd6b1447188a049997e3e181ac7332f6c732f494a467b18b88ba64295"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/home_shell.dart",
+      "sha256": "29277d7a392aec6e5007f24bcd2eb9704a6e1594b7d248e03afbb18037c89018"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/k_agora_screen.dart",
+      "sha256": "46515b7ecb8c9f0f289c478ecd3575136b4c6004813e2de9014d197997682c5a"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/kaspacom_market_screen.dart",
+      "sha256": "df1afb417aa27cb1053faad803f283e1275061e714d189fb0c83b61e59f3f8e8"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/kasparocket_screen.dart",
+      "sha256": "ea052649ef17572b68e4b70ca56d130d2e31404bb3572ba698cf5d54bddfcfdd"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/krc20_token_detail_screen.dart",
+      "sha256": "e72c111817c70e5f24a6a3e756c378c622f6ddcd2ee101d792f7716ed344a1ea"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/kron_dex_screen.dart",
+      "sha256": "f29f3fc4dbdb60908cd0dbd52414450c013f6502cb5678b48418f676814635b9"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/nexus_screen.dart",
+      "sha256": "04904c5757ab5695902c820b4a706e4076a2b0e00ff6fc9b2224a6e22b6bcee5"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/nft_collection_screen.dart",
+      "sha256": "75a1b39b440ab6abbaa3942dd4180ee74e6bdbffa271a774c32f4646548b5db6"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/nft_market_screen.dart",
+      "sha256": "6053f3289ca32b237a225a2121d68af77871018030eb59dec4ba4a3e8d42b317"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/onboarding_screen.dart",
+      "sha256": "003f322148407ee4df3128361c34f7410909ef60afbb2eb81e59a4e79341633e"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/qr_scanner_screen.dart",
+      "sha256": "8681636028e0c409a08a0de4789ed1e9176e48b965a725a58aea2f8b664f97a0"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/receive_screen.dart",
+      "sha256": "56bfc2e98f6d88bd9285093168ebb857417c04ebdaee9c4c968163bf6e37897b"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/send_screen.dart",
+      "sha256": "3340cc93d36068f3488ce5cb3397f564e91a64ac4df2abaeb8495eb54c5240af"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/settings_screen.dart",
+      "sha256": "4c52a7979576c5e3b2f99c39ce0b9929da403d58beda6428e622451cc7113176"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/tangem_rescue_screen.dart",
+      "sha256": "daa65df9337d58c5e5ec7bd8c982df61c0b8b7724eef758c377b1f663336425d"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/transaction_detail_screen.dart",
+      "sha256": "537ad6650f113a8755ba1d2140627176cb8907101b3694695a2acca5316cd9d6"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/upcoming_feature_screen.dart",
+      "sha256": "f0358c273c7452666614dcf5168f25c9e7e26369255f27132df251abdfda7786"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/wallet_manager_screen.dart",
+      "sha256": "351f97c907fc23c0189432b5d69c8326363487d76ce444e012e6cc5ad71b5240"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/wallet_screen.dart",
+      "sha256": "ee8186363907beccdb68430bf5d9fc60cd0ea4109f00afffdc6b775ca17ca141"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/screens/windows_dapp_browser_screen.dart",
+      "sha256": "1742c0628e7466eef668f00254b6399d8a1e5c4ebbbdd7bbb5b7222eedfc3300"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/activity_store.dart",
+      "sha256": "73f139980dc7b1d51bb4810921edc727f1ceb1ab8c9a0849a184761912403ba9"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/app_settings.dart",
+      "sha256": "90ce532a2277ed0aa607de4fdda9c5a3d3c4c29ea91a881c9247083dc82192f0"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/covenant_vault_service.dart",
+      "sha256": "d638281e4d5d78dd08301bf608cc155f00093bcfd9330423af3afea00795e135"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/dapp_browser_catalog.dart",
+      "sha256": "bf747fd85f826e8be125bd71b1bb4250ea0917625c7989957c9a5aae0e51228c"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/dapp_browser_policy.dart",
+      "sha256": "f9401a8c3f0a3372be316495dfee94bfe5a74e78545a9969d38363d8635c163d"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/dapp_session_service.dart",
+      "sha256": "c8375bccc42672dbf6c7f442ebdb287260fdf7f33fe88ad2cf85caba6b2a08e5"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/dotk_market_service.dart",
+      "sha256": "c739fd94601fcb47be7ab9f061e3c0b6f545caea5fc8f73068d9e12a3d60a87c"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/dotk_service.dart",
+      "sha256": "7013e7b37124b6cbf7ff42caf00b7cb38d305d780bd9702ca6720a39917a3b4b"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/encrypted_store.dart",
+      "sha256": "354434301fc030d7c47620847e77271b8eb0c2de9db936fdff8ea1e2261bcb41"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/evm_api.dart",
+      "sha256": "cf296351eb20eed55cb5be06f1f701261a429a70d339e01000274a5f0295e15e"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/hd_account_service.dart",
+      "sha256": "f1345c9ff7401f9bcf61496b000a9e5b3787d3d0a3bed1d6366ecf0a2a0b9d63"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/hd_discovery_service.dart",
+      "sha256": "5aa3bccfdabe0f26a6b31593bbc65c1f421ac2e4969e197c61c59d666e23b522"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/hd_wallet_structure.dart",
+      "sha256": "3c0217320491015453473dda7a446a8ec23a11fdee4d763539e8c7c04ff1f8db"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/hidden_kas_service.dart",
+      "sha256": "738e2dfd1132e762d997e47e3a37f733e42b5722bcb0817cb7505f52049f1576"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/kaspa_api.dart",
+      "sha256": "c101427231fa165ef030e8d8ab551de6c5a46d352ef5f4c5002239d200afb62c"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/kaspacom_market_service.dart",
+      "sha256": "134b9be30f6a42fa4487b7aead94dc31765c83bcbafca0d705de6008af5e1ece"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/kasparocket_service.dart",
+      "sha256": "27e3493fb3043e004925030ccf27c842b76b23f9523a3c8148f25d9a44c7f00a"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/kcc20_standard_service.dart",
+      "sha256": "f5496022979e8882eb083f34514b9b56c61c5ce48225e9bac20aa1057e86471f"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/kns_holdings_loader.dart",
+      "sha256": "8912a35f2cab64bba45ba6d27493beccb736f03f491c06598cbf6a9263d881df"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/krc721_reads.dart",
+      "sha256": "f66945918fb3cccfa63778cb0b63bf15eea9b529e7df67fb9a5f3d906981dbb1"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/kron_dex_service.dart",
+      "sha256": "69643a03984001874e070d3d27565ad1119804ce5b32b87ad87e24e216ac1cad"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/kron_holdings.dart",
+      "sha256": "ae338a80f4f9b809731fb8bc4d618b1e4af05bcf628676e8726ebc27299f2422"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/marketplace_reads.dart",
+      "sha256": "1620e2518b7ecbb9d0e5ef01048d800d8bfc2589607a06695e88af0b94db0939"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/native_security.dart",
+      "sha256": "b57809bd5d3917ee50aa38ef3ccae248dad286f03ebec4868c559e9d35e07cc8"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/network_settings.dart",
+      "sha256": "3cdccb2cdf80a100ffdc1750750e1d3ec40f91d9080389a5e20095617e6c29b8"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/nexus_service.dart",
+      "sha256": "e8ccb700377c5130709994e8e8de8883385eca6af7b04206bd1b9f0a1ec7b4ff"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/nft_market_service.dart",
+      "sha256": "8019477c3fbc415683e29bd6c3381c5111c553295819f73e7fa5d65abca53696"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/preferences_service.dart",
+      "sha256": "e0c4be93f871522681835451e745d5d85b4163729ed5972a6c0e98d37b67f222"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/privacy_settings.dart",
+      "sha256": "810e832a3487f4d3ed157aa56ae360de02bf793e63fa30e496ad5f137b7f2571"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/security_channel.dart",
+      "sha256": "7cf6fc4f86bf8c5970c73d7305a2ba341d5697f94801351992e3368f76c71d85"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/signer_service.dart",
+      "sha256": "9d439c9c1378875b0168125da68186a91c83d789323860f522e327db3d37a3eb"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/update_service.dart",
+      "sha256": "af2accdf2275b2c8b3053c11dc04877349ab747cd5a25ef72bf309f7021b71b1"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/services/vault_recovery_download.dart",
+      "sha256": "b80aa26071b245a3afbd6521cf91cc9ba61a8591124559c7d6921133b125bbdb"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/theme.dart",
+      "sha256": "ec3c0564513a334e3e6b2d7be66dd9ae53798a574f89b75ca130c8ae8f3cf120"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/cascoven_vault_header.dart",
+      "sha256": "b585062f8baa395010cbb4f914fd87d984f5cef095d6961efaf5f065e6f81cb4"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/desktop_frame.dart",
+      "sha256": "6d5ac0abb09a7172ab5f855cec30da94e6a4f598f90d44381f8c1d42de055d3e"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/desktop_qr_input.dart",
+      "sha256": "b381ccaf29651e9ea06f8c15fe96156d5799a932eda91e3647098ac5bab87c8d"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/hub21_material.dart",
+      "sha256": "44b46f893bec1181ba112f0fd3b26c28b070323185b430f1a900f975a6f821e3"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/kaspire_brand.dart",
+      "sha256": "001de05140722d18c6e9790d107d920109edb003b830d99b058cbb2f5f285c4e"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/krc20_order_card.dart",
+      "sha256": "0aff5bb653059c13877cb1888784b38c2047dc29c4fb91bda31186eab5c8957c"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/krc721_image.dart",
+      "sha256": "102f5f3139f816f7a505c5839957961c5edb255e2712d70fd0931dabb554c6b5"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/neptune_material.dart",
+      "sha256": "a031061eac5f51393c8f4b0251a6d8ed824b9dbf9d87e38ddcc8ee839f5c1604"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/nexus_bell.dart",
+      "sha256": "bc9f6118906ceb8a3b57b3ccb636ca89572470ac43adbf4c7a5ae298415a2837"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/wallet_responsive_layout.dart",
+      "sha256": "ab39cdec7dc8ddbaf68b64d8fd1935f0a0b80b2160675048c3fc121892ba45af"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/wallet_unlock_screen.dart",
+      "sha256": "1b5a0ac274a9f432e2b8f3e4ae65091682672743591385786ecbc3ab6ee539be"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/windows_security_dialog.dart",
+      "sha256": "381055f4960b2e899109688e9fb11a43e247a6aa78cc01fd258f5c051e8d5037"
+    },
+    {
+      "file": "apps/mobile_flutter/lib/src/widgets/windows_update_dialog.dart",
+      "sha256": "32ead3c413abcecf154b3511473d630f67c019c3346180f0e5fab88889356337"
+    },
+    {
+      "file": "apps/mobile_flutter/pubspec.lock",
+      "sha256": "7d813cafc36f6ab308131ff3ce5537b8df2f82d7367719751aff7ac1edc98eca"
+    },
+    {
+      "file": "apps/mobile_flutter/pubspec.yaml",
+      "sha256": "a5a9f6b178181a1defc70532f6f4ce6d6d8e6a571ed0d5e8256dbede82b34eb3"
+    },
+    {
+      "file": "apps/mobile_flutter/test/activity_store_test.dart",
+      "sha256": "0eec6f389b953f9782758c9383560d2a2b800f3e832ec91921915e87f2e80d50"
+    },
+    {
+      "file": "apps/mobile_flutter/test/app_settings_test.dart",
+      "sha256": "34ad6857ddbc3036d4450e1b7f50ef99d75855837306ab132a6720384d38e449"
+    },
+    {
+      "file": "apps/mobile_flutter/test/asset_order_test.dart",
+      "sha256": "c2a1f5580954e03654e798e5e33a9c0a14c131efff77ec184943d72efd2a35a4"
+    },
+    {
+      "file": "apps/mobile_flutter/test/asset_send_loading_test.dart",
+      "sha256": "cd1fc153341dd86e356befc567fddf9466beeb2913565e99447f3527debb83fe"
+    },
+    {
+      "file": "apps/mobile_flutter/test/backup_boundary_test.dart",
+      "sha256": "0d7a0ee568e7b852f2bb5bdea456a6d52d1fcb737f71a47bd984993ea8fc961a"
+    },
+    {
+      "file": "apps/mobile_flutter/test/cascoven_vault_header_test.dart",
+      "sha256": "5bd0468727168700eb3a785fe13887d5108fc2f63097c94150f08d2cc7dd107c"
+    },
+    {
+      "file": "apps/mobile_flutter/test/covenant_vault_test.dart",
+      "sha256": "149ccda5194a94e9d4c704533ba562d60de33938d2ca9acd22051820a57c50ba"
+    },
+    {
+      "file": "apps/mobile_flutter/test/dapp_browser_policy_test.dart",
+      "sha256": "8c0a6b9b94564a1a3ed2e174ebb90a31bb6d7f2e4e492d77c2281f59d63d8fc9"
+    },
+    {
+      "file": "apps/mobile_flutter/test/dapp_browser_selection_test.dart",
+      "sha256": "cb69410c6402355759c1242905afff609453a05bad6caa08821b1e0aa8800ba6"
+    },
+    {
+      "file": "apps/mobile_flutter/test/dapp_session_service_test.dart",
+      "sha256": "e616e95e429cc0081a5dce852cba62c2251aee568dc9ffa927ae96988e835ebd"
+    },
+    {
+      "file": "apps/mobile_flutter/test/dashboard_actions_test.dart",
+      "sha256": "41f435ec5ba1e0d7baef7d3dfd30bdc35045f87fd47ae300a0a81e48fa1711e5"
+    },
+    {
+      "file": "apps/mobile_flutter/test/decimal_input_formatter_test.dart",
+      "sha256": "d9fa35d9e3eb6536ab0568c1b802e4da6074ea41bfb28be98d4dc82e767afcdc"
+    },
+    {
+      "file": "apps/mobile_flutter/test/desktop_test.dart",
+      "sha256": "76ea66e6070a16021226c278076b71767e06cb4f32b2415e8819f04241ea2f1b"
+    },
+    {
+      "file": "apps/mobile_flutter/test/dotk_market_loading_test.dart",
+      "sha256": "7c1a0faeb0c4f8bde26f2926c482e149d5a3de248557765debec0804c935b5af"
+    },
+    {
+      "file": "apps/mobile_flutter/test/dotk_market_test.dart",
+      "sha256": "3706bed5cddef54a385f2f40bc6ac3ecc9ad01bf86318a9214492fe913d16a24"
+    },
+    {
+      "file": "apps/mobile_flutter/test/dotk_service_test.dart",
+      "sha256": "9f49acdd141825602f5697c5809bd1b6adc0eb5ceb28f2deb45857c76aa7ba24"
+    },
+    {
+      "file": "apps/mobile_flutter/test/glacier_glass_painter_test.dart",
+      "sha256": "fab33c64c192d7fa1d3485bb576a3c8ed9e7c010fc019cd40b0000f5f6adb490"
+    },
+    {
+      "file": "apps/mobile_flutter/test/goldens/hub21-phone.png",
+      "sha256": "d06dab9914994ff57614b5a164137d89307a773afa9a06ddb33c874bae7889ec"
+    },
+    {
+      "file": "apps/mobile_flutter/test/goldens/hub21-receive.png",
+      "sha256": "1dee42435bc84a5d5985cac13fdb1eac69f30501cb698a5a3f65ad360f1ef530"
+    },
+    {
+      "file": "apps/mobile_flutter/test/goldens/neptune-phone.png",
+      "sha256": "b73815bb5c9d358f0714d46a2dad878248afbca682ef7c886172a902186d37ab"
+    },
+    {
+      "file": "apps/mobile_flutter/test/hd_account_service_test.dart",
+      "sha256": "0aa189e3de2907e82051b5b55d1d7c31d06cc65c186787b30bbb8f5f572d6824"
+    },
+    {
+      "file": "apps/mobile_flutter/test/hd_discovery_service_test.dart",
+      "sha256": "e8fa6e001869b3c34cbf5efa6932816f019e9ad2639231ed4d52d066f4d43ca1"
+    },
+    {
+      "file": "apps/mobile_flutter/test/hd_wallet_structure_test.dart",
+      "sha256": "63f6b26f293b69b7ecfcdad06a7d6538f55feb7f2310fcb450d9d7e39f22f89a"
+    },
+    {
+      "file": "apps/mobile_flutter/test/hidden_kas_test.dart",
+      "sha256": "d17909116ef2c487546ca08843fa750e3d8966427e1ffb0aba84b82e883dc5e6"
+    },
+    {
+      "file": "apps/mobile_flutter/test/hub21_theme_test.dart",
+      "sha256": "da4cc22c4a1e7360ccda3bda357916b4a8e43e86f8e441105b7b2d59a7cdd76e"
+    },
+    {
+      "file": "apps/mobile_flutter/test/k_agora_release_test.dart",
+      "sha256": "dcdcab2b3b2b0f443c939c8c3581cb761020c2683eedc734833add84d4a64a9b"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kaspa_address_test.dart",
+      "sha256": "593a82bf36e6d2d5177af9bc5ae0674749b7082312b15fb6f91f5a8b658f8fea"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kaspa_api_test.dart",
+      "sha256": "29c27f86cc7cf656e41812d693b454f6ed5d07c5c60ebfcead72bc4c95234075"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kaspa_payment_request_test.dart",
+      "sha256": "779b445a7d3f6de4ada188b6ea2b08697a2d25aed0356b0b0d6adaef46af0725"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kaspacom_holdings_loading_test.dart",
+      "sha256": "a555013c4d2132ba3f3609d442402b69f5f50701cd149e77999f83aa75f3523b"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kaspacom_listing_status_widget_test.dart",
+      "sha256": "14b1a9362baec9a1e5d9c9f81c37cc13fd254b5db6fc13c87e0ae680c1e37233"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kaspacom_market_test.dart",
+      "sha256": "3c17f0dd37b0623c404f58d0e2fd01364c3bfeb5ec50396b73e6069d0f9b0763"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kaspacom_review_flow_test.dart",
+      "sha256": "a513f524b9fa9c716c42ad6baef6a3135003d8a86764b4cd9f4f77d89eac269e"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kasparocket_service_test.dart",
+      "sha256": "435495319e47037fee409dd2e77ff0debb8284718d285c104bb76ce985da3ee7"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kcc20_standard_service_test.dart",
+      "sha256": "d6c85f86b69ce623c69968e46276de6a892d028a3797629c723bf703d64f5119"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kns_holdings_loader_test.dart",
+      "sha256": "438a9df54a3c76558d3f5bc74973ccca0679988265f0764095c5698a8e5a87fa"
+    },
+    {
+      "file": "apps/mobile_flutter/test/krc20_order_card_test.dart",
+      "sha256": "a65e50dabdfec75eb97eeb1302006a014a83b33d7ccf6986ec77be5a6cb0df9f"
+    },
+    {
+      "file": "apps/mobile_flutter/test/krc721_reads_test.dart",
+      "sha256": "99fb89deffa1bca5634428d958e4d1d10f68b6566e5e60a3184496ee38ffea0b"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kron_dex_amount_test.dart",
+      "sha256": "83e4bc38a842eae7cfbdc2b1e2c46e8da5c98586d5e17439f21a192c6a0f42b4"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kron_dex_node_test.dart",
+      "sha256": "530ed0b29766a8ced910bf85b9b2239c55d7590e28ff1e105803f663379dd4e7"
+    },
+    {
+      "file": "apps/mobile_flutter/test/kron_holdings_test.dart",
+      "sha256": "786c483464c6adbc97d9dde2c131176cccb62d89973816b4c3f452ff6acfc809"
+    },
+    {
+      "file": "apps/mobile_flutter/test/marketplace_holdings_api_test.dart",
+      "sha256": "8cc573f977d91b05d7c25a0fd6677766d0cdfccf73fa32131d7c4dfda6c9bca3"
+    },
+    {
+      "file": "apps/mobile_flutter/test/marketplace_reads_test.dart",
+      "sha256": "d7794c7df1f92bdc8f4283e1c5c4fa74aecfcccc39e339f8d01b6711c744cbc7"
+    },
+    {
+      "file": "apps/mobile_flutter/test/neptune_theme_test.dart",
+      "sha256": "b4b8a00b840660ab4e27620b40b5103c0c9826013968db1be71c48240e8fb369"
+    },
+    {
+      "file": "apps/mobile_flutter/test/nexus_bell_test.dart",
+      "sha256": "1513b05e9dbb621600373dd31fca991d5e26ca38fb50382f8bdf0001ec0f5c13"
+    },
+    {
+      "file": "apps/mobile_flutter/test/nexus_session_test.dart",
+      "sha256": "368d5f7c3ccf7411b1de9b8b77df034e08b9310c67e79a5447cac236ed19f63c"
+    },
+    {
+      "file": "apps/mobile_flutter/test/nexus_test.dart",
+      "sha256": "5e94f6ef4ac9ec66ce4015cd08c78143069932b06456eb124964dcff16772f52"
+    },
+    {
+      "file": "apps/mobile_flutter/test/nft_market_test.dart",
+      "sha256": "76beb8dd6b93dca70b4fa683f954f04535f020a9d0c3d9ae417cd7dfede86681"
+    },
+    {
+      "file": "apps/mobile_flutter/test/number_format_test.dart",
+      "sha256": "eff75ba22211f2e86fcf9e78ff6bf2d3be9231c9eae5bd1f76d5f0fa589834b4"
+    },
+    {
+      "file": "apps/mobile_flutter/test/preferences_service_test.dart",
+      "sha256": "32b2afdd13803994a5534f73152b2d0e2f6ed3b8e8ceba918ab8e60a2cc525a1"
+    },
+    {
+      "file": "apps/mobile_flutter/test/signer_service_test.dart",
+      "sha256": "4a2566c3b03cbf26e0e40ef57fdafbfe25db3bb7e3395268d102e49013c15da1"
+    },
+    {
+      "file": "apps/mobile_flutter/test/update_service_test.dart",
+      "sha256": "9abb87c8e957ef6eef8dd98c007f9c404ca6332d2ea025c38ef3a79a8fd83d81"
+    },
+    {
+      "file": "apps/mobile_flutter/test/vault_recovery_download_test.dart",
+      "sha256": "d14fa78b363ad3b2a309dc168073df64bd28906e53521ede39ca460ae1b41263"
+    },
+    {
+      "file": "apps/mobile_flutter/test/windows_unlock_test.dart",
+      "sha256": "9e6bc7c8a2791f487f3340a217125b21d29990d741677554fc125728314b630c"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/.gitignore",
+      "sha256": "96345475f1a3c66bd32d28178fba151ab1506b35b1f7857b8f7651863093ea11"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/CMakeLists.txt",
+      "sha256": "97d88ce050f6d14226a586b6224f23b44acbf9e03122071545457e009b538804"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/flutter/CMakeLists.txt",
+      "sha256": "1fe418971b6f41bb35ceb3d64113a835f3f6f171ecaa707bf232492b57a588d6"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/flutter/generated_plugin_registrant.cc",
+      "sha256": "5563ad5b6a3f8baaa3261b26e2dadf0e918bdfc5b26c9a2a0af2142f8779d353"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/flutter/generated_plugin_registrant.h",
+      "sha256": "dbc11635d7b1ba1887adf40df5b83d634e9c3ab0bee34510c71528bb4d73602a"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/flutter/generated_plugins.cmake",
+      "sha256": "20ef63b9092dd8c8355e8318b6df7e57a2f1b5aa15c09fd62ba507f35e3f3ba0"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/CMakeLists.txt",
+      "sha256": "d742af22a9c1519acf03eac67329644fdc8e428c948d61e280d856a577212297"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/flutter_window.cpp",
+      "sha256": "793b1bcff964bd0587c9925e2276d1945efa70b7276f8aff580e0334e56b1f51"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/flutter_window.h",
+      "sha256": "a0a2fc3b6ea78f32cd89cd67dfd52509516a8f1b8169fbe0f6c1576c3943b9f0"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/main.cpp",
+      "sha256": "41c3da16814553d0d313649b1817b3e2ffe7dfc015f02d68a48401694f694e19"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/resource.h",
+      "sha256": "1fa98588b04561590ba1cf0521ab86a9db4a878312f21c9d5861d965ddd8d1ae"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/resources/app_icon.ico",
+      "sha256": "c098d3fc85cacff98b8e69811b48e9f0d852fcee278132d794411d978869cbf8"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/runner.exe.manifest",
+      "sha256": "825d243e9fa1542619909c1b72d09b3ed7c1f3b225bb8367c125835e5dc3f8aa"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/Runner.rc",
+      "sha256": "ed38d40587390a9721979d69bd232c106c08dba9df37688e9fb79c7e23ecdf0b"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/security_bridge.cpp",
+      "sha256": "9e5e4fe1b26c9fea136be8e21ed306c079c779ddc103ba853fb528ecea7036ab"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/security_bridge.h",
+      "sha256": "565bce933d5b0b0137aeb3a6be81e75d191ca4c8977d0d9dbfa941ee8239e474"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/utils.cpp",
+      "sha256": "6c2c87106b4b29d534c7edcafb3b7f7b9079caa3cdafa7e56671ad2adf5a2543"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/utils.h",
+      "sha256": "95a7f7dddb832997cefa937a96f89472332277e75734a5de553610760b744b03"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/win32_window.cpp",
+      "sha256": "9065f31ccf746cf8b390121f958f9e959033af864aed779597066625ed56bc36"
+    },
+    {
+      "file": "apps/mobile_flutter/windows/runner/win32_window.h",
+      "sha256": "7dd03746b19dcf3542829b2f6e8ed40a2714ce5f2cb3b0e23f0118a2fcf62d62"
+    },
+    {
+      "file": "apps/windows_webview/KASPIRE_PATCHES.txt",
+      "sha256": "26adfad5563d5aaf37b9539c077220f5cf8139e1255788d30b01c526e3b26010"
+    },
+    {
+      "file": "apps/windows_webview/lib/src/cursor.dart",
+      "sha256": "c98c56c6ce21bda8974cc7331721de2728407bb872e2b3946a04effba7287ef4"
+    },
+    {
+      "file": "apps/windows_webview/lib/src/enums.dart",
+      "sha256": "a815c243741d77358ace6cb3fa284faec7594030fb665c6fd88a622f4886ce81"
+    },
+    {
+      "file": "apps/windows_webview/lib/src/webview.dart",
+      "sha256": "7a4143b8defe51a19ae7b2d9e25a050fc2561c51fb1f9e083973a4accc7a8ec8"
+    },
+    {
+      "file": "apps/windows_webview/lib/webview_windows.dart",
+      "sha256": "4e8759d2ac0e51a6b18d8c4f843438b950fde008a973f2ad99533918bb902887"
+    },
+    {
+      "file": "apps/windows_webview/LICENSE",
+      "sha256": "f685c554db15a47775afbe20ebc18bec039b7ae8a48e0011badf8a3ac3dc1798"
+    },
+    {
+      "file": "apps/windows_webview/pubspec.yaml",
+      "sha256": "24540e2fe6f3f14a9f27032b4bf17224bac8dbb3fcb4471dd6de9dc931572072"
+    },
+    {
+      "file": "apps/windows_webview/windows/CMakeLists.txt",
+      "sha256": "391752f33935a640f2e1c57d35b8416fc47bbb7fe1508ac7492de22462e57290"
+    },
+    {
+      "file": "apps/windows_webview/windows/graphics_context.cc",
+      "sha256": "ec7f1acb6a65d79e2cfe35849c6d25a289e97dd8a305e18d7069c7007326cbb3"
+    },
+    {
+      "file": "apps/windows_webview/windows/graphics_context.h",
+      "sha256": "530ef02940ddddd79ee02c68476307f274de76a7d347118472651e6cc282ea40"
+    },
+    {
+      "file": "apps/windows_webview/windows/include/webview_windows/webview_windows_plugin.h",
+      "sha256": "2f1d12a691ba0a4debe8640f8353f12856167fe9b93bbe84323a2a7c6aa50eda"
+    },
+    {
+      "file": "apps/windows_webview/windows/texture_bridge_fallback.cc",
+      "sha256": "7ac0c2766f504c5f42ce13ed89c933ef654c636eb11c1fb1556f30b4973e1d50"
+    },
+    {
+      "file": "apps/windows_webview/windows/texture_bridge_fallback.h",
+      "sha256": "73618760fdfe539959a6362f534d8ee45bdd4eab700f347b6815be1ab1926b9b"
+    },
+    {
+      "file": "apps/windows_webview/windows/texture_bridge_gpu.cc",
+      "sha256": "10fac3acadb2cce76a68c8cc6aec1f9ee4279857242d43adf2fa3ac358488397"
+    },
+    {
+      "file": "apps/windows_webview/windows/texture_bridge_gpu.h",
+      "sha256": "450da0bb2d00740e96eaa3059296188817512492c1f70ae28176b52e464fb43d"
+    },
+    {
+      "file": "apps/windows_webview/windows/texture_bridge.cc",
+      "sha256": "f5e30263f45f75b55ddee1c9888dc811523a599c3985b75ebff3100051f82fea"
+    },
+    {
+      "file": "apps/windows_webview/windows/texture_bridge.h",
+      "sha256": "cc521f98603a3190ed64102354e42b82055376eb79c93ee9accfbef52c51498a"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/composition.desktop.interop.h",
+      "sha256": "ea3c9cd0e11835120abd0b73dbf5cb3a4d3213fda003c6ff37a37df8c4ad04c2"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/cpuid/cpuinfo.cc",
+      "sha256": "9fe6142fdaa8b23731c956c33a3f199687b83943170750ff0349f9c7d0a2a517"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/cpuid/cpuinfo.h",
+      "sha256": "429d0d26c8268e9df721ab9e48ed493f3f3d2a672a69bb9a9b4508358ade6886"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/cpuid/detail/cpuinfo_impl.h",
+      "sha256": "1a05be4191aeb01ec1290e44a5d7c910be281064e0a3159604145396372258f7"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/cpuid/detail/extract_x86_flags.h",
+      "sha256": "c8db59e09911b1d97440b9d7394743e45c66862b3a87f9bfe2799d10f975ec91"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/cpuid/detail/init_msvc_x86.h",
+      "sha256": "301185703b76e496155a941bb063e3320d448ca6ffbebe8e548732c46d990e75"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/cpuid/detail/init_unknown.h",
+      "sha256": "e5d0b1da1c7cdd9ffcad16b84150fc329fa86fc7e675d85ebf6bc8f27dcb5ea7"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/d3dutil.h",
+      "sha256": "feb901124cfa2dacfd8d9e9566730daffd61f54806dd5220a4d459ec68d6d357"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/direct3d11.interop.cc",
+      "sha256": "5fead4cb7fda840ad99d5834e72bb228c4dff21cae456a20c828a96ac214dc27"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/direct3d11.interop.h",
+      "sha256": "c6a152e0a2892c6f12ec19002494eee5446764d7cd92018c6a7b4eceac1721ce"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/rohelper.cc",
+      "sha256": "d61d7e767bb5b10613e0308c59ec3be6b3b79628ac2cf5b982feee43c863f57e"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/rohelper.h",
+      "sha256": "6c20ad9dddc1371112de56c06f4acbc31fc4f18d3a76539e08107af64c681be5"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/string_converter.cc",
+      "sha256": "35112bd7820e23bc8ca96182c6446c02d9238c6414d0f8f291bc90a247630ed5"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/string_converter.h",
+      "sha256": "048d2c10e73a18d522b5ead975675618e8b98cd49fcd63d4ca3725039dcf8384"
+    },
+    {
+      "file": "apps/windows_webview/windows/util/swizzle.h",
+      "sha256": "2d627b4669c85f2af4014480c68db826bf97e7dc8e3bd500d0b70b8d89f54a68"
+    },
+    {
+      "file": "apps/windows_webview/windows/webview_bridge.cc",
+      "sha256": "64437b03caf00b54cada148c1ab5a24e33c0c38665b75ddbbe9a7b5563172a64"
+    },
+    {
+      "file": "apps/windows_webview/windows/webview_bridge.h",
+      "sha256": "28c83384787ff349aba7f83a7e0bc69cdc8681217e472815fb46a21eec915c87"
+    },
+    {
+      "file": "apps/windows_webview/windows/webview_host.cc",
+      "sha256": "5665a382e1c13b71a6345cbc5ad895440e3553edef1dd7724b3b414a851e45a3"
+    },
+    {
+      "file": "apps/windows_webview/windows/webview_host.h",
+      "sha256": "a049d83349089a6380d7601851a8246fdead20c6e816f558a2913276a5212db2"
+    },
+    {
+      "file": "apps/windows_webview/windows/webview_platform.cc",
+      "sha256": "c34e255c4085c1ff1583663b28f7588cfb4eb6425f0fd24c385c70046142cab7"
+    },
+    {
+      "file": "apps/windows_webview/windows/webview_platform.h",
+      "sha256": "b2e3efd34fc16494afdc48ffa97412a591ef1d0d409e45037c894d1fe64ee3c7"
+    },
+    {
+      "file": "apps/windows_webview/windows/webview_windows_plugin.cc",
+      "sha256": "d3fbc9d28671d4fcc156ddc8a21b565952379d00fae2edb5da8ad5092632141a"
+    },
+    {
+      "file": "apps/windows_webview/windows/webview.cc",
+      "sha256": "bf65788983e9466596ccec09908e608911581f5103bbe0452fa2094549f6a205"
+    },
+    {
+      "file": "apps/windows_webview/windows/webview.h",
+      "sha256": "e8b301477e498c2c5c3f3d8c017f861d37c2f5d0eb1477ac74f46f292f1b43f5"
+    },
+    {
+      "file": "Cargo.lock",
+      "sha256": "b6ef0d2534f0ff848454fc16ef0e6d1de651461df56fbd4c6b80b3c2fc6eba73"
+    },
+    {
+      "file": "Cargo.toml",
+      "sha256": "fa95ddcacc6fab596f36b0f053e45abe248525ffd40b32f6b94d17692ecbd5f1"
+    },
+    {
+      "file": "crates/kaspa_secure_core/Cargo.toml",
+      "sha256": "8e7cd84b299e0c36ec79894352eea761ccf9e70285999ba5ae00f25133c2e772"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/android.rs",
+      "sha256": "685210f689fa2a84bbabe2493c20b2eeef9c27933b4bdb93fa9d483c0de2a165"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/bin/covenant_wyrm_inspect.rs",
+      "sha256": "6dd6dd2ebced8a2d72f05575ec4e43369e6a566b6dfb7d1054a32c9265d97384"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/bin/dotk_market_descriptor.rs",
+      "sha256": "18bd45b3831b6a398bff7a7549ef56353433fb01ef4d082971c71782c5d47f05"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/bin/kaspacom_market_descriptor.rs",
+      "sha256": "8423de05edee1ef4f3b246d110a95781aedfa65308be99c76daeae9f0bdfe01b"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/bin/nft_market_descriptor.rs",
+      "sha256": "2d39301132e23f20311b65e85cdaf3a46bf169be20f0cd144fb95a691f26a24f"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/covenant_vault_tests.rs",
+      "sha256": "88ce2701ebb57cbe1ef0935a2ae70cba233cd8987ed9de3c19c0a55d64f73169"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/covenant_vault.rs",
+      "sha256": "4616b5efc7afb369e5d01bcc8fbe99d698e339d15a8fb76934bf7a82991a03b7"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/covenant_wyrm_transition_tests.rs",
+      "sha256": "a3b05972492aca6db9949451221d88973c3628113a80d199213c2459da050849"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/covenant_wyrm_transition.rs",
+      "sha256": "63e71dee649dee308f930e178e227f16393078bc4094f151ad06cac21aa04b2c"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/covenant_wyrm_tx_tests.rs",
+      "sha256": "424f9fddf0c80c318f8b11fded735b0f0f6173aaed90dd25829718fd44ea2b53"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/covenant_wyrm_tx.rs",
+      "sha256": "8feb434ab25f32793ecadca342edab9e20736b290995ce8fadaf6292d8f51df9"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/covenant_wyrm.rs",
+      "sha256": "135ea7e881bc68a34af53309faf3b85b6bd846a3bb8970a5a0f74419025a3ae9"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/covenant_wyrm.sil",
+      "sha256": "aee6196acc00060125e26858bc9f8bea8a2e678285b9adc9e35f3c1698b51d21"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/desktop_update.rs",
+      "sha256": "c4c1df83173e51c83cbca56911a5e42db6774343c4f221cbf7d2c716ac7ddf2e"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/desktop.rs",
+      "sha256": "4dcdd2e9014c00ea90c5e1dc0a864f0442c0b5aa6ecb37119359ef46d1c338cd"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/dotk_mainnet.json",
+      "sha256": "0696babcb5c47a965088597afe849147fa0ab2681a3972af8c9451a12e48b382"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/dotk_market.rs",
+      "sha256": "39e30853864780ad87f673a5ed8482ab8b805b8a95611a0a881696d0da142da7"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/dotk_sale.rs",
+      "sha256": "a75eb254c5cde1a4d9ed8ba205d6bfebe430afaa0903f0baafdd5eb556865e3e"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/dotk_sale.sil",
+      "sha256": "50af8711036345858e1fecf77336f4599bbb408e6f606c3cbd47a3bb24e3a132"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/dotk.rs",
+      "sha256": "5ed65526b7ca4466c0d37efe82b6173bfb3c07f55c4ae0838cb71224b4dcc960"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/evm.rs",
+      "sha256": "19a4f5b972eb76e710b39be0c15d4c52191d8f1328ef842d3379e058e211472f"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/hidden_kas_tests.rs",
+      "sha256": "3be0aa4ef6bf3291a5e6434264e0645dc15cb33928fa08dc5a4d43d171b1e3ff"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/hidden_kas.rs",
+      "sha256": "0738ce371c2e58c727cf410862c66808f7c1e441409de7ba318100cb64b840e2"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/inscription.rs",
+      "sha256": "9fbd20ba642217724da16b5272a6e7ba3918b83b906f9c61b343d289aba35812"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/kaspacom_market.rs",
+      "sha256": "dc0ad236a692558904c118e603d81ebdd9d6c461c0af576df92d30b13a96ad9b"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/kcc20_standard_template.json",
+      "sha256": "68326cb976909fd2d39c0a45f488ec3c6bae3a24ebf30afcb16391a8db278f9d"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/kcc20_standard.rs",
+      "sha256": "1c398167b3ed2107cb79e3b5ea1192793abfb1cd5b0976e9d8d62a769d9e2456"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/kcc20.rs",
+      "sha256": "7171a8da8b4c73448ab7c37cefea69b394c9078156c476719e4ea58967009b53"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/kcc20.sil",
+      "sha256": "94b2ecc9815e36bbaf3612db9d83f5d59997ad714bab5658b55b8d40a530273d"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/kron.rs",
+      "sha256": "3d79ff9a7a30d9c2c0534e54a2382d5cb8d668aee5daf90375ed2de8147c1d6c"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/lib.rs",
+      "sha256": "ea845ce91ca83b11b06a08e24a76d84ef5a978bbfd9426028dc267a5d6ed6dc5"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/nft_market.rs",
+      "sha256": "ac6f13b0f76cf06f56a6ea5d623d95d7d005170d7a33766fb085aa4387f4856c"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/policy_transaction.rs",
+      "sha256": "d306bdd189f7e2330512bbb5159df11f5afb2b5fb419e5f4cbb84c546396ed80"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/pskt.rs",
+      "sha256": "d160b8b5b932de29df1e85dba089696b22c2d60e638decdbb7a706ef8cb69daa"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/tangem_rescue.rs",
+      "sha256": "4bc0ad581c4476921d14759e04cd5995b5395a8fda772a9ecb07391ff6deef3f"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/transaction.rs",
+      "sha256": "c9ab904b2d7e6f10437105576c2463b5dda0251d93195ec735792106622851cf"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/vault_dead_man_switch.sil",
+      "sha256": "fe171c674a984ce931255090a57322bb46beabfdb5377fa3c95c64c14e1f1f93"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/vault_recovery.rs",
+      "sha256": "15b7d05a27cf5d0b7d3b79f6e4bdc37cbe4d7eae4de9693a27fb208823b0350d"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/vault_time_lock.sil",
+      "sha256": "65116442c9b989df7b03c3462e5538d71368cb5cdaf336d1e5e345e1705f2ebc"
+    },
+    {
+      "file": "crates/kaspa_secure_core/src/wasm.rs",
+      "sha256": "141a00ff115cccc0da06ae4de6820d265b4e3e2b576375e5c004ec0542b93d23"
+    },
+    {
+      "file": "crates/kaspa_secure_core/tests/fixtures/kron-transfer-redeem.hex",
+      "sha256": "8e9d7d6e84ebbc8e8cc85e1388516aef61798a9ecf95e70b59e09db4b8ebddf9"
+    },
+    {
+      "file": "crates/silverscript_lang/ast/mod.rs",
+      "sha256": "671c641372d91e1ec758000b7d06e370bef5aad338bdebc2c8433376e2866000"
+    },
+    {
+      "file": "crates/silverscript_lang/ast/visit.rs",
+      "sha256": "ac03f1398dd2c1cc02e93dd8232da4cc0fa6994e89898989fcbe0da7de988473"
+    },
+    {
+      "file": "crates/silverscript_lang/Cargo.toml",
+      "sha256": "dc4ae86e06f4ce3512c3294876bfdbb52f875bef424d6bd84bfe510b249ea349"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/array_append.rs",
+      "sha256": "7cfdae9203cef008a356f63c3c2da1d38d61722e27295b847923e2a492c29f3a"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/compile.rs",
+      "sha256": "dac6ac0148c2fe3f69643e15cc6f9a5595134632972717f6b954e9ddd8c20a18"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/covenant_declarations.rs",
+      "sha256": "6f51a2cda6c24ea527006f0d304cfa2a93c544fcb856e7eb83b24b5869481e88"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/debug_recording.rs",
+      "sha256": "ce1eb39cf1ecf6510e1237379000c0e361c715e7dcc2be07be101fad8ad17784"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/debug_value_types.rs",
+      "sha256": "faa8c4d153c91864f1db281b7a8816acce9fc3c3f353d331711e0cfcbd9d4536"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/for.rs",
+      "sha256": "474f9ab01c8a9c8481810c76dec5a20321b464a9fc5ca0e5cf9991eb8e97ce0c"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/infer_array.rs",
+      "sha256": "eea4a22543e387afb635d13c8bd3d55d18db6a3ebc5816940e88c82e430e3cc1"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/inline_functions.rs",
+      "sha256": "c6e8c79b9646030502173acc9cd48d48640c9741073c804d4466fe2729c69ae1"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/locals.rs",
+      "sha256": "df44727e0c4f44327197c38dfa421b736d80f5b9b60733d5c473ba5186ab9ec0"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/mod.rs",
+      "sha256": "2c58dce4ccd4e9283ef77a6cb84c82b141d3c7ab95ed5d664b91cf8dce2c06fc"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/read_input_state.rs",
+      "sha256": "e16ac529ae399d79130bb4be095cb342dd9872a212d60069f4133d1ce3f13f38"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/stack_bindings.rs",
+      "sha256": "999661c74d666e5702380343dab1c9804c450f796c11d070f038e3f94a6bc645"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/static_check.rs",
+      "sha256": "ef3ee1e9c3a6aaecf660b678cac30d1972247e3574a7c20700408379d298c746"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/structs.rs",
+      "sha256": "5b10dcf1b223458ed5d7792d2170d7fd422f0e72517388a154ea1910419f7e13"
+    },
+    {
+      "file": "crates/silverscript_lang/compiler/validate_output_state.rs",
+      "sha256": "62848d7725430798af2a88a1fc394960e9dc153b2c7b8f001060c1d2a2c4902c"
+    },
+    {
+      "file": "crates/silverscript_lang/debug_info.rs",
+      "sha256": "aacb6ddd3220c2313f9254395f54e0f9b5393bf70d752243ae1423a8e91f9e24"
+    },
+    {
+      "file": "crates/silverscript_lang/diagnostic/mod.rs",
+      "sha256": "ba15d6d2b340b449371900858d8318e749941ed003218c91f674314764713ab8"
+    },
+    {
+      "file": "crates/silverscript_lang/diagnostic/parse_diagnostics.rs",
+      "sha256": "2de0aefed5c9a6e35a8c04b62eb0bb80d845b2256fe46fd5567ea4d12f858d8b"
+    },
+    {
+      "file": "crates/silverscript_lang/diagnostic/parse.rs",
+      "sha256": "a0ed9255eded9babf4922cdd549d1487dc68ca4a58ce9794aa8dbc3b99aaf8bb"
+    },
+    {
+      "file": "crates/silverscript_lang/errors.rs",
+      "sha256": "d26aa81a93f86370a6595d8f86fa8eaa182c4a022788d4e57770e595a2514c1c"
+    },
+    {
+      "file": "crates/silverscript_lang/lib.rs",
+      "sha256": "31c4566490e8588eff874cc365fdd07e77f635ef2d8662829bc3fd3b629d9010"
+    },
+    {
+      "file": "crates/silverscript_lang/LICENSE",
+      "sha256": "feee0f42096fab1ad3cbd301091c303d0f424766fa24be3cd36718fdd2a2aaa3"
+    },
+    {
+      "file": "crates/silverscript_lang/parser.rs",
+      "sha256": "09140c7d45dcdedbf7999a84fd25ab360ed40bc83869a6c05601906d56a2f2a7"
+    },
+    {
+      "file": "crates/silverscript_lang/silverscript.pest",
+      "sha256": "ed1bdb3cd71eafb827f433df31e3f8f4c7823c104d323fa24cc6c35b9017ef41"
+    },
+    {
+      "file": "crates/silverscript_lang/span.rs",
+      "sha256": "e03a3c6b6e20f354367672daac945d5cb6acad9602ede82cd7a4e3369edc2041"
+    },
+    {
+      "file": "crates/silverscript_lang/template.rs",
+      "sha256": "bc87516189c32554f2e07c57864f906b4b8362cb5f3384f9ce659ab44520c81d"
+    },
+    {
+      "file": "desktop/Build-Windows.ps1",
+      "sha256": "28a16aa2ddf77cb817e14e5bc24d863da9407fcd13c89fc0d06337874db2adc0"
+    },
+    {
+      "file": "desktop/Kaspire.iss",
+      "sha256": "8d887ccb222c92a1d33a37e6a8130d1f87f1be5496c67020dc6f405364563576"
+    },
+    {
+      "file": "desktop/README-Windows.txt",
+      "sha256": "7f187cb606db2eefea49796117d3305ba6a0c7b176c0a625ad3bdd061a31ef4f"
+    },
+    {
+      "file": "desktop/Sign-Windows.ps1",
+      "sha256": "ff59614b22f2fef1894a25df883274328969165c3f0fc15a8139881a1f7ba423"
+    },
+    {
+      "file": "desktop/Test-WindowsDialogs.ps1",
+      "sha256": "16176fd923da8bd8e0a7ab91d2eeafaac3bedd1576062c7e5641bca495d11bef"
+    },
+    {
+      "file": "desktop/Test-WindowsHardening.ps1",
+      "sha256": "76be75cd825809e2630c62eb56a1810f9677b6f8271eae6ef9bcc6e87a8c62f9"
+    },
+    {
+      "file": "desktop/update-signing-key.hex",
+      "sha256": "1b4effdd7ae002b437f79803da654ffb745aa873358de3a8a35638b23946fd41"
+    },
+    {
+      "file": "desktop/version.json",
+      "sha256": "399f553d6b30345f414e8e66e9ad4737e37a72d05d4260d6cba566dc66081a8a"
+    }
+  ]
+}

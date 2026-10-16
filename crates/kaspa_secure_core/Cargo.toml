@@ -9,7 +9,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 blake3 = "1.8.2"
-argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
 hex = "0.4.3"
 getrandom = { version = "0.2.17", features = ["js"] }
 jni = "0.21.1"
@@ -28,6 +28,7 @@ tiny-keccak = { version = "2.0.2", features = ["keccak"] }
 rlp = "0.5.2"
 thiserror = "2.0.12"
 zeroize = { version = "1.8.1", features = ["derive"] }
+unicode-normalization = { version = "=0.1.24", optional = true }
 aes-gcm = { version = "0.10.3", optional = true, features = ["zeroize"] }
 aes = { version = "0.8.4", optional = true, features = ["zeroize"] }
 ghash = { version = "0.5.1", optional = true, features = ["zeroize"] }
@@ -50,4 +51,4 @@ wasm-bindgen = "0.2.100"
 [features]
 default = ["rusty-kaspa-v2_1_0"]
 rusty-kaspa-v2_1_0 = []
-desktop = ["dep:aes-gcm", "dep:aes", "dep:ghash", "dep:base64", "dep:chrono", "dep:ed25519-dalek"]
+desktop = ["dep:aes-gcm", "dep:aes", "dep:ghash", "dep:base64", "dep:chrono", "dep:ed25519-dalek", "dep:unicode-normalization"]

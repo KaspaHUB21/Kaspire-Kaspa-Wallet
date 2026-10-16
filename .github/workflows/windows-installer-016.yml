@@ -1,0 +1,160 @@
+name: Windows 0.1.5 to 0.1.6 update and wallet migration verification
+on:
+  push:
+    branches: [windows-desktop-build]
+    paths: [.github/workflows/windows-installer-016.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  upgrade:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Download the built 0.1.6 installer
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: '38957969329'
+          name: Kaspire-Windows-0.1.6-x64
+          path: wallet
+      - name: Verify signed update, real installer and legacy wallet migration
+        run: |
+          $ErrorActionPreference='Stop'
+          $ProgressPreference='SilentlyContinue'
+          $Envelope=Invoke-RestMethod 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-update-0.1.6.json'
+          $Release=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Envelope.payload)) | ConvertFrom-Json
+          if ($Release.version -ne '0.1.6' -or $Release.build -ne 7) { throw 'Unexpected update version.' }
+          $Installer=Join-Path $env:GITHUB_WORKSPACE 'wallet\Kaspire-Windows-0.1.6-x64-Setup.exe'
+          if ((Get-FileHash $Installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Release.sha256 -or (Get-Item $Installer).Length -ne $Release.sizeBytes) { throw 'New installer differs from signed manifest.' }
+          $Portable=Join-Path $env:RUNNER_TEMP 'portable-new'
+          Expand-Archive (Join-Path $env:GITHUB_WORKSPACE 'wallet\Kaspire-Windows-0.1.6-x64.zip') $Portable
+          $OldArchive=Join-Path $env:RUNNER_TEMP 'wallet-old.zip'
+          Invoke-WebRequest -UseBasicParsing 'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/windows-v0.1.5/Kaspire-Windows-0.1.5-x64.zip' -OutFile $OldArchive
+          if ((Get-FileHash $OldArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'e3625f8ee3ae86a8a4b2ea5dd9c63e9659bfca9861a62af1fa078ae7abc49169') { throw 'Old portable wallet hash mismatch.' }
+          $OldPortable=Join-Path $env:RUNNER_TEMP 'portable-old'
+          Expand-Archive $OldArchive $OldPortable
+          $OldInstaller=Join-Path $env:RUNNER_TEMP 'setup-old.exe'
+          Invoke-WebRequest -UseBasicParsing 'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/windows-v0.1.5/Kaspire-Windows-0.1.5-x64-Setup.exe' -OutFile $OldInstaller
+          if ((Get-FileHash $OldInstaller -Algorithm SHA256).Hash.ToLowerInvariant() -ne '694059c2e86091d76ff2a1f91ead7e04d05b8b574076dd95648d755b4e51600a') { throw 'Old installer hash mismatch.' }
+          $Data=Join-Path $env:LOCALAPPDATA 'Kaspire'
+          if (Test-Path $Data) { throw 'Refusing upgrade check: wallet data already exists.' }
+          $Setup=Start-Process $OldInstaller -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru
+          if (-not $Setup.WaitForExit(120000) -or $Setup.ExitCode -ne 0) { throw 'Old installer failed.' }
+          Start-Sleep -Seconds 8
+          Get-Process kaspire -ErrorAction Stop | Stop-Process
+          New-Item -ItemType Directory -Path $Data -Force | Out-Null
+          $Marker=Join-Path $Data 'installer-preservation.txt'
+          [IO.File]::WriteAllText($Marker,'Disposable CI marker, not a wallet secret.')
+          $Before=(Get-FileHash $Marker).Hash
+          Add-Type @'
+          using System;
+          using System.Text;
+          using System.Collections.Generic;
+          using System.Runtime.InteropServices;
+          public static class KaspireUpgradeCore {
+            [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr LoadLibrary(string path);
+            [DllImport("kernel32.dll",CharSet=CharSet.Ansi)] static extern IntPtr GetProcAddress(IntPtr module,string name);
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr Prompt(uint mode,IntPtr title,IntPtr content);
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void PromptFree(IntPtr p);
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr CoreCall(byte[] input,UIntPtr length,byte[] directory,Prompt prompt,PromptFree free);
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void CoreFree(IntPtr p);
+            static CoreCall call; static CoreFree free;
+            static Queue<string> answers=new Queue<string>();
+            static Dictionary<IntPtr,int> allocated=new Dictionary<IntPtr,int>();
+            static Prompt prompt=(mode,title,content)=>{
+              if(answers.Count==0)return IntPtr.Zero;
+              var bytes=Encoding.UTF8.GetBytes(answers.Dequeue()+"\0");
+              var p=Marshal.AllocHGlobal(bytes.Length);Marshal.Copy(bytes,0,p,bytes.Length);
+              allocated[p]=bytes.Length;Array.Clear(bytes,0,bytes.Length);return p;
+            };
+            static PromptFree promptFree=(p)=>{
+              int length;if(allocated.TryGetValue(p,out length)){Marshal.Copy(new byte[length],0,p,length);allocated.Remove(p);}
+              Marshal.FreeHGlobal(p);
+            };
+            public static void Answers(string[] rows){answers=new Queue<string>(rows);}
+            public static void Load(string path){
+              var module=LoadLibrary(path);if(module==IntPtr.Zero)throw new Exception("Cannot load native core");
+              call=(CoreCall)Marshal.GetDelegateForFunctionPointer(GetProcAddress(module,"kaspire_desktop_call"),typeof(CoreCall));
+              free=(CoreFree)Marshal.GetDelegateForFunctionPointer(GetProcAddress(module,"kaspire_desktop_free"),typeof(CoreFree));
+            }
+            public static string Call(string request,string directory){
+              var bytes=Encoding.UTF8.GetBytes(request);var path=Encoding.UTF8.GetBytes(directory+"\0");
+              var p=call(bytes,new UIntPtr((uint)bytes.Length),path,prompt,promptFree);
+              try{return Marshal.PtrToStringAnsi(p);}finally{free(p);}
+            }
+          }
+          '@
+          function Native([string]$Method,$Arguments) {
+            $Request=@{method=$Method;arguments=$Arguments} | ConvertTo-Json -Depth 8 -Compress
+            $Result=[KaspireUpgradeCore]::Call($Request,$Data) | ConvertFrom-Json
+            if ($Result.PSObject.Properties.Name -contains 'error') { throw $Result.error }
+            return $Result.result
+          }
+          [KaspireUpgradeCore]::Load((Join-Path $OldPortable 'Kaspire-Windows-0.1.5\kaspa_secure_core.dll'))
+          # Public disposable test key, never funded and never broadcast from.
+          [KaspireUpgradeCore]::Answers([string[]]@('Upgrade-Pw!42','Upgrade-Pw!42',('01'*32)))
+          $Address=Native 'importPrivateKey' @{}
+          if ($Address -notmatch '^kaspa:') { throw 'Legacy wallet creation failed.' }
+          $Terms=@{payload=$Envelope.payload;signature=$Envelope.signature}
+          if ((Native 'verifyDesktopUpdateManifest' $Terms) -ne $true) { throw 'Unchanged 0.1.5 core rejected signed 0.1.6.' }
+          $BadRequest=@{method='verifyDesktopUpdateManifest';arguments=@{payload=$Envelope.payload;signature=('A'*88)}} | ConvertTo-Json -Depth 8 -Compress
+          $Bad=[KaspireUpgradeCore]::Call($BadRequest,$Data) | ConvertFrom-Json
+          if (-not ($Bad.PSObject.Properties.Name -contains 'error')) { throw 'Invalid signature accepted.' }
+          $Prepared=Native 'prepareDesktopUpdate' $Terms
+          Copy-Item $Installer $Prepared.path
+          $Stream=[IO.File]::Open($Prepared.path,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite)
+          try{$First=$Stream.ReadByte();$Stream.Position=0;$Stream.WriteByte($First -bxor 1)}finally{$Stream.Dispose()}
+          $BadRequest=@{method='installDesktopUpdate';arguments=@{token=$Prepared.token}} | ConvertTo-Json -Compress
+          $Bad=[KaspireUpgradeCore]::Call($BadRequest,$Data) | ConvertFrom-Json
+          if ($Bad.error -notmatch 'checksum mismatch') { throw 'Modified installer not rejected.' }
+          $Prepared=Native 'prepareDesktopUpdate' $Terms
+          Copy-Item $Installer $Prepared.path
+          if ((Native 'installDesktopUpdate' @{token=$Prepared.token}) -ne $true) { throw 'Installer handoff failed.' }
+          $Installed=Join-Path $env:LOCALAPPDATA 'Programs\Kaspire'
+          $Expected=(Get-FileHash (Join-Path $Portable 'Kaspire-Windows-0.1.6\kaspire.exe')).Hash
+          $Upgraded=$false
+          for($Attempt=0;$Attempt -lt 60;$Attempt++){
+            Start-Sleep -Seconds 2
+            if((Test-Path (Join-Path $Installed 'kaspire.exe')) -and (Get-FileHash (Join-Path $Installed 'kaspire.exe')).Hash -eq $Expected){$Upgraded=$true;break}
+          }
+          if(-not $Upgraded){throw 'Installer did not upgrade the application.'}
+          Start-Sleep -Seconds 10
+          foreach($File in @('kaspire.exe','kaspa_secure_core.dll','data\app.so')){
+            if((Get-FileHash (Join-Path $Installed $File)).Hash -ne (Get-FileHash (Join-Path $Portable "Kaspire-Windows-0.1.6\$File")).Hash){throw "Upgraded file differs: $File"}
+          }
+          if((Get-FileHash $Marker).Hash -ne $Before){throw 'Upgrade changed wallet-data marker.'}
+          [KaspireUpgradeCore]::Load((Join-Path $Installed 'kaspa_secure_core.dll'))
+          [KaspireUpgradeCore]::Answers([string[]]@('wrong-password'))
+          $Wrong=@{method='verifyPin';arguments=@{}} | ConvertTo-Json -Compress
+          $Bad=[KaspireUpgradeCore]::Call($Wrong,$Data) | ConvertFrom-Json
+          if($Bad.error -notmatch 'Incorrect'){throw 'New core did not reject wrong legacy password.'}
+          [KaspireUpgradeCore]::Answers([string[]]@('Upgrade-Pw!42'))
+          if((Native 'verifyPin' @{}) -ne $true){throw 'Correct password did not migrate the legacy wallet.'}
+          $Wallets=Native 'listWallets' @{} | ConvertFrom-Json
+          if(@($Wallets).Count -ne 1 -or $Wallets[0].address -ne $Address){throw 'Migration changed wallet ownership.'}
+          Add-Type -AssemblyName System.Security
+          $Clear=[Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes((Join-Path $Data 'wallets.dpapi')),$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+          try{
+            $Container=[Text.Encoding]::UTF8.GetString($Clear) | ConvertFrom-Json
+            if($Container.format -ne 'kaspire-windows-password-store-v1'){throw 'Versioned password store envelope missing.'}
+            $Catalogue=$Container.vault
+            if($Catalogue.passwordProtection.version -ne 1 -or $Catalogue.pinHash -ne '' -or $Catalogue.pinSalt -ne ''){throw 'Migration left DPAPI-only/password-verifier storage.'}
+            $SecretEnvelope=$Catalogue.wallets[0].protectedSecret | ConvertFrom-Json
+            if($SecretEnvelope.version -ne 1 -or -not $SecretEnvelope.ciphertext){throw 'Wallet secret was not password-encrypted.'}
+          }finally{[Array]::Clear($Clear,0,$Clear.Length);$Catalogue=$null;$Container=$null;$SecretEnvelope=$null}
+          $Wallet=Get-Process kaspire -ErrorAction Stop | Select-Object -First 1
+          if($Wallet.HasExited -or $Wallet.MainWindowHandle -eq 0 -or $Wallet.MainWindowTitle -ne 'Kaspire'){throw 'Upgraded app did not reopen.'}
+          Stop-Process -Id $Wallet.Id
+          'PASSED: unchanged 0.1.5 core accepts signed 0.1.6/build 7; rejects invalid signature and modified installer; native handoff upgrades installed EXE/DLL/Flutter hashes; preserves existing wallet and marker; wrong password rejected; correct legacy password atomically migrates to password encryption; old verifier removed; wallet address preserved; upgraded app reopens.' | Tee-Object (Join-Path $env:GITHUB_WORKSPACE 'update-checks.txt')
+      - name: Retain upgrade verification
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Windows-016-update-checks
+          path: update-checks.txt
+          if-no-files-found: ignore
+          retention-days: 14

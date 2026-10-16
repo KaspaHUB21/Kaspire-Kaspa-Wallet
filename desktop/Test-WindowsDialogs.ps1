@@ -255,21 +255,32 @@ try {
     Start-Sleep -Seconds 3
     if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'Kaspire\wallets.dpapi'))) { throw 'Native wallet was not saved.' }
     # Check the public catalogue, not only the PIN file (which existed earlier).
-    # Individual signing secrets remain separately DPAPI-encrypted; never
+    # Signing secrets remain password-encrypted inside the DPAPI catalogue; never
     # decrypt, print or upload them in this check.
     Add-Type -AssemblyName System.Security
     $CatalogueBytes = [Security.Cryptography.ProtectedData]::Unprotect(
         [IO.File]::ReadAllBytes((Join-Path $env:LOCALAPPDATA 'Kaspire\wallets.dpapi')),
         $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)
     try {
-        $Catalogue = [Text.Encoding]::UTF8.GetString($CatalogueBytes) | ConvertFrom-Json
+        $Container = [Text.Encoding]::UTF8.GetString($CatalogueBytes) | ConvertFrom-Json
+        if ($Container.format -ne 'kaspire-windows-password-store-v1') { throw 'Versioned password store envelope missing.' }
+        $Catalogue = $Container.vault
         if (@($Catalogue.wallets).Count -ne 1 -or $Catalogue.active -ne $Catalogue.wallets[0].id -or
             $Catalogue.wallets[0].address -notmatch '^kaspa:') {
             throw 'The UI did not create and select the expected native wallet.'
         }
+        if ($Catalogue.passwordProtection.version -ne 1 -or $Catalogue.pinHash -ne '' -or $Catalogue.pinSalt -ne '') {
+            throw 'Wallet is missing password-based encryption or still stores the old password verifier.'
+        }
+        $SecretEnvelope = $Catalogue.wallets[0].protectedSecret | ConvertFrom-Json
+        if ($SecretEnvelope.version -ne 1 -or -not $SecretEnvelope.ciphertext -or -not $SecretEnvelope.iv) {
+            throw 'Individual wallet secret is not password-encrypted.'
+        }
     } finally {
         [Array]::Clear($CatalogueBytes, 0, $CatalogueBytes.Length)
         $Catalogue = $null
+        $Container = $null
+        $SecretEnvelope = $null
     }
     # A cold start must lock, a wrong-case password must show an error, and
     # cancellation/retry must work without closing the application again.

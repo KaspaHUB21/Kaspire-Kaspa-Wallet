@@ -168,8 +168,8 @@ pub(super) fn install(token: &str) -> R<Value> {
     if prepared.expires < now() {
         return Err("Update download expired. Retry the download.".into());
     }
-    let mut file =
-        std::fs::File::open(&prepared.path).map_err(|_| "The update download is missing.")?;
+    let locked = locked_installer(&prepared.path)?;
+    let mut file = &locked.file;
     if file.metadata().map_err(error)?.len() != prepared.release.size_bytes {
         return Err("Incomplete update download. Nothing was installed.".into());
     }
@@ -185,10 +185,12 @@ pub(super) fn install(token: &str) -> R<Value> {
     if hex::encode(hash.finalize()) != prepared.release.sha256 {
         return Err("Update checksum mismatch. Nothing was installed.".into());
     }
-    drop(file);
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new(&prepared.path)
+        // Keep the no-write/no-delete file handle AND ancestor directory
+        // handles alive through CreateProcess. Locking only the file would
+        // still allow its pathname to be redirected by renaming a parent.
+        std::process::Command::new(&locked.path)
             .args([
                 "/SILENT",
                 "/SUPPRESSMSGBOXES",
@@ -201,6 +203,70 @@ pub(super) fn install(token: &str) -> R<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     Err("Windows installers can only run on Windows.".into())
+}
+struct LockedInstaller {
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    path: PathBuf,
+    file: std::fs::File,
+    _directories: Vec<std::fs::File>,
+}
+fn locked_installer(path: &Path) -> R<LockedInstaller> {
+    let path = std::fs::canonicalize(path).map_err(|_| "The update download is missing.")?;
+    #[cfg(target_os = "windows")]
+    let mut directories = Vec::new();
+    #[cfg(not(target_os = "windows"))]
+    let directories = Vec::new();
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        const FILE_SHARE_READ: u32 = 1;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x00200000;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        let ancestors: Vec<_> = path
+            .parent()
+            .ok_or("Invalid installer path")?
+            .ancestors()
+            .collect();
+        for parent in ancestors.into_iter().rev() {
+            let handle = std::fs::OpenOptions::new().read(true)
+                .share_mode(FILE_SHARE_READ)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+                .open(parent).map_err(|_| "Cannot secure the installer directory. Close other programs and download the update again.")?;
+            let metadata = handle.metadata().map_err(error)?;
+            if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            {
+                return Err("Installer directory changed. Nothing was installed.".into());
+            }
+            directories.push(handle);
+        }
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(1).custom_flags(0x00200000); // read sharing only; do not follow a substituted reparse point
+    }
+    let file = options.open(&path).map_err(|_| {
+        "Cannot secure the installer. Close other programs and download the update again."
+    })?;
+    let metadata = file.metadata().map_err(error)?;
+    if !metadata.is_file() {
+        return Err("Installer is not a regular file".into());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return Err("Installer path changed. Nothing was installed.".into());
+        }
+    }
+    Ok(LockedInstaller {
+        path,
+        file,
+        _directories: directories,
+    })
 }
 pub(super) fn cancel(token: &str) -> R<Value> {
     let mut pending = PREPARED
@@ -218,6 +284,35 @@ pub(super) fn cancel(token: &str) -> R<Value> {
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn installer_file_and_parent_paths_remain_locked_through_process_creation() {
+        use std::process::{Command, Stdio};
+        let root = std::env::temp_dir().join(format!("kaspire-installer-lock-{}", id().unwrap()));
+        let folder = root.join("download");
+        std::fs::create_dir_all(&folder).unwrap();
+        let source = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join("System32")
+            .join("cmd.exe");
+        let path = folder.join("disposable-setup.exe");
+        std::fs::copy(source, &path).unwrap();
+        let locked = locked_installer(&path).unwrap();
+        assert!(std::fs::OpenOptions::new().write(true).open(&path).is_err());
+        assert!(std::fs::rename(&path, folder.join("replaced.exe")).is_err());
+        assert!(std::fs::remove_file(&path).is_err());
+        assert!(std::fs::rename(&folder, root.join("redirected")).is_err());
+        assert!(std::fs::rename(&root, root.with_extension("redirected")).is_err());
+        let status = Command::new(&locked.path)
+            .args(["/D", "/C", "exit 0"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        drop(locked);
+        std::fs::remove_dir_all(root).unwrap();
+    }
     fn fixture() -> (Value, SigningKey) {
         (
             json!({"platform":"windows-x64","version":"0.1.4","build":5,"minimumBuild":1,"critical":false,"publishedAt":"2026-10-16T00:00:00Z","installerUrl":"https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/windows-v0.1.4/Kaspire-Windows-0.1.4-x64-Setup.exe","sha256":"ab".repeat(32),"sizeBytes":100000,"releaseNotesUrl":"https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/windows-v0.1.4"}),

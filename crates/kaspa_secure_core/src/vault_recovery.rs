@@ -44,12 +44,12 @@ fn keys(
         return Err(fail());
     }
     let mut material = Zeroizing::new(vec![0u8; 128]);
-    Argon2::new(
+    let argon = Argon2::new(
         Algorithm::Argon2id,
         Version::V0x13,
         Params::new(65536, 3, 1, Some(128)).map_err(|_| fail())?,
-    )
-    .hash_password_into(password, salt, &mut material)
+    );
+    crate::argon2_into_zeroizing_memory(&argon, password, salt, &mut material)
     .map_err(|_| fail())?;
     let mut seed = ml_kem::Seed::default();
     seed.copy_from_slice(&material[..64]);

@@ -350,5 +350,5 @@ class _SecurityNotice extends StatelessWidget {
 }
 
 String get walletStorageNotice => isWindowsDesktop
-    ? 'Seeds are generated and validated by the native Rust wallet core. Wallet secrets are encrypted with Windows DPAPI for your Windows user. A case-sensitive Kaspire password authorizes access in the app. Secret inputs stay outside Flutter/Dart memory. This protection is bound to your Windows user, not a hardware security enclave.'
+    ? 'Seeds are generated and validated by the native Rust wallet core. Wallet secrets are encrypted with AES-256-GCM using a key protected by your case-sensitive Kaspire password and Argon2id, then protected again by Windows DPAPI. Secret inputs stay outside Flutter/Dart memory. This is not a hardware security enclave; malware active while your wallet is unlocked can still compromise it.'
     : 'Wallet secrets are encrypted with Android Keystore. During approved operations, decrypted material is passed to the Rust signer through short-lived wipeable buffers.';
