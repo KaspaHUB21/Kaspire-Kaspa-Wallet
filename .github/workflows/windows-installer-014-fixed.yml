@@ -1,0 +1,133 @@
+name: Windows 0.1.4 bootstrap and signed channel verification
+on:
+  push:
+    branches: [windows-desktop-build]
+    paths: [.github/workflows/windows-installer-014-fixed.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  upgrade:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Download the built 0.1.4 installer
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: '38826333233'
+          name: Kaspire-Windows-0.1.4-fixed-x64
+          path: wallet
+      - name: Verify original channel, fixed routing and manual bootstrap upgrade
+        run: |
+          $ErrorActionPreference='Stop'
+          $ProgressPreference='SilentlyContinue'
+          $Envelope=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('ewogICJhbGdvcml0aG0iOiAiRWQyNTUxOSIsCiAgInBheWxvYWQiOiAiZXlKd2JHRjBabTl5YlNJNkluZHBibVJ2ZDNNdGVEWTBJaXdpZG1WeWMybHZiaUk2SWpBdU1TNDBJaXdpWW5WcGJHUWlPalVzSW0xcGJtbHRkVzFDZFdsc1pDSTZNU3dpWTNKcGRHbGpZV3dpT21aaGJITmxMQ0p3ZFdKc2FYTm9aV1JCZENJNklqSXdNall0TVRBdE1UWlVNREE2TURBNk1qY3VOVFUwV2lJc0ltbHVjM1JoYkd4bGNsVnliQ0k2SW1oMGRIQnpPaTh2WjJsMGFIVmlMbU52YlM5TFlYTndZVWhWUWpJeEwwdGhjM0JwY21VdFMyRnpjR0V0VjJGc2JHVjBMM0psYkdWaGMyVnpMMlJ2ZDI1c2IyRmtMM2RwYm1SdmQzTXRkakF1TVM0MEwwdGhjM0JwY21VdFYybHVaRzkzY3kwd0xqRXVOQzE0TmpRdFUyVjBkWEF1WlhobElpd2ljMmhoTWpVMklqb2lOalF3Tm1SaVpqVm1OekU1TmpreFpESXpNak5pTVRNNU5qRTRZemxsT0RBeE9ETXdOVEU0WTJWaFpUTmtNRGM1WmpSaU1EYzNNRGRpTWpkak5qaGtZeUlzSW5OcGVtVkNlWFJsY3lJNk16VTBOVGM0Tnprc0luSmxiR1ZoYzJWT2IzUmxjMVZ5YkNJNkltaDBkSEJ6T2k4dloybDBhSFZpTG1OdmJTOUxZWE53WVVoVlFqSXhMMHRoYzNCcGNtVXRTMkZ6Y0dFdFYyRnNiR1YwTDNKbGJHVmhjMlZ6TDNSaFp5OTNhVzVrYjNkekxYWXdMakV1TkNKOSIsCiAgInNpZ25hdHVyZSI6ICJwS2c1K0toVU5ySVlDeUJFQ09teGV3dHowZEQ2VWJOS1BLblB2ZEdMUmNvTDJ2b2xtU2tFWnczaUgrVWg0elFXcnNlK0dKZGtwa1hzOVNYa0lsVDRDUT09Igp9Cg==')) | ConvertFrom-Json
+          $Release=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Envelope.payload)) | ConvertFrom-Json
+          if ($Release.version -ne '0.1.4' -or $Release.build -ne 5) { throw 'Unexpected update version.' }
+          $Installer=Join-Path $env:GITHUB_WORKSPACE 'wallet\Kaspire-Windows-0.1.4-x64-Setup.exe'
+          if ((Get-FileHash $Installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Release.sha256) { throw 'New installer hash mismatch.' }
+          if ((Get-Item $Installer).Length -ne $Release.sizeBytes) { throw 'New installer size mismatch.' }
+          $Portable=Join-Path $env:RUNNER_TEMP 'portable-new'
+          Expand-Archive (Join-Path $env:GITHUB_WORKSPACE 'wallet\Kaspire-Windows-0.1.4-x64.zip') $Portable
+          $OldArchive=Join-Path $env:RUNNER_TEMP 'wallet-013.zip'
+          Invoke-WebRequest -UseBasicParsing 'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/windows-v0.1.3/Kaspire-Windows-0.1.3-x64.zip' -OutFile $OldArchive
+          if ((Get-FileHash $OldArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '10358531cd826c170cd3e98895aba1265b0c56333450fa55e283b2f271ca160e') { throw 'Old portable wallet hash mismatch.' }
+          $OldPortable=Join-Path $env:RUNNER_TEMP 'portable-old'
+          Expand-Archive $OldArchive $OldPortable
+          $OldInstaller=Join-Path $env:RUNNER_TEMP 'setup-013.exe'
+          Invoke-WebRequest -UseBasicParsing 'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/download/windows-v0.1.3/Kaspire-Windows-0.1.3-x64-Setup.exe' -OutFile $OldInstaller
+          if ((Get-FileHash $OldInstaller -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'ce18b5f42a802e1bfe4e4cc880eb2c9d1b44b720a96b290f7f124c74ca17664c') { throw 'Old installer hash mismatch.' }
+          $Data=Join-Path $env:LOCALAPPDATA 'Kaspire'
+          if (Test-Path $Data) { throw 'Refusing upgrade check: wallet data already exists.' }
+          New-Item -ItemType Directory $Data | Out-Null
+          $Marker=Join-Path $Data 'installer-preservation.txt'
+          [IO.File]::WriteAllText($Marker,'Disposable CI preservation marker, not a wallet.')
+          $Before=(Get-FileHash $Marker -Algorithm SHA256).Hash
+          $Setup=Start-Process $OldInstaller -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru
+          if (-not $Setup.WaitForExit(120000) -or $Setup.ExitCode -ne 0) { throw 'Old installer failed.' }
+          Start-Sleep -Seconds 8
+          Get-Process kaspire -ErrorAction Stop | Stop-Process
+          $Installed=Join-Path $env:LOCALAPPDATA 'Programs\Kaspire'
+          if ((Get-FileHash (Join-Path $Installed 'kaspire.exe')).Hash -ne (Get-FileHash (Join-Path $OldPortable 'Kaspire-Windows-0.1.3\kaspire.exe')).Hash) { throw '0.1.3 was not installed.' }
+          Add-Type @'
+          using System;
+          using System.Text;
+          using System.Runtime.InteropServices;
+          public static class OldKaspireUpdate {
+            [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr LoadLibrary(string path);
+            [DllImport("kernel32.dll",CharSet=CharSet.Ansi)] static extern IntPtr GetProcAddress(IntPtr module,string name);
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr Prompt(uint mode,IntPtr title,IntPtr content);
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void PromptFree(IntPtr p);
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr CoreCall(byte[] input,UIntPtr length,byte[] directory,Prompt prompt,PromptFree free);
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void CoreFree(IntPtr p);
+            static CoreCall call; static CoreFree free;
+            // Updates must never need a wallet secret or security prompt.
+            static Prompt rejectPrompt=(mode,title,content)=>IntPtr.Zero;
+            static PromptFree noPromptAnswer=(p)=>{};
+            public static void Load(string path) {
+              var module=LoadLibrary(path);if(module==IntPtr.Zero)throw new Exception("Cannot load original 0.1.3 native core");
+              call=(CoreCall)Marshal.GetDelegateForFunctionPointer(GetProcAddress(module,"kaspire_desktop_call"),typeof(CoreCall));
+              free=(CoreFree)Marshal.GetDelegateForFunctionPointer(GetProcAddress(module,"kaspire_desktop_free"),typeof(CoreFree));
+            }
+            public static string Call(string request,string directory) {
+              var bytes=Encoding.UTF8.GetBytes(request);var path=Encoding.UTF8.GetBytes(directory+"\0");
+              var p=call(bytes,new UIntPtr((uint)bytes.Length),path,rejectPrompt,noPromptAnswer);
+              try{return Marshal.PtrToStringAnsi(p);}finally{free(p);}
+            }
+          }
+          '@
+          [OldKaspireUpdate]::Load((Join-Path $OldPortable 'Kaspire-Windows-0.1.3\kaspa_secure_core.dll'))
+          function Native([string]$Method,$Arguments) {
+            $Request=@{method=$Method;arguments=$Arguments} | ConvertTo-Json -Depth 8 -Compress
+            $Result=[OldKaspireUpdate]::Call($Request,$Data) | ConvertFrom-Json
+            if ($Result.PSObject.Properties.Name -contains 'error') { throw $Result.error }
+            return $Result.result
+          }
+          $Terms=@{payload=$Envelope.payload;signature=$Envelope.signature}
+          if ((Native 'verifyDesktopUpdateManifest' $Terms) -ne $true) { throw 'Original core rejected the new signed manifest.' }
+          $BadRequest=@{method='verifyDesktopUpdateManifest';arguments=@{payload=$Envelope.payload;signature=('A'*88)}} | ConvertTo-Json -Depth 8 -Compress
+          $Bad=[OldKaspireUpdate]::Call($BadRequest,$Data) | ConvertFrom-Json
+          if (-not $Bad.error) { throw 'Original core accepted an invalid signature.' }
+          $PrepareRequest=@{method='prepareDesktopUpdate';arguments=$Terms} | ConvertTo-Json -Depth 8 -Compress
+          $Original=[OldKaspireUpdate]::Call($PrepareRequest,$Data) | ConvertFrom-Json
+          if ($Original.error -ne 'Unknown native review method') { throw 'Unexpected original 0.1.3 preparation behavior.' }
+          Write-Host 'Confirmed: original 0.1.3 verifies the manifest but requires a manual bootstrap because prepareDesktopUpdate enters transaction review.'
+          [OldKaspireUpdate]::Load((Join-Path $Portable 'Kaspire-Windows-0.1.4\\kaspa_secure_core.dll'))
+          if ((Native 'verifyDesktopUpdateManifest' $Terms) -ne $true) { throw 'Fixed core rejected the signed manifest.' }
+          $Fixed=[OldKaspireUpdate]::Call($PrepareRequest,$Data) | ConvertFrom-Json
+          if ($Fixed.error -notmatch 'already installed or newer') { throw 'Fixed dispatch did not reach the signed updater version guard.' }
+          $NoTokenRequest=@{method='installDesktopUpdate';arguments=@{token='not-a-native-update-token'}} | ConvertTo-Json -Compress
+          $NoToken=[OldKaspireUpdate]::Call($NoTokenRequest,$Data) | ConvertFrom-Json
+          if ($NoToken.error -notmatch 'authorization expired') { throw 'Installer execution was not protected by the native token registry.' }
+          $StateBefore=(Get-FileHash (Join-Path $Data 'desktop-updates.dpapi')).Hash
+          $Setup=Start-Process $Installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru
+          if (-not $Setup.WaitForExit(120000) -or $Setup.ExitCode -ne 0) { throw 'Bootstrap installer failed.' }
+          $Expected=(Get-FileHash (Join-Path $Portable 'Kaspire-Windows-0.1.4\kaspire.exe')).Hash
+          $Upgraded=$false
+          for ($Attempt=0;$Attempt -lt 60;$Attempt++) {
+            Start-Sleep -Seconds 2
+            if ((Test-Path (Join-Path $Installed 'kaspire.exe')) -and (Get-FileHash (Join-Path $Installed 'kaspire.exe')).Hash -eq $Expected) { $Upgraded=$true;break }
+          }
+          if (-not $Upgraded) { throw 'Installer did not upgrade the application.' }
+          Start-Sleep -Seconds 10
+          foreach ($File in @('kaspire.exe','kaspa_secure_core.dll','data\app.so')) {
+            if ((Get-FileHash (Join-Path $Installed $File)).Hash -ne (Get-FileHash (Join-Path $Portable "Kaspire-Windows-0.1.4\$File")).Hash) { throw "Upgraded file differs: $File" }
+          }
+          if ((Get-FileHash $Marker).Hash -ne $Before) { throw 'Upgrade changed wallet-data marker.' }
+          if ((Get-FileHash (Join-Path $Data 'desktop-updates.dpapi')).Hash -ne $StateBefore) { throw 'Upgrade changed the signed-update security state.' }
+          $Wallet=Get-Process kaspire -ErrorAction Stop | Select-Object -First 1
+          if ($Wallet.HasExited -or $Wallet.MainWindowHandle -eq 0 -or $Wallet.MainWindowTitle -ne 'Kaspire') { throw 'Upgraded application did not reopen.' }
+          Stop-Process -Id $Wallet.Id
+          'PASSED: original 0.1.3 verifies the signed manifest; its manual-bootstrap limitation is reproduced; corrected 0.1.4 reaches the signed updater version guard and rejects unauthorised installation; manual 0.1.3-to-0.1.4 upgrade matches EXE/DLL/Flutter hashes, preserves data and DPAPI update state, and reopens the app.' | Tee-Object (Join-Path $env:GITHUB_WORKSPACE 'update-checks.txt')
+      - name: Retain upgrade verification
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Windows-014-fixed-update-checks
+          path: update-checks.txt
+          if-no-files-found: ignore
+          retention-days: 14
