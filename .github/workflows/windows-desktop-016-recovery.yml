@@ -1,0 +1,84 @@
+name: Windows 0.1.6 unchanged binary GUI verification
+on:
+  push:
+    branches: [windows-desktop-build]
+    paths: [.github/workflows/windows-desktop-016-recovery.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Fetch original pinned source and diagnostic script
+        run: |
+          $ErrorActionPreference='Stop'
+          $ProgressPreference='SilentlyContinue'
+          $Archive=Join-Path $env:RUNNER_TEMP 'source.zip'
+          Invoke-WebRequest -UseBasicParsing 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-source-0.1.6.zip' -OutFile $Archive
+          if((Get-FileHash $Archive).Hash.ToLowerInvariant() -ne '349e79b0305e4e2247785e375ee420b9f9ec041a15944b10a1a83f537e02efcb'){throw 'Original source differs.'}
+          Expand-Archive $Archive $env:GITHUB_WORKSPACE
+          $Source=Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          $Check=Join-Path $Source 'desktop\Test-WindowsDialogs-Diagnostic.ps1'
+          Invoke-WebRequest -UseBasicParsing 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-dialog-checks-0.1.6.ps1' -OutFile $Check
+          if((Get-FileHash $Check).Hash.ToLowerInvariant() -ne '030ff56ed0d73f9263dc2a18e1bf02583087843181a3811a6f84fe5ae6e8b779'){throw 'Diagnostic script differs.'}
+      - name: Recover unchanged compiled wallet
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: '38955596982'
+          name: Windows-016-compiled-wallet
+          path: Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.6
+      - name: Verify exact binary hashes and PE protection
+        run: |
+          $ErrorActionPreference='Stop'
+          $Source=Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          $Bundle=Join-Path $Source 'dist\Kaspire-Windows-0.1.6'
+          $Expected=@{
+            'kaspire.exe'='a5ddaa4740d39b543520e85deaef6cbccbb7473cde07d47012f6ad14a38d9e58'
+            'kaspa_secure_core.dll'='b56ce13754159311611b4189c1e8134b1a7bb377faf1522af8bcc774e41ac7b2'
+            'data\app.so'='617b569eb4bb7329d39ce39731c9d705e73fa5ac83b755a77c3b1ba1c5b71b1a'
+          }
+          foreach($File in $Expected.Keys){if((Get-FileHash (Join-Path $Bundle $File)).Hash.ToLowerInvariant() -ne $Expected[$File]){throw "Binary differs: $File"}}
+          & (Join-Path $Source 'desktop\Test-WindowsHardening.ps1') -Bundle $Bundle
+      - name: Verify native dialogs and cold restart with extended diagnostics
+        run: |
+          $Source=Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          & (Join-Path $Source 'desktop\Test-WindowsDialogs-Diagnostic.ps1') -Exe (Join-Path $Source 'dist\Kaspire-Windows-0.1.6\kaspire.exe') -DiagnosticRoot (Join-Path $Source 'desktop')
+      - name: Package verified binaries
+        run: |
+          $ErrorActionPreference='Stop'
+          $Source=Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
+          $Bundle=Join-Path $Source 'dist\Kaspire-Windows-0.1.6'
+          $Compiler=Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          & $Compiler '/DAppVersion=0.1.6' (Join-Path $Source 'desktop\Kaspire.iss')
+          if($LASTEXITCODE -ne 0){throw 'Installer build failed.'}
+          Get-ChildItem $Bundle -Recurse -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object {
+            (Get-FileHash $_.FullName).Hash.ToLowerInvariant()+'  '+$_.FullName.Substring($Bundle.Length+1).Replace('\','/')
+          } | Set-Content (Join-Path $Bundle 'SHA256SUMS.txt') -Encoding UTF8
+          Compress-Archive -Path $Bundle -DestinationPath (Join-Path $Source 'dist\Kaspire-Windows-0.1.6-x64.zip')
+      - name: Upload verified installer and portable wallet
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Kaspire-Windows-0.1.6-x64
+          path: |
+            Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.6-x64-Setup.exe
+            Kaspire-Windows-source-0.1.0/dist/Kaspire-Windows-0.1.6-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+      - name: Retain safe diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Windows-016-recovery-diagnostics
+          path: |
+            Kaspire-Windows-source-0.1.0/desktop/*-out.log
+            Kaspire-Windows-source-0.1.0/desktop/*-error.log
+            Kaspire-Windows-source-0.1.0/desktop/windows-*.txt
+            Kaspire-Windows-source-0.1.0/desktop/windows-*.png
+          if-no-files-found: ignore
+          retention-days: 14
