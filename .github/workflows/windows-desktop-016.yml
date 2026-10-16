@@ -24,7 +24,7 @@ jobs:
           $ProgressPreference = 'SilentlyContinue'
           $Archive = Join-Path $env:RUNNER_TEMP 'kaspire-source.zip'
           Invoke-WebRequest -UseBasicParsing 'https://kaspire.kaslab.space/downloads/Kaspire-Windows-source-0.1.6.zip' -OutFile $Archive
-          $Expected = 'a537fdd806fc84dbc5f7872f023f2d23fced12976b3adce41bbb68d30860815b'
+          $Expected = '6d0f5074714c0fbc0950974c7133a1cd81d121966c850dfb8284160f34eb526b'
           if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) { throw 'Source snapshot hash mismatch.' }
           Expand-Archive $Archive -DestinationPath $env:GITHUB_WORKSPACE
           $Source = Join-Path $env:GITHUB_WORKSPACE 'Kaspire-Windows-source-0.1.0'
