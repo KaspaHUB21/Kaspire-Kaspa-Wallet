@@ -1,0 +1,17 @@
+Kaspire Windows 0.1.6
+
+Windows wallet security hardening:
+
+- Add password-based AES-256-GCM encryption inside Windows DPAPI protection, using an Argon2id-derived wrapping key and a random 256-bit wallet master key.
+- Automatically migrate existing Windows wallet storage after a successful password check; preserve wallet addresses, HD accounts and recovery metadata.
+- Rotate the master key when changing the password and clear session keys and pending authorizations on lock or internal native failure.
+- Use a versioned storage envelope so older Windows binaries cannot silently overwrite the new password-protection metadata.
+- Normalize optional BIP39 seed passphrases with Unicode NFKD and store their canonical form in portable Windows backups. Windows unlock and backup passwords remain exact and case-sensitive.
+- Clear transient transaction signing keys on every exit path and explicitly wipe Argon2 workspaces without changing existing backup keys or formats.
+- Enable and verify ASLR, high-entropy VA, DEP and Control Flow Guard in the Kaspire executable and Rust signing DLL.
+- Keep installer files protected against modification and replacement between verification and process creation.
+- Preserve the separately signed Ed25519 update manifest, pinned download policy and installer hash verification.
+
+Before upgrading, keep a verified encrypted backup and its password. After storage migration, older Windows versions cannot open the new store; reinstall this version or restore your portable backup instead of downgrading.
+
+A trusted Windows Authenticode publisher certificate is not configured yet. Windows may still show an unknown-publisher warning. Authenticode publisher signing and Kaspire's Ed25519-signed updates are separate protections.
