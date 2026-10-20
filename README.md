@@ -40,12 +40,21 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.52**, build **181**
+- Android app: **0.11.53**, build **188**
 - Android package: `space.kaspire.wallet`
-- Browser extension package: **0.5.8.2** (Chrome Web Store rollout is separate)
+- Browser extension package: **0.5.11** (available in the Chrome Web Store)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - Extension networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
+
+Android and the browser extension now expose a separate Mainnet **P2SH account**
+under Receive KAS. It uses KIP-22 derivation to hide spending public keys until
+the corresponding outputs are spent, with fresh P2SH change, fee-adjusted Max,
+locally rebuilt transaction reviews and encrypted recovery journals. This is not
+a post-quantum signature scheme: spending reveals the Schnorr public key. Use a
+seed-based HD wallet, keep an up-to-date encrypted backup, and do not use the same
+P2SH account on multiple devices at once. Android Covenant Vaults remain in
+HUB21 Toolbox; dot.k Market is available exclusively through K-Agora.
 
 | Platform | Connection model | Local security boundary |
 | --- | --- | --- |

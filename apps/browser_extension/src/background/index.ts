@@ -1,5 +1,8 @@
 import { loadState, saveState } from "./state";
 import { core } from "./core";
+import { p2shCommand, validateP2shState, emptyP2shState, clearP2shReviews, type P2shContext, type P2shState } from './p2sh';
+import { p2shHdRequired } from '../shared/p2sh';
+import { covenantVaultCommand, clearCovenantVaultReviews, type VaultContext } from './covenantVaults';
 import { clearKronDexReviews, kronTokens, kronTokenContext, getKronQuote, prepareKronSwap, submitKronSwap, resumeKronSwap, type KronContext } from './kronDex';
 import {nftBrowse, nftOwned, nftOwnedCollections, nftMyListings, nftOperation, nftPublishPending} from "./nftMarket";
 import {nexusConnected,nexusDisconnect,nexusRequest,nexusSetSession,nexusRestoreSession,validateNexusChallenge} from "./nexus";
@@ -134,6 +137,7 @@ interface VaultWallet {
   name: string;
   type: "mnemonic" | "private";
   secret: string;
+  hiddenKas?: P2shState;
 }
 interface VaultPayload {
   version: 2;
@@ -272,6 +276,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     }
   }
   if (message?.channel === "wallet") {
+    if ((String(message.command).startsWith('covenantVault') || String(message.command).startsWith('p2sh')) && sender.url !== chrome.runtime.getURL('wallet.html')) {
+      respond({ error: { code: 4100, message: 'Covenant vault commands are available only inside Kaspire Wallet.' } });
+      return false;
+    }
     void walletCommand(message)
       .then((result) => respond({ result }))
       .catch((error) => respond({ error: normalize(error) }));
@@ -307,6 +315,10 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onDisconnect.addListener(() => disconnected.abort());
   port.onMessage.addListener((message) => {
     if (message?.channel !== "wallet") return;
+    if ((String(message.command).startsWith('covenantVault') || String(message.command).startsWith('p2sh')) && port.sender?.url !== chrome.runtime.getURL('wallet.html')) {
+      port.postMessage({ error: { code: 4100, message: 'Covenant vault commands are available only inside Kaspire Wallet.' } });
+      return;
+    }
     const progress = (stage: string) => {
       try {
         port.postMessage({ progress: stage });
@@ -326,7 +338,7 @@ async function walletCommand(
   await hydrateSession();
   const state = await loadState();
   await expireSessionIfNeeded(state);
-  if (sessionVault && message.command !== 'nexusPoll') await touchSession();
+  if (sessionVault && !['nexusPoll', 'covenantVaultSaved', 'covenantVaultRefresh', 'covenantVaultDaa'].includes(message.command)) await touchSession();
   if (message.command === "storeUpdateStatus") {
     return new Promise<{
       installedVersion: string;
@@ -798,6 +810,69 @@ async function walletCommand(
       String(message.tokenId ?? ""),
       String(message.symbol ?? ""),
     );
+  if (String(message.command).startsWith('p2sh')) {
+    if (state.network !== 'mainnet' || !state.selectedAddress) throw Error('P2SH accounts require Kaspa Mainnet.');
+    const address = state.selectedAddress, generation = sessionGeneration, revision = nftContextRevision;
+    const entry = state.addresses.find(item => item.address === address);
+    const wallet = sessionVault?.wallets.find(item => item.id === entry?.walletId);
+    if (message.command === 'p2shSupport') return { supported: Boolean(wallet?.type === 'mnemonic' && !entry?.watchOnly), message: p2shHdRequired };
+    if (!wallet || wallet.type !== 'mnemonic' || !entry || entry.watchOnly) throw Error(p2shHdRequired);
+    const guard = async () => {
+      operationSignal?.throwIfAborted();
+      await hydrateSession(); const fresh = await loadState(); await expireSessionIfNeeded(fresh);
+      if (!sessionVault || generation !== sessionGeneration || !sessionVault.wallets.includes(wallet)) throw Error('Wallet locked. Unlock and review the P2SH payment again.');
+      if (fresh.network !== 'mainnet' || fresh.selectedAddress !== address || revision !== nftContextRevision) throw Error('Account or network changed. Reopen the P2SH account.');
+      const selected = fresh.addresses.find(item => item.address === address);
+      if (!selected || selected.watchOnly || selected.walletId !== wallet.id || selected.path !== entry.path) throw Error('The selected signing wallet changed.');
+      operationSignal?.throwIfAborted();
+    };
+    const context: P2shContext = {
+      walletId: wallet.id, binding: `${generation}:${revision}:${wallet.id}:${address}`, signal: operationSignal, guard, progress,
+      load: () => validateP2shState(wallet.hiddenKas ?? emptyP2shState()),
+      save: async next => {
+        await guard(); const previous = wallet.hiddenKas;
+        wallet.hiddenKas = validateP2shState(next);
+        try { await persistVault(guard); await guard(); }
+        catch (error) {
+          // Never forget a pending payment merely because clearing its durable
+          // journal failed. Issuance/exposure remain conservatively monotonic.
+          if (previous?.pending && !wallet.hiddenKas.pending) wallet.hiddenKas.pending = previous.pending;
+          throw error;
+        }
+      },
+      derive: async (branch, start, count) => { const wasm = await core(); await guard(); return JSON.parse(wasm.deriveHiddenKas(wallet.secret, branch, start, count)); },
+      validate: async (a, rows) => { const wasm = await core(); await guard(); return wasm.validateHiddenKasUtxos(wallet.secret, JSON.stringify(a), JSON.stringify(rows)); },
+      prepare: async request => { const wasm = await core(); await guard(); return JSON.parse(wasm.prepareHiddenKas(wallet.secret, JSON.stringify(request))); },
+      sign: async (request, hash) => { const wasm = await core(); await guard(); return JSON.parse(wasm.signHiddenKas(wallet.secret, JSON.stringify(request), hash)); },
+      verify: async saved => { const wasm = await core(); await guard(); wasm.verifyHiddenKasRecovery(wallet.secret, JSON.stringify(saved)); },
+      approve: (details, rawJson) => approve({ origin: 'Kaspire Wallet', title: 'Review P2SH payment', description: 'The local Rust core rebuilds this payment and verifies the spending scripts before signing.', details, rawJson }, operationSignal),
+    };
+    return p2shCommand(context, message);
+  }
+  if (String(message.command).startsWith('covenantVault')) {
+    if (state.network !== 'mainnet' || !state.selectedAddress) throw Error('Covenant vaults require Kaspa Mainnet. Switch back before continuing.');
+    const address = state.selectedAddress, generation = sessionGeneration, revision = nftContextRevision;
+    const entry = state.addresses.find(item => item.address === address);
+    const guard = async () => {
+      operationSignal?.throwIfAborted();
+      await hydrateSession();
+      const fresh = await loadState(); await expireSessionIfNeeded(fresh);
+      if (!sessionVault || generation !== sessionGeneration) throw Error('Wallet locked. Unlock and review the vault action again.');
+      if (fresh.network !== 'mainnet' || fresh.selectedAddress !== address || revision !== nftContextRevision) throw Error('Account or network changed. Reopen Vaults and review again.');
+      const selected = fresh.addresses.find(item => item.address === address);
+      if (!selected || selected.watchOnly || selected.walletId !== entry?.walletId || selected.path !== entry.path || !sessionVault.wallets.some(item => item.id === selected.walletId)) throw Error('Select an unlocked signing wallet.');
+      operationSignal?.throwIfAborted();
+    };
+    const context: VaultContext = { address, binding: `${generation}:${revision}:${entry?.walletId}:${entry?.path}`, guard, signal: operationSignal,
+      sign: async (request, hash) => {
+        const wasm = await core(); await guard();
+        const wallet = sessionVault!.wallets.find(item => item.id === entry!.walletId)!;
+        return JSON.parse(wasm.signCovenantVault(signingSecret(wallet, entry!), JSON.stringify(request), hash));
+      },
+      approve: (title, details, rawJson) => approve({ origin: 'Kaspire Wallet', title, description: 'Verify the covenant transaction rebuilt and simulated by the local Rust security core.', details, rawJson }, operationSignal),
+    };
+    return covenantVaultCommand(context, message);
+  }
   if (String(message.command).startsWith('kronDex')) {
     if (state.network !== 'mainnet' || !state.selectedAddress) throw Error('Kron DEX is available on Kaspa Mainnet only.');
     const address = state.selectedAddress;
@@ -2006,6 +2081,7 @@ async function walletCommand(
       secret: wallet.secret,
       address: mainAddress,
       addresses,
+      ...(wallet.hiddenKas ? { hiddenKas: validateP2shState(wallet.hiddenKas) } : {}),
       createdAt: Date.now(),
     });
     return JSON.stringify(backup);
@@ -2200,6 +2276,12 @@ async function walletCommand(
         change: 0,
         index: 0,
       });
+    if (decoded.hiddenKas != null) {
+      const recovered = validateP2shState(decoded.hiddenKas);
+      if (wallet.type !== 'mnemonic' && (recovered.receiveCount || recovered.changeCount || recovered.pending)) throw Error('A P2SH account requires an HD seed wallet.');
+      if (recovered.pending) wasm.verifyHiddenKasRecovery(wallet.secret, JSON.stringify(recovered.pending));
+      wallet.hiddenKas = recovered;
+    }
     sessionVault = { version: 2, wallets: [wallet], createdAt: Date.now() };
     sessionPassword = password;
     await createVault(password, sessionVault);
@@ -2234,7 +2316,8 @@ async function evmWalletSnapshot(state: Awaited<ReturnType<typeof loadState>>) {
   return evmSnapshot(state.network, address);
 }
 
-async function persistVault() {
+let vaultWrites: Promise<unknown> = Promise.resolve();
+async function persistVault(guard?: () => Promise<void>) {
   if (!sessionVault) throw new Error("Unlock Kaspire first.");
   if (!sessionPassword) {
     sessionVault = null;
@@ -2243,8 +2326,18 @@ async function persistVault() {
       "Lock and unlock Kaspire again before changing encrypted wallet keys.",
     );
   }
-  await createVault(sessionPassword, sessionVault);
-  await rememberSession();
+  const payload = sessionVault, password = sessionPassword, generation = sessionGeneration;
+  const check = async () => {
+    if (sessionVault !== payload || sessionGeneration !== generation || sessionPassword !== password) throw Error('Wallet locked or changed before encrypted data could be saved.');
+    await guard?.();
+  };
+  const write = vaultWrites.then(async () => {
+    await check();
+    await createVault(password, payload, check);
+    await check();
+    await rememberSession();
+  });
+  vaultWrites = write.catch(() => {}); await write;
 }
 async function ensureOffscreenSessionDocument() {
   if (await chrome.offscreen.hasDocument()) return;
@@ -2372,6 +2465,8 @@ async function lockSession(state: Awaited<ReturnType<typeof loadState>>) {
   preparedEvmTransfers.clear();
   preparedRocketSwaps.clear();
   clearKronDexReviews();
+  clearCovenantVaultReviews();
+  clearP2shReviews();
   sessionVault = null;
   sessionPassword = null;
   lastActivity = 0;

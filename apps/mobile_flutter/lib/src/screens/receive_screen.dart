@@ -13,6 +13,8 @@ import '../services/native_security.dart';
 import '../models/kaspa_payment_request.dart';
 import '../services/kaspa_api.dart';
 import '../services/preferences_service.dart';
+import '../platform.dart';
+import 'hidden_kas_screen.dart';
 
 class ReceiveScreen extends StatefulWidget {
   const ReceiveScreen({
@@ -38,6 +40,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
   List<NativeHdAddress> _receiveAddresses = const [];
   bool _loadingAddresses = true;
   bool _rotating = false;
+  bool _p2sh = false;
   String? _rotationError;
   Map<String, String> _receiveAddressNames = const {};
   Map<String, bool> _receiveAddressUsageKnown = const {};
@@ -61,6 +64,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
   void didUpdateWidget(covariant ReceiveScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!_sameAddress(oldWidget.address, widget.address)) {
+      _p2sh = false;
       _loadReceiveAddresses();
     }
   }
@@ -387,229 +391,264 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            const SizedBox(height: 8),
-            Hub21Readable(
-              child: const Text(
-            'Receive KAS',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -.8,
+        child: Column(children: [
+          if (!isWindowsDesktop &&
+              NetworkSettings.network.value == KaspaNetwork.mainnet)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+              child: SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('Receive KAS')),
+                    ButtonSegment(value: true, label: Text('P2SH account')),
+                  ],
+                  selected: {_p2sh},
+                  onSelectionChanged: (selection) =>
+                      setState(() => _p2sh = selection.single),
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            Hub21Readable(
-              child: Text(
-                NetworkSettings.isTestnet
-                    ? 'Share this address for TN10 test KAS payments.'
-                    : 'Share this address for Kaspa mainnet payments.',
-                style: const TextStyle(color: KasVaultTheme.muted),
-              ),
-            ),
-            if (_loadingAddresses) ...[
-              const SizedBox(height: 18),
-              const Hub21Readable(
-                child: Text(
-                  'Loading receive addresses…',
-                  style: TextStyle(color: KasVaultTheme.muted),
-                ),
-              ),
-            ],
-            if (_wallet != null && _selected != null) ...[
-              const SizedBox(height: 18),
-              InkWell(
-                onTap: _chooseReceiveAddress,
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: KasVaultTheme.panel,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: KasVaultTheme.line),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.account_tree_outlined),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _addressLabel(_selected!),
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w900),
+          Expanded(
+              child: _p2sh &&
+                      NetworkSettings.network.value == KaspaNetwork.mainnet
+                  ? HiddenKasScreen(
+                      key: ValueKey(widget.address),
+                      address: widget.address,
+                      embedded: true)
+                  : ListView(
+                      padding: const EdgeInsets.all(20),
+                      children: [
+                        const SizedBox(height: 8),
+                        Hub21Readable(
+                          child: const Text(
+                            'Receive KAS',
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -.8,
                             ),
-                            Text(
-                              _selected!.derivationPath,
-                              style: const TextStyle(
-                                color: KasVaultTheme.muted,
-                                fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Hub21Readable(
+                          child: Text(
+                            NetworkSettings.isTestnet
+                                ? 'Share this address for TN10 test KAS payments.'
+                                : 'Share this address for Kaspa mainnet payments.',
+                            style: const TextStyle(color: KasVaultTheme.muted),
+                          ),
+                        ),
+                        if (_loadingAddresses) ...[
+                          const SizedBox(height: 18),
+                          const Hub21Readable(
+                            child: Text(
+                              'Loading receive addresses…',
+                              style: TextStyle(color: KasVaultTheme.muted),
+                            ),
+                          ),
+                        ],
+                        if (_wallet != null && _selected != null) ...[
+                          const SizedBox(height: 18),
+                          InkWell(
+                            onTap: _chooseReceiveAddress,
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: KasVaultTheme.panel,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: KasVaultTheme.line),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.account_tree_outlined),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _addressLabel(_selected!),
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w900),
+                                        ),
+                                        Text(
+                                          _selected!.derivationPath,
+                                          style: const TextStyle(
+                                            color: KasVaultTheme.muted,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(Icons.expand_more_rounded),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 34),
+                        Center(
+                          child: Container(
+                            padding: const EdgeInsets.all(18),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(28),
+                              boxShadow: [
+                                BoxShadow(
+                                  color:
+                                      KasVaultTheme.mint.withValues(alpha: .33),
+                                  blurRadius: 40,
+                                ),
+                              ],
+                            ),
+                            child: QrImageView(
+                              data: paymentUri,
+                              size: 238,
+                              eyeStyle: QrEyeStyle(
+                                eyeShape: QrEyeShape.square,
+                                color: KasVaultTheme.qrInk,
+                              ),
+                              dataModuleStyle: QrDataModuleStyle(
+                                dataModuleShape: QrDataModuleShape.square,
+                                color: KasVaultTheme.qrInk,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 30),
+                        TextField(
+                          controller: _amount,
+                          onChanged: (_) => setState(() {}),
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'Requested amount (optional)',
+                            suffixText: 'KAS',
+                            hintText: '0.00',
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(17),
+                          decoration: KasVaultTheme.isDecorative
+                              ? kaspireDecorativeDecoration(
+                                  radius: 18, rim: 2.5)
+                              : BoxDecoration(
+                                  color: KasVaultTheme.panel,
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(color: KasVaultTheme.line),
+                                ),
+                          child: SelectableText(
+                            _selectedAddress,
+                            textAlign: TextAlign.center,
+                            textWidthBasis: TextWidthBasis.longestLine,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              color: KasVaultTheme.mint,
+                              fontSize: 13,
+                              height: 1.45,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  Clipboard.setData(
+                                      ClipboardData(text: paymentUri));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content:
+                                            Text('Payment request copied')),
+                                  );
+                                },
+                                icon: const Icon(Icons.copy_rounded),
+                                label: Text(buttonLabel('COPY')),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(54),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: () => Share.share(
+                                  paymentUri,
+                                  subject: 'Kaspa payment request',
+                                ),
+                                icon: const Icon(Icons.ios_share_rounded),
+                                label: Text(buttonLabel('SHARE')),
+                                style: FilledButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(54),
+                                  backgroundColor: KasVaultTheme.mint,
+                                  foregroundColor:
+                                      KasVaultTheme.filledButtonText,
+                                ),
                               ),
                             ),
                           ],
                         ),
-                      ),
-                      const Icon(Icons.expand_more_rounded),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 34),
-            Center(
-              child: Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(
-                      color: KasVaultTheme.mint.withValues(alpha: .33),
-                      blurRadius: 40,
-                    ),
-                  ],
-                ),
-                child: QrImageView(
-                  data: paymentUri,
-                  size: 238,
-                  eyeStyle: QrEyeStyle(
-                    eyeShape: QrEyeShape.square,
-                    color: KasVaultTheme.qrInk,
-                  ),
-                  dataModuleStyle: QrDataModuleStyle(
-                    dataModuleShape: QrDataModuleShape.square,
-                    color: KasVaultTheme.qrInk,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 30),
-            TextField(
-              controller: _amount,
-              onChanged: (_) => setState(() {}),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Requested amount (optional)',
-                suffixText: 'KAS',
-                hintText: '0.00',
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(17),
-              decoration: KasVaultTheme.isDecorative
-                  ? kaspireDecorativeDecoration(radius: 18, rim: 2.5)
-                  : BoxDecoration(
-                      color: KasVaultTheme.panel,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: KasVaultTheme.line),
-                    ),
-              child: SelectableText(
-                _selectedAddress,
-                textAlign: TextAlign.center,
-                textWidthBasis: TextWidthBasis.longestLine,
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  color: KasVaultTheme.mint,
-                  fontSize: 13,
-                  height: 1.45,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: paymentUri));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Payment request copied')),
-                      );
-                    },
-                    icon: const Icon(Icons.copy_rounded),
-                    label: Text(buttonLabel('COPY')),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(54),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => Share.share(
-                      paymentUri,
-                      subject: 'Kaspa payment request',
-                    ),
-                    icon: const Icon(Icons.ios_share_rounded),
-                    label: Text(buttonLabel('SHARE')),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(54),
-                      backgroundColor: KasVaultTheme.mint,
-                      foregroundColor: KasVaultTheme.filledButtonText,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (_wallet != null && _selected != null) ...[
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _rotating ? null : _rotateAddress,
-                icon: _rotating
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.autorenew_rounded),
-                label: Text(buttonLabel('GENERATE NEW RECEIVE ADDRESS')),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(54),
-                ),
-              ),
-            ],
-            if (_rotationError != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _rotationError!,
-                style: const TextStyle(color: Color(0xFFFF8A65)),
-              ),
-            ],
-            const SizedBox(height: 20),
-            Hub21Readable(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    Icons.info_outline,
-                    size: 18,
-                    color: KasVaultTheme.muted,
-                  ),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      NetworkSettings.isTestnet
-                          ? 'Only send TN10 test KAS to this kaspatest: address.'
-                          : _wallet == null
-                              ? 'Only send Kaspa mainnet assets to this address. Always verify the first and last characters.'
-                              : 'Rotated addresses are combined into one KAS account balance and activity history. Use the primary address for KRC20, KRC721, KNS and KCC20 assets while account-level asset spending remains under testing.',
-                      style: const TextStyle(
-                        color: KasVaultTheme.muted,
-                        height: 1.4,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+                        if (_wallet != null && _selected != null) ...[
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: _rotating ? null : _rotateAddress,
+                            icon: _rotating
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.autorenew_rounded),
+                            label: Text(
+                                buttonLabel('GENERATE NEW RECEIVE ADDRESS')),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(54),
+                            ),
+                          ),
+                        ],
+                        if (_rotationError != null) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            _rotationError!,
+                            style: const TextStyle(color: Color(0xFFFF8A65)),
+                          ),
+                        ],
+                        const SizedBox(height: 20),
+                        Hub21Readable(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.info_outline,
+                                size: 18,
+                                color: KasVaultTheme.muted,
+                              ),
+                              const SizedBox(width: 9),
+                              Expanded(
+                                child: Text(
+                                  NetworkSettings.isTestnet
+                                      ? 'Only send TN10 test KAS to this kaspatest: address.'
+                                      : _wallet == null
+                                          ? 'Only send Kaspa mainnet assets to this address. Always verify the first and last characters.'
+                                          : 'Rotated addresses are combined into one KAS account balance and activity history. Use the primary address for KRC20, KRC721, KNS and KCC20 assets while account-level asset spending remains under testing.',
+                                  style: const TextStyle(
+                                    color: KasVaultTheme.muted,
+                                    height: 1.4,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )),
+        ]),
       );
 }

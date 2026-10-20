@@ -2,6 +2,187 @@ use super::*;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+#[wasm_bindgen(js_name = deriveHiddenKas)]
+pub fn derive_hidden_kas_js(
+    secret: &str,
+    branch: u32,
+    start: u32,
+    count: u32,
+) -> std::result::Result<String, JsError> {
+    json(crate::hidden_kas::derive(secret, branch, start, count))
+}
+#[wasm_bindgen(js_name = validateHiddenKasUtxos)]
+pub fn validate_hidden_kas_utxos_js(
+    secret: &str,
+    raw_address: &str,
+    rows: &str,
+) -> std::result::Result<String, JsError> {
+    if rows.len() > 2 * 1024 * 1024 || raw_address.len() > 1024 {
+        return Err(JsError::new("P2SH output response is too large"));
+    }
+    let address: crate::hidden_kas::HiddenAddress =
+        serde_json::from_str(raw_address).map_err(|_| JsError::new("Invalid P2SH address"))?;
+    let owned = crate::hidden_kas::derive(secret, address.branch, address.index, 1)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    if owned.first() != Some(&address) {
+        return Err(JsError::new(
+            "P2SH address does not belong to the active seed",
+        ));
+    }
+    let parsed = kaspa_addresses::Address::try_from(address.address.as_str())
+        .map_err(|_| JsError::new("Invalid P2SH address"))?;
+    let entries =
+        crate::transaction::parse_utxos(rows, &parsed).map_err(|e| JsError::new(&e.to_string()))?;
+    let total = entries
+        .iter()
+        .try_fold(0u64, |sum, entry| sum.checked_add(entry.entry.amount))
+        .ok_or_else(|| JsError::new("P2SH balance overflow"))?;
+    Ok(total.to_string())
+}
+#[wasm_bindgen(js_name = prepareHiddenKas)]
+pub fn prepare_hidden_kas_js(secret: &str, raw: &str) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_value(vault_input(raw)?)
+        .map_err(|_| JsError::new("Invalid P2SH payment request"))?;
+    vault_json(crate::hidden_kas::prepare(secret, &request))
+}
+#[wasm_bindgen(js_name = signHiddenKas)]
+pub fn sign_hidden_kas_js(
+    secret: &str,
+    raw: &str,
+    hash: &str,
+) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_value(vault_input(raw)?)
+        .map_err(|_| JsError::new("Invalid P2SH payment request"))?;
+    vault_json(crate::hidden_kas::sign(secret, &request, hash))
+}
+#[wasm_bindgen(js_name = verifyHiddenKasRecovery)]
+pub fn verify_hidden_kas_recovery_js(
+    secret: &str,
+    raw: &str,
+) -> std::result::Result<String, JsError> {
+    let saved = vault_input(raw)?;
+    crate::hidden_kas::verify_saved(secret, &saved).map_err(|e| JsError::new(&e.to_string()))?;
+    Ok("true".into())
+}
+
+// Chrome messages cannot carry BigInt. Preserve large sompi amounts as decimal
+// strings at the JS boundary, while the shared native core still uses exact u64.
+fn vault_input(raw: &str) -> std::result::Result<serde_json::Value, JsError> {
+    if raw.len() > 2 * 1024 * 1024 {
+        return Err(JsError::new("Vault request is too large"));
+    }
+    let mut value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|_| JsError::new("Invalid vault request"))?;
+    fn convert(v: &mut serde_json::Value) -> std::result::Result<(), JsError> {
+        match v {
+            serde_json::Value::Object(fields) => {
+                for (key, value) in fields {
+                    if [
+                        "amountSompi",
+                        "valueSompi",
+                        "limitDaa",
+                        "currentDaa",
+                        "blockDaaScore",
+                    ]
+                    .contains(&key.as_str())
+                    {
+                        if let Some(text) = value.as_str() {
+                            let n = text
+                                .parse::<u64>()
+                                .map_err(|_| JsError::new("Invalid vault integer"))?;
+                            *value = serde_json::json!(n);
+                        }
+                    }
+                    convert(value)?;
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    convert(item)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    convert(&mut value)?;
+    Ok(value)
+}
+fn vault_json(value: Result<serde_json::Value>) -> std::result::Result<String, JsError> {
+    fn convert(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Number(n)
+                if n.as_u64().is_some_and(|n| n > 9_007_199_254_740_991) =>
+            {
+                *value = serde_json::Value::String(n.to_string());
+            }
+            serde_json::Value::Object(fields) => {
+                for value in fields.values_mut() {
+                    convert(value);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for value in items {
+                    convert(value);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut value = value.map_err(|e| JsError::new(&e.to_string()))?;
+    convert(&mut value);
+    Ok(value.to_string())
+}
+#[wasm_bindgen(js_name = describeCovenantVault)]
+pub fn describe_covenant_vault_js(raw: &str) -> std::result::Result<String, JsError> {
+    let terms = serde_json::from_value(vault_input(raw)?)
+        .map_err(|_| JsError::new("Invalid vault terms"))?;
+    vault_json(crate::covenant_vault::descriptor(&terms))
+}
+#[wasm_bindgen(js_name = prepareCovenantVault)]
+pub fn prepare_covenant_vault_js(raw: &str) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_value(vault_input(raw)?)
+        .map_err(|_| JsError::new("Invalid vault transaction"))?;
+    vault_json(crate::covenant_vault::prepare(&request))
+}
+#[wasm_bindgen(js_name = signCovenantVault)]
+pub fn sign_covenant_vault_js(
+    secret: &str,
+    raw: &str,
+    hash: &str,
+) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_value(vault_input(raw)?)
+        .map_err(|_| JsError::new("Invalid vault transaction"))?;
+    vault_json(crate::covenant_vault::sign(secret, &request, hash))
+}
+#[wasm_bindgen(js_name = validateVaultRecord)]
+pub fn validate_vault_record_js(raw: &str) -> std::result::Result<String, JsError> {
+    vault_json(crate::vault_recovery::validate_record(
+        &vault_input(raw)?.to_string(),
+    ))
+}
+#[wasm_bindgen(js_name = sealVaultRecovery)]
+pub fn seal_vault_recovery_js(
+    password: &mut [u8],
+    raw: &str,
+) -> std::result::Result<String, JsError> {
+    let owned = Zeroizing::new(password.to_vec());
+    password.fill(0);
+    crate::vault_recovery::seal(&owned, &vault_input(raw)?.to_string())
+        .map_err(|e| JsError::new(&e.to_string()))
+}
+#[wasm_bindgen(js_name = openVaultRecovery)]
+pub fn open_vault_recovery_js(
+    password: &mut [u8],
+    raw: &str,
+) -> std::result::Result<String, JsError> {
+    let owned = Zeroizing::new(password.to_vec());
+    password.fill(0);
+    let text =
+        crate::vault_recovery::open(&owned, raw).map_err(|e| JsError::new(&e.to_string()))?;
+    vault_json(serde_json::from_str(&text).map_err(|_| CoreError::Serialization))
+}
+
 #[wasm_bindgen(js_name = deriveDotkDeed)]
 pub fn derive_dotk_deed_js(request: &str) -> std::result::Result<String, JsError> {
     let parsed = serde_json::from_str::<crate::dotk::Request>(request)
@@ -246,8 +427,7 @@ pub fn sign_personal_message_js(
 
 #[wasm_bindgen(js_name = prepareNftMarket)]
 pub fn prepare_nft_market_js(request: &str) -> std::result::Result<String, JsError> {
-    crate::prepare_nft_market_json(request)
-        .map_err(|error| JsError::new(&error.to_string()))
+    crate::prepare_nft_market_json(request).map_err(|error| JsError::new(&error.to_string()))
 }
 
 #[wasm_bindgen(js_name = preparePskt)]

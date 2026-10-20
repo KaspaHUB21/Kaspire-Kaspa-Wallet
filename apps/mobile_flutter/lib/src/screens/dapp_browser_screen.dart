@@ -35,15 +35,17 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
   @override
   void initState() {
     super.initState();
-    final sessions = DappSessionService.instance;
-    _sessionChanges = sessions.changes.listen((_) => _updateConnection());
-    _updateConnection();
-    unawaited(sessions
-        .initialize()
-        .then((_) => _updateConnection())
-        .catchError((Object _) {
-      /* Keep the connection hint on initialization failure. */
-    }));
+    if (widget.dapp.walletConnectEnabled) {
+      final sessions = DappSessionService.instance;
+      _sessionChanges = sessions.changes.listen((_) => _updateConnection());
+      _updateConnection();
+      unawaited(sessions
+          .initialize()
+          .then((_) => _updateConnection())
+          .catchError((Object _) {
+        /* Keep the connection hint on initialization failure. */
+      }));
+    }
     unawaited(_initialize());
   }
 
@@ -223,7 +225,7 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
       return NavigationDecision.navigate;
     }
     final link = DappBrowserPolicy.walletLink(request.url);
-    if (_trustedPage && link != null) {
+    if (_trustedPage && widget.dapp.walletConnectEnabled && link != null) {
       // Do not await a relay operation while WebView is deciding navigation.
       unawaited(_handleWalletLink(link));
     } else if (mounted) {
@@ -293,7 +295,7 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
         ),
         body: SafeArea(
             child: Column(children: [
-          if (!_connected)
+          if (widget.dapp.walletConnectEnabled && !_connected)
             ListTile(
                 dense: true,
                 leading: const Icon(Icons.lock_outline),

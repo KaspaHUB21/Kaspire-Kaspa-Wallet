@@ -9,6 +9,8 @@ import 'network_settings.dart';
 import '../theme.dart';
 import 'package:http/http.dart' as http;
 import 'krc721_reads.dart';
+import 'security_channel.dart';
+import '../platform.dart';
 
 class NativeSecurity {
   Future<Map<String, Object?>> hiddenKasState() async =>
@@ -56,10 +58,23 @@ class NativeSecurity {
         .invokeMethod<void>('setInternalNexusUnlocked', {'enabled': enabled});
   }
 
-  static const _channel = MethodChannel('space.kasvault/security');
+  Future<void> lockWindowsSession() async {
+    if (isWindowsDesktop) {
+      await _channel.invokeMethod<void>('lockWindowsSession');
+    }
+  }
+
+  static const _channel = SecurityChannel();
   final LocalAuthentication _auth = LocalAuthentication();
 
   Future<bool> authenticate(BuildContext context, String reason) async {
+    if (isWindowsDesktop) {
+      return await _channel.invokeMethod<bool>('verifyPin', {
+            'reason': reason,
+            'sessionMinutes': AppSettings.lockMinutes.value
+          }) ??
+          false;
+    }
     final pinAvailable = await hasPin();
     final biometricsAvailable = await _hasBiometrics();
     if (pinAvailable && !biometricsAvailable) {
@@ -131,6 +146,12 @@ class NativeSecurity {
     }
   }
 
+  Future<bool> refreshWindowsUnlock() async =>
+      !isWindowsDesktop ||
+      await _channel.invokeMethod<bool>('refreshWindowsUnlock',
+              {'sessionMinutes': AppSettings.lockMinutes.value}) ==
+          true;
+
   Future<bool> isHardwareBacked() async {
     try {
       return await _channel.invokeMethod<bool>('isHardwareBacked') ?? false;
@@ -143,10 +164,14 @@ class NativeSecurity {
     required String payload,
     required String signature,
   }) async =>
-      await _channel.invokeMethod<bool>('verifyUpdateManifest', {
-        'payload': payload,
-        'signature': signature,
-      }) ??
+      await _channel.invokeMethod<bool>(
+          isWindowsDesktop
+              ? 'verifyDesktopUpdateManifest'
+              : 'verifyUpdateManifest',
+          {
+            'payload': payload,
+            'signature': signature,
+          }) ??
       false;
 
   Future<void> initializeVault() =>
@@ -394,8 +419,17 @@ class NativeSecurity {
   Future<String> signInternalNexusChallenge(
       String address, String message) async {
     if (!internalNexusUnlocked) throw StateError('Unlock Kaspire first.');
-    final raw = await _channel.invokeMethod<String>(
-        'signInternalNexusChallenge', {'address': address, 'message': message});
+    final token = isWindowsDesktop
+        ? await _authorizeOperation(
+            operation: 'signInternalNexusChallenge',
+            binding: '$address\u0000$message')
+        : null;
+    final raw =
+        await _channel.invokeMethod<String>('signInternalNexusChallenge', {
+      'address': address,
+      'message': message,
+      if (token != null) 'authorizationToken': token
+    });
     return (jsonDecode(raw!) as Map)['signature'] as String;
   }
 

@@ -23,4 +23,6 @@ await build({entryPoints:["src/background/kasparocket.ts"],outfile:"tests/genera
 execFileSync("cargo",["build","--locked","--release","-p","kaspa_secure_core","--target","wasm32-unknown-unknown"],{cwd:"../..",stdio:"inherit"});
 execFileSync("/root/.cargo/bin/wasm-bindgen",[resolve(cargoTargetDir,"wasm32-unknown-unknown/release/kaspa_secure_core.wasm"),"--target","web","--out-dir","tests/generated/wasm","--no-typescript"],{stdio:"inherit"});
 await rename("tests/generated/wasm/kaspa_secure_core.js","tests/generated/wasm/kaspa_secure_core.mjs");
+await build({entryPoints:["src/background/covenantVaults.ts"],outfile:"tests/generated/covenantVaults.mjs",bundle:true,format:"esm",platform:"node",target:"node20",alias:{"kaspire-wasm":resolve("tests/generated/wasm/kaspa_secure_core.mjs")}});
+await build({entryPoints:["src/background/p2sh.ts"],outfile:"tests/generated/p2sh.mjs",bundle:true,format:"esm",platform:"node",target:"node20",alias:{"kaspire-wasm":resolve("tests/generated/wasm/kaspa_secure_core.mjs")}});
 await build({entryPoints:["src/background/nftMarket.ts"],outfile:"tests/generated/nftMarket.mjs",bundle:true,format:"esm",platform:"node",target:"node20",alias:{"kaspire-wasm":resolve("tests/generated/wasm/kaspa_secure_core.mjs")}});

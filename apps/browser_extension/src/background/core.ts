@@ -15,6 +15,11 @@ type CoreModule = {
   signEvmTransaction(secret: string, request: string, reviewHash: string): string;
   exportPrivateKey(secret: string): string;
   publicKey(secret: string): string;
+  deriveHiddenKas(secret: string, branch: number, start: number, count: number): string;
+  validateHiddenKasUtxos(secret: string, address: string, rows: string): string;
+  prepareHiddenKas(secret: string, request: string): string;
+  signHiddenKas(secret: string, request: string, reviewHash: string): string;
+  verifyHiddenKasRecovery(secret: string, saved: string): string;
   deriveDotkDeed(request: string): string;
   describeDotkMarket(request: string): string;
   prepareDotkMarket(request: string): string;
@@ -38,6 +43,12 @@ type CoreModule = {
   signWyrmGenesis(secret: string, request: string, reviewHash: string): string;
   prepareWyrmTransition(request: string): string;
   signWyrmTransition(secret: string, request: string, reviewHash: string): string;
+  describeCovenantVault(terms: string): string;
+  prepareCovenantVault(request: string): string;
+  signCovenantVault(secret: string, request: string, reviewHash: string): string;
+  validateVaultRecord(record: string): string;
+  sealVaultRecovery(password: Uint8Array, record: string): string;
+  openVaultRecovery(password: Uint8Array, envelope: string): string;
 };
 
 let loading: Promise<CoreModule> | null = null;

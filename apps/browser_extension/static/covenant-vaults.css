@@ -1,0 +1,42 @@
+/* Native Android Vaults layout, sized for the extension. Surfaces deliberately
+   reuse review-card so HUB21, Glacier and Neptune keep their themed materials. */
+.vault-screen{padding:16px 18px 48px;min-width:0;color:var(--text,#edf7f4)}
+.vault-toolbar{display:flex;align-items:center;gap:8px;margin:0 0 16px}
+.vault-toolbar h2{flex:1;min-width:0;font-size:17px;line-height:1.3}
+.vault-toolbar .icon{flex:0 0 36px;height:36px}
+.vault-screen .vault-panel,.vault-dialog .vault-panel{display:block;padding:18px;margin:0 0 14px;border:1px solid var(--line);border-radius:20px;background:var(--surface);min-width:0;overflow-wrap:anywhere}
+.vault-panel h2{margin:0 0 14px;font-size:19px;line-height:1.25}
+.vault-panel p{line-height:1.55}
+.vault-panel>button,.vault-screen>#vault-content>button{width:100%;margin-top:10px;min-height:44px}
+.vault-intro{text-align:center;padding:28px 16px!important}
+.vault-intro .vault-eyebrow{color:var(--accent);font-size:10px;font-weight:800;letter-spacing:1.5px;line-height:1.8}
+.vault-intro h1{font-size:clamp(38px,12vw,54px);line-height:1.02;letter-spacing:-2.5px;margin:20px 0;color:inherit}
+.vault-intro ul{display:grid;gap:8px;list-style:none;padding:0;margin:24px 0 0}
+.vault-intro li{border:1px solid var(--line);border-radius:999px;padding:10px 9px;background:var(--surface2);font-size:12px;font-weight:700}
+.vault-intro li:before{content:'•';color:var(--accent);margin-right:7px}
+.vault-line{display:flex;flex-direction:column;gap:4px;margin:12px 0;min-width:0;overflow-wrap:anywhere}
+.vault-line small{color:var(--muted);font-weight:650}.vault-line span{line-height:1.45;white-space:pre-wrap}
+.vault-panel details{margin:18px 0}.vault-panel summary{cursor:pointer;font-weight:750;line-height:1.5;color:var(--accent)}
+.vault-panel code{display:block;overflow-wrap:anywhere;font-size:11px;margin:12px 0}
+.vault-row{display:grid!important;grid-template-columns:30px 1fr 12px;text-align:left;align-items:center;gap:8px;min-width:0}
+.vault-row>span:nth-child(2){display:flex;flex-direction:column;gap:6px;min-width:0;overflow-wrap:anywhere}
+.vault-row small{color:var(--muted);font-size:12px}.vault-row-icon{font-size:24px;color:var(--accent)}
+.vault-type-image{width:100%;height:160px;object-fit:cover;border-radius:12px;margin-bottom:16px}
+.vault-screen .vault-pending{border:2px solid var(--danger);box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 15%,transparent)}
+.vault-pending h2{color:var(--danger)}.vault-pending p{font-weight:650}
+.vault-dialog{padding:0;border:0;background:transparent;color:var(--text,#edf7f4);width:calc(100% - 28px);max-width:410px;max-height:calc(100vh - 28px);overflow:auto;border-radius:20px;box-shadow:0 16px 70px #0009}
+.vault-dialog::backdrop{background:#0009;backdrop-filter:blur(5px)}
+.vault-dialog .vault-panel{margin:0;background:var(--surface)}
+.vault-dialog h2{font-size:22px}.vault-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:20px}
+.vault-actions button{min-width:0;white-space:normal;line-height:1.3}
+.vault-password{display:grid;grid-template-columns:minmax(0,1fr) 42px;gap:5px}.vault-password button{padding:0;margin-top:7px}
+.vault-check{display:flex;align-items:flex-start;gap:10px;line-height:1.5}.vault-check input{flex:0 0 20px;width:20px;height:20px;accent-color:var(--accent)}
+.vault-dialog .file{display:block}.vault-dialog .file input{max-width:100%}
+.vault-screen button:disabled,.vault-dialog button:disabled{opacity:.5;cursor:default}
+:root[data-theme=glacier] .vault-dialog .vault-panel{background:#e9f7f8}
+:root[data-theme=hub21] .vault-dialog .vault-panel{background:#1c1e19}
+:root[data-theme=neptune] .vault-dialog .vault-panel{background:#07343f}
+:root[data-theme=hub21] .vault-intro li{border-color:#bca96e}
+:root[data-theme=glacier] .vault-intro li{background:var(--ice-glass);border-color:#fff;box-shadow:inset 0 1px #fff,0 3px 9px #466a7933}
+:root[data-theme=neptune] .vault-intro li{background:var(--neptune-water);border-color:#b8c4a5}
+@media(max-width:360px){.vault-screen{padding-inline:12px}.vault-panel{padding:14px!important}.vault-toolbar h2{font-size:15px}.vault-actions{grid-template-columns:1fr}}

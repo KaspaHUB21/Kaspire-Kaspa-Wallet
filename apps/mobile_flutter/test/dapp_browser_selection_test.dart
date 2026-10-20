@@ -10,6 +10,15 @@ void main() {
     expect(browserDapps.first.name, 'Kasvio');
     expect(browserDapps.first.url, 'https://kasvio.network/');
   });
+  test('Kaspa News uses its local logo directly before KasCoven Vaults', () {
+    final news =
+        browserDapps.indexWhere((site) => site.home.host == 'kaspa.news');
+    expect(news, greaterThanOrEqualTo(0));
+    expect(browserDapps[news].url, 'https://kaspa.news/');
+    expect(browserDapps[news].logo, 'assets/browser/kaspa-news.png');
+    expect(browserDapps[news].walletConnectEnabled, isFalse);
+    expect(browserDapps[news + 1].name, 'KasCoven Vaults');
+  });
   testWidgets('dApp selection and invitation fit narrow screens in every theme',
       (tester) async {
     tester.view.physicalSize = const Size(320, 640);

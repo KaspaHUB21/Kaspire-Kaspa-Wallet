@@ -19,13 +19,12 @@ mod policy_transaction;
 mod pskt;
 mod tangem_rescue;
 mod transaction;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod hidden_kas;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod hidden_kas_tests;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod covenant_vault;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(target_arch = "wasm32", test))]
+mod vault_templates;
 pub mod vault_recovery;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod covenant_vault_tests;
@@ -35,6 +34,9 @@ mod wasm;
 
 #[cfg(target_os = "android")]
 mod android;
+
+#[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
+mod desktop;
 
 use argon2::{Algorithm, Argon2, Params, Version as ArgonVersion};
 use kaspa_addresses::{Address, Prefix, Version};
@@ -46,6 +48,8 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+#[cfg(feature = "desktop")]
+use unicode_normalization::UnicodeNormalization;
 
 pub use covenant_wyrm::{
     inspect_state as inspect_covenant_wyrm_state, template_hash as covenant_wyrm_template_hash,
@@ -314,10 +318,19 @@ fn derive_backup_key_with_params(
         .map_err(|_| CoreError::Derivation)?;
     let argon = Argon2::new(Algorithm::Argon2id, ArgonVersion::V0x13, params);
     let mut key = Zeroizing::new([0u8; 32]);
-    argon
-        .hash_password_into(password, salt, key.as_mut())
+    argon2_into_zeroizing_memory(&argon, password, salt, key.as_mut())
         .map_err(|_| CoreError::Derivation)?;
     Ok(key)
+}
+
+/// Argon2's allocating API does not wipe its matrix on drop. Own the workspace
+/// explicitly so success, errors and unwinding all erase password-dependent
+/// blocks. The zeroize feature also wipes Argon2's internal hash temporaries.
+pub(crate) fn argon2_into_zeroizing_memory(
+    argon: &Argon2<'_>, password: &[u8], salt: &[u8], output: &mut [u8],
+) -> std::result::Result<(), argon2::Error> {
+    let mut memory = Zeroizing::new(vec![argon2::Block::default(); argon.params().block_count()]);
+    argon.hash_password_into_with_memory(password, salt, output, memory.as_mut_slice())
 }
 
 pub fn import_wallet(phrase: &str) -> Result<WalletMaterial> {
@@ -430,6 +443,10 @@ pub(crate) fn derive_key(phrase: &str) -> Result<Zeroizing<[u8; 32]>> {
 
 pub(crate) fn derive_key_at_path(secret: &str, path: &str) -> Result<Zeroizing<[u8; 32]>> {
     let (phrase, passphrase) = mnemonic_secret(secret)?;
+    // Windows has no legacy Unicode-passphrase wallets. Correct BIP39 there
+    // without silently changing addresses in existing Android/WASM wallets.
+    #[cfg(feature = "desktop")]
+    let passphrase = Zeroizing::new(passphrase.nfkd().collect::<String>());
     let mnemonic = Mnemonic::new(
         phrase.split_whitespace().collect::<Vec<_>>().join(" "),
         Language::English,
@@ -532,6 +549,35 @@ fn address_from_key(key: &[u8; 32]) -> Result<Address> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn desktop_bip39_nfkd_passphrases_match_for_kaspa_evm_and_hd_accounts() {
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let composed = "\u{e9}㍍";
+        let decomposed = composed.nfkd().collect::<String>();
+        assert_ne!(composed, decomposed);
+        let a = import_wallet_with_passphrase(phrase, composed).unwrap();
+        let b = import_wallet_with_passphrase(phrase, &decomposed).unwrap();
+        assert_eq!(a.address, b.address);
+        let a = Zeroizing::new(format!("mnemonic-passphrase:{}:{phrase}", hex::encode(composed)));
+        let b = Zeroizing::new(format!("mnemonic-passphrase:{}:{phrase}", hex::encode(&decomposed)));
+        assert_eq!(derive_evm_address(&a).unwrap(), derive_evm_address(&b).unwrap());
+        assert_eq!(*derive_key_at_path(&a, "m/44'/111111'/0'/1/7").unwrap(), *derive_key_at_path(&b, "m/44'/111111'/0'/1/7").unwrap());
+        assert_ne!(import_wallet_with_passphrase(phrase, "Case").unwrap().address, import_wallet_with_passphrase(phrase, "case").unwrap().address);
+        assert_ne!(import_wallet_with_passphrase(phrase, " pass ").unwrap().address, import_wallet_with_passphrase(phrase, "pass").unwrap().address);
+    }
+
+    #[test]
+    fn zeroizing_argon2_workspace_preserves_existing_backup_keys() {
+        for (memory, iterations) in [(BACKUP_ARGON2_MEMORY_KIB, BACKUP_ARGON2_ITERATIONS), (BACKUP_V3_ARGON2_MEMORY_KIB, BACKUP_V3_ARGON2_ITERATIONS)] {
+            let argon = Argon2::new(Algorithm::Argon2id, ArgonVersion::V0x13, Params::new(memory, iterations, 1, Some(32)).unwrap());
+            let password = b"disposable compatibility vector";
+            let salt = [0x42; 32];
+            let mut reference = Zeroizing::new([0; 32]);
+            argon.hash_password_into(password, &salt, reference.as_mut()).unwrap();
+            assert_eq!(*derive_backup_key_with_params(password, &salt, memory, iterations, 1).unwrap(), *reference);
+        }
+    }
 
     const VECTOR: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 

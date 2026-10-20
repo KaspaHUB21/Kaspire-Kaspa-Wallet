@@ -27,10 +27,13 @@ use secp256k1::{Keypair, Message, SECP256K1};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+#[cfg(not(target_arch = "wasm32"))]
 use silverscript_v1::{
     ast::Expr,
     compiler::{compile_contract, CompileOptions, CompiledContract},
 };
+#[cfg(target_arch = "wasm32")]
+type CompiledContract<'a> = crate::vault_templates::PortableCompiled;
 
 pub const COMPILER_PIN: &str = "silverscript-v1.0.0/3ed973335b59269293564805cc2c58a14595ec03";
 pub const PROTOCOL: &str = "kaspire-covenant-vault-v1";
@@ -89,6 +92,16 @@ pub fn compile(t: &Terms) -> Result<CompiledContract<'static>> {
     if instance.len() != 32 || instance.iter().all(|v| *v == 0) || t.name.chars().count() > 80 {
         return Err(invalid("Invalid vault name or instance"));
     }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let beneficiary = match t.kind.as_str() {
+            "timeLock" if t.beneficiary.is_empty() && t.limit_daa > 0 && t.limit_daa < 500_000_000_000 => vec![],
+            "deadManSwitch" if (1200..=3_153_600_000).contains(&t.limit_daa) => address(&t.beneficiary)?.payload.to_vec(),
+            _ => return Err(invalid("Invalid vault type or DAA duration")),
+        };
+        return crate::vault_templates::materialize(&t.kind, &owner.payload, &beneficiary, t.limit_daa as i64, &instance);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     let (source, args) = match t.kind.as_str() {
         "timeLock"
             if t.beneficiary.is_empty() && t.limit_daa > 0 && t.limit_daa < 500_000_000_000 =>
@@ -113,8 +126,10 @@ pub fn compile(t: &Terms) -> Result<CompiledContract<'static>> {
         ),
         _ => return Err(invalid("Invalid vault type or DAA duration")),
     };
-    compile_contract(source, &args, CompileOptions::default())
+    #[cfg(not(target_arch = "wasm32"))]
+    { compile_contract(source, &args, CompileOptions::default())
         .map_err(|e| CoreError::Transaction(format!("Official Silverscript vault compile: {e}")))
+    }
 }
 pub fn descriptor(t: &Terms) -> Result<Value> {
     descriptor_compiled(t, &compile(t)?)

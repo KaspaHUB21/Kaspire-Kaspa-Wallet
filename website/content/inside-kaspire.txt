@@ -180,18 +180,18 @@ Personal signatures follow Kaspa’s KIP-5 message-signing format.
 Kaspire verifies that the selected encrypted wallet controls the requested address and requires fresh biometric or PIN approval.
 A dApp cannot use the message-signing endpoint to request an arbitrary transaction signature.
 Encrypted portable backups
-Current Kaspire releases create kaspire-backup-v2 backups.
-The backup contains the encrypted wallet secret, registered HD addresses, derivation metadata, and integrity-protected wallet information.
+Current Kaspire releases create kaspire-backup-v3 backups.
+The backup contains the encrypted wallet secret, registered HD addresses, derivation metadata, and integrity-protected wallet information, including issued/retired P2SH addresses and saved signed P2SH payments when present.
 The backup password is processed with Argon2id v1.3 using:
-    • 32 MiB of memory
-    • Three iterations
+    • 64 MiB of memory
+    • Four iterations
     • Parallelism of one
     • A random 32-byte salt
     • A 256-bit output key
 The resulting key encrypts the backup with AES-256-GCM.
 Argon2id is memory-hard. Each password guess requires not only computation but also a significant amount of memory, making large GPU and ASIC guessing attacks more expensive than a simple hash loop.
 The relatively small iteration number must not be compared directly with PBKDF2’s iteration count. Each Argon2id iteration processes the configured memory region.
-Kaspire continues to import the older kaspire-backup-v1 format, which uses PBKDF2-HMAC-SHA256 with 600,000 iterations. New exports use Argon2id.
+Kaspire continues to import Argon2id backup-v2 files and the older kaspire-backup-v1 format, which uses PBKDF2-HMAC-SHA256 with 600,000 iterations. New exports use Argon2id.
 During restoration, Kaspire verifies:
     • Backup format
     • KDF identifier

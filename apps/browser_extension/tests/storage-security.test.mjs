@@ -51,3 +51,28 @@ test("KaspaRocket provider IDs cannot replace the locally computed consensus ID"
   assert.match(rocket, /delete normalized\.id/);
 
 });
+
+test('covenant vaults are internal-only, lock-bound and background polling does not extend timed unlock', () => {
+  assert.match(background, /sender\.url !== chrome\.runtime\.getURL\('wallet\.html'\)/);
+  assert.match(background, /port\.sender\?\.url !== chrome\.runtime\.getURL\('wallet\.html'\)/);
+  assert.match(background, /clearCovenantVaultReviews\(\)/);
+  assert.match(background, /'covenantVaultSaved', 'covenantVaultRefresh', 'covenantVaultDaa'\]\.includes\(message\.command\)/);
+  const commands=background.slice(background.indexOf("if (String(message.command).startsWith('covenantVault'))"),background.indexOf("if (String(message.command).startsWith('kronDex'))"));
+  assert.match(commands,/generation !== sessionGeneration/);
+  assert.match(commands,/revision !== nftContextRevision/);
+  assert.match(commands,/selected\.path !== entry\.path/);
+  assert.match(commands,/const wasm = await core\(\); await guard\(\);/);
+});
+
+test('P2SH is wallet-UI-only, uses the root seed, binds session/account/network and stores its journal inside the encrypted vault', () => {
+  assert.match(background, /startsWith\('p2sh'\).*sender\.url !== chrome\.runtime\.getURL\('wallet\.html'\)/);
+  assert.match(background, /startsWith\('p2sh'\).*port\.sender\?\.url !== chrome\.runtime\.getURL\('wallet\.html'\)/);
+  const commands=background.slice(background.indexOf("if (String(message.command).startsWith('p2sh'))"),background.indexOf("if (String(message.command).startsWith('covenantVault'))"));
+  assert.match(commands,/generation !== sessionGeneration/); assert.match(commands,/revision !== nftContextRevision/);
+  assert.match(commands,/fresh\.network !== 'mainnet'/);assert.match(commands,/selected\.path !== entry\.path/);
+  assert.match(commands,/wallet\.type !== 'mnemonic'/);assert.match(commands,/signHiddenKas\(wallet\.secret/);
+  assert.match(commands,/wallet\.hiddenKas = validateP2shState\(next\)/);assert.match(commands,/await persistVault\(guard\)/);
+  assert.match(background,/hiddenKas: validateP2shState\(wallet\.hiddenKas\)/);
+  assert.match(background,/verifyHiddenKasRecovery\(wallet\.secret, JSON\.stringify\(recovered\.pending\)\)/);
+  assert.match(background,/clearP2shReviews\(\)/);
+});

@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::str::FromStr;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 const MAX_INPUTS: usize = 80;
 const DUST_LIMIT_SOMPI: u64 = 10_000;
@@ -90,7 +90,7 @@ pub fn sign_transaction(
     let sender =
         Address::try_from(request.sender.as_str()).map_err(|_| CoreError::InvalidAddress)?;
     let controlled = controlled_addresses(request, &sender)?;
-    let mut keys = Vec::<[u8; 32]>::with_capacity(controlled.len());
+    let mut keys = Zeroizing::new(Vec::<[u8; 32]>::with_capacity(controlled.len()));
     if request.signers.is_empty() {
         let mut derived = derive_address(phrase)?;
         derived.prefix = sender.prefix;

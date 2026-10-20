@@ -1,0 +1,6 @@
+export const p2shIntro = 'Receive KAS without publishing the spending public key to aid in quantum resistance. Signing reveals that key.';
+export const p2shSeparate = 'Separate KAS balance · no assets or dApps · Mainnet only. Existing wallet accounts remain unchanged.';
+export const p2shRecovery = 'Recovery in another wallet requires KIP-22 support. Seed discovery finds used addresses, but a seed alone cannot recover the history of signatures never broadcast. Keep a current Kaspire encrypted backup, which includes issued/retired addresses and saved transactions. Never use the same P2SH account on multiple devices at once. Never disclose an account xpub or reuse a spending key elsewhere.';
+export const p2shExposure = 'All available account outputs are spent together, with fresh P2SH change. Retired addresses still track late payments, but must not be reused for receiving. A network failure never means "safe" or "zero balance".';
+export const p2shAccept = 'I understand the P2SH format and want to continue';
+export const p2shHdRequired = 'P2SH requires a seed-based HD wallet. An imported private key cannot generate this account. Create or restore an HD wallet using a recovery phrase (seed), then open P2SH again. Your existing private-key wallet remains unchanged.';

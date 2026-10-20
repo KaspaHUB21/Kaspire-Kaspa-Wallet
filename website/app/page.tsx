@@ -70,7 +70,7 @@ const highlights = [
   {
     number: "11",
     title: "Keep dApps inside your wallet.",
-    copy: "Open approved dApps directly in Kaspire Browser on Android. Choose Kasvio, GothDAG, Kaspa Dev Tools, dot.k or KasCoven Vaults and keep WalletConnect connection and transaction approvals inside Kaspire. Browser navigation is restricted to the approved dApp origins.",
+    copy: "Open approved sites directly in Kaspire Browser on Android. Choose Kasvio, GothDAG, Kaspa Dev Tools, dot.k, Kaspa News or KasCoven Vaults. Supported dApps keep WalletConnect connection and transaction approvals inside Kaspire; Kaspa News is a read-only news entry. Browser navigation is restricted to approved origins.",
     tags: ["In-app browser", "Approved dApps", "WalletConnect"],
   },
   {
@@ -78,6 +78,12 @@ const highlights = [
     title: "Trade KRON tokens inside Kaspire.",
     copy: "Open KRON DEX from Swap on Android or the browser extension to buy and sell supported mainnet launchpad and pool tokens. Review covenant IDs, minimum receive, deposits and fees before approving. Signed transactions stay available for recovery, and interrupted extension swaps can resume the same signed transaction without creating a second purchase or sale.",
     tags: ["KRON DEX", "Mainnet swaps", "Launchpad and pools"],
+  },
+  {
+    number: "13",
+    title: "Receive KAS with a hidden spending key.",
+    copy: "Open Receive KAS and switch to P2SH account on Android or the browser extension. KIP-22 P2SH addresses keep the spending public key off-chain until you spend their outputs. Review amounts and fees locally, use Max with automatic fee deduction, and receive change at a fresh P2SH address. This separate Mainnet KAS account requires a seed-based HD wallet and an up-to-date encrypted backup. It reduces public-key exposure, but does not make Schnorr signatures quantum-resistant.",
+    tags: ["P2SH account", "KIP-22", "Hidden public keys", "Fresh change"],
   },
 ];
 
@@ -286,14 +292,14 @@ const securityChapters = [
     body: (
       <>
         <p>
-          New <code>kaspire-backup-v2</code> exports in the Android app and
+          New <code>kaspire-backup-v3</code> exports in the Android app and
           browser extension derive a 256-bit key with
-          Argon2id v1.3, a random 32-byte salt, 32 MiB of memory, three passes
+          Argon2id v1.3, a random 32-byte salt, 64 MiB of memory, four passes
           and parallelism one. The backup is encrypted and authenticated with
           AES-256-GCM.
         </p>
         <p>
-          Older PBKDF2-SHA256 backup-v1 files remain importable. Restore checks
+          Older Argon2id backup-v2 and PBKDF2-SHA256 backup-v1 files remain importable. Restore checks
           the format, exact KDF parameters, salt, GCM authentication, recovered
           address and every registered HD path before accepting the wallet.
         </p>
@@ -315,6 +321,27 @@ const securityChapters = [
           Kaspire defaults to its own HTTPS gateway, pruned Kaspa node and local
           indexer infrastructure. Network timeouts are enforced, while all
           signing-relevant responses still pass local validation.
+        </p>
+      </>
+    ),
+  },
+  {
+    eyebrow: "12 / P2SH",
+    title: "Hide the key until spending",
+    body: (
+      <>
+        <p>
+          P2SH addresses publish a hash of the spending script rather than its
+          public key. Kaspire uses KIP-22 paths and reveals the redeem script and
+          Schnorr public key only when an output is spent. This requires no
+          consensus change and does not replace Schnorr with a post-quantum signature.
+        </p>
+        <p>
+          Issued and retired addresses and saved signed payments are preserved in
+          encrypted backups. Do not reuse retired receiving addresses, disclose an
+          account xpub or use the same P2SH account on multiple devices at once.
+          Recovery in another wallet requires KIP-22 support. A seed alone cannot
+          reconstruct the history of signatures that were never broadcast.
         </p>
       </>
     ),
@@ -424,10 +451,10 @@ export default function Home() {
                 The Kaspa wallet that makes no compromises. Designed from the
                 ground up for security and usability, Kaspire gives you complete
                 control over your assets while supporting everything the Kaspa
-                ecosystem has to offer. Kaspire is the first covenant-ready
-                Kaspa wallet to support all Kaspa assets, encrypted
-                WalletConnect v2 for mobile and desktop (for the app), BIP39
-                passphrases and Argon2id-encrypted backups for industry-leading
+                ecosystem has to offer. Kaspire is the first covenant-ready and
+                P2SH-ready Kaspa wallet to support all Kaspa assets, encrypted
+                WalletConnect v2 for mobile and desktop (for the app), and extra
+                secure Argon2id-encrypted backups for industry-leading
                 protection of your wallet data. The entire project is open
                 source because in crypto, trust should always be earned through
                 verification, not promises.
@@ -475,6 +502,7 @@ export default function Home() {
             <span>KRC-721</span><i />
             <span>KNS</span><i />
             <span>KCC20</span><i />
+            <span>P2SH</span><i />
             <span>WALLETCONNECT</span>
           </div>
         </section>

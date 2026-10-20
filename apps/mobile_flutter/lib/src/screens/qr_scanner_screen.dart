@@ -4,6 +4,8 @@ import 'package:qr_code_scanner_plus/qr_code_scanner_plus.dart';
 import '../models/kaspa_payment_request.dart';
 import '../theme.dart';
 import '../services/app_settings.dart';
+import '../platform.dart';
+import '../widgets/desktop_qr_input.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key});
@@ -45,56 +47,60 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Scan Kaspa payment')),
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            QRView(
-              key: _scannerKey,
-              onQRViewCreated: _onScannerCreated,
-              formatsAllowed: const [BarcodeFormat.qrcode],
-            ),
-            Center(
-              child: Container(
-                width: 250,
-                height: 250,
-                decoration: BoxDecoration(
-                  border: Border.all(color: KasVaultTheme.mint, width: 3),
-                  borderRadius: BorderRadius.circular(28),
-                ),
+  Widget build(BuildContext context) => isWindowsDesktop
+      ? DesktopQrInput(
+          title: 'Kaspa payment',
+          validate: (value) => KaspaPaymentRequest.tryParse(value) != null)
+      : Scaffold(
+          appBar: AppBar(title: const Text('Scan Kaspa payment')),
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              QRView(
+                key: _scannerKey,
+                onQRViewCreated: _onScannerCreated,
+                formatsAllowed: const [BarcodeFormat.qrcode],
               ),
-            ),
-            Align(
-              alignment: const Alignment(0, .62),
-              child: SafeArea(
-                child: FilledButton.tonalIcon(
-                  onPressed: _toggleTorch,
-                  icon: Icon(
-                    _torchOn ? Icons.flashlight_off : Icons.flashlight_on,
+              Center(
+                child: Container(
+                  width: 250,
+                  height: 250,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: KasVaultTheme.mint, width: 3),
+                    borderRadius: BorderRadius.circular(28),
                   ),
-                  label: Text(buttonLabel(
-                    _torchOn ? 'TURN OFF LIGHT' : 'TURN ON LIGHT',
-                  )),
                 ),
               ),
-            ),
-            if (_error != null)
               Align(
-                alignment: Alignment.bottomCenter,
+                alignment: const Alignment(0, .62),
                 child: SafeArea(
-                  child: Container(
-                    margin: const EdgeInsets.all(20),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: KasVaultTheme.panel,
-                      borderRadius: BorderRadius.circular(14),
+                  child: FilledButton.tonalIcon(
+                    onPressed: _toggleTorch,
+                    icon: Icon(
+                      _torchOn ? Icons.flashlight_off : Icons.flashlight_on,
                     ),
-                    child: Text(_error!),
+                    label: Text(buttonLabel(
+                      _torchOn ? 'TURN OFF LIGHT' : 'TURN ON LIGHT',
+                    )),
                   ),
                 ),
               ),
-          ],
-        ),
-      );
+              if (_error != null)
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: SafeArea(
+                    child: Container(
+                      margin: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: KasVaultTheme.panel,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Text(_error!),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
 }

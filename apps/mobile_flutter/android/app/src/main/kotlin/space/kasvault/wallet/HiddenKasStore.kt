@@ -16,8 +16,10 @@ internal class HiddenKasStore(
     private val key: () -> SecretKey,
     private val withSecret: (((ByteArray) -> String) -> String),
 ) {
-    companion object { const val descriptor = "kaspire-hidden-kas-v1" }
-    private fun storage(id: String) = "wallet.$id.hidden_kas"
+    companion object { const val descriptor = "kip22-p2sh-v1" }
+    // New draft, new journal/AAD: never reinterpret the previous experiment's
+    // issuance/exposure/pending records as KIP-22. Old ciphertext is not deleted.
+    private fun storage(id: String) = "wallet.$id.kip22_kas"
     private fun parse(raw: String): JSONObject = JSONObject(raw).also {
         check(!it.has("error")) { it.optString("error", "Native hidden KAS validation failed") }
     }
@@ -33,7 +35,10 @@ internal class HiddenKasStore(
         return try { JSONObject(plain.toString(Charsets.UTF_8)).also { validate(it) } } finally { plain.fill(0) }
     }
     fun validate(state: JSONObject) {
-        check(state.getString("descriptor") == descriptor) { "Unsupported hidden KAS descriptor" }
+        // Public builds exported an empty placeholder for the old experiment.
+        // Ignore ONLY that empty metadata, not funded/issued/recovery records.
+        if (emptyRetiredState(state)) return
+        check(state.getString("descriptor") == descriptor) { "This backup contains the retired P2SH experiment, not a KIP-22 account. Restore it with the previous build before moving any remaining funds." }
         for (name in listOf("receiveCount", "changeCount")) check(state.getInt(name) in 0..10000) { "Invalid hidden KAS scan range" }
         val exposed = state.getJSONArray("exposed")
         check(exposed.length() <= 20000) { "Hidden KAS exposure journal too large" }
@@ -46,6 +51,10 @@ internal class HiddenKasStore(
             check(it.getString("transactionId").matches(Regex("[0-9a-f]{64}")) && it.getString("submitJson").length <= 1024 * 1024) { "Invalid saved hidden KAS transaction" }
         }
     }
+    private fun emptyRetiredState(state: JSONObject): Boolean =
+        state.optString("descriptor") == "kaspire-hidden-kas-v1" &&
+            state.optInt("receiveCount", -1) == 0 && state.optInt("changeCount", -1) == 0 &&
+            state.optJSONArray("exposed")?.length() == 0 && !state.has("pending")
     @Synchronized private fun save(state: JSONObject) {
         validate(state)
         val id = walletId()
@@ -120,11 +129,11 @@ internal class HiddenKasStore(
     }
     @Synchronized fun prepare(raw: String): String {
         verifyRequest(JSONObject(raw), load())
-        return parse(SecureCore.prepareHiddenKas(raw)).toString()
+        return parse(withSecret { SecureCore.prepareHiddenKas(it, raw) }).toString()
     }
     @Synchronized fun sign(raw: String, hash: String): String {
         val request = JSONObject(raw); val state = load(); verifyRequest(request, state)
-        val review = parse(SecureCore.prepareHiddenKas(raw))
+        val review = parse(withSecret { SecureCore.prepareHiddenKas(it, raw) })
         check(review.getString("reviewHash") == hash) { "Hidden KAS terms changed; review again" }
         val signers = request.getJSONArray("signers")
         val exposure = JSONArray()
@@ -145,6 +154,7 @@ internal class HiddenKasStore(
     }
     @Synchronized fun restore(imported: JSONObject) {
         validate(imported)
+        if (emptyRetiredState(imported)) return
         val current = load()
         for (name in listOf("receiveCount", "changeCount")) current.put(name, maxOf(current.getInt(name), imported.getInt(name)))
         val exposed = current.getJSONArray("exposed")

@@ -6,6 +6,7 @@ class DappBrowserPolicy {
     'kasvio.network',
     'devtools.kaslab.space',
     'dotk.name',
+    'kaspa.news',
     'vaults.kaslab.space',
   };
 

@@ -175,5 +175,5 @@ test('an interrupted unacknowledged broadcast releases only the volatile lock, n
 });
 test('extension packages and displayed version do not use a testing suffix', () => {
   const manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url)));
-  assert.equal(manifest.version, '0.5.8.2'); assert.doesNotMatch(manifest.version_name, /test/i);
+  assert.equal(manifest.version, JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).version); assert.doesNotMatch(manifest.version_name, /test/i);
 });

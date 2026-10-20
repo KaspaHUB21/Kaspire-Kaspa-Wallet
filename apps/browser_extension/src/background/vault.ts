@@ -39,11 +39,12 @@ async function legacyKey(password: string, salt: Uint8Array) {
   );
 }
 
-export async function createVault(password: string, payload: unknown) {
+export async function createVault(password: string, payload: unknown, beforeSave?: () => Promise<void>) {
   if (password.length < 12) throw new Error("Use at least 12 password characters.");
   const salt=crypto.getRandomValues(new Uint8Array(32)); const iv=crypto.getRandomValues(new Uint8Array(12));
   const ciphertext=await crypto.subtle.encrypt({name:"AES-GCM",iv,additionalData:encoder.encode("kaspire-extension-v2")},await key(password,salt),encoder.encode(JSON.stringify(payload)));
   const vault:EncryptedVault={version:2,salt:b64(salt),iv:b64(iv),ciphertext:b64(new Uint8Array(ciphertext))};
+  await beforeSave?.();
   await chrome.storage.local.set({encryptedVault:vault});
 }
 

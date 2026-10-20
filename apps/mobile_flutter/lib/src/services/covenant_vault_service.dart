@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'native_security.dart';
 import 'network_settings.dart';
 import 'kaspa_api.dart';
+import '../platform.dart';
 
 Map<String, Object?> vaultMap(Object? v) => (v as Map).cast<String, Object?>();
 int vaultInt(Object? v) => int.tryParse('$v') ?? 0;
@@ -33,8 +34,9 @@ class CovenantVaultService {
           'Vault screen closed. Reopen and review the action again.');
     }
     if (NetworkSettings.network.value != KaspaNetwork.mainnet) {
-      throw StateError(
-          'Covenant vault tests require Kaspa Mainnet. Switch back before continuing.');
+      throw StateError(isWindowsDesktop
+          ? 'Covenant vaults require Kaspa Mainnet. Switch back before continuing.'
+          : 'Covenant vault tests require Kaspa Mainnet. Switch back before continuing.');
     }
   }
 

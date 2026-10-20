@@ -9,7 +9,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 blake3 = "1.8.2"
-argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
 hex = "0.4.3"
 getrandom = { version = "0.2.17", features = ["js"] }
 jni = "0.21.1"
@@ -28,19 +28,33 @@ tiny-keccak = { version = "2.0.2", features = ["keccak"] }
 rlp = "0.5.2"
 thiserror = "2.0.12"
 zeroize = { version = "1.8.1", features = ["derive"] }
+unicode-normalization = { version = "=0.1.24", optional = true }
+aes-gcm = { version = "0.10.3", optional = true, features = ["zeroize"] }
+aes = { version = "0.8.4", optional = true, features = ["zeroize"] }
+ghash = { version = "0.5.1", optional = true, features = ["zeroize"] }
+base64 = { version = "0.22.1", optional = true }
+chrono = { version = "0.4", optional = true, default-features = false, features = ["clock", "std"] }
+ed25519-dalek = { version = "=2.2.0", optional = true, default-features = false, features = ["std"] }
 
-# Native-only experiment. Do not alter the existing extension WASM dependency
-# graph or its locally audited legacy Silverscript templates.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-silverscript-v1 = { package = "silverscript-lang", git = "https://github.com/kaspanet/silverscript", rev = "3ed973335b59269293564805cc2c58a14595ec03" }
+# Identical portable recovery primitives on native and WASM.
 chacha20poly1305 = "=0.10.1"
 ml-kem = { version = "=0.3.2", features = ["zeroize", "hazmat"] }
 ml-dsa = { version = "=0.1.1", features = ["zeroize"] }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+silverscript-v1 = { package = "silverscript-lang", git = "https://github.com/kaspanet/silverscript", rev = "3ed973335b59269293564805cc2c58a14595ec03" }
+
+[build-dependencies]
+# Compile the exact same .sil sources on the build host. This avoids linking
+# the compiler's older Rusty-Kaspa WASM exports into the signing core twice.
+silverscript-v1 = { package = "silverscript-lang", git = "https://github.com/kaspanet/silverscript", rev = "3ed973335b59269293564805cc2c58a14595ec03" }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom_03 = { package = "getrandom", version = "0.3.4", features = ["wasm_js"] }
+getrandom_04 = { package = "getrandom", version = "0.4.3", features = ["wasm_js"] }
 wasm-bindgen = "0.2.100"
 
 [features]
 default = ["rusty-kaspa-v2_1_0"]
 rusty-kaspa-v2_1_0 = []
+desktop = ["dep:aes-gcm", "dep:aes", "dep:ghash", "dep:base64", "dep:chrono", "dep:ed25519-dalek", "dep:unicode-normalization"]

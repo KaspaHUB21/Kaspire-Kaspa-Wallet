@@ -2,6 +2,8 @@ import QRCode from "qrcode";
 import {agoraChooser, openNftMarket, nftImageFallback} from "./nftMarket";
 import {openNexus,mountNexusBell} from './nexus';
 import {openDexSelection} from './kronDex';
+import {openCovenantVaults} from './covenantVaults';
+import {openP2sh, receiveModeTabs} from './p2sh';
 import { sortedAssets, assetTicker, sameAsset } from "../shared/assetPresentation";
 const root = document.querySelector<HTMLElement>("#app")!;
 // This port lets the background distinguish an open wallet UI from a closed
@@ -69,7 +71,7 @@ async function rawCommand(name: string, values: Record<string, unknown> = {}) {
     if (timer !== undefined) clearTimeout(timer);
   }
 }
-function persistentCommand(name: string, values: Record<string, unknown> = {}) {
+function persistentCommand(name: string, values: Record<string, unknown> = {}, signal?: AbortSignal) {
   return new Promise<any>((resolve, reject) => {
     const port = chrome.runtime.connect({ name: "wallet-operation" });
     let finished = false;
@@ -85,7 +87,10 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}) {
           ),
         );
       }
-    }, name.startsWith('kronDex') || ["resumeInscription", "nftMarketOperation"].includes(name) ? 600_000 : 45_000);
+    }, name.startsWith('kronDex') || name.startsWith('covenantVault') || name.startsWith('p2sh') || ["resumeInscription", "nftMarketOperation"].includes(name) ? 600_000 : 45_000);
+    const abort = () => { if (!finished) { finished = true; clearTimeout(timer); port.disconnect(); reject(new Error('The account view was closed. Saved payments remain preserved.')); } };
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) { abort(); return; }
     const close = () => {
       if (!finished) {
         finished = true;
@@ -95,6 +100,7 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}) {
     };
     port.onMessage.addListener((response) => {
       if (response?.progress) {
+        if (name.startsWith('p2sh')) document.dispatchEvent(new CustomEvent('kaspire-operation-progress', { detail: response.progress }));
         const button = document.querySelector<HTMLButtonElement>("#review");
         if (button) button.textContent = response.progress;
         const revealProgress = document.querySelector<HTMLElement>("#reveal-progress");
@@ -109,6 +115,7 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}) {
         : resolve(response?.result);
     });
     port.onDisconnect.addListener(() => {
+      signal?.removeEventListener('abort', abort);
       if (!finished) {
         finished = true;
         clearTimeout(timer);
@@ -243,10 +250,6 @@ function swapIcon() {
 }
 function vaultIcon() {
   return '<svg class="ui-symbol" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="13" cy="12" r="4"/><path d="M13 8v8m-4-4h8M6 7v3m0 4v3"/></svg>';
-}
-function upcomingFeature(vaults: boolean) {
-  shell(`<section class="feature-preview"><article class="review-card"><div class="feature-emblem">${vaults ? vaultIcon() : swapIcon()}</div><h1>${vaults ? 'Your money. Your rules.' : 'KCC20 DEX Swaps'}</h1><p>${vaults ? 'Programmable self-custody and true sovereignty. Secured by covenant logic and Kaspa consensus.' : 'Available very soon'}</p>${vaults ? '<p>New Silverscript Vaults are releasing very soon directly inside Kaspire. In the meantime you can test the previous vaults from KasCoven Vaults.</p><button id="open-cascoven-vaults">Open KasCoven Vaults</button>' : ''}</article></section>`, vaults ? 'Vaults' : 'Swap', true);
-  if (vaults) document.querySelector<HTMLButtonElement>('#open-cascoven-vaults')!.onclick = () => chrome.tabs.create({url:'https://vaults.kaslab.space/'});
 }
 function storeUpdateStatus() {
   storeUpdateRequest ??= rawCommand("storeUpdateStatus").catch(() => ({
@@ -424,7 +427,7 @@ async function render() {
     return recovery(await command("pendingRecovery"));
   if (view === "home") return home();
   if (view === 'swap') return openDexSelection({command, shell, address:()=>String(status.selectedAddress)}, status.network, () => void rocketMarketplace());
-  if (view === 'vaults') return upcomingFeature(true);
+  if (view === 'vaults') return openCovenantVaults({command, shell, address:()=>String(status.selectedAddress), network:()=>String(status.network)});
   if (view === "pending-reveal") return pendingReveal();
   if (view === "wallets") return wallets();
   if (
@@ -1440,6 +1443,9 @@ async function receive() {
     (item: any) => item.address === status.selectedAddress,
   );
   const l2 = isL2();
+  const p2shAvailable = !l2 && status.network === 'mainnet';
+  if (p2shAvailable && context.receiveMode === 'p2sh') return openP2sh({ command, shell, address: () => String(status.selectedAddress), copy,
+    regular: () => { context.receiveMode = 'kas'; void receive(); } });
   const account = l2 ? null : await command("receiveAccount");
   const available = account?.addresses ?? [];
   const requested = String(context.receiveAddress ?? "");
@@ -1466,7 +1472,8 @@ async function receive() {
       : "Rotated addresses are combined into one KAS account balance and activity history. Use the primary address for KRC20, KRC721, KNS and KCC20 assets.") +
     '</p>' + (addressLabel ? '<small class="receive-index">' + addressLabel + '</small>' : "") +
     '<p id="receive-error" class="error"></p></section>';
-  shell(html, "RECEIVE", true);
+  shell((p2shAvailable ? receiveModeTabs(false) : '') + html, "RECEIVE", true);
+  document.querySelector<HTMLButtonElement>('#receive-p2sh')?.addEventListener('click', () => { context.receiveMode = 'p2sh'; void receive(); });
   document.querySelector<HTMLButtonElement>("#copy")!.onclick = () =>
     copy(address, "Address copied");
   document.querySelector<HTMLButtonElement>("#choose-receive")?.addEventListener("click", () => {
@@ -2592,7 +2599,7 @@ function transactionDetail(item: any) {
 function detailRow(label: string, value: any) {
   return `<div class="detail-row"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
 }
-async function command(name: string, values: Record<string, unknown> = {}) {
+async function command(name: string, values: Record<string, unknown> = {}, signal?: AbortSignal) {
   const guarded = [
     "sendKas",
     "sendAsset",
@@ -2609,10 +2616,12 @@ async function command(name: string, values: Record<string, unknown> = {}) {
     "kronDexPrepare",
     "kronDexSubmit",
     "kronDexResume",
+    "covenantVaultSubmit",
+    "p2shSubmit",
   ].includes(name);
   return guarded
-    ? withInAppApprovals(persistentCommand(name, values))
-    : rawCommand(name, values);
+    ? withInAppApprovals(persistentCommand(name, values, signal))
+    : name.startsWith('covenantVault') || name.startsWith('p2sh') ? persistentCommand(name, values, signal) : rawCommand(name, values);
 }
 async function withInAppApprovals<T>(task: Promise<T>) {
   const completed = new AbortController();

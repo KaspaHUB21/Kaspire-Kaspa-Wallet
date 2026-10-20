@@ -23,7 +23,7 @@ object SecureCore {
     external fun deriveBackupKeyBytes(password: ByteArray, salt: ByteArray, version: Int): ByteArray
     external fun prepareTransaction(requestJson: String): String
     external fun deriveHiddenKas(secret: ByteArray, branch: Int, start: Int, count: Int): String
-    external fun prepareHiddenKas(requestJson: String): String
+    external fun prepareHiddenKas(secret: ByteArray, requestJson: String): String
     external fun signHiddenKas(secret: ByteArray, requestJson: String, reviewHash: String): String
     external fun verifySavedHiddenKas(secret: ByteArray, savedJson: String): String
     external fun signTransaction(phrase: ByteArray, requestJson: String, reviewHash: String): String

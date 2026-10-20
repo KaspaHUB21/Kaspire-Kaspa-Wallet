@@ -33,6 +33,28 @@ fn fixture(kind: &str) -> (String, Request) {
     )
 }
 #[test]
+fn portable_templates_match_official_compiler_at_integer_encoding_boundaries() {
+    for kind in ["timeLock", "deadManSwitch"] {
+        let (_, request) = fixture(kind);
+        for limit in [1, 16, 17, 127, 128, 255, 256, 1200, 32767, 32768, 8_388_607, 8_388_608, 2_147_483_647, 2_147_483_648, 3_153_600_000, 499_999_999_999] {
+            if kind == "deadManSwitch" && !(1200..=3_153_600_000).contains(&limit) { continue; }
+            for seed in [1u8, 2, 127, 128, 255] {
+                let mut terms = request.terms.clone(); terms.limit_daa = limit;
+                terms.instance = hex::encode([seed; 32]);
+                terms.owner = derive_address(&format!("private:{}", hex::encode([seed % 5 + 1; 32]))).unwrap().to_string();
+                if kind == "deadManSwitch" && seed % 2 == 1 { terms.beneficiary = terms.owner.clone(); }
+                let owner = kaspa_addresses::Address::try_from(terms.owner.as_str()).unwrap();
+                let beneficiary = if kind == "timeLock" { vec![] } else { kaspa_addresses::Address::try_from(terms.beneficiary.as_str()).unwrap().payload.to_vec() };
+                let official = compile(&terms).unwrap();
+                let portable = crate::vault_templates::materialize(kind, &owner.payload, &beneficiary, limit as i64, &[seed; 32]).unwrap();
+                assert_eq!(portable.bytecode, official.bytecode, "{kind} limit={limit} seed={seed}");
+                assert_eq!(portable.dispatch_tags, official.dispatch_tags);
+                assert_eq!(portable.template_hash(), official.template_hash());
+            }
+        }
+    }
+}
+#[test]
 fn official_v1_vault_genesis_and_review_binding() {
     for kind in ["timeLock", "deadManSwitch"] {
         let (secret, r) = fixture(kind);

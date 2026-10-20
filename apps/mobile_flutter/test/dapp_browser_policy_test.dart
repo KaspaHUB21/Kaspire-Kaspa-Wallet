@@ -35,8 +35,8 @@ void main() {
     }
   });
 
-  test('catalog is limited to the five approved dApps', () {
-    expect(browserDapps, hasLength(5));
+  test('catalog is limited to six approved browser sites', () {
+    expect(browserDapps, hasLength(6));
     expect(browserDapps.map((d) => d.home.host).toSet(),
         DappBrowserPolicy.approvedHosts);
     for (final dapp in browserDapps) {
@@ -54,7 +54,11 @@ void main() {
       'http://kasvio.network/',
       'https://www.kasvio.network/',
       'https://devtools.kaslab.space:444/',
-      'https://user@kasvio.network/'
+      'https://user@kasvio.network/',
+      'https://kaspa.news.evil.example/',
+      'https://www.kaspa.news/',
+      'http://kaspa.news/',
+      'https://kaspa.news:444/',
     ]) {
       expect(DappBrowserPolicy.approvedPage(Uri.parse(value)), isFalse);
     }

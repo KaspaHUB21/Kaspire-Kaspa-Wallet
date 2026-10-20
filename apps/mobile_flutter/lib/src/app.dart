@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'platform.dart';
 import 'dart:convert';
 
 import 'package:app_links/app_links.dart';
@@ -23,6 +24,9 @@ import 'services/network_settings.dart';
 import 'services/evm_api.dart';
 import 'theme.dart';
 import 'widgets/hub21_material.dart';
+import 'widgets/desktop_frame.dart';
+import 'widgets/windows_security_dialog.dart';
+import 'widgets/wallet_unlock_screen.dart';
 
 class KasVaultApp extends StatefulWidget {
   const KasVaultApp({super.key});
@@ -53,9 +57,9 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   KaspaNetwork? _lastDappNetwork;
   final Map<String, int> _lastDappBalances = {};
   bool _locked = false;
-  bool _unlocking = false;
 
   void _lockWallet() {
+    unawaited(_security.lockWindowsSession());
     unawaited(_security.setInternalNexusUnlocked(false));
     setState(() => _locked = true);
   }
@@ -63,6 +67,8 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WindowsSecurityDialogs.install(_navigatorKey,
+        onInteraction: _recordActivity);
     WidgetsBinding.instance.addObserver(this);
     _address = _loadInitialAddress();
     _proposalSubscription = _dapps.proposals.listen(
@@ -87,6 +93,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    WindowsSecurityDialogs.dispose();
     unawaited(_security.setInternalNexusUnlocked(false));
     WidgetsBinding.instance.removeObserver(this);
     _inactivityTimer?.cancel();
@@ -208,6 +215,15 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
         now.difference(_lastPersistedActivity!) > const Duration(seconds: 15)) {
       _lastPersistedActivity = now;
       unawaited(AppSettings.recordBackgroundedAt(now));
+      if (isWindowsDesktop &&
+          !_locked &&
+          NativeSecurity.internalNexusUnlocked) {
+        unawaited(_security.refreshWindowsUnlock().then((valid) {
+          if (!valid && mounted && !_locked) _lockWallet();
+        }).catchError((Object _) {
+          if (mounted && !_locked) _lockWallet();
+        }));
+      }
     }
   }
 
@@ -220,25 +236,12 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _unlock() async {
-    if (_unlocking) return;
-    final context = _navigatorKey.currentContext;
-    if (context == null) return;
-    setState(() => _unlocking = true);
-    final authenticated = await _security.authenticate(
-      context,
-      'Unlock Kaspire',
-    );
-    if (authenticated) await _security.setInternalNexusUnlocked(true);
-    if (!mounted) return;
+  void _didUnlock() {
     setState(() {
-      _unlocking = false;
-      if (authenticated) {
-        _locked = false;
-        _lastActivity = DateTime.now();
-        _lastPersistedActivity = _lastActivity;
-        unawaited(AppSettings.recordBackgroundedAt(_lastActivity));
-      }
+      _locked = false;
+      _lastActivity = DateTime.now();
+      _lastPersistedActivity = _lastActivity;
+      unawaited(AppSettings.recordBackgroundedAt(_lastActivity));
     });
   }
 
@@ -2368,13 +2371,15 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       }
       final lastActive = await AppSettings.lastBackgroundedAt();
       final minutes = AppSettings.lockMinutes.value;
-      _locked = minutes == 0 ||
+      _locked = isWindowsDesktop ||
+          minutes == 0 ||
           lastActive == null ||
           DateTime.now().difference(lastActive) >= Duration(minutes: minutes);
       await _security.setInternalNexusUnlocked(!_locked);
       return saved;
     }
     final nativeAddress = await _security.getNativeAddress();
+    if (isWindowsDesktop && nativeAddress != null) _locked = true;
     if (nativeAddress != null) await _preferences.setAddress(nativeAddress);
     await _security.setInternalNexusUnlocked(nativeAddress != null && !_locked);
     return nativeAddress;
@@ -2408,7 +2413,9 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
           builder: (context, child) => Listener(
             behavior: HitTestBehavior.translucent,
             onPointerDown: (_) => _recordActivity(),
-            child: Hub21Backdrop(child: child ?? const SizedBox.shrink()),
+            child: DesktopFrame(
+                onInteraction: _recordActivity,
+                child: Hub21Backdrop(child: child ?? const SizedBox.shrink())),
           ),
           home: FutureBuilder<String?>(
             future: _address,
@@ -2418,11 +2425,33 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                   body: Center(child: CircularProgressIndicator()),
                 );
               }
+              if (snapshot.hasError) {
+                return Scaffold(
+                    body: Center(
+                        child: Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text(
+                                      'Could not open your wallet. Your saved wallets have not been changed.',
+                                      textAlign: TextAlign.center),
+                                  const SizedBox(height: 16),
+                                  FilledButton.icon(
+                                      onPressed: () => setState(() =>
+                                          _address = _loadInitialAddress()),
+                                      icon: const Icon(Icons.refresh_rounded),
+                                      label: const Text('Retry')),
+                                ]))));
+              }
               final address = snapshot.data;
               if (address != null && _locked) {
-                return _KaspireLockScreen(
-                  unlocking: _unlocking,
-                  onUnlock: _unlock,
+                return WalletUnlockScreen(
+                  authenticate: () => _security.authenticate(
+                      _navigatorKey.currentContext!, 'Unlock Kaspire'),
+                  activateSession: () =>
+                      _security.setInternalNexusUnlocked(true),
+                  onUnlocked: _didUnlock,
                 );
               }
               return address == null
@@ -2439,54 +2468,6 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       ),
     );
   }
-}
-
-class _KaspireLockScreen extends StatelessWidget {
-  const _KaspireLockScreen({
-    required this.unlocking,
-    required this.onUnlock,
-  });
-
-  final bool unlocking;
-  final VoidCallback onUnlock;
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        body: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.lock_rounded, size: 58),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Kaspire is locked',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Authenticate to restore your wallet session.',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton.icon(
-                    onPressed: unlocking ? null : onUnlock,
-                    icon: unlocking
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.fingerprint_rounded),
-                    label: Text(buttonLabel('UNLOCK KASPIRE')),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
 }
 
 class _DappVerification extends StatelessWidget {

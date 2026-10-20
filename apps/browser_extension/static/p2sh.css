@@ -1,0 +1,22 @@
+/* Inherit the ordinary popup's fixed width in every theme. Never resize the
+   html/body viewport when switching between regular Receive and P2SH. */
+.p2sh-screen {padding:20px;min-width:0;overflow-wrap:anywhere}
+.p2sh-screen button {white-space:normal;max-width:100%}
+.p2sh-tabs {display:flex;gap:8px;margin:12px 0 18px;min-width:0}
+.p2sh-tabs>button {flex:1;min-width:0;white-space:normal;padding:12px 8px}
+.p2sh-screen .vault-panel {margin-bottom:16px;min-width:0}
+.p2sh-screen p {line-height:1.5}
+.p2sh-screen code,.p2sh-screen .vault-line span {overflow-wrap:anywhere;word-break:break-word}
+.p2sh-address {display:block;margin:14px 0}
+.p2sh-accept {display:flex;gap:12px;align-items:flex-start;margin:18px 0 0}
+.p2sh-accept input {width:20px;flex:0 0 20px;margin-top:3px}
+.p2sh-actions {display:flex;gap:8px;flex-wrap:wrap}
+.p2sh-actions>button {flex:1;min-width:110px;white-space:normal}
+.p2sh-amount {display:flex;gap:10px;align-items:flex-end;margin-bottom:12px}
+.p2sh-amount>label {flex:1;min-width:0}
+.p2sh-amount>button {flex:0 0 auto;margin-bottom:0}
+.p2sh-activity {display:flex;align-items:center;gap:10px;margin:18px 0}
+.p2sh-activity>div {flex:1;min-width:0}
+.p2sh-activity code {display:block;font-size:12px;margin-top:6px}
+.p2sh-screen .receive-qr {max-width:240px;margin:16px auto;background:#fff;padding:0}
+.p2sh-screen .receive-qr img {width:100%;display:block}

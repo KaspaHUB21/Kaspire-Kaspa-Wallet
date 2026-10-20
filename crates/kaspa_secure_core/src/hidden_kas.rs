@@ -1,5 +1,5 @@
-//! Experimental single-seed P2SH KAS account. This is NOT a post-quantum signature
-//! scheme or an adopted wallet standard. Freeze the descriptor before funding.
+//! KIP-22 draft P2PKH-via-P2SH account, pinned to PR #48 revision below.
+//! Public keys stay inside Rust until spending. Schnorr is NOT post-quantum.
 use crate::transaction::{parse_utxos, Spendable};
 use crate::{CoreError, Result};
 use kaspa_addresses::{Address, Prefix, Version};
@@ -15,10 +15,8 @@ use kaspa_consensus_core::{
     tx::{SignableTransaction, Transaction, TransactionInput, TransactionOutput},
 };
 use kaspa_txscript::{
-    extract_script_pub_key_address,
-    opcodes::codes::{OpBlake2b, OpCheckSig, OpDup, OpEqualVerify},
-    pay_to_address_script, pay_to_script_hash_script, pay_to_script_hash_signature_script,
-    script_builder::ScriptBuilder,
+    extract_script_pub_key_address, opcodes::codes::OpCheckSig, pay_to_address_script,
+    pay_to_script_hash_script, pay_to_script_hash_signature_script, script_builder::ScriptBuilder,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -27,10 +25,11 @@ use std::collections::HashSet;
 use std::str::FromStr;
 use zeroize::{Zeroize, Zeroizing};
 
-pub const DESCRIPTOR: &str = "kaspire-hidden-kas-v1";
-// Private experimental purpose, deliberately neither ordinary BIP44 nor CLI
-// multisig. No xpub export; all children hardened, including branch and index.
-pub const PATH_PREFIX: &str = "m/1214346033'/111111'/0'";
+pub const DESCRIPTOR: &str = "kip22-p2sh-v1";
+pub const KIP_REVISION: &str = "b031344f82f4491b9066ef556163509f93833cd6";
+// KIP-22 account 0. Purpose, coin type and account hardened; branch/index
+// unhardened as required by the proposal. Never export this account's xpub.
+pub const PATH_PREFIX: &str = "m/22'/111111'/0'";
 pub const GAP: u32 = 20;
 pub const MAX_INDEX: u32 = 9999;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -46,11 +45,40 @@ pub struct HiddenAddress {
 pub struct Request {
     pub descriptor: String,
     pub recipient: String,
+    #[serde(deserialize_with = "exact_sompi")]
     pub amount_sompi: u64,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub send_all: bool,
     pub fee_rate: f64,
     pub signers: Vec<HiddenAddress>,
     pub change: HiddenAddress,
     pub utxos_json: String,
+}
+fn is_false(value: &bool) -> bool {
+    !value
+}
+// Browser JSON cannot represent every u64 exactly. Accept canonical decimal
+// strings in portable recovery requests, while serialization/review hashing
+// stays identical to native numeric requests.
+fn exact_sompi<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<u64, D::Error> {
+    use serde::de::Error;
+    match Value::deserialize(deserializer)? {
+        Value::Number(n) => n
+            .as_u64()
+            .ok_or_else(|| D::Error::custom("Invalid exact sompi amount")),
+        Value::String(text)
+            if !text.is_empty()
+                && text.len() <= 20
+                && text.bytes().all(|c| c.is_ascii_digit())
+                && (text == "0" || !text.starts_with('0')) =>
+        {
+            text.parse()
+                .map_err(|_| D::Error::custom("Invalid exact sompi amount"))
+        }
+        _ => Err(D::Error::custom("Invalid exact sompi amount")),
+    }
 }
 fn invalid(s: &str) -> CoreError {
     CoreError::InvalidRequest(s.into())
@@ -59,7 +87,7 @@ fn path(branch: u32, index: u32) -> Result<String> {
     if branch > 1 || index > MAX_INDEX {
         return Err(invalid("Invalid hidden-account derivation coordinates"));
     }
-    Ok(format!("{PATH_PREFIX}/{branch}'/{index}'"))
+    Ok(format!("{PATH_PREFIX}/{branch}/{index}"))
 }
 #[derive(Clone)]
 struct ErasedKey(kaspa_bip32::SecretKey);
@@ -105,33 +133,53 @@ fn key(secret: &str, branch: u32, index: u32) -> Result<Zeroizing<[u8; 32]>> {
         .map_err(|_| CoreError::Derivation)?;
     Ok(Zeroizing::new(selected.private_key().to_bytes()))
 }
-// Frozen minimal equivalent of official Silverscript P2PKH's two requirements:
-// require(blake2b(pk)==pkh); require(checkSig(s,pk)). Witness: sig, pk, script.
-pub fn redeem(key_hash: &str) -> Result<Vec<u8>> {
-    let hash = hex::decode(key_hash).map_err(|_| invalid("Invalid public-key hash"))?;
-    if hash.len() != 32 || hex::encode(&hash) != key_hash {
-        return Err(invalid("Invalid public-key hash"));
-    }
+// KIP-22: PUSH32 <x-only public key> OP_CHECKSIG. Only the P2SH hash is
+// published before spending; the redeem script must not cross the JNI boundary.
+pub fn redeem(public: &[u8; 32]) -> Result<Vec<u8>> {
     let mut b = ScriptBuilder::new();
-    b.add_op(OpDup)
-        .and_then(|b| b.add_op(OpBlake2b))
-        .and_then(|b| b.add_data(&hash))
-        .and_then(|b| b.add_op(OpEqualVerify))
+    b.add_data(public)
         .and_then(|b| b.add_op(OpCheckSig))
         .map_err(|e| CoreError::Transaction(e.to_string()))?;
     Ok(b.drain())
 }
-fn check_address(a: &HiddenAddress) -> Result<Address> {
-    path(a.branch, a.index)?;
-    let address = extract_script_pub_key_address(
-        &pay_to_script_hash_script(&redeem(&a.key_hash)?),
-        Prefix::Mainnet,
-    )
-    .map_err(|_| CoreError::InvalidAddress)?;
-    if address.to_string() != a.address {
-        return Err(invalid("Hidden-account address does not match its script"));
+fn derive_one(secret: &str, branch: u32, index: u32) -> Result<(HiddenAddress, Vec<u8>)> {
+    let key = key(secret, branch, index)?;
+    let mut pair = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &*key)
+        .map_err(|_| CoreError::Derivation)?;
+    let pk = pair.x_only_public_key().0.serialize();
+    pair.non_secure_erase();
+    let script = redeem(&pk)?;
+    let address =
+        extract_script_pub_key_address(&pay_to_script_hash_script(&script), Prefix::Mainnet)
+            .map_err(|_| CoreError::InvalidAddress)?
+            .to_string();
+    let key_hash = hex::encode(
+        kaspa_hashes::blake2b_simd::Params::new()
+            .hash_length(32)
+            .hash(&pk)
+            .as_bytes(),
+    );
+    Ok((
+        HiddenAddress {
+            branch,
+            index,
+            address,
+            key_hash,
+        },
+        script,
+    ))
+}
+fn check_address(secret: &str, a: &HiddenAddress) -> Result<(Address, Vec<u8>)> {
+    let (actual, script) = derive_one(secret, a.branch, a.index)?;
+    if actual != *a {
+        return Err(invalid(
+            "KIP-22 address does not belong to the active seed and derivation path",
+        ));
     }
-    Ok(address)
+    Ok((
+        Address::try_from(a.address.as_str()).map_err(|_| CoreError::InvalidAddress)?,
+        script,
+    ))
 }
 pub fn derive(secret: &str, branch: u32, start: u32, count: u32) -> Result<Vec<HiddenAddress>> {
     if secret.starts_with("private:") || secret.starts_with("hd-path:") {
@@ -147,37 +195,16 @@ pub fn derive(secret: &str, branch: u32, start: u32, count: u32) -> Result<Vec<H
         return Err(invalid("Invalid hidden-account address range"));
     }
     (start..start + count)
-        .map(|index| {
-            let key = key(secret, branch, index)?;
-            let mut pair = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &*key)
-                .map_err(|_| CoreError::Derivation)?;
-            let pk = pair.x_only_public_key().0.serialize();
-            pair.non_secure_erase();
-            let hash = kaspa_hashes::blake2b_simd::Params::new()
-                .hash_length(32)
-                .hash(&pk);
-            let key_hash = hex::encode(hash.as_bytes());
-            let address = extract_script_pub_key_address(
-                &pay_to_script_hash_script(&redeem(&key_hash)?),
-                Prefix::Mainnet,
-            )
-            .map_err(|_| CoreError::InvalidAddress)?
-            .to_string();
-            Ok(HiddenAddress {
-                branch,
-                index,
-                address,
-                key_hash,
-            })
-        })
+        .map(|index| derive_one(secret, branch, index).map(|(a, _)| a))
         .collect()
 }
 struct Built {
     tx: Transaction,
     inputs: Vec<(Spendable, usize)>,
     review: Value,
+    redeem_scripts: Vec<Vec<u8>>,
 }
-fn build(r: &Request) -> Result<Built> {
+fn build(secret: &str, r: &Request) -> Result<Built> {
     if r.descriptor != DESCRIPTOR
         || r.signers.is_empty()
         || r.signers.len() > 80
@@ -185,7 +212,11 @@ fn build(r: &Request) -> Result<Built> {
     {
         return Err(invalid("Invalid hidden KAS descriptor or signer set"));
     }
-    if !r.fee_rate.is_finite() || !(1.0..=1000.0).contains(&r.fee_rate) || r.amount_sompi < 10000 {
+    if !r.fee_rate.is_finite()
+        || !(1.0..=1000.0).contains(&r.fee_rate)
+        || (r.send_all && r.amount_sompi != 0)
+        || (!r.send_all && r.amount_sompi < 10000)
+    {
         return Err(invalid("Invalid amount or fee rate"));
     }
     let recipient =
@@ -200,10 +231,12 @@ fn build(r: &Request) -> Result<Built> {
             "Hidden KAS test supports Kaspa Mainnet payments only",
         ));
     }
-    let change = check_address(&r.change)?;
+    let (change, _) = check_address(secret, &r.change)?;
+    let mut redeem_scripts = Vec::with_capacity(r.signers.len());
     let mut seen = HashSet::new();
     for a in &r.signers {
-        check_address(a)?;
+        let (_, script) = check_address(secret, a)?;
+        redeem_scripts.push(script);
         if !seen.insert(a.address.clone())
             || a.address == r.change.address
             || a.address == r.recipient
@@ -234,7 +267,10 @@ fn build(r: &Request) -> Result<Built> {
             .ok_or_else(|| invalid("UTXO belongs to an unreviewed address"))?;
         let e = &row["utxoEntry"];
         if e["isCoinbase"] != false
-            || e["scriptPublicKey"]["version"] != 0
+            // RPC/REST omits protobuf default-valued fields. A missing script
+            // version means version 0, not an unknown script. The actual P2SH
+            // program is still matched byte-for-byte by parse_utxos below.
+            || e["scriptPublicKey"].get("version").is_some_and(|v| v.as_u64() != Some(0))
             || (!e["covenantId"].is_null())
             || (!e["covenant"].is_null())
         {
@@ -242,7 +278,8 @@ fn build(r: &Request) -> Result<Built> {
                 "Hidden KAS cannot spend coinbase, covenant or nonstandard outputs",
             ));
         }
-        let a = check_address(&r.signers[i])?;
+        let a = Address::try_from(r.signers[i].address.as_str())
+            .map_err(|_| CoreError::InvalidAddress)?;
         let mut parsed = parse_utxos(&json!([row]).to_string(), &a)?;
         let entry = parsed
             .pop()
@@ -267,8 +304,18 @@ fn build(r: &Request) -> Result<Built> {
     let calc = MassCalculator::new_with_consensus_params(&MAINNET_PARAMS);
     let mut fee = 0u64;
     for _ in 0..32 {
+        // Max is resolved inside the signing boundary, using the full validated
+        // input set and the actual single-output transaction's consensus mass.
+        let amount = if r.send_all {
+            total
+                .checked_sub(fee)
+                .filter(|v| *v >= 10000)
+                .ok_or_else(|| invalid("Insufficient KAS for a payment and its network fee"))?
+        } else {
+            r.amount_sompi
+        };
         let remainder = total
-            .checked_sub(r.amount_sompi)
+            .checked_sub(amount)
             .and_then(|v| v.checked_sub(fee))
             .ok_or_else(|| invalid("Insufficient KAS including network fee"))?;
         if remainder > 0 && remainder < 10000 {
@@ -279,20 +326,17 @@ fn build(r: &Request) -> Result<Built> {
         let ins = inputs
             .iter()
             .map(|(e, i)| {
-                // Exact final witness size: push65 signature, push32 x-only key,
-                // push frozen redeem script. All pubkey pushes have fixed length.
+                // KIP-22 witness: PUSH65 signature+sighash, PUSH34 redeem script.
                 let mut b = ScriptBuilder::new();
-                b.add_data(&[0; 65]).unwrap().add_data(&[0; 32]).unwrap();
-                let sig = pay_to_script_hash_signature_script(
-                    redeem(&r.signers[*i].key_hash).unwrap(),
-                    b.drain(),
-                )
-                .unwrap();
+                b.add_data(&[0; 65]).unwrap();
+                let sig =
+                    pay_to_script_hash_signature_script(redeem_scripts[*i].clone(), b.drain())
+                        .unwrap();
                 TransactionInput::new(e.outpoint, sig, 0, 1)
             })
             .collect();
         let mut outputs = vec![TransactionOutput::new(
-            r.amount_sompi,
+            amount,
             pay_to_address_script(&recipient),
         )];
         if remainder > 0 {
@@ -327,28 +371,32 @@ fn build(r: &Request) -> Result<Built> {
             input.signature_script.clear();
         }
         tx.finalize();
-        let mut review = json!({"descriptor":DESCRIPTOR,"derivationPrefix":PATH_PREFIX,"recipient":r.recipient,
-            "amountSompi":r.amount_sompi,"totalInputSompi":total,"changeSompi":remainder,"changeAddress":r.change.address,
+        let mut review = json!({"descriptor":DESCRIPTOR,"kipRevision":KIP_REVISION,"derivationPrefix":PATH_PREFIX,"recipient":r.recipient,
+            "amountSompi":amount,"totalInputSompi":total,"changeSompi":remainder,"changeAddress":r.change.address,
             "feeSompi":fee,"mass":mass,"inputCount":inputs.len(),"signers":r.signers,"change":r.change,
             "transaction":crate::transaction::submit_json(&tx)?,"utxos":rows});
+        // Preserve review hashes for existing fixed-amount saved payments.
+        if r.send_all {
+            review["sendAll"] = json!(true);
+        }
         let hash = hex::encode(Sha256::digest(
             serde_json::to_vec(&review).map_err(|_| CoreError::Serialization)?,
         ));
         review["reviewHash"] = json!(hash);
-        return Ok(Built { tx, inputs, review });
+        return Ok(Built {
+            tx,
+            inputs,
+            review,
+            redeem_scripts,
+        });
     }
     Err(invalid("Fee estimation did not converge"))
 }
-pub fn prepare(r: &Request) -> Result<Value> {
-    Ok(build(r)?.review)
+pub fn prepare(secret: &str, r: &Request) -> Result<Value> {
+    Ok(build(secret, r)?.review)
 }
 pub fn sign(secret: &str, r: &Request, hash: &str) -> Result<Value> {
-    for a in r.signers.iter().chain(std::iter::once(&r.change)) {
-        if derive(secret, a.branch, a.index, 1)?.first() != Some(a) {
-            return Err(invalid("Seed does not control the reviewed hidden account"));
-        }
-    }
-    let mut b = build(r)?;
+    let mut b = build(secret, r)?;
     if b.review["reviewHash"].as_str() != Some(hash) {
         return Err(CoreError::ReviewMismatch);
     }
@@ -373,15 +421,13 @@ pub fn sign(secret: &str, r: &Request, hash: &str) -> Result<Value> {
             .map_err(|_| CoreError::Derivation)?;
         let mut signature = pair.sign_schnorr(message).as_ref().to_vec();
         signature.push(SIG_HASH_ALL.to_u8());
-        let public = pair.x_only_public_key().0.serialize();
         pair.non_secure_erase();
         let mut witness = ScriptBuilder::new();
         witness
             .add_data(&signature)
-            .and_then(|b| b.add_data(&public))
             .map_err(|e| CoreError::Transaction(e.to_string()))?;
         b.tx.inputs[index].signature_script =
-            pay_to_script_hash_signature_script(redeem(&a.key_hash)?, witness.drain())
+            pay_to_script_hash_signature_script(b.redeem_scripts[*i].clone(), witness.drain())
                 .map_err(|e| CoreError::Transaction(e.to_string()))?;
     }
     b.tx.finalize();
@@ -396,12 +442,7 @@ pub fn sign(secret: &str, r: &Request, hash: &str) -> Result<Value> {
 pub fn verify_saved(secret: &str, saved: &Value) -> Result<()> {
     let r: Request = serde_json::from_value(saved["request"].clone())
         .map_err(|_| invalid("Missing saved request"))?;
-    for a in r.signers.iter().chain(std::iter::once(&r.change)) {
-        if derive(secret, a.branch, a.index, 1)?.first() != Some(a) {
-            return Err(invalid("Recovery request belongs to another seed"));
-        }
-    }
-    let mut b = build(&r)?;
+    let mut b = build(secret, &r)?;
     if b.review["reviewHash"] != saved["reviewHash"] {
         return Err(CoreError::ReviewMismatch);
     }
@@ -425,10 +466,11 @@ pub fn verify_saved(secret: &str, saved: &Value) -> Result<()> {
             return Err(invalid("Saved witness too large"));
         }
         let witness = hex::decode(script).map_err(|_| invalid("Invalid saved signature"))?;
-        if witness.len() != 137
+        if witness.len() != 101
             || witness[0] != 65
             || witness[65] != SIG_HASH_ALL.to_u8()
-            || witness[66] != 32
+            || witness[66] != 34
+            || witness[67..] != b.redeem_scripts[b.inputs[i].1]
         {
             return Err(invalid(
                 "Saved hidden KAS witness must use the frozen SIGHASH_ALL layout",

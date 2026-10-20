@@ -1,0 +1,9 @@
+Upstream: webview_windows 0.4.0, https://github.com/jnschulze/flutter-webview-windows
+License: BSD-3-Clause, preserved in LICENSE.
+
+Kaspire-specific native boundary (Windows only): pin one approved dApp origin per
+WebView; cancel foreign top-level navigation before it starts; intercept only
+Kaspire WalletConnect links; reject foreign-frame web messages; disable DevTools,
+context menus and ordinary downloads. Vault recovery JSON uses the same explicit,
+capability-bound export validation as Android. This is not a general-purpose
+browser or a JavaScript wallet-signing bridge.

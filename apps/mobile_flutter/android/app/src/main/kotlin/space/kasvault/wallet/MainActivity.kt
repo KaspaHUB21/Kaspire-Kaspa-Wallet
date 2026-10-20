@@ -350,7 +350,7 @@ class MainActivity : FlutterFragmentActivity() {
                             try {
                                 val connection = java.net.URL("https://kaspire.kaslab.space/api/local-node/transactions/$id").openConnection() as java.net.HttpURLConnection
                                 val confirmed = try {
-                                    connection.connectTimeout = 12000; connection.readTimeout = 12000
+                                    connection.connectTimeout = 5000; connection.readTimeout = 5000
                                     connection.instanceFollowRedirects = false
                                     check(connection.responseCode == 200) { "Confirmation unavailable. Saved transaction retained." }
                                     val text = connection.inputStream.bufferedReader().use { it.readText() }
@@ -2886,6 +2886,7 @@ class MainActivity : FlutterFragmentActivity() {
             .remove(walletKey(id, "kind"))
             .remove(walletKey(id, "addresses"))
             .remove("wallet.$id.hidden_kas")
+            .remove("wallet.$id.kip22_kas")
             .putString(walletIdsKey, JSONArray(ids).toString())
             .apply {
                 if (ids.isEmpty()) remove(activeWalletIdKey)

@@ -224,7 +224,7 @@ void main() {
                 address:
                     'kaspa:qp0mtdvzscrkfft702j85s8yzdl8a87n5d6pgtm8vrxg6hqu0wywzvwkevdk3'))));
     await tester.pumpAndSettle();
-    expect(find.text('Receive KAS'), findsOneWidget);
+    expect(find.text('Receive KAS'), findsNWidgets(2));
     expect(tester.takeException(), isNull);
   });
 

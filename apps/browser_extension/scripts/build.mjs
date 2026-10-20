@@ -23,6 +23,7 @@ if (process.env.KASPIRE_TEST_BUILD === "hub21") {
   await writeFile("dist/manifest.json", JSON.stringify(manifest, null, 2) + "\n");
 }
 await cp("static", "dist", { recursive: true });
+await cp("../mobile_flutter/assets/vaults", "dist/vaults", { recursive: true });
 await cp("../mobile_flutter/assets/themes/hub21", "dist/themes/hub21", { recursive: true });
 await cp("../mobile_flutter/assets/themes/glacier", "dist/themes/glacier", { recursive: true });
 await cp("../mobile_flutter/assets/themes/neptune", "dist/themes/neptune", { recursive: true });

@@ -8,9 +8,14 @@ import 'hub21_material.dart';
 import '../screens/nexus_screen.dart';
 
 class NexusBell extends StatefulWidget {
-  const NexusBell({super.key, required this.address, this.notificationService});
+  const NexusBell(
+      {super.key,
+      required this.address,
+      this.notificationService,
+      this.navigatorKey});
   final String address;
   final NexusService? notificationService;
+  final GlobalKey<NavigatorState>? navigatorKey;
   @override
   State<NexusBell> createState() => _NexusBellState();
 }
@@ -105,9 +110,9 @@ class _NexusBellState extends State<NexusBell>
                       tooltip: 'Nexus Offers notifications',
                       icon: const Icon(Icons.notifications_outlined),
                       onPressed: () async {
-                        await Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
+                        await (widget.navigatorKey?.currentState ??
+                                Navigator.of(context))
+                            .push(MaterialPageRoute<void>(
                                 builder: (_) => NexusScreen(
                                     address: widget.address,
                                     initialView: 'notifications')));

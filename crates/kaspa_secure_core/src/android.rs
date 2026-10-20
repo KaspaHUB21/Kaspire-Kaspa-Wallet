@@ -22,11 +22,11 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_deriveHiddenKas(mut
     output(&mut env,result.unwrap_or_else(error_json))
 }
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareHiddenKas(mut env: JNIEnv, _class: JClass, request: JString) -> jstring {
-    let result=read(&mut env,&request).and_then(|r| {
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareHiddenKas(mut env: JNIEnv, _class: JClass, secret: JByteArray, request: JString) -> jstring {
+    let result=(||{let secret=read_secret(&mut env,&secret)?;let r=read(&mut env,&request)?;
         if r.len()>1024*1024 {return Err("Hidden KAS request too large".into());}
         let r=serde_json::from_str(&r).map_err(|e|format!("Invalid hidden KAS request: {e}"))?;
-        crate::hidden_kas::prepare(&r).map(|v|v.to_string()).map_err(|e|e.to_string())});
+        crate::hidden_kas::prepare(&secret,&r).map(|v|v.to_string()).map_err(|e|e.to_string())})();
     output(&mut env,result.unwrap_or_else(error_json))
 }
 #[unsafe(no_mangle)]
