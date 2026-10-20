@@ -14,7 +14,10 @@ browser download jobs, erase device caches, or deduplicate user-started jobs.
 
 ## Publishing the next release
 
-1. Build, sign and verify the APK with the existing signing lineage.
+1. Build with `bash scripts/build_android_release.sh`, which validates the
+   publishable Android client configuration and inspects both compiled APK
+   slices. Gradle also rejects release builds missing that configuration.
+   Sign and verify the APK with the existing signing lineage.
 2. Replace `website/public/downloads/Kaspire-Android-mainnet-latest.apk`
    with that verified APK and update release metadata and the signed manifest.
 3. Run `node --test website/scripts/prepare-apk-download.test.mjs` and build

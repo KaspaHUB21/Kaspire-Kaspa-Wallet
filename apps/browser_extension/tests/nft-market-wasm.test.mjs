@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import init,{generateWallet,publicKey,prepareNftMarket,preparePskt,signPskt,prepareInscription} from './generated/wasm/kaspa_secure_core.mjs';
-await init({module_or_path:await readFile(new URL('./generated/wasm/kaspa_secure_core_bg.wasm',import.meta.url))});
+import init, * as rawCore from './generated/wasm/kaspa_secure_core.mjs';
+import { secureCore } from './generated/secretInputs.mjs';
+const exports = await init({module_or_path:await readFile(new URL('./generated/wasm/kaspa_secure_core_bg.wasm',import.meta.url))});
+const {generateWallet,publicKey,prepareNftMarket,preparePskt,signPskt,prepareInscription} = secureCore(rawCore,exports.memory);
 function script(address){const charset='qpzry9x8gf2tvdw0s3jn54khce6mua7l';let value=0,bits=0;const bytes=[];for(const char of address.split(':')[1].slice(0,-8)){value=(value<<5)|charset.indexOf(char);bits+=5;while(bits>=8){bits-=8;bytes.push((value>>bits)&255);value&=(1<<bits)-1;}}assert.equal(bytes[0],8);return 'aa20'+Buffer.from(bytes.slice(1)).toString('hex')+'87';}
 test('NFT WASM seller, buyer and cancellation preserve settlement and enforce the fee',()=>{
   const seller=JSON.parse(generateWallet('')),buyer=JSON.parse(generateWallet('')),secret=`mnemonic:${seller.mnemonic}`,buyerSecret=`mnemonic:${buyer.mnemonic}`;

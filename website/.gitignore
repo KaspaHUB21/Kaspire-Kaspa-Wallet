@@ -4,3 +4,5 @@ out/
 dist/
 *.log
 .vinext/
+/public/downloads/*.apk
+/public/downloads/*.zip

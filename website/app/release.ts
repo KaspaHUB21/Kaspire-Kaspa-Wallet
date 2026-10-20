@@ -1,12 +1,12 @@
 export const currentRelease = {
-  version: "0.11.53",
-  build: 188,
-  sha256: "a980d2a7a3c7eb657d9fefb0794c89e53a29b90c0f5090fa92a219afe6bdae84",
+  version: "0.11.54",
+  build: 192,
+  sha256: "c27d902fa0d088af6046aacfb4dcd8ab2d0c8b7f58f8d8fae5a6871f7c43dcff",
 } as const;
 
 export const extensionRelease = {
-  version: "0.5.11",
-  downloadUrl: "https://kaspire.kaslab.space/downloads/kaspire-extension-0.5.11.zip",
-  storeReviewPending: false,
-  sha256: "37eea1079fe5969ce2821edfb35b2115b6b707dd162c74e4e2a121fb2084d18e",
+  version: "0.5.14",
+  downloadUrl: "https://kaspire.kaslab.space/downloads/kaspire-extension-0.5.14.zip",
+  storeReviewPending: true,
+  sha256: "a6882357e67548e38818ab07bd972f00d123b85006b42d0931f7a777ba8b02d0",
 } as const;

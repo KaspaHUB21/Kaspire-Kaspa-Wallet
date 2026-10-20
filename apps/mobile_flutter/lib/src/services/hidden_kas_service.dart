@@ -11,6 +11,11 @@ Map<String, Object?> hiddenMap(Object? value) =>
     (value as Map).cast<String, Object?>();
 int hiddenInt(Object? value) => int.parse('$value');
 
+class _HiddenReadLane {
+  Future<void> queue = Future<void>.value();
+  DateTime? next, cooldown;
+}
+
 /// Separate experimental KAS account. Node UTXOs are the spending source;
 /// historical discovery is read-only. Never substitutes an error with zero.
 class HiddenKasService {
@@ -31,8 +36,7 @@ class HiddenKasService {
   final KaspaApi api;
   final DateTime Function() _clock;
   final Future<void> Function(Duration) _sleep;
-  Future<void> _readQueue = Future<void>.value();
-  DateTime? _nextRead, _cooldown;
+  final _nodeReads = _HiddenReadLane(), _historyReads = _HiddenReadLane();
   Future<void>? _pendingRun;
   void Function(String?)? onPaymentProgress;
   static const _readInterval = Duration(milliseconds: 100);
@@ -69,24 +73,26 @@ class HiddenKasService {
         'No active signing wallet. Create or restore a seed-based HD wallet to use P2SH.');
   }
 
-  // Queue request STARTS, not entire responses. At most ten reads/second,
-  // shared by discovery, UTXO rechecks and activity, including retry cooldowns.
-  Future<void> _readSlot() {
-    final slot = _readQueue.then((_) async {
+  // Pace starts, never cache balances or negative history. A public history
+  // cooldown must not block fresh own-node UTXOs/confirmation reads.
+  Future<void> _readSlot(_HiddenReadLane lane) {
+    final slot = lane.queue.then((_) async {
       await guard();
       while (true) {
         final now = _clock();
-        var ready = _nextRead ?? now;
-        if (_cooldown != null && _cooldown!.isAfter(ready)) ready = _cooldown!;
+        var ready = lane.next ?? now;
+        if (lane.cooldown != null && lane.cooldown!.isAfter(ready)) {
+          ready = lane.cooldown!;
+        }
         final wait = ready.difference(now);
         if (wait <= Duration.zero) break;
         if (wait > const Duration(seconds: 30)) throw StateError(_rateLimited);
         await _sleep(wait);
         await guard();
       }
-      _nextRead = _clock().add(_readInterval);
+      lane.next = _clock().add(_readInterval);
     });
-    _readQueue = slot.then<void>((_) {}, onError: (Object _) {});
+    lane.queue = slot.then<void>((_) {}, onError: (Object _) {});
     return slot;
   }
 
@@ -104,15 +110,18 @@ class HiddenKasService {
   }
 
   Future<Object?> get(String url) async {
+    final lane = url.startsWith('$node/') ? _nodeReads : _historyReads;
     for (var attempt = 0; attempt < 3; attempt++) {
-      await _readSlot();
+      await _readSlot(lane);
       final response =
           await client.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
       await guard();
       if (response.statusCode == 429) {
         final delay = _retryDelay(response, attempt);
         final until = _clock().add(delay);
-        if (_cooldown == null || until.isAfter(_cooldown!)) _cooldown = until;
+        if (lane.cooldown == null || until.isAfter(lane.cooldown!)) {
+          lane.cooldown = until;
+        }
         if (attempt == 2 || delay > const Duration(seconds: 30)) {
           throw StateError(_rateLimited);
         }
@@ -168,7 +177,7 @@ class HiddenKasService {
               retired.contains('${a['branch']}:${a['index']}')
                   ? Future<Object?>.value(const [true])
                   : get(
-                      '$history/addresses/$encoded/full-transactions?limit=1&offset=0&resolve_previous_outpoints=light'),
+                      '$node/addresses/$encoded/full-transactions?limit=1&offset=0&resolve_previous_outpoints=light'),
             ]);
             if (both[0] is! List || both[1] is! List) {
               throw StateError(
@@ -380,7 +389,7 @@ class HiddenKasService {
     final all = addresses.toList();
     for (var offset = 0; offset < all.length; offset += 5) {
       final responses = await Future.wait(all.skip(offset).take(5).map((a) => get(
-          '$history/addresses/${Uri.encodeComponent(a)}/full-transactions?limit=20&offset=0&resolve_previous_outpoints=light')));
+          '$node/addresses/${Uri.encodeComponent(a)}/full-transactions?limit=20&offset=0&resolve_previous_outpoints=light')));
       for (final response in responses) {
         if (response is! List) {
           throw StateError('Incomplete account activity response.');

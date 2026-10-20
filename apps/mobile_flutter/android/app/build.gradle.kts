@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("dev.flutter.flutter-gradle-plugin")
@@ -84,6 +86,29 @@ kotlin {
 }
 
 flutter { source = "../.." }
+
+// Every release entry point (including a direct `flutter build apk`) must fail
+// before packaging if the Android KaspaRocket client configuration is missing.
+// Only a publishable TN10 client key belongs in an APK, never a server secret.
+val validateReleaseClientConfiguration = tasks.register("validateReleaseClientConfiguration") {
+    doLast {
+        val defines = (project.findProperty("dart-defines") as? String).orEmpty()
+            .split(',').filter { it.isNotBlank() }.map {
+                String(Base64.getDecoder().decode(it), Charsets.UTF_8)
+            }.associate {
+                val parts = it.split('=', limit = 2)
+                parts[0] to parts.getOrElse(1) { "" }
+            }
+        val rocketKey = defines["KASPAROCKET_API_KEY"].orEmpty()
+        check(rocketKey.matches(Regex("krpub_test_[A-Za-z0-9_-]+"))) {
+            "Missing or invalid publishable Android KaspaRocket TN10 key. " +
+                "Use scripts/build_android_release.sh; server-only keys must never be packaged."
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(validateReleaseClientConfiguration)
+}
 
 configurations.configureEach {
     resolutionStrategy {

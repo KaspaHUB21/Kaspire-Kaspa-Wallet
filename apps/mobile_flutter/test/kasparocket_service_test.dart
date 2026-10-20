@@ -6,6 +6,35 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kasvault_wallet/src/services/kasparocket_service.dart';
 
 void main() {
+  test('missing client configuration fails before making any HTTP request',
+      () async {
+    var requests = 0;
+    final service = KaspaRocketService(
+        apiKey: '',
+        client: MockClient((_) async {
+          requests++;
+          return http.Response('{}', 200);
+        }));
+    await expectLater(
+        service.tokens(),
+        throwsA(isA<StateError>().having((e) => e.message, 'message',
+            contains('latest official Kaspire update'))));
+    expect(requests, 0);
+  });
+
+  test('Android publishable key and app origin reach the provider unchanged',
+      () async {
+    const key = 'krpub_test_android_fixture';
+    final service = KaspaRocketService(
+        apiKey: key,
+        client: MockClient((request) async {
+          expect(request.headers['authorization'], 'Bearer $key');
+          expect(request.headers['origin'], KaspaRocketService.origin);
+          return http.Response('{"tokens": []}', 200);
+        }));
+    expect(await service.walletAssets('kaspatest:qfixture'), isEmpty);
+  });
+
   test('KaspaRocket provider ID is preserved only as non-consensus metadata',
       () {
     const providerId =

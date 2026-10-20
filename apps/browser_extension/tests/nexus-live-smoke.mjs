@@ -1,8 +1,10 @@
 // Controlled, empty synthetic wallet only. Never prints mnemonic or bearer.
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import init,{generateWallet,publicKey,signPersonalMessage} from './generated/wasm/kaspa_secure_core.mjs';
-await init({module_or_path:await readFile(new URL('./generated/wasm/kaspa_secure_core_bg.wasm',import.meta.url))});
+import init, * as rawCore from './generated/wasm/kaspa_secure_core.mjs';
+import { secureCore } from './generated/secretInputs.mjs';
+const exports = await init({module_or_path:await readFile(new URL('./generated/wasm/kaspa_secure_core_bg.wasm',import.meta.url))});
+const {generateWallet,publicKey,signPersonalMessage} = secureCore(rawCore,exports.memory);
 const base='https://kaspire.kaslab.space/nexus-test-v1';
 const wallet=JSON.parse(generateWallet('')),secret='mnemonic:'+wallet.mnemonic;
 async function post(path,body){const r=await fetch(base+'/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};}

@@ -11,6 +11,9 @@ import 'package:kasvault_wallet/src/screens/hidden_kas_screen.dart';
 import 'package:kasvault_wallet/src/theme.dart';
 import 'package:kasvault_wallet/src/services/app_settings.dart';
 import 'package:kasvault_wallet/src/models/wallet_snapshot.dart';
+import 'package:kasvault_wallet/src/widgets/hub21_material.dart';
+import 'package:kasvault_wallet/src/widgets/kas_receive_request.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 class ReadClock {
   DateTime time = DateTime.utc(2026, 10, 19);
@@ -284,7 +287,7 @@ void main() {
     expect(native.signatures, 0);
     service.close();
   });
-  test('GET starts are paced across parallel node and history reads', () async {
+  test('GET starts are paced across parallel own-node reads', () async {
     final clock = ReadClock();
     final client = ReadStartClient(clock);
     final starts = client.starts;
@@ -294,9 +297,7 @@ void main() {
         sleep: clock.sleep,
         client: client);
     await Future.wait(List.generate(
-        15,
-        (i) => service.get(
-            '${i.isEven ? HiddenKasService.node : HiddenKasService.history}/read/$i')));
+        15, (i) => service.get('${HiddenKasService.node}/read/$i')));
     expect(starts.length, 15);
     for (var i = 1; i < starts.length; i++) {
       expect(starts[i].difference(starts[i - 1]),
@@ -323,6 +324,51 @@ void main() {
         greaterThanOrEqualTo(const Duration(seconds: 2)));
     expect(native.signatures, 0);
     expect(native.issues, 0);
+    service.close();
+  });
+  test('public history cooldown never blocks the own node', () async {
+    final clock = ReadClock();
+    final native = HiddenSecurity();
+    var nodeReads = 0;
+    final service = HiddenKasService(owner,
+        security: native,
+        clock: clock.now,
+        sleep: clock.sleep, client: MockClient((request) async {
+      if (request.url.toString().startsWith(HiddenKasService.node)) {
+        nodeReads++;
+        return http.Response('[]', 200);
+      }
+      return http.Response('limited', 429, headers: {'retry-after': '120'});
+    }));
+    await expectLater(
+        service.get('${HiddenKasService.history}/read'), throwsStateError);
+    expect(await service.get('${HiddenKasService.node}/read'), isEmpty);
+    expect(nodeReads, 1);
+    expect(clock.waits, isEmpty);
+    expect(native.signatures, 0);
+    service.close();
+  });
+  test('discovery and activity never depend on the public history fallback',
+      () async {
+    final native = HiddenSecurity()..state['receiveCount'] = 1;
+    var public = 0, local = 0;
+    final service = hiddenService(owner, security: native,
+        client: MockClient((request) async {
+      if (!request.url.toString().startsWith(HiddenKasService.node)) {
+        public++;
+        return http.Response('limited', 429);
+      }
+      local++;
+      return http.Response('[]', 200);
+    }));
+    for (var i = 0; i < 3; i++) {
+      final snapshot = await service.scan();
+      expect(snapshot['balanceSompi'], 0);
+      expect(await service.activity(snapshot), isEmpty);
+    }
+    expect(public, 0);
+    expect(local, greaterThan(0));
+    expect(native.signatures, 0);
     service.close();
   });
   test('exhausted 429 retries never become zero balance or unused addresses',
@@ -608,6 +654,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Activity'));
+    await tester.tap(find.text('Activity'));
+    await tester.pumpAndSettle();
     final copy = find.byTooltip('Copy transaction ID');
     await tester.scrollUntilVisible(copy, 300,
         scrollable: find.byType(Scrollable).first);
@@ -663,6 +712,85 @@ void main() {
     expect(native.signatures, 0);
     service.close();
   });
+  for (final theme in KaspireTheme.values) {
+    testWidgets('P2SH receive/send/activity inherit $theme at narrow width',
+        (tester) async {
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final previous = AppSettings.theme.value;
+      AppSettings.theme.value = theme;
+      addTearDown(() => AppSettings.theme.value = previous);
+      final native = HiddenSecurity();
+      final service = MaxPreviewService(native);
+      // Deliberately default host: P2SH must not inherit Midnight controls
+      // while its decorative surfaces read the active HUB21/Glacier setting.
+      await tester.pumpWidget(MaterialApp(
+          home: HiddenKasScreen(
+              address: owner, service: service, embedded: true)));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byType(CheckboxListTile));
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+      final backup =
+          find.widgetWithText(FilledButton, 'Save encrypted recovery backup');
+      await tester.ensureVisible(backup);
+      await tester.pumpAndSettle();
+      final themed = Theme.of(tester.element(backup));
+      final expected = KasVaultTheme.forTheme(theme);
+      expect(themed.colorScheme.primary, expected.colorScheme.primary);
+      final decorative = [
+        KaspireTheme.hub21,
+        KaspireTheme.glacier,
+        KaspireTheme.neptune
+      ].contains(theme);
+      if (decorative || theme == KaspireTheme.midnight) {
+        await expectLater(find.byType(HiddenKasScreen),
+            matchesGoldenFile('goldens/p2sh-${theme.name}-receive.png'));
+      }
+      expect(find.descendant(of: backup, matching: find.byType(Hub21Panel)),
+          decorative ? findsOneWidget : findsNothing);
+      expect(find.byType(KasReceiveRequest), findsOneWidget);
+      expect(find.text('Send KAS'), findsNothing);
+      final qr = find.byType(QrImageView);
+      await tester.scrollUntilVisible(qr, 180,
+          scrollable: find.byType(Scrollable).first);
+      expect(
+          tester
+              .widget<KasReceiveRequest>(find.byType(KasReceiveRequest))
+              .address,
+          p2sh);
+      expect(tester.widget<QrImageView>(qr).dataModuleStyle.color,
+          KasVaultTheme.qrInk);
+      await tester.scrollUntilVisible(find.text('Send'), -180,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Send'));
+      await tester.pumpAndSettle();
+      expect(find.byType(KasReceiveRequest), findsNothing);
+      expect(find.text('Send KAS'), findsOneWidget);
+      expect(find.text('Available'), findsOneWidget);
+      if (decorative || theme == KaspireTheme.midnight) {
+        await expectLater(find.byType(HiddenKasScreen),
+            matchesGoldenFile('goldens/p2sh-${theme.name}-send.png'));
+      }
+      await tester.scrollUntilVisible(find.text('Review transaction'), 180,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('Review transaction'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Activity'), -180,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Activity'));
+      await tester.pumpAndSettle();
+      expect(find.text('Account activity'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing);
+      expect(service.preparations, 0);
+      expect(native.signatures, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
   for (final theme in [
     KaspireTheme.midnight,
     KaspireTheme.hub21,
@@ -689,6 +817,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byType(CheckboxListTile));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Send'));
+      await tester.tap(find.text('Send'));
+      await tester.pumpAndSettle();
       final maxButton = find.text('Max');
       await tester.scrollUntilVisible(maxButton, 250,
           scrollable: find.byType(Scrollable).first);
@@ -706,9 +837,11 @@ void main() {
       await tester.enterText(destination, owner);
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
-      final review = find.text('Review payment');
+      final review = find.text('Review transaction');
       await tester.scrollUntilVisible(review, 200,
           scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(review);
+      await tester.pumpAndSettle();
       await tester.tap(review);
       await tester.pumpAndSettle();
       expect(service.requestedMax, isTrue);

@@ -646,6 +646,12 @@ export default function Home() {
                 Android may ask you to allow installation from your browser or
                 file manager. Verify the checksum before installation.
               </p>
+              <p>
+                This update restores KaspaRocket Testnet-10 connectivity,
+                refines P2SH screens across all themes and improves own-node
+                account loading. Android release builds now verify their
+                client configuration before distribution.
+              </p>
             </div>
             <div className="release-card extension-release-card">
               <div className="release-icon">

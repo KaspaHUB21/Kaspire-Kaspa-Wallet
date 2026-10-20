@@ -1,7 +1,9 @@
 import * as wasmModule from "kaspire-wasm";
+import { secureCore } from './secretInputs';
 
 type CoreModule = {
-  default(input?: RequestInfo | URL | Response | BufferSource | WebAssembly.Module): Promise<unknown>;
+  secretBoundaryVersion(): number;
+  default(input: { module_or_path: RequestInfo | URL | Response | BufferSource | WebAssembly.Module }): Promise<unknown>;
   generateWallet(passphrase: string): string;
   generateWalletWithWordCount(passphrase: string, wordCount: number): string;
   importWallet(words: string, passphrase: string): string;
@@ -24,8 +26,8 @@ type CoreModule = {
   describeDotkMarket(request: string): string;
   prepareDotkMarket(request: string): string;
   signDotkMarket(secret: string, request: string, reviewHash: string): string;
-  deriveBackupKey(password: string, saltHex: string): string;
-  deriveBackupKeyV3(password: string, saltHex: string): string;
+  deriveBackupKey(password: string, saltHex: string): Uint8Array<ArrayBuffer>;
+  deriveBackupKeyV3(password: string, saltHex: string): Uint8Array<ArrayBuffer>;
   prepareTransaction(request: string): string;
   signTransaction(secret: string, request: string, reviewHash: string): string;
   signPersonalMessage(secret: string, address: string, message: string): string;
@@ -56,8 +58,9 @@ export function core(): Promise<CoreModule> {
   loading ??= (async () => {
     const wasmUrl = chrome.runtime.getURL("wasm/kaspa_secure_core_bg.wasm");
     const module = wasmModule as unknown as CoreModule;
-    await module.default(wasmUrl);
-    return module;
+    const exports = await module.default({ module_or_path: wasmUrl }) as { memory: WebAssembly.Memory };
+    if (module.secretBoundaryVersion?.() !== 1) throw Error('Incompatible signing core. Reload the complete Kaspire extension package.');
+    return secureCore(module, exports.memory);
   })();
   return loading;
 }

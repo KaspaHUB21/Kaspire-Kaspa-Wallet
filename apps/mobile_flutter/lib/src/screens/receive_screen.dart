@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import '../widgets/hub21_material.dart';
-import 'package:flutter/services.dart';
-import 'package:qr_flutter/qr_flutter.dart';
-import 'package:share_plus/share_plus.dart';
+import '../widgets/kas_receive_request.dart';
 
 import '../theme.dart';
 import '../services/network_settings.dart';
@@ -10,7 +8,6 @@ import '../services/app_settings.dart';
 import '../services/hd_wallet_structure.dart';
 import "../services/hd_discovery_service.dart";
 import '../services/native_security.dart';
-import '../models/kaspa_payment_request.dart';
 import '../services/kaspa_api.dart';
 import '../services/preferences_service.dart';
 import '../platform.dart';
@@ -31,7 +28,6 @@ class ReceiveScreen extends StatefulWidget {
 }
 
 class _ReceiveScreenState extends State<ReceiveScreen> {
-  final _amount = TextEditingController();
   final _security = NativeSecurity();
   final _api = KaspaApi();
   final _preferences = PreferencesService();
@@ -48,11 +44,6 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
   String get _selectedAddress => _selected == null
       ? widget.address
       : NetworkSettings.addressForNetwork(_selected!.address);
-
-  String get paymentUri => KaspaPaymentRequest.encode(
-        _selectedAddress,
-        amount: _amount.text,
-      );
 
   @override
   void initState() {
@@ -384,12 +375,6 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
   }
 
   @override
-  void dispose() {
-    _amount.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) => SafeArea(
         child: Column(children: [
           if (!isWindowsDesktop &&
@@ -491,109 +476,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                           ),
                         ],
                         const SizedBox(height: 34),
-                        Center(
-                          child: Container(
-                            padding: const EdgeInsets.all(18),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(28),
-                              boxShadow: [
-                                BoxShadow(
-                                  color:
-                                      KasVaultTheme.mint.withValues(alpha: .33),
-                                  blurRadius: 40,
-                                ),
-                              ],
-                            ),
-                            child: QrImageView(
-                              data: paymentUri,
-                              size: 238,
-                              eyeStyle: QrEyeStyle(
-                                eyeShape: QrEyeShape.square,
-                                color: KasVaultTheme.qrInk,
-                              ),
-                              dataModuleStyle: QrDataModuleStyle(
-                                dataModuleShape: QrDataModuleShape.square,
-                                color: KasVaultTheme.qrInk,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 30),
-                        TextField(
-                          controller: _amount,
-                          onChanged: (_) => setState(() {}),
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          decoration: const InputDecoration(
-                            labelText: 'Requested amount (optional)',
-                            suffixText: 'KAS',
-                            hintText: '0.00',
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.all(17),
-                          decoration: KasVaultTheme.isDecorative
-                              ? kaspireDecorativeDecoration(
-                                  radius: 18, rim: 2.5)
-                              : BoxDecoration(
-                                  color: KasVaultTheme.panel,
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(color: KasVaultTheme.line),
-                                ),
-                          child: SelectableText(
-                            _selectedAddress,
-                            textAlign: TextAlign.center,
-                            textWidthBasis: TextWidthBasis.longestLine,
-                            style: TextStyle(
-                              fontFamily: 'monospace',
-                              color: KasVaultTheme.mint,
-                              fontSize: 13,
-                              height: 1.45,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () {
-                                  Clipboard.setData(
-                                      ClipboardData(text: paymentUri));
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                        content:
-                                            Text('Payment request copied')),
-                                  );
-                                },
-                                icon: const Icon(Icons.copy_rounded),
-                                label: Text(buttonLabel('COPY')),
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(54),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: () => Share.share(
-                                  paymentUri,
-                                  subject: 'Kaspa payment request',
-                                ),
-                                icon: const Icon(Icons.ios_share_rounded),
-                                label: Text(buttonLabel('SHARE')),
-                                style: FilledButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(54),
-                                  backgroundColor: KasVaultTheme.mint,
-                                  foregroundColor:
-                                      KasVaultTheme.filledButtonText,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                        KasReceiveRequest(address: _selectedAddress),
                         if (_wallet != null && _selected != null) ...[
                           const SizedBox(height: 12),
                           OutlinedButton.icon(

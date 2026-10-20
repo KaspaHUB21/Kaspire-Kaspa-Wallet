@@ -19,6 +19,7 @@ mod policy_transaction;
 mod pskt;
 mod tangem_rescue;
 mod transaction;
+mod secret_input;
 pub mod hidden_kas;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod hidden_kas_tests;
@@ -41,13 +42,14 @@ mod desktop;
 use argon2::{Algorithm, Argon2, Params, Version as ArgonVersion};
 use kaspa_addresses::{Address, Prefix, Version};
 use kaspa_bip32::{
-    DerivationPath, ExtendedPrivateKey, Language, Mnemonic, PrivateKey, SecretKey, WordCount,
+    DerivationPath, ExtendedPrivateKey, Language, Mnemonic, PrivateKey, WordCount,
 };
 use kaspa_hashes::PersonalMessageSigningHash;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+use secret_input::ErasedKey;
 #[cfg(feature = "desktop")]
 use unicode_normalization::UnicodeNormalization;
 
@@ -338,9 +340,9 @@ pub fn import_wallet(phrase: &str) -> Result<WalletMaterial> {
 }
 
 pub fn import_wallet_with_passphrase(phrase: &str, passphrase: &str) -> Result<WalletMaterial> {
-    let normalized = normalize_mnemonic(phrase);
+    let normalized = Zeroizing::new(normalize_mnemonic(phrase));
     let mnemonic =
-        Mnemonic::new(normalized, Language::English).map_err(|_| CoreError::InvalidMnemonic)?;
+        Mnemonic::new(normalized.as_str(), Language::English).map_err(|_| CoreError::InvalidMnemonic)?;
     wallet_material(mnemonic, passphrase)
 }
 
@@ -359,9 +361,9 @@ pub fn export_private_key(secret: &str) -> Result<String> {
 
 pub fn public_key(secret: &str) -> Result<String> {
     let key = derive_key(secret)?;
-    let secret = SecretKey::from_bytes(&*key).map_err(|_| CoreError::Derivation)?;
+    let secret = ErasedKey::from_bytes(&*key).map_err(|_| CoreError::Derivation)?;
     let secp = kaspa_bip32::secp256k1::Secp256k1::new();
-    let serialized = secret.public_key(&secp).serialize();
+    let serialized = secret.0.public_key(&secp).serialize();
     Ok(hex::encode(&serialized[1..]))
 }
 
@@ -447,14 +449,12 @@ pub(crate) fn derive_key_at_path(secret: &str, path: &str) -> Result<Zeroizing<[
     // without silently changing addresses in existing Android/WASM wallets.
     #[cfg(feature = "desktop")]
     let passphrase = Zeroizing::new(passphrase.nfkd().collect::<String>());
-    let mnemonic = Mnemonic::new(
-        phrase.split_whitespace().collect::<Vec<_>>().join(" "),
-        Language::English,
-    )
+    let normalized = Zeroizing::new(phrase.split_whitespace().collect::<Vec<_>>().join(" "));
+    let mnemonic = Mnemonic::new(normalized.as_str(), Language::English)
     .map_err(|_| CoreError::InvalidMnemonic)?;
     let seed = mnemonic.to_seed(passphrase.as_str());
     let master =
-        ExtendedPrivateKey::<SecretKey>::new(seed.as_bytes()).map_err(|_| CoreError::Derivation)?;
+        ExtendedPrivateKey::<ErasedKey>::new(seed.as_bytes()).map_err(|_| CoreError::Derivation)?;
     let path = DerivationPath::from_str(path).map_err(|_| CoreError::Derivation)?;
     let mut key = master
         .derive_path(&path)
@@ -491,7 +491,7 @@ pub(crate) fn private_key_bytes(value: &str) -> Result<[u8; 32]> {
     let bytes: [u8; 32] = decoded
         .try_into()
         .map_err(|_| CoreError::InvalidPrivateKey)?;
-    SecretKey::from_bytes(&bytes).map_err(|_| CoreError::InvalidPrivateKey)?;
+    ErasedKey::from_bytes(&bytes).map_err(|_| CoreError::InvalidPrivateKey)?;
     Ok(bytes)
 }
 
@@ -505,13 +505,14 @@ fn mnemonic_secret(secret: &str) -> Result<(Zeroizing<String>, Zeroizing<String>
         let (passphrase_hex, phrase) = encoded
             .split_once(':')
             .ok_or_else(|| CoreError::InvalidRequest("invalid passphrase wallet secret".into()))?;
-        let passphrase = hex::decode(passphrase_hex)
-            .ok()
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-            .ok_or_else(|| CoreError::InvalidRequest("invalid passphrase wallet secret".into()))?;
+        let passphrase_bytes = Zeroizing::new(hex::decode(passphrase_hex)
+            .map_err(|_| CoreError::InvalidRequest("invalid passphrase wallet secret".into()))?);
+        let passphrase = Zeroizing::new(std::str::from_utf8(&passphrase_bytes)
+            .map_err(|_| CoreError::InvalidRequest("invalid passphrase wallet secret".into()))?
+            .to_owned());
         return Ok((
             Zeroizing::new(phrase.to_string()),
-            Zeroizing::new(passphrase),
+            passphrase,
         ));
     }
     Ok((
@@ -540,9 +541,9 @@ fn derive_address_from_mnemonic(mnemonic: &Mnemonic, passphrase: &str) -> Result
 }
 
 fn address_from_key(key: &[u8; 32]) -> Result<Address> {
-    let secret = SecretKey::from_bytes(key).map_err(|_| CoreError::Derivation)?;
+    let secret = ErasedKey::from_bytes(key).map_err(|_| CoreError::Derivation)?;
     let secp = kaspa_bip32::secp256k1::Secp256k1::new();
-    let public = secret.public_key(&secp).serialize();
+    let public = secret.0.public_key(&secp).serialize();
     Ok(Address::new(Prefix::Mainnet, Version::PubKey, &public[1..]))
 }
 

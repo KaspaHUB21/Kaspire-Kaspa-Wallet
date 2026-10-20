@@ -22,7 +22,9 @@ const history = 'https://kaspire.kaslab.space/api';
 const submitEndpoint = `${history}/transactions`;
 const reviews = new Map<string, { binding: string; request: Row; review: Row; expires: number }>();
 const operations = new Set<string>();
-let nextRead = 0, cooldown = 0, readQueue: Promise<unknown> = Promise.resolve();
+type ReadLane = { next: number; cooldown: number; queue: Promise<unknown> };
+const nodeReads: ReadLane = { next: 0, cooldown: 0, queue: Promise.resolve() };
+const historyReads: ReadLane = { next: 0, cooldown: 0, queue: Promise.resolve() };
 export function clearP2shReviews() { reviews.clear(); }
 export const emptyP2shState = (): P2shState => ({ descriptor: P2SH_DESCRIPTOR, receiveCount: 0, changeCount: 0, exposed: [] });
 export const p2shKas = (raw: unknown) => formatRawTokenAmount(String(raw), 8) + ' KAS';
@@ -64,24 +66,26 @@ async function sleep(ms: number, context: P2shContext) {
   await context.guard();
 }
 async function read(context: P2shContext, url: string, missing = false): Promise<any> {
+  // A public indexer cooldown must never stall own-node confirmation/UTXOs.
+  const lane = url.startsWith(node + '/') ? nodeReads : historyReads;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const slot = readQueue.then(async () => {
+    const slot = lane.queue.then(async () => {
       await context.guard();
       while (true) {
-        const wait = Math.max(nextRead, cooldown) - now(context);
+        const wait = Math.max(lane.next, lane.cooldown) - now(context);
         if (wait > 30000) throw Error('Account data is temporarily rate-limited. Please wait and refresh.');
         if (wait <= 0) break;
         await sleep(wait, context);
       }
-      nextRead = now(context) + 100;
+      lane.next = now(context) + 100;
     });
-    readQueue = slot.catch(() => {}); await slot;
+    lane.queue = slot.catch(() => {}); await slot;
     const response = await fetch(url, { cache: 'no-store', redirect: 'error', signal: AbortSignal.any([AbortSignal.timeout(15000), ...(context.signal ? [context.signal] : [])]) });
     await context.guard();
     if (response.status === 429) {
       const retry = response.headers.get('retry-after'), seconds = retry == null ? NaN : Number(retry);
       const delay = Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : retry && Number.isFinite(Date.parse(retry)) ? Math.max(0, Date.parse(retry) - now(context)) : 1000 * 2 ** attempt;
-      cooldown = Math.max(cooldown, now(context) + delay);
+      lane.cooldown = Math.max(lane.cooldown, now(context) + delay);
       if (attempt === 2 || delay > 30000) throw Error('Account data is temporarily rate-limited. Please wait and refresh. Saved payments remain preserved.');
       continue;
     }
@@ -134,7 +138,7 @@ async function scan(context: P2shContext) {
           const encoded = encodeURIComponent(a.address);
           const [rows, activity] = await Promise.all([
             read(context, `${node}/addresses/${encoded}/utxos`),
-            retired.has(key(a)) ? Promise.resolve([true]) : read(context, `${history}/addresses/${encoded}/full-transactions?limit=1&offset=0&resolve_previous_outpoints=light`),
+            retired.has(key(a)) ? Promise.resolve([true]) : read(context, `${node}/addresses/${encoded}/full-transactions?limit=1&offset=0&resolve_previous_outpoints=light`),
           ]);
           if (!Array.isArray(rows) || !Array.isArray(activity)) throw Error('Incomplete account discovery response. Receiving and signing remain disabled.');
           const amount = await context.validate(a, rows);
@@ -162,7 +166,7 @@ async function activity(context: P2shContext, addresses: Row[]) {
   // Only addresses with confirmed history/outputs need an activity request.
   const retired = new Set(context.load().exposed);
   for (const a of addresses.filter(a => retired.has(key(a)))) {
-    const rows = await read(context, `${history}/addresses/${encodeURIComponent(a.address)}/full-transactions?limit=50&offset=0&resolve_previous_outpoints=light`);
+    const rows = await read(context, `${node}/addresses/${encodeURIComponent(a.address)}/full-transactions?limit=50&offset=0&resolve_previous_outpoints=light`);
     if (!Array.isArray(rows)) throw Error('Account activity lookup unavailable.');
     for (const row of rows) if (/^[0-9a-f]{64}$/.test(row.transaction_id) && row.is_accepted === true) transactions.set(row.transaction_id, row);
   }

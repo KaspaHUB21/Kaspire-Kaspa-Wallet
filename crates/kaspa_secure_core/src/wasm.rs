@@ -2,21 +2,30 @@ use super::*;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+#[wasm_bindgen(js_name = secretBoundaryVersion)]
+pub fn secret_boundary_version_js() -> u32 {
+    1
+}
+
 #[wasm_bindgen(js_name = deriveHiddenKas)]
 pub fn derive_hidden_kas_js(
-    secret: &str,
+    secret: Vec<u8>,
     branch: u32,
     start: u32,
     count: u32,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     json(crate::hidden_kas::derive(secret, branch, start, count))
 }
 #[wasm_bindgen(js_name = validateHiddenKasUtxos)]
 pub fn validate_hidden_kas_utxos_js(
-    secret: &str,
+    secret: Vec<u8>,
     raw_address: &str,
     rows: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     if rows.len() > 2 * 1024 * 1024 || raw_address.len() > 1024 {
         return Err(JsError::new("P2SH output response is too large"));
     }
@@ -40,26 +49,32 @@ pub fn validate_hidden_kas_utxos_js(
     Ok(total.to_string())
 }
 #[wasm_bindgen(js_name = prepareHiddenKas)]
-pub fn prepare_hidden_kas_js(secret: &str, raw: &str) -> std::result::Result<String, JsError> {
+pub fn prepare_hidden_kas_js(secret: Vec<u8>, raw: &str) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let request = serde_json::from_value(vault_input(raw)?)
         .map_err(|_| JsError::new("Invalid P2SH payment request"))?;
     vault_json(crate::hidden_kas::prepare(secret, &request))
 }
 #[wasm_bindgen(js_name = signHiddenKas)]
 pub fn sign_hidden_kas_js(
-    secret: &str,
+    secret: Vec<u8>,
     raw: &str,
     hash: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let request = serde_json::from_value(vault_input(raw)?)
         .map_err(|_| JsError::new("Invalid P2SH payment request"))?;
     vault_json(crate::hidden_kas::sign(secret, &request, hash))
 }
 #[wasm_bindgen(js_name = verifyHiddenKasRecovery)]
 pub fn verify_hidden_kas_recovery_js(
-    secret: &str,
+    secret: Vec<u8>,
     raw: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let saved = vault_input(raw)?;
     crate::hidden_kas::verify_saved(secret, &saved).map_err(|e| JsError::new(&e.to_string()))?;
     Ok("true".into())
@@ -147,10 +162,12 @@ pub fn prepare_covenant_vault_js(raw: &str) -> std::result::Result<String, JsErr
 }
 #[wasm_bindgen(js_name = signCovenantVault)]
 pub fn sign_covenant_vault_js(
-    secret: &str,
+    secret: Vec<u8>,
     raw: &str,
     hash: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let request = serde_json::from_value(vault_input(raw)?)
         .map_err(|_| JsError::new("Invalid vault transaction"))?;
     vault_json(crate::covenant_vault::sign(secret, &request, hash))
@@ -208,10 +225,12 @@ pub fn prepare_dotk_market_js(request: &str) -> std::result::Result<String, JsEr
 
 #[wasm_bindgen(js_name = signDotkMarket)]
 pub fn sign_dotk_market_js(
-    secret: &str,
+    secret: Vec<u8>,
     request: &str,
     review_hash: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let parsed = serde_json::from_str::<crate::dotk_market::Request>(request)
         .map_err(|_| JsError::new("invalid dot.k marketplace transaction"))?;
     json(crate::dotk_market::sign(secret, &parsed, review_hash))
@@ -224,20 +243,34 @@ fn json<T: Serialize>(value: Result<T>) -> std::result::Result<String, JsError> 
 }
 
 #[wasm_bindgen(js_name = generateWallet)]
-pub fn generate_wallet_js(passphrase: &str) -> std::result::Result<String, JsError> {
+pub fn generate_wallet_js(passphrase: Vec<u8>) -> std::result::Result<String, JsError> {
+    let owned_passphrase =
+        crate::secret_input::SecretInput::new(passphrase).map_err(JsError::new)?;
+    let passphrase = owned_passphrase.text();
     json(generate_wallet_with_passphrase(passphrase))
 }
 
 #[wasm_bindgen(js_name = generateWalletWithWordCount)]
 pub fn generate_wallet_with_word_count_js(
-    passphrase: &str,
+    passphrase: Vec<u8>,
     word_count: usize,
 ) -> std::result::Result<String, JsError> {
+    let owned_passphrase =
+        crate::secret_input::SecretInput::new(passphrase).map_err(JsError::new)?;
+    let passphrase = owned_passphrase.text();
     json(generate_wallet_with_word_count(passphrase, word_count))
 }
 
 #[wasm_bindgen(js_name = importWallet)]
-pub fn import_wallet_js(phrase: &str, passphrase: &str) -> std::result::Result<String, JsError> {
+pub fn import_wallet_js(
+    phrase: Vec<u8>,
+    passphrase: Vec<u8>,
+) -> std::result::Result<String, JsError> {
+    let owned_phrase = crate::secret_input::SecretInput::new(phrase).map_err(JsError::new)?;
+    let phrase = owned_phrase.text();
+    let owned_passphrase =
+        crate::secret_input::SecretInput::new(passphrase).map_err(JsError::new)?;
+    let passphrase = owned_passphrase.text();
     json(import_wallet_with_passphrase(phrase, passphrase))
 }
 
@@ -249,8 +282,10 @@ struct MnemonicWordStatus {
 }
 
 #[wasm_bindgen(js_name = mnemonicWordStatus)]
-pub fn mnemonic_word_status_js(phrase: &str) -> std::result::Result<String, JsError> {
-    let normalized = phrase.to_ascii_lowercase();
+pub fn mnemonic_word_status_js(phrase: Vec<u8>) -> std::result::Result<String, JsError> {
+    let owned_phrase = crate::secret_input::SecretInput::new(phrase).map_err(JsError::new)?;
+    let phrase = owned_phrase.text();
+    let normalized = Zeroizing::new(phrase.to_ascii_lowercase());
     let words: Vec<&str> = normalized.split_whitespace().collect();
     let list = Language::English.wordlist();
     let invalid_words = words
@@ -279,7 +314,9 @@ pub fn mnemonic_word_status_js(phrase: &str) -> std::result::Result<String, JsEr
 }
 
 #[wasm_bindgen(js_name = importPrivateKey)]
-pub fn import_private_key_js(value: &str) -> std::result::Result<String, JsError> {
+pub fn import_private_key_js(value: Vec<u8>) -> std::result::Result<String, JsError> {
+    let owned_value = crate::secret_input::SecretInput::new(value).map_err(JsError::new)?;
+    let value = owned_value.text();
     json(import_private_key(value))
 }
 
@@ -292,10 +329,12 @@ pub fn prepare_wyrm_genesis_js(request: &str) -> std::result::Result<String, JsE
 
 #[wasm_bindgen(js_name = signWyrmGenesis)]
 pub fn sign_wyrm_genesis_js(
-    secret: &str,
+    secret: Vec<u8>,
     request: &str,
     review_hash: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let request = serde_json::from_str::<WyrmGenesisRequest>(request)
         .map_err(|_| JsError::new("invalid Covenant Wyrm genesis request"))?;
     json(sign_wyrm_genesis(secret, &request, review_hash))
@@ -310,10 +349,12 @@ pub fn prepare_wyrm_transition_js(request: &str) -> std::result::Result<String, 
 
 #[wasm_bindgen(js_name = signWyrmTransition)]
 pub fn sign_wyrm_transition_js(
-    secret: &str,
+    secret: Vec<u8>,
     request: &str,
     review_hash: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let request = serde_json::from_str::<WyrmTransitionRequest>(request)
         .map_err(|_| JsError::new("invalid Covenant Wyrm transition request"))?;
     json(sign_wyrm_transition(secret, &request, review_hash))
@@ -321,35 +362,60 @@ pub fn sign_wyrm_transition_js(
 
 #[wasm_bindgen(js_name = deriveBackupKey)]
 pub fn derive_backup_key_js(
-    password: &str,
+    password: Vec<u8>,
     salt_hex: &str,
-) -> std::result::Result<String, JsError> {
+) -> std::result::Result<DerivedBackupKey, JsError> {
+    let owned_password = crate::secret_input::SecretInput::new(password).map_err(JsError::new)?;
+    let password = owned_password.text();
     let salt = hex::decode(salt_hex).map_err(|_| JsError::new("invalid backup salt"))?;
     derive_backup_key(password, &salt)
-        .map(|key| hex::encode(key.as_ref()))
+        .map(|key| DerivedBackupKey { key })
         .map_err(|error| JsError::new(&error.to_string()))
 }
 
 #[wasm_bindgen(js_name = deriveBackupKeyV3)]
 pub fn derive_backup_key_v3_js(
-    password: &str,
+    password: Vec<u8>,
     salt_hex: &str,
-) -> std::result::Result<String, JsError> {
+) -> std::result::Result<DerivedBackupKey, JsError> {
+    let owned_password = crate::secret_input::SecretInput::new(password).map_err(JsError::new)?;
+    let password = owned_password.text();
     let salt = hex::decode(salt_hex).map_err(|_| JsError::new("invalid backup salt"))?;
     derive_backup_key_v3(password, &salt)
-        .map(|key| hex::encode(key.as_ref()))
+        .map(|key| DerivedBackupKey { key })
         .map_err(|error| JsError::new(&error.to_string()))
+}
+
+// The JS adapter copies these bytes directly from linear memory and immediately
+// calls free(). The key remains owned by Zeroizing until then, including when
+// JS throws while copying it. Never return a non-wiping Vec or a hex String.
+#[wasm_bindgen]
+pub struct DerivedBackupKey {
+    key: Zeroizing<[u8; 32]>,
+}
+
+#[wasm_bindgen]
+impl DerivedBackupKey {
+    pub fn pointer(&self) -> usize {
+        self.key.as_ptr() as usize
+    }
+
+    pub fn wipe(&mut self) {
+        self.key.zeroize();
+    }
 }
 
 #[wasm_bindgen(js_name = deriveAddressRange)]
 pub fn derive_address_range_js(
-    secret: &str,
+    secret: Vec<u8>,
     coin_type: u32,
     account: u32,
     change: u32,
     start: u32,
     count: u32,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     json(derive_address_range(
         secret, coin_type, account, change, start, count,
     ))
@@ -364,12 +430,16 @@ pub fn address_with_prefix_js(
 }
 
 #[wasm_bindgen(js_name = deriveEvmAddress)]
-pub fn derive_evm_address_js(secret: &str) -> std::result::Result<String, JsError> {
+pub fn derive_evm_address_js(secret: Vec<u8>) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     derive_evm_address(secret).map_err(|error| JsError::new(&error.to_string()))
 }
 
 #[wasm_bindgen(js_name = exportEvmPrivateKey)]
-pub fn export_evm_private_key_js(secret: &str) -> std::result::Result<String, JsError> {
+pub fn export_evm_private_key_js(secret: Vec<u8>) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     export_evm_private_key(secret).map_err(|error| JsError::new(&error.to_string()))
 }
 
@@ -381,21 +451,27 @@ pub fn prepare_evm_transaction_js(request: &str) -> std::result::Result<String, 
 
 #[wasm_bindgen(js_name = signEvmTransaction)]
 pub fn sign_evm_transaction_js(
-    secret: &str,
+    secret: Vec<u8>,
     request: &str,
     review_hash: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid EVM request"))?;
     json(sign_evm_transaction(secret, &request, review_hash))
 }
 
 #[wasm_bindgen(js_name = exportPrivateKey)]
-pub fn export_private_key_js(secret: &str) -> std::result::Result<String, JsError> {
+pub fn export_private_key_js(secret: Vec<u8>) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     export_private_key(secret).map_err(|error| JsError::new(&error.to_string()))
 }
 
 #[wasm_bindgen(js_name = publicKey)]
-pub fn public_key_js(secret: &str) -> std::result::Result<String, JsError> {
+pub fn public_key_js(secret: Vec<u8>) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     public_key(secret).map_err(|error| JsError::new(&error.to_string()))
 }
 
@@ -407,20 +483,24 @@ pub fn prepare_transaction_js(request: &str) -> std::result::Result<String, JsEr
 
 #[wasm_bindgen(js_name = signTransaction)]
 pub fn sign_transaction_js(
-    secret: &str,
+    secret: Vec<u8>,
     request: &str,
     review_hash: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid request"))?;
     json(sign_transaction(secret, &request, review_hash))
 }
 
 #[wasm_bindgen(js_name = signPersonalMessage)]
 pub fn sign_personal_message_js(
-    secret: &str,
+    secret: Vec<u8>,
     address: &str,
     message: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     sign_personal_message(secret, address, message)
         .map_err(|error| JsError::new(&error.to_string()))
 }
@@ -438,10 +518,12 @@ pub fn prepare_pskt_js(request: &str) -> std::result::Result<String, JsError> {
 
 #[wasm_bindgen(js_name = signPskt)]
 pub fn sign_pskt_js(
-    secret: &str,
+    secret: Vec<u8>,
     request: &str,
     review_hash: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid request"))?;
     json(sign_pskt(secret, &request, review_hash))
 }
@@ -462,10 +544,12 @@ pub fn prepare_reveal_js(request: &str) -> std::result::Result<String, JsError> 
 
 #[wasm_bindgen(js_name = signReveal)]
 pub fn sign_reveal_js(
-    secret: &str,
+    secret: Vec<u8>,
     request: &str,
     review_hash: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let request =
         serde_json::from_str(request).map_err(|_| JsError::new("invalid reveal request"))?;
     json(sign_reveal(secret, &request, review_hash))
@@ -480,10 +564,12 @@ pub fn prepare_kcc20_transfer_js(request: &str) -> std::result::Result<String, J
 
 #[wasm_bindgen(js_name = signKcc20Transfer)]
 pub fn sign_kcc20_transfer_js(
-    secret: &str,
+    secret: Vec<u8>,
     request: &str,
     review_hash: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let request =
         serde_json::from_str(request).map_err(|_| JsError::new("invalid KCC20 request"))?;
     json(sign_kcc20_transfer(secret, &request, review_hash))
@@ -498,10 +584,12 @@ pub fn prepare_policy_transaction_js(request: &str) -> std::result::Result<Strin
 
 #[wasm_bindgen(js_name = signPolicyTransaction)]
 pub fn sign_policy_transaction_js(
-    secret: &str,
+    secret: Vec<u8>,
     request: &str,
     review_hash: &str,
 ) -> std::result::Result<String, JsError> {
+    let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let secret = owned_secret.text();
     let request = serde_json::from_str(request)
         .map_err(|_| JsError::new("invalid policy transaction request"))?;
     json(sign_policy_transaction(secret, &request, review_hash))

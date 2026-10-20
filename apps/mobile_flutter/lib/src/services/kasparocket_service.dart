@@ -35,14 +35,15 @@ class KaspaRocketService {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
         'Origin': origin,
-        'User-Agent': 'Kaspire-Android/KaspaRocket-test',
+        'User-Agent': 'Kaspire-Android/KaspaRocket',
         if (_apiKey.isNotEmpty) 'Authorization': 'Bearer $_apiKey',
       };
 
   Future<Object?> _request(String method, Uri uri,
       {Map<String, Object?>? body, bool retry = true}) async {
     if (_apiKey.isEmpty) {
-      throw StateError('This test build has no KaspaRocket SDK key.');
+      throw StateError(
+          'KaspaRocket connection configuration is missing. Please install the latest official Kaspire update.');
     }
     for (var attempt = 0; attempt < (retry ? 2 : 1); attempt++) {
       try {

@@ -31,6 +31,7 @@ LOG = logging.getLogger("kaspa-gateway")
 _health_lock = threading.Lock()
 _health_checked_at = 0.0
 _local_healthy = False
+_history_healthy = False
 
 
 def _request(
@@ -64,7 +65,7 @@ def _request(
 
 
 def _is_local_healthy() -> bool:
-    global _health_checked_at, _local_healthy
+    global _health_checked_at, _local_healthy, _history_healthy
     now = time.monotonic()
     with _health_lock:
         if now - _health_checked_at < 5:
@@ -83,10 +84,20 @@ def _is_local_healthy() -> bool:
                     for server in servers
                 )
             )
+            _history_healthy = (
+                _local_healthy
+                and payload.get("database", {}).get("isSynced") is True
+            )
         except (OSError, ValueError, TypeError):
             _local_healthy = False
+            _history_healthy = False
         _health_checked_at = now
         return _local_healthy
+
+
+def _is_history_healthy() -> bool:
+    _is_local_healthy()
+    return _history_healthy
 
 
 def _rows(payload: object) -> list[dict]:
@@ -132,20 +143,31 @@ def _history_path(path: str) -> tuple[str, int, int]:
 def _merged_history(path: str) -> tuple[int, dict[str, str], bytes]:
     fetch_path, offset, limit = _history_path(path)
     results: list[tuple[int, dict[str, str], bytes]] = []
+    local_synced = _is_history_healthy()
+    local_valid = public_valid = False
     for base in (LOCAL, PUBLIC):
         try:
-            results.append(_request(base, "GET", fetch_path, timeout=15))
-        except OSError as error:
-            LOG.warning("history backend failed: %s: %s", base, error)
+            response = _request(base, "GET", fetch_path, timeout=15)
+            results.append(response)
+            if base == LOCAL:
+                local_valid = _validated_history(response) is not None
+            else:
+                public_valid = _validated_history(response) is not None
+            # HD gap discovery needs only existence, not a merged feed.
+            # A synced own indexer is authoritative, including a valid empty
+            # list. Never fan every unused address out to the public API.
+            if base == LOCAL and local_synced and offset == 0 and limit == 1:
+                rows = _validated_history(response)
+                if rows is not None:
+                    return _history_response(rows[:1])
+        except OSError:
+            LOG.warning("history backend failed: %s", base)
 
     merged: dict[str, dict] = {}
     anonymous = 0
-    for status, _, body in results:
-        if status < 200 or status >= 300:
-            continue
-        try:
-            rows = _rows(json.loads(body))
-        except (ValueError, TypeError):
+    for response in results:
+        rows = _validated_history(response)
+        if rows is None:
             continue
         for row in rows:
             key = _transaction_key(row)
@@ -156,11 +178,35 @@ def _merged_history(path: str) -> tuple[int, dict[str, str], bytes]:
             if existing is None or len(row) > len(existing):
                 merged[key] = row
 
-    if not merged and results:
-        return results[-1]
+    if not merged:
+        # A fallback error must not overwrite a successful primary response.
+        # But an unsynced/invalid primary plus a failed fallback is not "empty".
+        if (local_synced and local_valid) or public_valid:
+            return _history_response([])
+        for response in reversed(results):
+            if response[0] >= 400:
+                return response
+        raise OSError("No valid account history source is available")
     rows = sorted(merged.values(), key=_transaction_time, reverse=True)
-    payload = json.dumps(rows[offset : offset + limit], separators=(",", ":")).encode()
-    return 200, {"content-type": "application/json"}, payload
+    return _history_response(rows[offset : offset + limit])
+
+
+def _validated_history(response: tuple[int, dict[str, str], bytes]) -> list[dict] | None:
+    status, _, body = response
+    if status != 200:
+        return None
+    try:
+        payload = json.loads(body)
+    except (ValueError, TypeError):
+        return None
+    rows = payload.get("transactions") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        return None
+    return rows
+
+
+def _history_response(rows: list[dict]) -> tuple[int, dict[str, str], bytes]:
+    return 200, {"content-type": "application/json"}, json.dumps(rows, separators=(",", ":")).encode()
 
 
 class GatewayHandler(BaseHTTPRequestHandler):
@@ -220,6 +266,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self._error(503, "Kaspire local Kaspa node is not synced and UTXO-indexed")
             return
         parsed = urllib.parse.urlsplit(self.path)
+        if HISTORY_SUFFIX in parsed.path and not _is_history_healthy():
+            self._error(503, "Kaspire account history indexer is not synced")
+            return
         upstream_path = urllib.parse.urlunsplit(
             ("", "", parsed.path[len(LOCAL_NODE_PREFIX) :], parsed.query, "")
         )
@@ -271,6 +320,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
         self.send_header("content-length", str(len(body)))
         self.send_header("cache-control", "no-store")
         self.send_header("x-content-type-options", "nosniff")
+        for name, value in headers.items():
+            if name.lower() == "retry-after" and status in (429, 503):
+                self.send_header("retry-after", value)
         self.end_headers()
         self.wfile.write(body)
 

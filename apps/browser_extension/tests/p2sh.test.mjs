@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
-import init, { deriveHiddenKas, validateHiddenKasUtxos, prepareHiddenKas, signHiddenKas, verifyHiddenKasRecovery } from './generated/wasm/kaspa_secure_core.mjs';
+import init, * as rawCore from './generated/wasm/kaspa_secure_core.mjs';
+import { secureCore } from './generated/secretInputs.mjs';
 import { p2shCommand, emptyP2shState, validateP2shState, clearP2shReviews, parseP2shKas } from './generated/p2sh.mjs';
 
 const wasm = await readFile(new URL('./generated/wasm/kaspa_secure_core_bg.wasm', import.meta.url));
-await init({ module_or_path: wasm });
+const exports = await init({ module_or_path: wasm });
+const { deriveHiddenKas, validateHiddenKasUtxos, prepareHiddenKas, signHiddenKas, verifyHiddenKasRecovery } = secureCore(rawCore, exports.memory);
 const fixture = JSON.parse(execFileSync('cargo', ['run','--locked','--quiet','-p','kaspa_secure_core','--example','hidden_browser_fixture'], { cwd: '../..', maxBuffer: 2 * 1024 * 1024 }).toString());
 const parse = JSON.parse, secret = fixture.secret;
 test('KIP-22 WASM matches native/Android addresses, reviews, signature IDs, VM and recovery for fixed amount and Max', () => {
@@ -25,6 +27,12 @@ test('KIP-22 WASM matches native/Android addresses, reviews, signature IDs, VM a
   assert.equal(validateHiddenKasUtxos(secret, JSON.stringify(a), JSON.stringify([fixture.rows[0]])), '1000000000');
   assert.throws(() => validateHiddenKasUtxos(secret, JSON.stringify(a), JSON.stringify([fixture.rows[1]])));
   assert.throws(() => validateHiddenKasUtxos(secret, JSON.stringify({ ...a, index: 2 }), JSON.stringify([])), /active seed/);
+});
+test('serialized WASM P2SH transactions pass the independent unmodified official node validator', () => {
+  const cases=fixture.cases.map(c=>({...c,saved:parse(signHiddenKas(secret,JSON.stringify(c.request),c.review.reviewHash))}));
+  const checked=JSON.parse(execFileSync('node',['../../scripts/check_p2sh_consensus.mjs','-'],{input:JSON.stringify({cases}),maxBuffer:2*1024*1024}));
+  assert.equal(checked.nodeRelease,'v2.1.0');assert.equal(checked.networkAccess,false);
+  assert.equal(checked.validTransactions,cases.length);assert.equal(checked.rejectedMutations,cases.length*7);
 });
 test('P2SH recovery validation preserves issued/retired keys and rejects malformed journals', () => {
   assert.deepEqual(validateP2shState(emptyP2shState()), emptyP2shState());
@@ -53,6 +61,7 @@ function environment(t) {
     if (response429 > 0) { response429--; return new Response('{}', {status:429, headers:{'retry-after':'1'}}); }
     if (badResponse) return new Response('{}', {status:503});
     if (url.includes('/info/fee-estimate')) return new Response(JSON.stringify({priorityBucket:{feerate:100}}));
+    if (url.includes('/full-transactions')) assert(url.startsWith('https://kaspire.kaslab.space/api/local-node/'), 'P2SH history must not fan out through the public merged indexer');
     if (url.includes('/transactions/') && !url.includes('/full-transactions')) {
       assert(url.startsWith('https://kaspire.kaslab.space/api/local-node/transactions/'),'confirmation must stay pinned to the own-node route');
       return new Response(JSON.stringify(proof ? {transaction_id:state.pending.transactionId, is_accepted:true} : {}), {status:proof?200:404});
@@ -86,6 +95,14 @@ test('P2SH discovery reads fresh outputs, retires used keys and issues only afte
   const starts = e.starts.filter(s=>s.method==='GET'); for(let i=1;i<starts.length;i++) assert(starts[i].time-starts[i-1].time>=100);
   e.funding.set(fixture.addresses[1].address, []);
   const next=await e.command('p2shRefresh');assert.equal(next.balanceSompi,'1000000000'); assert.equal(next.receive.index,2);
+});
+test('three repeated reloads and activity use only the own node, not public history', async t => {
+  const e=environment(t);
+  for(let i=0;i<3;i++) assert.equal((await e.command('p2shRefresh')).balanceSompi,'2000000000');
+  const histories=e.starts.filter(row=>row.url.includes('/full-transactions'));
+  assert(histories.length>0);
+  assert(histories.every(row=>row.url.startsWith('https://kaspire.kaslab.space/api/local-node/')));
+  assert(!e.events.includes('sign'));assert(!e.events.includes('broadcast'));
 });
 test('P2SH approval, retirement, signing, persistence, broadcast, and proof execute in that order', async t => {
   const e = environment(t), p = await prepare(e);

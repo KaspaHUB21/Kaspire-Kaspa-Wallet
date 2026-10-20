@@ -31,6 +31,32 @@ fn main() {
         saved["request"] = serde_json::to_value(&request).unwrap();
         cases.push(json!({"request":request, "review":review, "saved":saved}));
     }
+    // Exercise both compute- and storage-dominated transactions with complete
+    // signed witnesses, different input counts, fee rates and recipient types.
+    for (count, value, rate, max, script_hash) in [
+        (1, 100_000_000_000u64, 1.0, false, false),
+        (1, 100_000_000_000, 2.5, true, false),
+        (2, 1_000_000_000, 1000.0, false, true),
+        (2, 1_000_000_000, 1.0, true, true),
+        (10, 1_000_000_000, 2.5, false, false),
+        (10, 1_000_000_000, 100.0, true, false),
+    ] {
+        let mut r = request.clone();
+        let more = (0..count).map(|i| {
+            let mut row = rows[i % 2].clone();
+            row["outpoint"]["transactionId"] = json!(format!("{:064x}", i + 100));
+            row["utxoEntry"]["amount"] = json!(value.to_string());
+            row
+        }).collect::<Vec<_>>();
+        r.utxos_json = json!(more).to_string(); r.fee_rate = rate;
+        r.signers.truncate(count.min(2));
+        r.send_all = max; r.amount_sompi = if max { 0 } else { 100_000_000 };
+        if script_hash { r.recipient = derive(secret, 0, 5, 1).unwrap()[0].address.clone(); }
+        let review = prepare(secret, &r).unwrap();
+        let mut saved = sign(secret, &r, review["reviewHash"].as_str().unwrap()).unwrap();
+        saved["request"] = serde_json::to_value(&r).unwrap();
+        cases.push(json!({"request":r,"review":review,"saved":saved}));
+    }
     println!(
         "{}",
         json!({"secret":secret, "addresses":signers, "rows":rows, "cases":cases})

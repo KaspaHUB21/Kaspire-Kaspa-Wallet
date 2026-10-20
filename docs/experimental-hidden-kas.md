@@ -47,6 +47,11 @@ branches with the dependency's BIP32 implementation, including gap boundaries.
 
 ## Safety properties and limitations
 
+Memory-handling follow-up: see [signing-boundary hardening](p2sh-hardening-build189.md)
+for the byte-based WASM verification build, independent node-validator checks,
+and the remaining GC-managed JS session/string limitations. Do not interpret
+native zeroization as a guarantee that all browser memory is wipeable.
+
 - Hidden account has its own KAS balance/activity screen; ordinary balance is
   unchanged. No automatic migration, no live test spends performed by the build.
 - Root plaintext crosses JNI as mutable bytes, never a Kotlin signing String.
@@ -120,6 +125,29 @@ verified for API 30–32 and API 33+. Zip alignment is verified for 16-KB pages.
 SHA-256: `7f2284f76fee7fce03bf25a95e050bc97b314fb4714499c7cc068de4a06e01ca`.
 
 ### Build 184: rate limits and confirmed-payment UX
+
+Superseded for network routing by internal Android build 191 / extension 0.5.14:
+P2SH discovery and activity now read the synced own history indexer through
+`/api/local-node`, rather than the public-history merge. Own-node and public
+read queues/cooldowns are isolated; fresh UTXOs and confirmation never inherit
+a public history cooldown. No negative-history or balance cache is introduced.
+
+The gateway's old merge could replace a successful local empty list with a
+public HTTP 429. Synced local one-row discovery now short-circuits that fallback,
+and valid local empty history is not overwritten by a failed public supplement.
+Malformed replies, unsynced history and failed sources still cannot mean zero
+balance or unused keys. The own-history route requires a synced database;
+confirmation and UTXOs remain pinned to the own node. Retry-After is forwarded.
+Nginx isolates bounded own-node reads from the shared market/public API budget
+(60 requests/sec, burst 120, no artificial queue delay). Existing global and
+market limits are not disabled.
+
+Verification: 516 Flutter tests, 150 extension tests and 14 gateway tests pass;
+Dart/TypeScript checks pass. A live, read-only synthetic-address probe completed
+three rounds (nine HTTPS GETs) with HTTP 200 for each; no transaction was sent.
+This does not claim that an unavailable node/indexer can never return an error.
+
+Original build-184 behavior:
 
 - Discovery, live UTXO rechecks and activity share a request-start queue capped
   at ten GETs/second. HTTP 429 retries are bounded to three attempts with shared

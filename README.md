@@ -40,9 +40,9 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.53**, build **188**
+- Android app: **0.11.54**, build **192**
 - Android package: `space.kaspire.wallet`
-- Browser extension package: **0.5.11** (available in the Chrome Web Store)
+- Browser extension package: **0.5.14** (submitted to Chrome Web Store review)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - Extension networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
@@ -662,10 +662,13 @@ notes are documented in
 
 ## Unsigned F-Droid release
 
+Every Android release requires the publishable Android KaspaRocket TN10 client
+configuration. Keep the JSON file outside the repository; never use the
+extension key or a server-only `kr_live_` key. See
+[Android release configuration](docs/android-release-configuration.md).
+
 ```bash
-cd apps/mobile_flutter
-flutter build apk --release \
-  --target-platform android-arm,android-arm64
+bash scripts/build_android_release.sh
 ```
 
 Without Play upload-key variables, the release is intentionally unsigned.
@@ -686,7 +689,8 @@ Then:
 ```bash
 cd apps/mobile_flutter
 flutter build appbundle --release \
-  --target-platform android-arm,android-arm64
+  --target-platform android-arm,android-arm64 \
+  --dart-define-from-file=/absolute/private/android-public-clients.json
 ```
 
 Never commit keystores or signing passwords.

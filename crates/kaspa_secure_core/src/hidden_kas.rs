@@ -2,6 +2,7 @@
 //! Public keys stay inside Rust until spending. Schnorr is NOT post-quantum.
 use crate::transaction::{parse_utxos, Spendable};
 use crate::{CoreError, Result};
+use crate::secret_input::ErasedKey;
 use kaspa_addresses::{Address, Prefix, Version};
 use kaspa_bip32::{DerivationPath, ExtendedPrivateKey, Language, Mnemonic, PrivateKey};
 use kaspa_consensus_core::{
@@ -23,7 +24,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::str::FromStr;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 pub const DESCRIPTOR: &str = "kip22-p2sh-v1";
 pub const KIP_REVISION: &str = "b031344f82f4491b9066ef556163509f93833cd6";
@@ -89,30 +90,6 @@ fn path(branch: u32, index: u32) -> Result<String> {
     }
     Ok(format!("{PATH_PREFIX}/{branch}/{index}"))
 }
-#[derive(Clone)]
-struct ErasedKey(kaspa_bip32::SecretKey);
-impl Drop for ErasedKey {
-    fn drop(&mut self) {
-        self.0.non_secure_erase();
-    }
-}
-impl PrivateKey for ErasedKey {
-    type PublicKey = <kaspa_bip32::SecretKey as PrivateKey>::PublicKey;
-    fn from_bytes(bytes: &[u8; 32]) -> kaspa_bip32::Result<Self> {
-        kaspa_bip32::SecretKey::from_bytes(bytes).map(Self)
-    }
-    fn to_bytes(&self) -> [u8; 32] {
-        self.0.to_bytes()
-    }
-    fn derive_child(&self, mut other: [u8; 32]) -> kaspa_bip32::Result<Self> {
-        let result = self.0.derive_child(other).map(Self);
-        other.zeroize();
-        result
-    }
-    fn public_key(&self) -> Self::PublicKey {
-        <kaspa_bip32::SecretKey as PrivateKey>::public_key(&self.0)
-    }
-}
 fn key(secret: &str, branch: u32, index: u32) -> Result<Zeroizing<[u8; 32]>> {
     if secret.starts_with("private:") || secret.starts_with("hd-path:") {
         return Err(invalid("Hidden KAS requires a root mnemonic wallet"));
@@ -121,7 +98,7 @@ fn key(secret: &str, branch: u32, index: u32) -> Result<Zeroizing<[u8; 32]>> {
     // Mnemonic and Seed zeroize on Drop in the pinned BIP32 implementation;
     // wrap intermediate extended private keys too, rather than leaving their
     // secp SecretKey copies behind when the path fold drops its parents.
-    let mnemonic = Mnemonic::new(phrase.to_string(), Language::English)
+    let mnemonic = Mnemonic::new(phrase.as_str(), Language::English)
         .map_err(|_| CoreError::InvalidMnemonic)?;
     let seed = mnemonic.to_seed(&passphrase);
     let master =

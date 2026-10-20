@@ -1,0 +1,17 @@
+[package]
+name = "kaspire-p2sh-consensus-check"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Deliberately separate from the wallet and its signer. This executable reads
+# only serialized synthetic transactions and uses unmodified node validators.
+[workspace]
+
+[dependencies]
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.1.0" }
+kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.1.0" }
+kaspa-txscript-errors = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.1.0" }
+hex = "0.4.3"
+serde_json = "1.0"
+rayon = "1"
