@@ -314,6 +314,34 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_preparePskt(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareKcc20Plan(
+    mut env: JNIEnv, _class: JClass, request_json: JString,
+) -> jstring {
+    let result = (|| {
+        let raw = read(&mut env, &request_json)?;
+        let request: KronTransferRequest = serde_json::from_str(&raw).map_err(|_| "invalid KCC20 plan".to_string())?;
+        let prepared = crate::prepare_kcc20_plan(&request).map_err(|e| e.to_string())?;
+        serde_json::to_string(&prepared).map_err(|_| "serialization failed".to_string())
+    })();
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signKcc20Plan(
+    mut env: JNIEnv, _class: JClass, secret: JByteArray, request_json: JString, review_hash: JString,
+) -> jstring {
+    let result = (|| {
+        let secret = read_secret(&mut env, &secret)?;
+        let raw = read(&mut env, &request_json)?;
+        let hash = read(&mut env, &review_hash)?;
+        let request: KronTransferRequest = serde_json::from_str(&raw).map_err(|_| "invalid KCC20 plan".to_string())?;
+        let signed = crate::sign_kcc20_plan(&secret, &request, &hash).map_err(|e| e.to_string())?;
+        serde_json::to_string(&signed).map_err(|_| "serialization failed".to_string())
+    })();
+    output(&mut env, result.unwrap_or_else(error_json))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signPskt(
     mut env: JNIEnv,
     _class: JClass,

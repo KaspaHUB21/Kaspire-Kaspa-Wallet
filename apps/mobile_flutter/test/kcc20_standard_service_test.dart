@@ -183,6 +183,81 @@ MockClient fragmented(List<int> amounts,
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('10/10 program uses ten inputs and compounds only above ten', () async {
+    for (final count in [10, 11]) {
+      final base = fragmented(List.filled(count, 10));
+      final client = MockClient((r) async {
+        final response = await base.get(r.url);
+        final value = jsonDecode(response.body);
+        if (!r.url.path.contains('/local-node/') &&
+            r.url.path.contains('/transactions/')) {
+          for (final row in value['data']['outputs'] as List) {
+            row['template_hash'] = Kcc20StandardService.tenTemplateHash;
+          }
+        }
+        return http.Response(jsonEncode(value), 200);
+      });
+      final batch = await Kcc20StandardService(client)
+          .signingBatch(address, cid, count * 10 - 1);
+      expect(batch.inputLimit, 10);
+      expect(batch.templateId, Kcc20StandardService.tenTemplateId);
+      expect(batch.cells, hasLength(10));
+      expect(batch.compound, count > 10);
+      expect(batch.transactionCount, count == 10 ? 1 : 2);
+      final full = await Kcc20StandardService(client)
+          .signingBatch(address, cid, count * 10 - 1, fullPlan: true);
+      expect(full.cells, hasLength(count));
+      expect(full.compound, isFalse);
+      expect(full.transactionCount, count == 10 ? 1 : 2);
+    }
+  });
+  test('indexer limit claims cannot upgrade a three-input program', () async {
+    final base = fragmented(List.filled(4, 10));
+    final service = Kcc20StandardService(MockClient((r) async {
+      final response = await base.get(r.url);
+      final value = jsonDecode(response.body);
+      if (value is Map && value['data'] is Map) {
+        value['data']['max_token_inputs'] = 10;
+      }
+      return http.Response(jsonEncode(value), 200);
+    }));
+    final step = await service.signingBatch(address, cid, 39);
+    expect(step.inputLimit, 3);
+    expect(step.cells, hasLength(3));
+    expect(step.compound, isTrue);
+    expect(
+        Kcc20StandardService.tokenTemplate({
+          ...token,
+          'template_hash': 'f' * 64,
+        }),
+        isNull);
+    expect(
+        Kcc20StandardService.tokenTemplate({
+          'template_hash': Kcc20StandardService.tenTemplateHash,
+        }),
+        Kcc20StandardService.tenTemplateId);
+  });
+  test(
+      'complete plan verifies all seven original cells once with shared proofs',
+      () async {
+    final paths = <String>[];
+    final batch =
+        await Kcc20StandardService(fragmented(List.filled(7, 10), paths: paths))
+            .signingBatch(address, cid, 69, fullPlan: true);
+    expect(batch.cells, hasLength(7));
+    expect(batch.amount, 69);
+    expect(batch.compound, isFalse);
+    expect(batch.transactionCount, 3);
+    expect(paths, hasLength(4));
+    await expectLater(
+        Kcc20StandardService(fragmented(List.filled(7, 10), spentIndex: 5))
+            .signingBatch(address, cid, 69, fullPlan: true),
+        throwsStateError);
+    await expectLater(
+        Kcc20StandardService(fragmented(List.filled(66, 1)))
+            .signingBatch(address, cid, 66, fullPlan: true),
+        throwsStateError);
+  });
   test(
       'ordinary payment consumes smallest spare cells, preserving recipient amount',
       () async {

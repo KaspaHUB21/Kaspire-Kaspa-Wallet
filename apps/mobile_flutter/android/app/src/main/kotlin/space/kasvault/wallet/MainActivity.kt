@@ -173,6 +173,7 @@ class MainActivity : FlutterFragmentActivity() {
         "signCovenantVault",
         "signWyrmTransition",
         "signKcc20Transfer",
+        "signKcc20Plan",
         "signReveal",
         "signPolicyTransaction",
         "signPskt",
@@ -579,6 +580,18 @@ class MainActivity : FlutterFragmentActivity() {
                     "prepareKronTransfer" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
                         resultFromCore(SecureCore.prepareKronTransfer(request), result)
+                    }
+                    "prepareKcc20Plan" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        resultPreparedFromCore(SecureCore.prepareKcc20Plan(request), "signKcc20Plan", result)
+                    }
+                    "signKcc20Plan" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        val reviewHash = call.argument<String>("reviewHash") ?: error("Missing review hash")
+                        requireAuthorization(call, "signKcc20Plan", reviewHash)
+                        resultFromCore(withDecryptedSecret(JSONObject(request).getString("sender")) {
+                            SecureCore.signKcc20Plan(it, request, reviewHash)
+                        }, result)
                     }
                     "prepareInscription" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
@@ -2529,6 +2542,13 @@ class MainActivity : FlutterFragmentActivity() {
                 "Recipient ${json.getString("recipient")}\n" +
                     "${json.getLong("amount")} raw ${json.getString("ticker")} · " +
                     "Fee ${json.getLong("feeSompi")} sompi"
+            "signKcc20Plan" ->
+                "Recipient ${json.getString("recipient")}\n" +
+                    "${json.getLong("amount")} raw ${json.getString("ticker")}\n" +
+                    "${json.getInt("transactionCount")} transactions · one approval for the complete payment\n" +
+                    "Total network fee ${json.getLong("totalFeeSompi")} sompi\n" +
+                    "Consolidation returns tokens to you; the final transaction pays the recipient.\n" +
+                    "Only these exact transactions may be resumed."
             "signReveal" ->
                 "Recipient ${json.getString("recipient")}\n" +
                     "${json.getString("kind").uppercase()} reveal · " +
@@ -2538,8 +2558,8 @@ class MainActivity : FlutterFragmentActivity() {
                     "${json.getLong("vaultAmountSompi")} sompi governed by covenant · " +
                     "Fee ${json.getLong("feeSompi")} sompi"
             "signPskt" ->
-                if (json.optString("profile") == "kasparocket-testnet-v1")
-                    "KaspaRocket TN10 · ${json.optString("side").uppercase()}\n" +
+                if (json.optString("profile") in listOf("kasparocket-testnet-v1", "kasparocket-mainnet-v1"))
+                    "KaspaRocket ${if (json.optString("profile") == "kasparocket-mainnet-v1") "Mainnet" else "TN10"} · ${json.optString("side").uppercase()}\n" +
                         "${json.optString("ticker")} · token ${json.optString("tokenId")}\n" +
                         "Pool covenant ${json.optString("lpCovenantId")}\n" +
                         "Transaction-derived wallet input ${json.optString("walletInputSompi")} sompi\n" +

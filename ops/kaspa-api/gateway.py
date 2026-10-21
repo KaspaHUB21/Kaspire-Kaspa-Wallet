@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -27,6 +28,45 @@ KRC20_FALLBACK_PASSWORD = os.environ.get("KRC20_FALLBACK_PASSWORD", "")
 MAX_BODY = 16 * 1024 * 1024
 MAX_HISTORY_FETCH = 100
 LOG = logging.getLogger("kaspa-gateway")
+ROCKET_PREFIX = '/kasparocket'
+ROCKET_KEY = os.environ.get('KASPAROCKET_MAINNET_API_KEY', '')
+ROCKET_BASE = 'https://kasparocket.fun'
+_rocket_lock = threading.Lock()
+_rocket_cache: dict[str, tuple[float, tuple]] = {}
+
+
+def _rocket_route(method: str, path: str) -> bool:
+    """Fixed upstream and narrow read/trade routes; never key/admin/token creation."""
+    if method == 'POST':
+        return path in ('/pro-api/pool/quote', '/pro-api/route', '/pro-api/plan/trade', '/pro-api/submit')
+    if method != 'GET':
+        return False
+    if path in ('/pro-api/health', '/pro-api/protocol', '/api/tokens', '/api/analytics'):
+        return True
+    return bool(re.fullmatch(
+        r'/(?:api/covenants/by-token/[0-9a-f]{64}|api/activity/kaspa:[a-z0-9]+|'
+        r'pro-api/(?:balance|tokens|activity)/kaspa:[a-z0-9]+(?:/[0-9a-f]{64})?|'
+        r'pro-api/tx/[0-9a-f]{64}/etat|pro-api/utxo-confirmed/kaspa:[a-z0-9]+/[0-9a-f]{64})', path))
+
+
+def _rocket_read(path: str) -> tuple:
+    # Single-flight public catalogue/protocol cache shares the partner quota.
+    cacheable = path.startswith(('/api/tokens', '/api/analytics', '/api/covenants/')) or path == '/pro-api/protocol'
+    if not cacheable:
+        return _request(ROCKET_BASE, 'GET', path, timeout=25,
+                        extra_headers={'authorization': f'Bearer {ROCKET_KEY}', 'origin': 'https://kaspire.kaslab.space'})
+    with _rocket_lock:
+        cached = _rocket_cache.get(path)
+        if cached and cached[0] > time.monotonic():
+            return cached[1]
+        response = _request(ROCKET_BASE, 'GET', path, timeout=25,
+                            extra_headers={'authorization': f'Bearer {ROCKET_KEY}', 'origin': 'https://kaspire.kaslab.space'})
+        if response[0] == 200:
+            # Bound cache entries even if callers vary permitted query strings.
+            if len(_rocket_cache) >= 256:
+                _rocket_cache.clear()
+            _rocket_cache[path] = (time.monotonic() + (30 if path == '/pro-api/protocol' else 5), response)
+        return response
 
 _health_lock = threading.Lock()
 _health_checked_at = 0.0
@@ -215,6 +255,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         request_path = urllib.parse.urlsplit(self.path).path
+        if request_path.startswith(ROCKET_PREFIX + '/'):
+            self._proxy_rocket('GET')
+            return
         if request_path == KRC20_FALLBACK_PREFIX or request_path.startswith(
             KRC20_FALLBACK_PREFIX + "/"
         ):
@@ -279,6 +322,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self._error(502, f"Kaspire local Kaspa node unavailable: {error}")
 
     def do_POST(self) -> None:
+        if urllib.parse.urlsplit(self.path).path.startswith(ROCKET_PREFIX + '/'):
+            self._proxy_rocket('POST')
+            return
         length = int(self.headers.get("content-length", "0"))
         if length < 0 or length > MAX_BODY:
             self._error(413, "Request body too large")
@@ -297,6 +343,42 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self._respond(*response)
         except OSError as error:
             self._error(502, f"Kaspa transaction backend unavailable: {error}")
+
+    def _proxy_rocket(self, method: str) -> None:
+        parsed = urllib.parse.urlsplit(self.path)
+        path = urllib.parse.unquote(parsed.path[len(ROCKET_PREFIX):])
+        if not _rocket_route(method, path) or len(parsed.query) > 256:
+            self._error(404, 'Unsupported KaspaRocket route')
+            return
+        if not ROCKET_KEY:
+            self._error(503, 'KaspaRocket Mainnet is not configured')
+            return
+        try:
+            protocol = _rocket_read('/pro-api/protocol')
+            if protocol[0] != 200 or json.loads(protocol[2]).get('network') != 'mainnet':
+                self._error(503, 'KaspaRocket Mainnet is unavailable')
+                return
+            target = path + ('?' + parsed.query if parsed.query else '')
+            if method == 'GET':
+                self._respond(*_rocket_read(target))
+                return
+            length = int(self.headers.get('content-length', '0'))
+            if not 0 < length <= 2 * 1024 * 1024:
+                self._error(413, 'Invalid KaspaRocket request size')
+                return
+            body = self.rfile.read(length)
+            payload = json.loads(body)
+            if not isinstance(payload, dict):
+                raise ValueError('Invalid object')
+            if path in ('/pro-api/route', '/pro-api/plan/trade') and not str(payload.get('address', '')).startswith('kaspa:'):
+                raise ValueError('Wrong network')
+            # Forward once only: the client retains signed bytes for recovery.
+            self._respond(*_request(ROCKET_BASE, method, target, body, 'application/json', timeout=40,
+                extra_headers={'authorization': f'Bearer {ROCKET_KEY}', 'origin': 'https://kaspire.kaslab.space'}))
+        except (ValueError, TypeError):
+            self._error(400, 'Invalid KaspaRocket Mainnet request')
+        except OSError:
+            self._error(502, 'KaspaRocket temporarily unavailable')
 
     def _proxy_read(self) -> None:
         preferred = LOCAL if _is_local_healthy() else PUBLIC

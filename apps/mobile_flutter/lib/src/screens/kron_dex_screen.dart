@@ -4,7 +4,7 @@ import '../services/kron_holdings.dart';
 import '../services/kaspa_api.dart';
 import '../services/native_security.dart';
 import '../services/network_settings.dart';
-import 'kasparocket_screen.dart' show rocketListPadding;
+import 'kasparocket_screen.dart' show rocketListPadding, KaspaRocketScreen;
 
 class DexSelectionScreen extends StatelessWidget {
   const DexSelectionScreen({super.key, required this.address});
@@ -13,6 +13,23 @@ class DexSelectionScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: const Text('KCC20 DEX Swaps')),
       body: ListView(padding: rocketListPadding(context), children: [
+        Card(
+            child: ListTile(
+                contentPadding: const EdgeInsets.all(18),
+                leading: Image.network('https://kasparocket.fun/icon.jpeg',
+                    width: 48,
+                    height: 48,
+                    errorBuilder: (_, e, s) =>
+                        const Icon(Icons.rocket_launch_rounded, size: 40)),
+                title: const Text('KaspaRocket'),
+                subtitle: Text(NetworkSettings.isTestnet
+                    ? 'Kaspa Testnet 10 · DEX & Launchpad'
+                    : 'Kaspa Mainnet · DEX & Launchpad'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                        builder: (_) => KaspaRocketScreen(address: address))))),
         Card(
             child: ListTile(
                 contentPadding: const EdgeInsets.all(18),

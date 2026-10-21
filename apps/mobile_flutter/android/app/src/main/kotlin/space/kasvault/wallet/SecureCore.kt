@@ -38,6 +38,8 @@ object SecureCore {
     external fun signWyrmTransition(secret: ByteArray, requestJson: String, reviewHash: String): String
     external fun prepareKcc20Transfer(requestJson: String): String
     external fun prepareKronTransfer(requestJson: String): String
+    external fun prepareKcc20Plan(requestJson: String): String
+    external fun signKcc20Plan(secret: ByteArray, requestJson: String, reviewHash: String): String
     external fun signKcc20Transfer(secret: ByteArray, requestJson: String, reviewHash: String): String
     external fun signPersonalMessage(secret: ByteArray, address: String, message: String): String
     external fun prepareInscription(requestJson: String): String

@@ -534,6 +534,19 @@ pub fn sign_pskt_js(
     json(sign_pskt(secret, &request, review_hash))
 }
 
+#[wasm_bindgen(js_name = prepareKcc20Plan)]
+pub fn prepare_kcc20_plan_js(request: &str) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid KCC20 plan"))?;
+    json(crate::prepare_kcc20_plan(&request))
+}
+
+#[wasm_bindgen(js_name = signKcc20Plan)]
+pub fn sign_kcc20_plan_js(secret: Vec<u8>, request: &str, review_hash: &str) -> std::result::Result<String, JsError> {
+    let owned = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
+    let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid KCC20 plan"))?;
+    json(crate::sign_kcc20_plan(owned.text(), &request, review_hash))
+}
+
 #[wasm_bindgen(js_name = prepareInscription)]
 pub fn prepare_inscription_js(request: &str) -> std::result::Result<String, JsError> {
     let request =

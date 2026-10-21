@@ -10,7 +10,7 @@ const highlights = [
   {
     number: "01",
     title: "One wallet. Every Kaspa asset.",
-    copy: "Hold and move KAS, KRC20, KRC721, KNS, KCC20, and Kasplex/Igra L2 assets. Android also supports the new KCC20 Last Call reference profile, with independent local covenant validation.",
+    copy: "Hold and move KAS, KRC20, KRC721, KNS, KCC20, and Kasplex/Igra L2 assets. Android and the browser extension support the pinned KCC20 reference profile, with own-node cell checks and independent local covenant validation.",
     tags: ["KAS", "KRC-20", "KRC-721", "KNS", "KCC20"],
   },
   {
@@ -40,8 +40,8 @@ const highlights = [
   {
     number: "06",
     title: "Keep UTXOs under control.",
-    copy: "See your wallet's UTXO count and consolidate fragmented outputs through a reviewed, authenticated self-transfer.",
-    tags: ["UTXO count", "Compound", "Fee preview"],
+    copy: "See your wallet's UTXO count and consolidate fragmented KAS outputs through a reviewed, authenticated self-transfer. Android supports verified KCC20 configurations with up to ten token inputs and outputs; existing tokens retain their own contract limits. Larger payments use a reviewed, resumable whole-payment plan.",
+    tags: ["UTXO count", "KCC20 consolidation", "Fee preview"],
   },
   {
     number: "07",
@@ -75,9 +75,9 @@ const highlights = [
   },
   {
     number: "12",
-    title: "Trade KRON tokens inside Kaspire.",
-    copy: "Open KRON DEX from Swap on Android or the browser extension to buy and sell supported mainnet launchpad and pool tokens. Review covenant IDs, minimum receive, deposits and fees before approving. Signed transactions stay available for recovery, and interrupted extension swaps can resume the same signed transaction without creating a second purchase or sale.",
-    tags: ["KRON DEX", "Mainnet swaps", "Launchpad and pools"],
+    title: "Mainnet DEX swaps, inside your wallet.",
+    copy: "Choose KaspaRocket or KRON under Swap on Android to trade supported mainnet covenant tokens. KaspaRocket brings the familiar DEX Swaps and My Activity flow, with bonding-curve, AMM and order-book routing. Review covenant IDs, wallet flows and fees before local signing. Signed swaps are encrypted for recovery. The browser extension continues to support KRON DEX.",
+    tags: ["KaspaRocket", "KRON DEX", "Mainnet swaps"],
   },
   {
     number: "13",
@@ -647,10 +647,13 @@ export default function Home() {
                 file manager. Verify the checksum before installation.
               </p>
               <p>
-                This update restores KaspaRocket Testnet-10 connectivity,
-                refines P2SH screens across all themes and improves own-node
-                account loading. Android release builds now verify their
-                client configuration before distribution.
+                KaspaRocket Mainnet is now available under Swap, before KRON,
+                with DEX Swaps and My Activity. Buy and sell covenant tokens
+                with local Rust signing, own-node input checks and encrypted
+                swap recovery. This update also supports verified KCC20
+                10-input/10-output configurations and whole-payment approvals.
+                Signed with the existing Android release certificate and
+                signing lineage.
               </p>
             </div>
             <div className="release-card extension-release-card">
@@ -702,6 +705,11 @@ export default function Home() {
                 <a href={extensionRelease.downloadUrl}>
                   Download extension {extensionRelease.version} ZIP
                 </a>.
+              </p>
+              <p>
+                Includes standard KCC20 discovery, in-payment cell
+                consolidation, explicit multi-step fee reviews and resumable
+                transfer recovery.
               </p>
               <div className="checksum">
                 <span>Extension ZIP SHA-256</span>

@@ -805,6 +805,25 @@ class NativeSecurity {
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
+  Future<Map<String, Object?>> prepareKcc20Plan(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+        'prepareKcc20Plan', {'request': jsonEncode(request)});
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> signKcc20Plan(
+      Map<String, Object?> request, String reviewHash) async {
+    final token = await _authorizeOperation(
+        operation: 'signKcc20Plan', binding: reviewHash);
+    final raw = await _channel.invokeMethod<String>('signKcc20Plan', {
+      'request': jsonEncode(request),
+      'reviewHash': reviewHash,
+      'authorizationToken': token,
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
   Future<Map<String, Object?>> signPskt(
       Map<String, Object?> request, String reviewHash,
       {bool kaspacomReview = false}) async {

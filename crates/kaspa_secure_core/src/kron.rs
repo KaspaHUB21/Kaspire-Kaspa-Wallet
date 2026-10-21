@@ -86,7 +86,7 @@ pub fn prepare_kron_transfer(request: &KronTransferRequest) -> Result<PreparedKr
     // standard KCC20 actor has a different state layout from KRON; dispatch
     // before attempting to decode any cells. Both branches still rebuild and
     // validate their own exact templates, ownership and live scripts.
-    if request.template_hash == crate::kcc20_standard::TEMPLATE_ID {
+    if crate::kcc20_standard::is_template(&request.template_hash) {
         return crate::kcc20_standard::prepare(request);
     }
     if request.amount == 0

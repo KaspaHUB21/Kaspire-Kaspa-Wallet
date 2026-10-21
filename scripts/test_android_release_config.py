@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
+from io import BytesIO
 
 SPEC = importlib.util.spec_from_file_location('release_config', Path(__file__).with_name('android_release_config.py'))
 config = importlib.util.module_from_spec(SPEC)
@@ -12,6 +13,15 @@ SPEC.loader.exec_module(config)
 
 
 class ReleaseConfigTests(unittest.TestCase):
+    def test_mainnet_release_requires_live_gateway_and_trade_scope(self):
+        for payload, valid in [({'network':'mainnet','partner':{'scopes':['read','trade']}}, True),
+                               ({'network':'testnet-10','partner':{'scopes':['read','trade']}}, False),
+                               ({'network':'mainnet','partner':{'scopes':['read']}}, False)]:
+            with patch.object(config.urllib.request, 'urlopen', return_value=BytesIO(json.dumps(payload).encode())):
+                if valid: config.check_mainnet()
+                else:
+                    with self.assertRaises(ValueError): config.check_mainnet()
+
     def test_server_secret_and_missing_keys_are_rejected(self):
         for key in ('', None, 'kr_live_' + 'a' * 32, 'kr_test_' + 'b' * 32):
             with self.assertRaises(ValueError):

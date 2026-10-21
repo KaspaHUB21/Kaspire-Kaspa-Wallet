@@ -80,9 +80,11 @@ class KaspaApi {
           allowCompound: allowCompound);
   Future<Kcc20Step> loadStandardKcc20SigningBatch(
           String address, String covenantId, int amount,
-          {bool Function()? isCancelled, void Function(String)? onProgress}) =>
+          {bool Function()? isCancelled,
+          void Function(String)? onProgress,
+          bool fullPlan = false}) =>
       standardKcc20.signingBatch(address, covenantId, amount,
-          isCancelled: isCancelled, onProgress: onProgress);
+          isCancelled: isCancelled, onProgress: onProgress, fullPlan: fullPlan);
   Future<void> waitForStandardKcc20Cell(
           String address, String covenantId, String transactionId,
           {bool Function()? isCancelled, void Function(String)? onProgress}) =>
@@ -170,7 +172,7 @@ class KaspaApi {
                         : '',
                   ))
               .catchError((_) => null)
-          : _loadKcc20Wallet(address,
+          : _loadMainnetKcc20Wallet(address,
               historyLimit: includeAssetHistory ? transactionLimit : 0,
               onProgress: (value) {
               progressiveCovenants = value;
@@ -1117,6 +1119,64 @@ class KaspaApi {
       return DateTime.fromMillisecondsSinceEpoch(milliseconds);
     }
     return DateTime.tryParse(text);
+  }
+
+  Future<_Kcc20Wallet> _loadMainnetKcc20Wallet(String address,
+      {required int historyLimit,
+      void Function(_Kcc20Wallet)? onProgress}) async {
+    _Kcc20Wallet? ordinary;
+    List<WalletAsset> rocket = const [];
+    var rocketUnavailable = false;
+    _Kcc20Wallet merged() {
+      String key(WalletAsset asset) =>
+          (asset.covenantId ?? asset.id ?? asset.symbol).toLowerCase();
+      final assets = {
+        for (final asset in ordinary?.assets ?? <WalletAsset>[])
+          key(asset): asset
+      };
+      for (final asset in rocket) {
+        final current = assets[key(asset)];
+        if (current == null || !current.discoveryComplete) {
+          assets[key(asset)] = asset;
+        }
+      }
+      return _Kcc20Wallet(
+          assets: _alphabeticalAssets(assets.values.toList()),
+          transactions: ordinary?.transactions ?? const [],
+          warning: [
+            if (ordinary?.warning.isNotEmpty == true) ordinary!.warning,
+            if (rocketUnavailable)
+              'KaspaRocket token balances are temporarily unavailable. Pull to refresh.'
+          ].join(' '));
+    }
+
+    void publish() => onProgress?.call(merged());
+    await Future.wait([
+      KaspaRocketService(client: _client, mainnet: true)
+          .walletAssets(address)
+          .then((assets) {
+        rocket = assets;
+        publish();
+      }).catchError((_) {
+        rocketUnavailable = true;
+        publish();
+      }),
+      _loadKcc20Wallet(address, historyLimit: historyLimit,
+          onProgress: (value) {
+        ordinary = value;
+        publish();
+      }).then((value) {
+        ordinary = value;
+        publish();
+      }).catchError((_) {
+        ordinary = const _Kcc20Wallet(
+            assets: [],
+            transactions: [],
+            warning: 'Other KCC20 balances are temporarily unavailable.');
+        publish();
+      }),
+    ]);
+    return merged();
   }
 
   Future<_Kcc20Wallet> _loadKcc20Wallet(
@@ -2719,6 +2779,21 @@ class KaspaApi {
       throw StateError('Invalid KCC20 transaction ID.');
     }
     return _waitForAcceptedTransaction(transactionId);
+  }
+
+  Future<bool> kcc20PlanTransactionAccepted(String transactionId) async {
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(transactionId)) {
+      throw StateError('Invalid KCC20 transaction ID.');
+    }
+    final response = await _client
+        .get(Uri.parse('$baseUrl/local-node/transactions/$transactionId'))
+        .timeout(const Duration(seconds: 5));
+    if (response.statusCode == 404) return false;
+    if (response.statusCode != 200) {
+      throw StateError('KCC20 confirmation temporarily unavailable.');
+    }
+    final tx = _map(jsonDecode(response.body));
+    return tx['transaction_id'] == transactionId && tx['is_accepted'] == true;
   }
 
   Future<bool> _waitForAcceptedTransaction(String transactionId) async {

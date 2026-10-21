@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/kasparocket_service.dart';
 import '../services/kaspa_api.dart';
 import '../services/native_security.dart';
-import '../services/activity_store.dart';
+import '../services/network_settings.dart';
 
 class KaspaRocketScreen extends StatefulWidget {
   const KaspaRocketScreen(
@@ -16,7 +16,8 @@ class KaspaRocketScreen extends StatefulWidget {
 
 class _KaspaRocketScreenState extends State<KaspaRocketScreen>
     with SingleTickerProviderStateMixin {
-  final service = KaspaRocketService(), search = TextEditingController();
+  late final service = KaspaRocketService(mainnet: !NetworkSettings.isTestnet);
+  final search = TextEditingController();
   late final TabController tabs;
   late Future<List<KaspaRocketToken>> tokens;
   late Future<Map<String, Object?>> activity;
@@ -46,7 +47,7 @@ class _KaspaRocketScreenState extends State<KaspaRocketScreen>
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(
-          title: const Text('K-Agora · TN10'),
+          title: Text(service.mainnet ? 'KaspaRocket' : 'K-Agora · TN10'),
           actions: [
             IconButton(
                 onPressed: reload, icon: const Icon(Icons.refresh_rounded))
@@ -104,8 +105,8 @@ class _KaspaRocketScreenState extends State<KaspaRocketScreen>
                                       fontWeight: FontWeight.w900))
                             ]),
                             const SizedBox(height: 6),
-                            const Text(
-                                'Internal TN10 integration. Routes market '
+                            Text(
+                                '${service.mainnet ? 'Kaspa Mainnet' : 'TN10'}. Routes market '
                                 'swaps across the bonding curve, AMM and order book.'),
                             Text('${items.length} covenant tokens')
                           ]))),
@@ -213,6 +214,7 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
   Map<String, Object?>? quote, holding;
   int? kasBalanceSompi;
   Map<String, Object?>? completedSwap;
+  Map<String, Object?>? pendingSwap;
   bool busy = false;
   @override
   void initState() {
@@ -228,6 +230,8 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
 
   Future<void> load() async {
     try {
+      final saved = await widget.service.pending(widget.address);
+      if (mounted) setState(() => pendingSwap = saved);
       final data = await Future.wait([
         widget.service.poolCovenant(widget.token.tokenId),
         widget.service.holding(widget.address, widget.token.tokenId),
@@ -265,7 +269,7 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
       if (quoted != null && quoted.abs() > required) required = quoted.abs();
       if (required > BigInt.from(kasBalanceSompi!)) {
         throw StateError(
-            'Insufficient test KAS. Available: ${sompi(kasBalanceSompi)}. Reduce the trade amount to leave room for DEX and network fees.');
+            'Insufficient KAS. Available: ${sompi(kasBalanceSompi)}. Reduce the trade amount to leave room for DEX and network fees.');
       }
     }
   }
@@ -304,6 +308,10 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
       errorText = null;
     });
     try {
+      if (await widget.service.pending(widget.address) != null) {
+        throw StateError(
+            'A signed swap is already saved. Resume it before creating another swap.');
+      }
       final rawAmount = raw(),
           fresh = await widget.service.quote(
               tokenId: widget.token.tokenId,
@@ -338,6 +346,7 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
         requests.add(request);
         reviews.add(await security.preparePskt(request));
       }
+      await widget.service.verifyInputs(requests, reviews);
       if (!mounted) return;
       final ok = await showDialog<bool>(
           context: context,
@@ -371,8 +380,8 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
                               line('Network fee',
                                   sompi(entry.value['feeSompi'])),
                             ]),
-                        const Text(
-                            'TN10 only. Verify both covenant IDs; tickers are not unique.',
+                        Text(
+                            '${widget.service.mainnet ? 'Mainnet' : 'TN10'}. Verify both covenant IDs; tickers are not unique.',
                             style: TextStyle(fontWeight: FontWeight.bold)),
                         ExpansionTile(
                             title: const Text('Raw plan JSON'),
@@ -390,54 +399,76 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
                         child: const Text('Authorize & swap'))
                   ]));
       if (ok != true) return;
+      if (widget.service.mainnet != !NetworkSettings.isTestnet ||
+          NetworkSettings.isEvm) {
+        throw StateError(
+            'Network changed. Get a fresh quote; nothing was signed.');
+      }
       final signed = <Map<String, Object?>>[];
+      final transactionIds = <String>[];
       for (var i = 0; i < planned.length; i++) {
         final result = await security.signPskt(
             requests[i], reviews[i]['reviewHash'].toString());
-        signed.add(widget.service.mergeSignedTransaction(
+        transactionIds.add(result['transactionId'].toString());
+        final merged = widget.service.mergeSignedTransaction(
             (planned[i]['tx'] as Map).cast<String, Object?>(),
-            result['signedTxJson'].toString()));
+            result['signedTxJson'].toString());
+        merged['id'] = result['transactionId'];
+        signed.add(merged);
       }
       final order = plan['order_row'] is Map
           ? (plan['order_row'] as Map).cast<String, Object?>()
           : null;
-      final receipts = <Map<String, Object?>>[];
-      for (var i = 0; i < signed.length; i++) {
-        receipts.add(await widget.service.submit(signed[i],
-            orderRow: i == signed.length - 1 ? order : null));
+      final saved = <String, Object?>{
+        'network': widget.service.networkId,
+        'address': widget.address,
+        'timestamp': DateTime.now().toIso8601String(),
+        'signed': signed,
+        'transactionIds': transactionIds,
+        'order': order,
+        'next': 0,
+        'side': side,
+        'token': widget.token.ticker,
+        'tokenCovenant': widget.token.tokenId,
+        'poolCovenant': pool,
+        'summary': summary,
+        'networkFeesSompi': reviews
+            .map((review) => review['feeSompi']?.toString() ?? '0')
+            .toList(),
+        'receipts': <Object?>[],
+        'plan': plan,
+      };
+      await widget.service.retain(widget.address, saved);
+      if (mounted) setState(() => pendingSwap = saved);
+      final completed = await widget.service.resume(widget.address);
+      if (mounted) {
+        setState(() {
+          completedSwap = completed;
+          pendingSwap = null;
+        });
       }
-      if (reviews.isNotEmpty) {
-        await ActivityStore().recordAssetTransfer(
-            wallet: widget.address,
-            transactionId: reviews.last['transactionId'].toString(),
-            timestamp: DateTime.now(),
-            incoming: side == 'buy',
-            operation: {
-              'kind': 'kcc20',
-              'ticker': widget.token.ticker,
-              'covenantId': widget.token.tokenId,
-              'displayAmount': KaspaRocketService.amountTokensDisplay(summary),
-              'operationLabel':
-                  side == 'buy' ? 'KaspaRocket Buy' : 'KaspaRocket Sell'
-            });
-      }
-      if (!mounted) return;
-      setState(() {
-        completedSwap = {
-          'side': side,
-          'token': widget.token.ticker,
-          'tokenCovenant': widget.token.tokenId,
-          'poolCovenant': pool,
-          'summary': summary,
-          'networkFeesSompi': reviews
-              .map((review) => review['feeSompi']?.toString() ?? '0')
-              .toList(),
-          'receipts': receipts,
-          'plan': plan,
-        };
-      });
     } catch (e) {
       if (mounted) setState(() => errorText = readableError(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> resumeSwap() async {
+    setState(() {
+      busy = true;
+      errorText = null;
+    });
+    try {
+      final receipt = await widget.service.resume(widget.address);
+      if (mounted) {
+        setState(() {
+          completedSwap = receipt;
+          pendingSwap = null;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => errorText = readableError(error));
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -459,7 +490,7 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
                 size: 72, color: Colors.greenAccent),
             const SizedBox(height: 12),
             Text(
-                '${receipt['side'].toString().toUpperCase()} ${widget.token.ticker}',
+                '${receipt['side'].toString().toUpperCase()} ${receipt['token']}',
                 textAlign: TextAlign.center,
                 style: Theme.of(context)
                     .textTheme
@@ -472,7 +503,7 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
                     child: Column(children: [
                       line('Status', 'Submitted successfully'),
                       line('Token amount',
-                          '${KaspaRocketService.amountTokensDisplay(summary)} ${widget.token.ticker}'),
+                          '${KaspaRocketService.amountTokensDisplay(summary)} ${receipt['token']}'),
                       line('KAS flow', sompi(summary['kasFlowSompi'])),
                       line('Treasury fee', sompi(summary['platformFeeSompi'])),
                       line('Partner fee', sompi(summary['partnerFeeSompi'])),
@@ -582,8 +613,22 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
                 child: Text(errorText!,
                     style:
                         TextStyle(color: Theme.of(context).colorScheme.error))),
+          if (pendingSwap != null)
+            Card(
+                child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(children: [
+                      const Text(
+                          'Signed swap saved. Do not create another swap.',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      FilledButton.icon(
+                          onPressed: busy ? null : resumeSwap,
+                          icon: const Icon(Icons.play_arrow_rounded),
+                          label: const Text('Resume saved swap')),
+                    ]))),
           FilledButton.icon(
-              onPressed: busy || pool == null ? null : swap,
+              onPressed:
+                  busy || pool == null || pendingSwap != null ? null : swap,
               icon: busy
                   ? const SizedBox(
                       width: 18,

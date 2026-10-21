@@ -14,8 +14,18 @@ from pathlib import Path
 import re
 import sys
 import zipfile
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def check_mainnet():
+    # Only the public, credential-free app route is probed. A successful local
+    # build must not conceal a missing server configuration or wrong network.
+    with urllib.request.urlopen('https://kaspire.kaslab.space/api/kasparocket/pro-api/protocol', timeout=20) as response:
+        protocol = json.load(response)
+    if protocol.get('network') != 'mainnet' or not {'read', 'trade'}.issubset(set(protocol.get('partner', {}).get('scopes', []))):
+        raise ValueError('KaspaRocket Mainnet gateway is not ready for read/trade.')
 DEFAULT_CONFIG = Path('/srv/kaspire/release-signing/android-public-clients.json')
 KEY_PATTERN = re.compile(rb'krpub_test_[A-Za-z0-9_-]{16,}')
 
@@ -57,6 +67,8 @@ def verify_apk(apk, key):
     with zipfile.ZipFile(apk) as archive:
         for abi in ('arm64-v8a', 'armeabi-v7a'):
             app = archive.read(f'lib/{abi}/libapp.so')
+            if re.search(rb'kr_live_[A-Za-z0-9_-]{16,}', app):
+                raise ValueError('Server-only KaspaRocket credentials must never be packaged in Android.')
             if set(KEY_PATTERN.findall(app)) != {key.encode('ascii')}:
                 raise ValueError(f'{abi}: APK does not contain the configured Android client key.')
             if match.group(1).encode('ascii') not in app:
@@ -67,10 +79,14 @@ def verify_apk(apk, key):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('bootstrap', 'check', 'verify-apk'))
+    parser.add_argument('command', choices=('bootstrap', 'check', 'verify-apk', 'check-mainnet'))
     parser.add_argument('--configuration', type=Path, default=DEFAULT_CONFIG)
     parser.add_argument('--apk', type=Path)
     args = parser.parse_args()
+    if args.command == 'check-mainnet':
+        check_mainnet()
+        print('KaspaRocket Mainnet gateway: read/trade ready; server key is not packaged.')
+        return
     if args.command in ('bootstrap', 'verify-apk') and args.apk is None:
         parser.error('--apk is required')
     key = bootstrap(args.apk, args.configuration) if args.command == 'bootstrap' else load_config(args.configuration)

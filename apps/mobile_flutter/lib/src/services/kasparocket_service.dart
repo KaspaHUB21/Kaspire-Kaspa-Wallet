@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/wallet_snapshot.dart';
+import 'encrypted_store.dart';
+import 'kaspa_api.dart';
+import 'activity_store.dart';
+import 'kron_dex_service.dart';
 
 class KaspaRocketToken {
   const KaspaRocketToken(
@@ -21,11 +25,156 @@ class KaspaRocketToken {
 }
 
 class KaspaRocketService {
-  KaspaRocketService({http.Client? client, String? apiKey})
+  KaspaRocketService(
+      {http.Client? client,
+      String? apiKey,
+      this.mainnet = false,
+      EncryptedStore? store})
       : _client = client ?? http.Client(),
+        _store = store ?? const KeystoreEncryptedStore(),
         _apiKey = apiKey ?? _environmentKey;
-  static const apiRoot = 'https://kasparocket.fun/pro-api';
-  static const catalogueRoot = 'https://kasparocket.fun';
+  final bool mainnet;
+  final EncryptedStore _store;
+  String _pendingKey(String address) =>
+      'kasparocket_swap_v1_${networkId}_$address';
+  Future<Map<String, Object?>?> pending(String address) async {
+    final text = await _store.read(_pendingKey(address));
+    return text == null
+        ? null
+        : (jsonDecode(text) as Map).cast<String, Object?>();
+  }
+
+  Future<void> retain(String address, Map<String, Object?> receipt) =>
+      _store.write(_pendingKey(address), jsonEncode(receipt));
+
+  /// Reuse the same strict own-node UTXO/origin checks as the existing DEX.
+  /// Planned child inputs must match a preceding locally reviewed output.
+  Future<void> verifyInputs(List<Map<String, Object?>> requests,
+      List<Map<String, Object?>> reviews) async {
+    if (!mainnet) return;
+    final parents = <String, Map>{};
+    for (var i = 0; i < requests.length; i++) {
+      final tx = jsonDecode(requests[i]['txJsonString'] as String) as Map;
+      final inputs = (tx['inputs'] as List).whereType<Map>().toList();
+      final reviewed = (reviews[i]['inputs'] as List).whereType<Map>().toList();
+      final external = <Map>[];
+      final addresses = <String>[];
+      for (var j = 0; j < inputs.length; j++) {
+        final input = inputs[j], embedded = input['utxo'] as Map;
+        final parent = parents['${input['transactionId']}:${input['index']}'];
+        if (parent != null) {
+          if (parent['amountSompi'].toString() !=
+                  embedded['amount'].toString() ||
+              parent['scriptPublicKey'] != embedded['scriptPublicKey'] ||
+              parent['covenantId'] != embedded['covenantId']) {
+            throw StateError(
+                'KaspaRocket child input differs from the locally reviewed parent.');
+          }
+        } else {
+          external.add(input);
+          final address = reviewed[j]['address'];
+          if (address is! String) {
+            throw StateError(
+                'Cannot independently verify the swap input address.');
+          }
+          addresses.add(address);
+        }
+      }
+      if (external.isNotEmpty) {
+        await KronDexService(client: _client).verifyInputs({
+          'txJsonString': jsonEncode({...tx, 'inputs': external}),
+          'tradeSummary': {'inputAddresses': addresses},
+        });
+      }
+      for (final output in (reviews[i]['outputs'] as List).whereType<Map>()) {
+        parents['${reviews[i]['transactionId']}:${output['index']}'] = output;
+      }
+    }
+  }
+
+  Future<Map<String, Object?>> resume(String address,
+      {Future<bool> Function(String)? accepted,
+      ActivityStore? activity}) async {
+    final receipt = await pending(address);
+    if (receipt == null ||
+        receipt['network'] != networkId ||
+        receipt['address'] != address) {
+      throw StateError('No saved swap for this wallet and network.');
+    }
+    final transactions = (receipt['signed'] as List).whereType<Map>().toList();
+    final ids = (receipt['transactionIds'] as List).cast<String>();
+    final receipts = (receipt['receipts'] as List).toList();
+    final check = accepted ?? KaspaApi().kcc20PlanTransactionAccepted;
+    for (var i = (receipt['next'] as num).toInt();
+        i < transactions.length;
+        i++) {
+      // Confirm before any replay; a timeout never permits a new payment.
+      if (!await check(ids[i])) {
+        await verifyNetwork();
+        final result = await submit(transactions[i].cast<String, Object?>(),
+            orderRow: i == transactions.length - 1 && receipt['order'] is Map
+                ? (receipt['order'] as Map).cast<String, Object?>()
+                : null);
+        receipts.add(result);
+        receipt['receipts'] = receipts;
+        await retain(address, receipt);
+        var confirmed = false;
+        for (var attempt = 0; attempt < 12; attempt++) {
+          if (await check(ids[i])) {
+            confirmed = true;
+            break;
+          }
+          await Future<void>.delayed(const Duration(seconds: 2));
+        }
+        if (!confirmed) {
+          throw StateError(
+              'Swap submitted; confirmation is still pending. The signed swap is safely saved. Resume checks the same transaction, never a second purchase.');
+        }
+      }
+      receipt['next'] = i + 1;
+      await retain(address, receipt);
+    }
+    final summary = receipt['summary'] as Map;
+    await (activity ?? ActivityStore()).recordAssetTransfer(
+        wallet: address,
+        transactionId: ids.last,
+        timestamp: DateTime.parse(receipt['timestamp'] as String),
+        incoming: receipt['side'] == 'buy',
+        operation: {
+          'kind': 'kcc20',
+          'ticker': receipt['token'],
+          'covenantId': receipt['tokenCovenant'],
+          'displayAmount': amountTokensDisplay(summary),
+          'operationLabel':
+              receipt['side'] == 'buy' ? 'KaspaRocket Buy' : 'KaspaRocket Sell',
+        });
+    await _store.delete(_pendingKey(address));
+    return receipt;
+  }
+
+  String get apiRoot => mainnet
+      ? 'https://kaspire.kaslab.space/api/kasparocket/pro-api'
+      : 'https://kasparocket.fun/pro-api';
+  String get catalogueRoot => mainnet
+      ? 'https://kaspire.kaslab.space/api/kasparocket'
+      : 'https://kasparocket.fun';
+  String get networkId => mainnet ? 'mainnet' : 'testnet-10';
+  Future<void>? _networkCheck;
+
+  Future<void> verifyNetwork() => _networkCheck ??= _verifyNetwork();
+  Future<void> _verifyNetwork() async {
+    try {
+      final result = await _request('GET', Uri.parse('$apiRoot/protocol'));
+      if (result is! Map || result['network'] != networkId) {
+        throw StateError(
+            'KaspaRocket is not serving the selected network. Nothing was signed.');
+      }
+    } catch (_) {
+      _networkCheck = null;
+      rethrow;
+    }
+  }
+
   static const origin = 'https://kaspire.kaslab.space';
   static const tokenDecimals = 3;
   static const _environmentKey = String.fromEnvironment('KASPAROCKET_API_KEY');
@@ -36,12 +185,12 @@ class KaspaRocketService {
         'Content-Type': 'application/json',
         'Origin': origin,
         'User-Agent': 'Kaspire-Android/KaspaRocket',
-        if (_apiKey.isNotEmpty) 'Authorization': 'Bearer $_apiKey',
+        if (!mainnet && _apiKey.isNotEmpty) 'Authorization': 'Bearer $_apiKey',
       };
 
   Future<Object?> _request(String method, Uri uri,
       {Map<String, Object?>? body, bool retry = true}) async {
-    if (_apiKey.isEmpty) {
+    if (!mainnet && _apiKey.isEmpty) {
       throw StateError(
           'KaspaRocket connection configuration is missing. Please install the latest official Kaspire update.');
     }
@@ -77,6 +226,7 @@ class KaspaRocketService {
   }
 
   Future<List<KaspaRocketToken>> tokens() async {
+    await verifyNetwork();
     final result = await Future.wait([
       _request('GET', Uri.parse('$catalogueRoot/api/tokens')),
       _request(
@@ -157,7 +307,8 @@ class KaspaRocketService {
         id: tokenId,
         decimals: decimals,
         rawBalance: raw.toString(),
-        priceKas: priceSompi == null ? null : priceSompi / 100000000,
+        // SDK prices are per raw unit; balances/display use three decimals.
+        priceKas: priceSompi == null ? null : priceSompi * divisor / 100000000,
         covenantId: tokenId,
         validationStatus: 'kasparocket-indexed',
         discoveryComplete: false,
@@ -219,6 +370,11 @@ class KaspaRocketService {
       required String poolId,
       required String side,
       required String rawAmount}) async {
+    await verifyNetwork();
+    if (!address.startsWith(mainnet ? 'kaspa:' : 'kaspatest:')) {
+      throw StateError(
+          'The wallet address does not match the KaspaRocket network.');
+    }
     final base = _tradeBody(
         address: address,
         tokenId: tokenId,
@@ -239,15 +395,29 @@ class KaspaRocketService {
             retry: false) as Map)
         .cast<String, Object?>();
     final rawSummary = plan['summary'];
+    if (plan['networkId'] != null && plan['networkId'] != networkId) {
+      throw StateError(
+          'KaspaRocket returned a plan for another network. Nothing was signed.');
+    }
     final summary =
         rawSummary is Map ? rawSummary.cast<String, Object?>() : null;
+    if (summary == null ||
+        summary['direction'] != side ||
+        (plan['transactions'] as List? ?? const []).isEmpty ||
+        BigInt.parse((side == 'buy'
+                    ? summary['kasFlowSompi']
+                    : summary['amountTokens'])
+                .toString()) >
+            BigInt.parse(rawAmount)) {
+      throw StateError(
+          'KaspaRocket plan differs from the requested trade. Nothing was signed.');
+    }
     return {
       ...plan,
-      if (summary != null)
-        'summary': {
-          ...summary,
-          'amountTokensDisplay': amountTokensDisplay(summary),
-        },
+      'summary': {
+        ...summary,
+        'amountTokensDisplay': amountTokensDisplay(summary),
+      },
       'route': route,
     };
   }
@@ -288,7 +458,7 @@ class KaspaRocketService {
     }
     return {
       'sender': address,
-      'profile': 'kasparocket-testnet-v1',
+      'profile': mainnet ? 'kasparocket-mainnet-v1' : 'kasparocket-testnet-v1',
       'tokenId': token.tokenId,
       'lpCovenantId': poolId,
       'ticker': token.ticker,

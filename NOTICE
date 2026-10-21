@@ -12,3 +12,10 @@ their respective upstream licenses.
 Kaspa is a third-party project. This distribution is not an assertion of
 ownership over the Kaspa name or third-party token and NFT artwork obtained
 from public network metadata.
+
+The KCC20 10/10 contract in crates/kaspa_secure_core/src/kcc20_reference_10.sil
+is derived from argent-lang/kcc20-reference commit
+c8a087117735a1f87c5c6d115fcddeaf2562c784, fixtures/public-mint/sil/KCC20.sil.
+The upstream package declares the ISC license in Cargo.toml. Its authors retain
+their rights; Kaspire's changes are the 10/10 configuration and generated
+template-length constant. No KaspaRocket DEX or escrow contract was copied.

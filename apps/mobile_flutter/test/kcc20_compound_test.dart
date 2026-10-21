@@ -13,6 +13,20 @@ List<Kcc20CellRecord> cells(List<int> amounts) => List.generate(
         scriptPublicKey: 'aa',
         tokenAmount: amounts[i]));
 void main() {
+  test('10-input boundary has one payment through ten and two at eleven', () {
+    for (final count in [1, 3, 7, 10, 11, 19, 20]) {
+      final step = planKcc20Step(cells(List.filled(count, 10)), count * 10, 10);
+      expect(step.compound, count > 10);
+      expect(step.cells.length, count > 10 ? 10 : count);
+      expect(
+          step.transactionCount,
+          count <= 10
+              ? 1
+              : count <= 19
+                  ? 2
+                  : 3);
+    }
+  });
   test(
       'transaction estimate includes final payment and scales by cells, not units',
       () {

@@ -10,6 +10,58 @@ import 'package:kasvault_wallet/src/services/app_settings.dart';
 
 void main() {
   test(
+      'Mainnet bonding-curve balances publish before Kasvio and survive its outage',
+      () async {
+    final stalled = Completer<http.Response>();
+    final visible = Completer<WalletSnapshot>();
+    final api = KaspaApi(client: MockClient((request) async {
+      if (request.url.path.contains('/api/kasparocket/pro-api/tokens/')) {
+        return http.Response(
+            jsonEncode({
+              'tokens': [
+                {
+                  'kcc20_covenant_id': 'a' * 64,
+                  'ticker': 'NACHOBRO',
+                  'balance_tokens': 69913139,
+                  'price_sompi': 6452.192432542098,
+                  'image_url': 'https://example.invalid/rocket.jpg',
+                }
+              ]
+            }),
+            200);
+      }
+      if (request.url.host == 'kasvio.network' ||
+          request.url.host == 'kcc20.info' ||
+          request.url.host == 'kascov.io') {
+        return stalled.future;
+      }
+      if (request.url.path.endsWith('/balance')) {
+        return http.Response('{"balance":0}', 200);
+      }
+      if (request.url.path.endsWith('/utxos')) return http.Response('[]', 200);
+      return http.Response('{}', 503);
+    }));
+    final loading = api.loadWallet('kaspa:qfixture',
+        includeNativeTransactions: false,
+        includeAssetHistory: false,
+        includeMarketData: false, onProgress: (snapshot) {
+      if (snapshot.kcc20Tokens.isNotEmpty && !visible.isCompleted) {
+        visible.complete(snapshot);
+      }
+    });
+    final early = await visible.future.timeout(const Duration(seconds: 1));
+    expect(early.kcc20Tokens.single.symbol, 'NACHOBRO');
+    expect(early.kcc20Tokens.single.balance, 69913.139);
+    expect(
+        early.kcc20Tokens.single.priceKas, closeTo(0.06452192432542098, 1e-12));
+    expect(early.kcc20Tokens.single.imageUrl, isNotEmpty);
+    expect(early.kcc20Tokens.single.standard, 'kasparocket-kcc20');
+    stalled.complete(http.Response('{}', 503));
+    final result = await loading;
+    expect(result.kcc20Tokens.single.symbol, 'NACHOBRO');
+    expect(result.kcc20Tokens.single.balance, 69913.139);
+  });
+  test(
       'KRON history joins exact raw units, wallet and covenant; never derives units from volume',
       () async {
     const wallet = 'kaspa:history';

@@ -15,7 +15,7 @@ property, `KASPAROCKET_API_KEY`. Distributors can set
 Build through:
 
 ```sh
-bash scripts/build_android_release.sh --build-name=0.11.54 --build-number=192
+bash scripts/build_android_release.sh --build-name=0.11.58 --build-number=197
 ```
 
 The wrapper validates the configuration, supplies Flutter's
@@ -40,5 +40,21 @@ reference used for this release was the original Android KaspaRocket build 115;
 its public client identity was checked against the provider's read-only
 `/protocol` endpoint, which reported `testnet-10`.
 
-Mainnet requires separately confirmed endpoints, client authorization and
-network/signing validation. This configuration fix does not enable Mainnet swaps.
+## Mainnet gateway
+
+Android 0.11.58 uses the fixed Kaspire `/api/kasparocket` gateway for Mainnet.
+The provider's `kr_live_` credential is installed only as the root-readable
+`/etc/kaspire/kasparocket-mainnet.env` service environment file, never as a
+Flutter build setting. The gateway permits only the required read/trade routes,
+checks the upstream Mainnet network and caches public catalogue responses.
+There are no token-creation, key-management or arbitrary upstream routes.
+
+The release wrapper probes the public Mainnet protocol route and requires
+both read and trade scopes. Compiled APK verification rejects server-only
+credentials. Native Mainnet PSKTs have their own network-bound profile,
+SIGHASH_ALL checks, pinned fee payouts and full local contract execution.
+
+The provider moved the old `.fun` deployment from TN10 to Mainnet. Android
+checks the reported network before using a catalogue or trade plan: a TN10
+screen must fail closed rather than display/sign Mainnet trades. A separate
+working TN10 provider endpoint is needed to resume TN10 use.

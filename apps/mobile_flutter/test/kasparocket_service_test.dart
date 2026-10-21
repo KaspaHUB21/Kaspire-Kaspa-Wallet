@@ -142,7 +142,7 @@ void main() {
     expect(assets, hasLength(1));
     expect(assets.single.symbol, 'ROCKET');
     expect(assets.single.balance, 427.757);
-    expect(assets.single.priceKas, 1.17);
+    expect(assets.single.priceKas, 1170);
     expect(assets.single.standard, 'kasparocket-kcc20');
     expect(assets.single.discoveryComplete, isFalse);
   });

@@ -71,7 +71,9 @@ class SendApi extends KaspaApi {
   @override
   Future<Kcc20Step> loadStandardKcc20SigningBatch(
       String address, String covenantId, int amount,
-      {bool Function()? isCancelled, void Function(String)? onProgress}) async {
+      {bool Function()? isCancelled,
+      void Function(String)? onProgress,
+      bool fullPlan = false}) async {
     proofs++;
     onProgress?.call('Verifying selected token only…');
     final cells = List.generate(
@@ -98,6 +100,35 @@ class SendApi extends KaspaApi {
   }
 }
 
+class PlanSendApi extends SendApi {
+  PlanSendApi() : super(3);
+  @override
+  Future<Kcc20Step> loadStandardKcc20SigningBatch(
+      String address, String covenantId, int amount,
+      {bool Function()? isCancelled,
+      void Function(String)? onProgress,
+      bool fullPlan = false}) async {
+    expect(fullPlan, isTrue);
+    proofs++;
+    return Kcc20Step(
+        List.generate(
+            7,
+            (i) => Kcc20CellRecord(
+                covenantId: cid,
+                transactionId: 'a' * 64,
+                index: i,
+                valueSompi: 100000000,
+                blockDaaScore: 1,
+                scriptPublicKey: 'aa',
+                tokenAmount: 15,
+                redeemScript: 'bb')),
+        amount,
+        false,
+        requiredCells: 7,
+        transactionCount: 3);
+  }
+}
+
 void main() {
   final requests = <Map>[];
   setUp(() {
@@ -108,6 +139,45 @@ void main() {
         .setMockMethodCallHandler(
             const MethodChannel('space.kasvault/security'), (call) async {
       if (call.method == 'hasNativeWallet') return true;
+      if (call.method == 'prepareKcc20Plan') {
+        final request =
+            jsonDecode((call.arguments as Map)['request'] as String) as Map;
+        requests.add(request);
+        return jsonEncode({
+          'sender': address,
+          'recipient': request['recipient'],
+          'covenantId': cid,
+          'ticker': 'TEST.K',
+          'amount': 80,
+          'decimals': 0,
+          'transactionCount': 3,
+          'reviewHash': 'a' * 64,
+          'totalFeeSompi': 3000,
+          'steps': List.generate(
+              3,
+              (i) => {
+                    'transactionId': '${i + 1}' * 64,
+                    'psktRequest': {
+                      'tradeSummary': {
+                        'recipient': i == 2 ? request['recipient'] : address,
+                        'amount': i == 2 ? 80 : 45 + i * 30
+                      }
+                    },
+                    'feeSompi': 1000,
+                    'feeMass': 100,
+                    'computeMass': 100,
+                    'transientMass': 100,
+                    'computeBudget': 100,
+                    'covenantInputCount': 3,
+                    'covenantOutputCount': i == 2 ? 2 : 1,
+                    'lockedKasSompi': 300000000,
+                    'lockedKasOutputSompi': i == 2 ? 200000000 : 100000000,
+                    'lockedKasTopUpSompi': 0,
+                    'lockedKasReleasedSompi': i == 2 ? 100000000 : 200000000,
+                    'templateHash': 'argent-kcc20-c8a0871'
+                  }),
+        });
+      }
       if (call.method == 'prepareKronTransfer') {
         requests.add(
             jsonDecode((call.arguments as Map)['request'] as String) as Map);
@@ -172,6 +242,34 @@ void main() {
     expect(requests.single['amount'], 80);
     expect(requests.single['recipient'], 'kaspa:recipient');
     expect(api.walletLoads, 1);
+    expect(api.proofs, 1);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+      'seven-cell payment reviews the complete plan and total fee before any signature',
+      (tester) async {
+    final api = PlanSendApi();
+    await open(tester, api);
+    await prepare(tester);
+    expect(requests, hasLength(1));
+    expect(requests.single['cells'], hasLength(7));
+    expect(requests.single['recipient'], 'kaspa:recipient');
+    expect(requests.single['amount'], 80);
+    expect(find.textContaining('ONE approval covers this complete fixed plan'),
+        findsOneWidget);
+    await tester.scrollUntilVisible(find.text('TOTAL network fees'), 400,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('0.00003000 KAS'), findsOneWidget);
+    await tester.scrollUntilVisible(
+        find.text(buttonLabel('AUTHORIZE COMPLETE PAYMENT PLAN')), 400,
+        scrollable: find.byType(Scrollable).first);
+    expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(
+                FilledButton, buttonLabel('AUTHORIZE COMPLETE PAYMENT PLAN')))
+            .onPressed,
+        isNotNull);
+    expect(api.broadcasts, isEmpty);
     expect(api.proofs, 1);
     expect(tester.takeException(), isNull);
   });

@@ -2,11 +2,16 @@ import '../models/wallet_snapshot.dart';
 
 class Kcc20Step {
   const Kcc20Step(this.cells, this.amount, this.compound,
-      {this.requiredCells = 1, this.transactionCount = 1});
+      {this.requiredCells = 1,
+      this.transactionCount = 1,
+      this.inputLimit = 3,
+      this.templateId});
   final List<Kcc20CellRecord> cells;
   final int amount;
   final bool compound;
   final int requiredCells;
+  final int inputLimit;
+  final String? templateId;
 
   /// Includes the final recipient payment, not just self-consolidations.
   final int transactionCount;

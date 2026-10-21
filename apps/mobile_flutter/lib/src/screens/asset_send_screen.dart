@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../services/kcc20_payment_plan.dart';
 import '../widgets/hub21_material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,6 +11,7 @@ import '../decimal_input_formatter.dart';
 import '../models/kaspa_payment_request.dart';
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
+import '../platform.dart';
 import '../services/kaspa_api.dart';
 import '../services/kcc20_standard_service.dart';
 import '../services/kcc20_compound.dart';
@@ -290,7 +292,8 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
     });
     try {
       if (_kind == _AssetKind.kcc20 &&
-          _pendingCompound?['finalPayment'] != null) {
+          (_pendingCompound?['finalPayment'] != null ||
+              _pendingCompound?['signedPlan'] != null)) {
         throw StateError(
             'A previously signed KCC20 payment is awaiting confirmation. Use Continue KCC20 transfer to check it before preparing another payment.');
       }
@@ -348,6 +351,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           final standardStep = isStandard
               ? await _api.loadStandardKcc20SigningBatch(
                   widget.address, token.covenantId!, int.parse(raw),
+                  fullPlan: !isWindowsDesktop,
                   isCancelled: () => !mounted,
                   onProgress: (stage) {
                     if (mounted) setState(() => _status = stage);
@@ -384,7 +388,8 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             'amount': stepAmount,
             'decimals': token.decimals,
             'feeRate': 100.0,
-            'templateHash': token.templateHash ?? '',
+            'templateHash':
+                standardStep?.templateId ?? token.templateHash ?? '',
             'cells': cells.map((cell) => cell.toJson()).toList(),
             'fundingUtxosJson': fundingUtxos,
           };
@@ -404,7 +409,8 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
               'amount': stepAmount,
               'decimals': token.decimals,
               'feeRate': 100.0,
-              'templateHash': token.templateHash ?? '',
+              'templateHash':
+                  standardStep?.templateId ?? token.templateHash ?? '',
               'cells': cells
                   .map((cell) => <String, Object?>{
                         'transactionId': cell.transactionId,
@@ -418,6 +424,55 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                   .toList(),
               'fundingUtxosJson': fundingUtxos,
             };
+            if (isStandard && cells.length > (standardStep?.inputLimit ?? 3)) {
+              kronRequest['recipient'] = recipient;
+              kronRequest['amount'] = int.parse(raw);
+              final plan = await _security.prepareKcc20Plan(kronRequest);
+              final steps = (plan['steps'] as List).cast<Map>();
+              final last = steps.last.cast<String, Object?>();
+              final locked =
+                  cells.fold<int>(0, (sum, cell) => sum + cell.valueSompi);
+              final lockedOut = (last['lockedKasOutputSompi'] as num).toInt();
+              review = {
+                ...last,
+                ...plan,
+                'paymentPlan': true,
+                'feeSompi': plan['totalFeeSompi'],
+                'networkFeeSompi': plan['totalFeeSompi'],
+                'mass': last['feeMass'],
+                'lockedKasSompi': locked,
+                'lockedKasOutputSompi': lockedOut,
+                'lockedKasTopUpSompi':
+                    lockedOut > locked ? lockedOut - locked : 0,
+                'lockedKasReleasedSompi':
+                    locked > lockedOut ? locked - lockedOut : 0,
+                'validation': 'Complete native plan + local node',
+                'covenantId': token.covenantId,
+              };
+              signingRequest = kronRequest;
+              operation.addAll({
+                'ticker': token.symbol,
+                'amount': raw,
+                'displayAmount':
+                    formatRawTokenAmount(BigInt.parse(raw), token.decimals),
+                'recipient': recipient,
+                'covenantId': token.covenantId,
+                'standard': token.standard,
+                'paymentPlan': true,
+                'requiredCells': cells.length,
+                'transactionCount': plan['transactionCount'],
+              });
+              if (mounted) {
+                setState(() {
+                  _operation = operation;
+                  _kcc20Request = signingRequest;
+                  _kcc20Review = review;
+                  _kronTransfer = true;
+                  _working = false;
+                });
+              }
+              return;
+            }
             final prepared = await _security.prepareKronTransfer(kronRequest);
             if (!mounted) return;
             signingRequest =
@@ -521,6 +576,55 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
       _status = 'Authorizing KCC20 covenant transfer…';
     });
     try {
+      if (operation['paymentPlan'] == true) {
+        if (_pendingCompound?['signedPlan'] != null) {
+          throw StateError(
+              'An approved plan is saved. Use Continue KCC20 transfer; do not sign again.');
+        }
+        final signed = await _security.signKcc20Plan(
+            request, review['reviewHash']! as String);
+        final steps = review['steps'] as List;
+        final transactions =
+            (signed['transactions'] as List).asMap().entries.map((entry) {
+          final step = steps[entry.key] as Map;
+          final terms = ((step['psktRequest'] as Map)['tradeSummary'] as Map);
+          final compound = entry.key + 1 < steps.length;
+          return {
+            ...(entry.value as Map),
+            'feeSompi': step['feeSompi'],
+            'operation': {
+              ...operation,
+              'recipient': compound ? widget.address : operation['recipient'],
+              'amount': terms['amount'].toString(),
+              'displayAmount': formatRawTokenAmount(
+                  BigInt.parse(terms['amount'].toString()),
+                  (request['decimals'] as num).toInt()),
+              'compound': compound,
+              if (compound) 'operationLabel': 'KCC20 auto-compound',
+            }
+          };
+        }).toList();
+        final continuation = <String, Object?>{
+          'operation': operation,
+          'signedPlan': {
+            'sender': widget.address,
+            'operation': operation,
+            'reviewHash': signed['reviewHash'],
+            'totalFeeSompi': signed['totalFeeSompi'],
+            'transactions': transactions,
+            'nextStep': 0,
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+          }
+        };
+        final prefs = await SharedPreferences.getInstance();
+        if (!await prefs.setString(_compoundKey, jsonEncode(continuation))) {
+          throw StateError(
+              'Could not save KCC20 plan. No transaction was sent.');
+        }
+        _pendingCompound = continuation;
+        await _resumeKcc20PaymentPlan();
+        return;
+      }
       final signed = _kronTransfer
           ? await _security.signPskt(request, review['reviewHash']! as String)
           : await _security.signKcc20Transfer(
@@ -609,6 +713,11 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         setState(() {
           _working = false;
           _status = null;
+          if (_pendingCompound?['signedPlan'] != null) {
+            _kcc20Request = null;
+            _kcc20Review = null;
+            _kronTransfer = false;
+          }
           _error = e.toString().replaceFirst('Bad state: ', '');
         });
       }
@@ -618,6 +727,24 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
   Future<void> _continueKcc20Compound(
       Map operation, String transactionId) async {
     if (!mounted) return;
+    if (_pendingCompound?['signedPlan'] != null) {
+      setState(() {
+        _working = true;
+        _error = null;
+      });
+      try {
+        await _resumeKcc20PaymentPlan();
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _working = false;
+            _status = null;
+            _error = e.toString();
+          });
+        }
+      }
+      return;
+    }
     final payment = _pendingCompound?['finalPayment'] as Map?;
     if (payment != null) {
       setState(() {
@@ -734,6 +861,62 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
       }
     });
     if (indexed) await _prepare();
+  }
+
+  Future<void> _resumeKcc20PaymentPlan() async {
+    final saved = _pendingCompound!;
+    final plan = (saved['signedPlan'] as Map).cast<String, Object?>();
+    final prefs = await SharedPreferences.getInstance();
+    final finalTx = await runKcc20PaymentPlan(
+      plan,
+      widget.address,
+      save: (checkpoint) async {
+        final value = {...saved, 'signedPlan': checkpoint};
+        if (!await prefs.setString(_compoundKey, jsonEncode(value))) {
+          throw StateError(
+              'Could not save KCC20 plan checkpoint. Processing stopped safely.');
+        }
+        _pendingCompound = value;
+      },
+      accepted: _api.kcc20PlanTransactionAccepted,
+      broadcast: (bytes, id) async {
+        await _api.broadcastKcc20(bytes, expectedTransactionId: id);
+      },
+      record: (tx) => ActivityStore().recordAssetTransfer(
+          wallet: widget.address,
+          operation: tx['operation'] as Map,
+          transactionId: tx['transactionId'] as String,
+          timestamp: DateTime.now()),
+      check: () {
+        if (!mounted) {
+          throw StateError('KCC20 plan saved. Reopen this wallet to continue.');
+        }
+      },
+      progress: (message) {
+        if (mounted) setState(() => _status = message);
+      },
+    );
+    if (!await prefs.remove(_compoundKey)) {
+      throw StateError(
+          'Payment confirmed, but the recovery journal could not be cleared. Continue will only check the same transaction.');
+    }
+    if (!mounted) return;
+    setState(() {
+      _pendingCompound = null;
+      _working = false;
+      _status = null;
+      _error = null;
+      _kcc20Request = null;
+      _kcc20Review = null;
+      _kronTransfer = false;
+      _receipt = {
+        'operation': saved['operation'],
+        'recipient': (saved['operation'] as Map)['recipient'],
+        'revealTransactionId': finalTx['transactionId'],
+        'revealFeeSompi': plan['totalFeeSompi'],
+        'kcc20': true
+      };
+    });
   }
 
   Future<void> _commitAndReveal() async {
@@ -1070,9 +1253,11 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           const Text('KCC20 TRANSFER NOT COMPLETED',
               style: TextStyle(
                   color: Color(0xFFFFC857), fontWeight: FontWeight.w900)),
-          Text(_pendingCompound!['finalPayment'] != null
-              ? 'Final payment confirmation is pending. Continue to check the existing transaction; no duplicate payment will be created.'
-              : 'Self-compound confirmation is pending. The recipient has NOT been paid. Continue with a new review; every transaction still requires approval.'),
+          Text(_pendingCompound!['signedPlan'] != null
+              ? 'An approved payment plan is saved. Continue sends only the exact already-approved transactions. No new signature or duplicate payment is created. The recipient is paid by the final transaction.'
+              : _pendingCompound!['finalPayment'] != null
+                  ? 'Final payment confirmation is pending. Continue to check the existing transaction; no duplicate payment will be created.'
+                  : 'Self-compound confirmation is pending. The recipient has NOT been paid. Continue with a new review; every transaction still requires approval.'),
           OutlinedButton(
               onPressed: _working
                   ? null
@@ -1370,6 +1555,7 @@ class _Kcc20ReviewState extends State<_Kcc20Review> {
   VoidCallback get onConfirm => widget.onConfirm;
   int get _remaining => (operation['transactionCount'] as num?)?.toInt() ?? 1;
   int get _completed => (operation['completedSteps'] as num?)?.toInt() ?? 0;
+  bool get _isPlan => operation['paymentPlan'] == true;
   bool get _needsAcknowledgement => _remaining > 3 && _completed == 0;
 
   @override
@@ -1397,8 +1583,7 @@ class _Kcc20ReviewState extends State<_Kcc20Review> {
             if (_remaining > 1 || _completed > 0) ...[
               Hub21Readable(
                   child: Text(
-                      'MULTI-TRANSACTION PAYMENT · $_remaining transaction(s) remaining, including the recipient payment. $_completed self-consolidation(s) completed.\n'
-                      'The current balance needs ${operation['requiredCells']} token cells to cover this payment. Each transaction requires separate approval and a network fee. You can stop and resume the saved transfer later.',
+                      'MULTI-TRANSACTION PAYMENT · $_remaining transaction(s) remaining, including the recipient payment. $_completed self-consolidation(s) completed.\n${_isPlan ? 'ONE approval covers this complete fixed plan, including the final recipient payment. The TOTAL network fees are shown below. Interrupted plans resume only the exact already-approved transactions; no fees, amounts or recipient can be changed.' : 'The current balance needs ${operation['requiredCells']} token cells to cover this payment. Each transaction requires separate approval and a network fee. You can stop and resume the saved transfer later.'}',
                       style: const TextStyle(fontWeight: FontWeight.w700))),
               const SizedBox(height: 12),
             ],
@@ -1431,7 +1616,14 @@ class _Kcc20ReviewState extends State<_Kcc20Review> {
               _Row('Recipient', operation['recipient'].toString()),
               _Row('Covenant ID', review['covenantId'].toString()),
               _Row('Template hash', review['templateHash'].toString()),
-              _Row('Covenant inputs', review['covenantInputCount'].toString()),
+              if (_isPlan)
+                _Row('Original token cells',
+                    operation['requiredCells'].toString()),
+              _Row(
+                  _isPlan
+                      ? 'Final transaction token inputs'
+                      : 'Covenant inputs',
+                  review['covenantInputCount'].toString()),
               _Row(
                   'Covenant outputs', review['covenantOutputCount'].toString()),
               _Row('KAS in token inputs',
@@ -1444,9 +1636,9 @@ class _Kcc20ReviewState extends State<_Kcc20Review> {
                     '${formatSompi((review['lockedKasReleasedSompi'] as num).toInt())} KAS'),
               _Row('KAS in new token cells',
                   '${formatSompi((review['lockedKasOutputSompi'] as num).toInt())} KAS'),
-              _Row('Network fee',
+              _Row(_isPlan ? 'TOTAL network fees' : 'Network fee',
                   '${formatSompi((review['feeSompi'] as num).toInt())} KAS'),
-              _Row('Effective mass',
+              _Row(_isPlan ? 'Final transaction fee mass' : 'Effective mass',
                   formatEnglishDecimal(review['mass'].toString())),
               _Row('Compute mass',
                   formatEnglishDecimal(review['computeMass'].toString())),
@@ -1464,6 +1656,34 @@ class _Kcc20ReviewState extends State<_Kcc20Review> {
                   formatEnglishDecimal(review['feeMass'].toString())),
               _Row('Compute budget', review['computeBudget'].toString()),
             ]),
+            if (_isPlan)
+              for (final item in (review['steps'] as List).asMap().entries)
+                ExpansionTile(
+                  title: Text(
+                      '${item.key + 1}. ${item.key + 1 == _remaining ? 'Recipient payment' : 'Self-consolidation'}'),
+                  subtitle: Text(
+                      '${formatSompi(((item.value as Map)['feeSompi'] as num).toInt())} KAS network fee'),
+                  children: [
+                    _Row('Transaction ID',
+                        (item.value as Map)['transactionId'].toString()),
+                    _Row(
+                        'Recipient',
+                        (((item.value as Map)['psktRequest']
+                                as Map)['tradeSummary'] as Map)['recipient']
+                            .toString()),
+                    _Row(
+                        'Raw amount',
+                        (((item.value as Map)['psktRequest']
+                                as Map)['tradeSummary'] as Map)['amount']
+                            .toString()),
+                    _Row('Token inputs',
+                        (item.value as Map)['covenantInputCount'].toString()),
+                    _Row('KAS reserve top-up',
+                        '${formatSompi(((item.value as Map)['lockedKasTopUpSompi'] as num).toInt())} KAS'),
+                    _Row('KAS released',
+                        '${formatSompi(((item.value as Map)['lockedKasReleasedSompi'] as num).toInt())} KAS'),
+                  ],
+                ),
             if ((review['lockedKasTopUpSompi'] as num?)?.toInt() != 0)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
@@ -1499,7 +1719,11 @@ class _Kcc20ReviewState extends State<_Kcc20Review> {
                   : onConfirm,
               icon: const Icon(Icons.send_rounded),
               label: Text(buttonLabel(
-                working ? 'SENDING ON-CHAIN…' : 'SEND ON-CHAIN',
+                working
+                    ? 'SENDING ON-CHAIN…'
+                    : _isPlan
+                        ? 'AUTHORIZE COMPLETE PAYMENT PLAN'
+                        : 'SEND ON-CHAIN',
               )),
             ),
             TextButton(

@@ -6,6 +6,12 @@ the website. Nginx redirects other `.apk` URLs (including historical
 versioned update URLs) to that endpoint with a non-cacheable 302 response.
 Historical GitHub releases are not changed by this website policy.
 
+The active production nginx configuration aliases that endpoint to
+`/var/www/kaspire/releases/Kaspire-Android-mainnet-latest.apk`, outside the
+website document root. Updating the website's `downloads` directory alone
+does not publish a new APK. Confirm the active alias before deployment; the
+checked-in base nginx template may not include production-only locations.
+
 The stable endpoint supplies an explicit filename and `no-store` headers.
 Range requests are disabled: after replacing the latest binary, resuming a
 partial older APK must not append bytes from the new version. Downloads
@@ -23,8 +29,11 @@ browser download jobs, erase device caches, or deduplicate user-started jobs.
 3. Run `node --test website/scripts/prepare-apk-download.test.mjs` and build
    the website. The build checks the latest binary against the manifest's
    SHA-256 and removes other APKs from **generated build output only**.
-4. Deploy the built client directory. Use atomic file replacement (e.g.
-   normal rsync, not `--inplace`) so clients cannot read a half-written APK.
+4. Back up the active release APK and manifest. Atomically replace the
+   verified APK at the active nginx alias above, then publish the matching
+   signed update manifest and website files. Preserve unrelated downloads
+   and update channels. Use atomic file replacement (e.g. normal rsync,
+   not `--inplace`) so clients cannot read a half-written APK.
 5. Verify the public binary's hash and the old versioned links' redirects.
 
 The signed manifest can keep its versioned APK URL for compatibility with

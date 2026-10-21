@@ -65,6 +65,21 @@ class Kcc20StandardService {
   static const reference = 'c8a087117735a1f87c5c6d115fcddeaf2562c784';
   static const templateHash =
       '9703112ee6e3555107cd168858992b77d3b74f655205b2b463b1f9ec2ec73cf7';
+  static const tenTemplateId = 'argent-kcc20-c8a0871-10x10';
+  static const tenTemplateHash =
+      'ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b';
+  static String? tokenTemplate(Map row) {
+    final hash = row['template_hash'] ??
+        map(row['program'])['template_hash'] ??
+        map(row['configuration'])['template_hash'];
+    if (hash != null) {
+      if (hash == templateHash) return templateId;
+      if (hash == tenTemplateHash) return tenTemplateId;
+      return null;
+    }
+    return row['profile_id'] == 'KCC20PublicMint@c8a0871' ? templateId : null;
+  }
+
   static final _hex64 = RegExp(r'^[0-9a-f]{64}$');
   static final _queues = Expando<_KasvioReadQueue>();
   static Map<String, dynamic> map(Object? value) =>
@@ -161,8 +176,12 @@ class Kcc20StandardService {
     for (var offset = 0; offset < tokens.length; offset += 6) {
       await Future.wait(tokens.skip(offset).take(6).map((token) async {
         final cid = rowId(token), metadata = map(token['metadata']);
-        if (token['profile_id'] != 'KCC20PublicMint@c8a0871' ||
-            token['recognition'] != 'hash_proven_reference_actor_family') {
+        final tokenProgram = tokenTemplate(token);
+        if (tokenProgram == null ||
+            ![
+              'hash_proven_reference_actor_family',
+              'hash_proven_program_artifact'
+            ].contains(token['recognition'])) {
           return;
         }
         final decimals = metadata['binding_verified'] == true
@@ -198,7 +217,7 @@ class Kcc20StandardService {
                 id: cid,
                 covenantId: cid,
                 standard: standard,
-                templateHash: templateId,
+                templateHash: tokenProgram,
                 validationStatus: 'observed',
                 discoveryComplete: false,
                 imageUrl: metadata['image_bytes_verified'] == true &&
@@ -346,7 +365,9 @@ class Kcc20StandardService {
   }
 
   Future<Kcc20Step> signingBatch(String address, String cid, int amount,
-      {bool Function()? isCancelled, void Function(String)? onProgress}) async {
+      {bool Function()? isCancelled,
+      void Function(String)? onProgress,
+      bool fullPlan = false}) async {
     final watch = Stopwatch()..start();
     bool cancelled() =>
         isCancelled?.call() == true ||
@@ -368,11 +389,6 @@ class Kcc20StandardService {
     if ((BigInt.tryParse(b['balance_raw'].toString()) ?? BigInt.zero) <
         BigInt.from(amount)) {
       throw StateError('Insufficient spendable KCC20 token balance.');
-    }
-    final template = map(jsonDecode(
-        await rootBundle.loadString('assets/kcc20_standard_template.json')));
-    if (template['referenceCommit'] != reference) {
-      throw StateError('Incorrect local KCC20 template.');
     }
     final seen = <String>{};
     final outputs = (b['outputs'] as List? ?? []).whereType<Map>().toList();
@@ -410,15 +426,50 @@ class Kcc20StandardService {
     if (covered < BigInt.from(amount)) {
       throw StateError('KCC20 cell discovery is incomplete.');
     }
-    final mandatory = math.min(3, requiredCells);
+    if (fullPlan && requiredCells > 65) {
+      throw StateError(
+          'This payment needs more than 65 token cells. Split the amount into smaller payments.');
+    }
+    if (outputs.isEmpty) throw StateError('No standard KCC20 token outputs.');
+    final first = outputs.first;
+    final firstPath = '$base/tokens/$cid/transactions/${first['txid']}';
+    final firstResponse = await get(firstPath, isCancelled: cancelled);
+    final firstDetail = map(firstResponse['data']);
+    final firstStates = (firstDetail['outputs'] as List? ?? [])
+        .whereType<Map>()
+        .where((r) =>
+            r['io_index'] == first['output_index'] &&
+            r['covenant_id'] == cid &&
+            r['actor'] == 'KCC20')
+        .toList();
+    if (firstDetail['txid'] != first['txid'] ||
+        firstStates.length != 1 ||
+        firstStates.single['state_hash_verified'] != true) {
+      throw StateError('Missing KCC20 program proof.');
+    }
+    final programHash = firstStates.single['template_hash'];
+    final ten = programHash == tenTemplateHash;
+    if (!ten && programHash != templateHash) {
+      throw StateError('Unsupported KCC20 program configuration.');
+    }
+    final programId = ten ? tenTemplateId : templateId;
+    final limit = ten ? 10 : 3;
+    final template = map(jsonDecode(await rootBundle.loadString(ten
+        ? 'assets/kcc20_reference_10_template.json'
+        : 'assets/kcc20_standard_template.json')));
+    if (template['referenceCommit'] != reference) {
+      throw StateError('Incorrect local KCC20 template.');
+    }
+    final mandatory = fullPlan ? requiredCells : math.min(limit, requiredCells);
     final candidates = outputs.take(mandatory).toList();
-    // An ordinary payment already has room for three own inputs. Fill spare
+    // An ordinary payment has room up to its verified contract limit. Fill spare
     // slots with the smallest compatible cells, without increasing the payment.
     for (final raw in outputs.reversed) {
-      if (candidates.length >= 3) break;
+      if (candidates.length >= limit) break;
       if (!candidates.contains(raw)) candidates.add(raw);
     }
     final reads = <String, Future<Map<String, dynamic>>>{};
+    reads[firstPath] = Future.value(firstResponse);
     final liveReads = <String, Future<List<dynamic>>>{};
     Future<Map<String, dynamic>> once(String url) {
       check();
@@ -447,7 +498,7 @@ class Kcc20StandardService {
         final state = rows.single,
             units = BigInt.tryParse(state['token_amount'].toString());
         if (state['state_hash_verified'] != true ||
-            state['template_hash'] != templateHash ||
+            state['template_hash'] != programHash ||
             state['owner_value'] != owner ||
             state['owner_scheme'] != 0 ||
             units == null ||
@@ -542,8 +593,13 @@ class Kcc20StandardService {
       }
     }
 
-    final verified = await Future.wait(
-        [for (var i = 0; i < candidates.length; i++) verify(candidates[i], i)]);
+    final verified = <(Kcc20CellRecord, String)?>[];
+    for (var offset = 0; offset < candidates.length; offset += 3) {
+      verified.addAll(await Future.wait([
+        for (var i = offset; i < math.min(offset + 3, candidates.length); i++)
+          verify(candidates[i], i)
+      ]));
+    }
     check();
     final cells = <Kcc20CellRecord>[];
     var total = BigInt.zero;
@@ -571,6 +627,8 @@ class Kcc20StandardService {
         total < BigInt.from(amount) ? total.toInt() : amount,
         total < BigInt.from(amount),
         requiredCells: requiredCells,
-        transactionCount: kcc20TransactionCount(requiredCells));
+        transactionCount: kcc20TransactionCount(requiredCells, limit),
+        inputLimit: limit,
+        templateId: programId);
   }
 }

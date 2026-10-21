@@ -14,6 +14,7 @@ mod kaspacom_market;
 mod nft_market;
 mod kcc20;
 mod kcc20_standard;
+mod kcc20_plan;
 mod kron;
 mod policy_transaction;
 mod pskt;
@@ -78,6 +79,7 @@ pub use kcc20::{
     Kcc20TransferRequest, PreparedKcc20Transfer, SignedKcc20Transfer,
 };
 pub use kron::{prepare_kron_transfer, KronCell, KronTransferRequest, PreparedKronTransfer};
+pub use kcc20_plan::{prepare_kcc20_plan, sign_kcc20_plan, PreparedKcc20Plan, SignedKcc20Plan};
 pub use policy_transaction::{
     prepare_policy_transaction, sign_policy_transaction, PolicyTransactionRequest,
     PreparedPolicyTransaction, SignedPolicyTransaction,

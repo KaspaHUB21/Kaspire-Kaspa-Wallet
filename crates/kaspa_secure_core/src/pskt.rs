@@ -248,7 +248,7 @@ pub fn sign_pskt(
             Value::String(hex::encode(signature_script));
     }
     built.tx.finalize();
-    if (matches!(request.profile.as_deref(), Some("krc721-market-v1" | "kron-transfer-v1" | "kcc20-standard-transfer-v1" | "kron-swap-v1")) || (request.profile.as_deref()==Some("kaspacom-market-v1") && request.side.as_deref()==Some("cancel"))) && built.review.funding_deficit_sompi == 0 {
+    if (matches!(request.profile.as_deref(), Some("krc721-market-v1" | "kron-transfer-v1" | "kcc20-standard-transfer-v1" | "kron-swap-v1" | "kasparocket-mainnet-v1")) || (request.profile.as_deref()==Some("kaspacom-market-v1") && request.side.as_deref()==Some("cancel"))) && built.review.funding_deficit_sompi == 0 {
         crate::kcc20::simulate_all(&built.tx, &built.entries)
             .map_err(|e|CoreError::Transaction(format!("Local contract script validation failed: {e}")))?;
     }
@@ -653,10 +653,11 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
             ));
         }
     }
-    if request.profile.as_deref() == Some("kasparocket-testnet-v1") {
+    if matches!(request.profile.as_deref(), Some("kasparocket-testnet-v1" | "kasparocket-mainnet-v1")) {
         validate_kasparocket_request(request, &tx, &entries, &sighashes, &scripts)?;
-        warnings
-            .push("TESTNET ONLY — KaspaRocket uses version-1 covenant transaction plans.".into());
+        if request.profile.as_deref() == Some("kasparocket-testnet-v1") {
+            warnings.push("TESTNET ONLY — KaspaRocket uses version-1 covenant transaction plans.".into());
+        }
         warnings.push("Ticker symbols are not unique; verify token and pool covenant IDs.".into());
     } else if request.profile.as_deref() == Some("krc721-market-v1") {
         crate::nft_market::validate(request)?;
@@ -899,7 +900,7 @@ fn validate_kasparocket_request(
     scripts: &HashMap<usize, PsktScriptInput>,
 ) -> Result<()> {
     if tx.version != 1
-        || !request.sender.starts_with("kaspatest:")
+        || !request.sender.starts_with(if request.profile.as_deref() == Some("kasparocket-mainnet-v1") { "kaspa:" } else { "kaspatest:" })
         || !tx.payload.is_empty()
         || request
             .side
@@ -907,7 +908,7 @@ fn validate_kasparocket_request(
             .is_none_or(|side| !matches!(side, "buy" | "sell"))
     {
         return Err(CoreError::InvalidRequest(
-            "KaspaRocket integration is restricted to TN10 version-1 trade plans".into(),
+            "KaspaRocket requires a version-1 trade plan matching the selected network".into(),
         ));
     }
     let token = Hash::from_str(
@@ -999,6 +1000,26 @@ fn validate_kasparocket_request(
         return Err(CoreError::InvalidRequest(
             "KaspaRocket fee summary mismatch".into(),
         ));
+    }
+    if request.profile.as_deref() == Some("kasparocket-mainnet-v1") {
+        if entries.iter().map(|entry| entry.amount as u128).sum::<u128>()
+            < tx.outputs.iter().map(|output| output.value as u128).sum::<u128>() {
+            return Err(CoreError::InvalidRequest("KaspaRocket Mainnet trade must be fully funded".into()));
+        }
+        // Pin actual Mainnet payout scripts, not merely provider fee labels.
+        for (address, expected) in [
+            ("kaspa:qqgaj6tkfd0u9a58659vk0yl46mgja0l0gdpurj9fwqnw7ysg97xuvm9ack2h", platform),
+            ("kaspa:qqre4wt08dp0rvmxwqgwdkz4zu4m36g9uvmfledd27mx939uxe2yjpmmd37zq", partner),
+        ] {
+            let address = Address::try_from(address).map_err(|_| CoreError::InvalidRequest("Invalid pinned KaspaRocket fee address".into()))?;
+            let script = pay_to_address_script(&address);
+            let matches = tx.outputs.iter().filter(|output| output.script_public_key == script).collect::<Vec<_>>();
+            // The partner may also be the trader receiving wallet change.
+            // Require the exact fee output; do not sum unrelated change.
+            if !matches.iter().any(|output| output.value == expected) {
+                return Err(CoreError::InvalidRequest("KaspaRocket Mainnet fee payout differs from reviewed terms".into()));
+            }
+        }
     }
     Ok(())
 }
@@ -1321,6 +1342,42 @@ fn sighash_label(value: SigHashType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kasparocket_mainnet_buy_signs_and_executes_all_covenants_with_synthetic_funding() {
+        // Public unsigned provider plan. Substitute only synthetic wallet inputs;
+        // never access real keys and never broadcast this transaction.
+        let mut request: PsktRequest = serde_json::from_str(include_str!("fixtures/kasparocket-mainnet-buy.json")).unwrap();
+        let sender = derive_address(SECRET).unwrap();
+        let mut tx: Value = serde_json::from_str(&request.tx_json_string).unwrap();
+        for input in &request.sign_inputs {
+            tx["inputs"][input.index]["utxo"]["scriptPublicKey"] = json!(script_json(&pay_to_address_script(&sender)));
+        }
+        request.sender = sender.to_string();
+        request.tx_json_string = tx.to_string();
+        request.profile = None;
+        for input in &mut request.sign_inputs { input.expected_sighash = None; }
+        let built = build_pskt(&request).unwrap();
+        let populated = SignableTransaction::with_entries(built.tx.clone(), built.entries.clone());
+        let reused = SigHashReusedValuesUnsync::new();
+        for input in &mut request.sign_inputs {
+            input.expected_sighash = Some(calc_schnorr_signature_hash(&populated.as_verifiable(), input.index, SIG_HASH_ALL, &reused).to_string());
+        }
+        request.profile = Some("kasparocket-mainnet-v1".into());
+        let review = prepare_pskt(&request).unwrap();
+        let signed = sign_pskt(SECRET, &request, &review.review_hash).unwrap();
+        assert_eq!(signed.signed_input_indexes.len(), request.sign_inputs.len());
+        let mut altered = request.clone();
+        altered.profile = Some("kasparocket-testnet-v1".into());
+        assert!(prepare_pskt(&altered).is_err());
+        altered = request.clone();
+        altered.trade_summary.as_mut().unwrap()["partnerFeeSompi"] = json!("1");
+        assert!(prepare_pskt(&altered).is_err());
+        altered = request.clone();
+        altered.sign_inputs[0].expected_sighash = Some("00".repeat(32));
+        assert!(prepare_pskt(&altered).is_err());
+        assert!(sign_pskt(SECRET, &request, &"00".repeat(32)).is_err());
+    }
 
     const SECRET: &str = "private:0000000000000000000000000000000000000000000000000000000000000001";
 
