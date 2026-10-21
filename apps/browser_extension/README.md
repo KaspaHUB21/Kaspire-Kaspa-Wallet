@@ -2,6 +2,25 @@
 
 Manifest V3 counterpart to Kaspire Android. Websites communicate with an injected `window.kaspire` provider through an origin-bound content bridge. It does not use WalletConnect.
 
+## 0.5.21 — KaspaRocket Mainnet
+
+Swap lists KaspaRocket before KRON and preserves the DEX Swaps / My Activity flow.
+Bonding-curve holdings and correctly scaled token prices load directly from
+KaspaRocket, independently of Kasvio. Mainnet credentials stay on the fixed
+Kaspire gateway; no provider key is included in the extension.
+
+The same Mainnet Rust/WASM profile checks network, covenant IDs, SIGHASH_ALL,
+review binding, fee payouts and every signed contract. Inputs are checked
+against the own node. Signed swaps are saved in the encrypted wallet vault
+before broadcast; status/recovery never authorizes a replacement transaction.
+A confirmed competing spend can archive an obsolete first step and release
+Refresh quote. Missing transactions, HTTP 409, timeouts and partly completed
+plans do not discard a pending swap. Operations are bound to the unlocked
+session, selected wallet derivation path and network.
+
+KaspaRocket moved its former TN10 deployment to Mainnet. The old network is
+rejected explicitly instead of showing Mainnet assets inside a TN10 account.
+
 ## Security architecture
 
 The extension compiles Kaspire's existing `kaspa_secure_core` to WebAssembly. Seed generation, BIP-39 import and passphrases, HD derivation, KIP-5 signatures, transaction construction, PSKT analysis, KasCoven policy recognition, inscription reveals and KCC20 covenant execution therefore share the reviewed Rust implementation used by Kaspire Android.
@@ -11,6 +30,8 @@ Secrets are stored only inside a versioned Argon2id-derived AES-256-GCM vault. W
 Websites receive `window.kaspire`. Requests cross an origin-bound content bridge and a bounded, declared method registry. Connecting, switching networks, signing messages, sending assets and signing reviewed PSKTs or recognized vault policies opens an extension-owned approval window. A website cannot supply the text displayed for a transaction review: Kaspire derives it from the Rust core's reconstructed transaction and binds approval to `reviewHash`.
 
 KAS signing validates unique live UTXOs and node fee data. KRC-20, KRC-721 and KNS use canonical commit/reveal operations, verified holdings and resumable pending reveals. KCC20 requires complete signing cells from the indexer, checks them independently against Kaspire's local-node API and executes the covenant locally before broadcast.
+
+Pinned standard KCC20 payments that require consolidation use a deterministic payment plan: all self-consolidations and the final recipient payment, including every transaction ID and the total network fee, are reviewed together and bound to one approval hash. The native core rebuilds and VM-validates the whole chain before returning any signatures. All signed bytes are persisted before the first broadcast. Recovery checks accepted parents and replays only the identical approved transactions; it never signs a replacement or changes fees. A plan is limited to 65 original token cells / 32 transactions. The original reference actor retains its three-token-input/output limit; the independently pinned 10/10 configuration allows ten before consolidation is needed. Indexer metadata cannot override either template. Older KCC20 and KRON profiles retain their existing flows.
 
 ## Implemented capabilities
 

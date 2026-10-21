@@ -1,5 +1,8 @@
 import { loadState, saveState } from "./state";
 import { core } from "./core";
+import { exclusiveRocket, rocketPendingInfo, requireFreshRocketSwap, resumeRocketSwap,
+  verifyRocketInputs, type RocketContext, type RocketRecoveryState } from './rocketSwaps';
+import {runKcc20PaymentPlan,type Kcc20PaymentPlan} from '../shared/kcc20Plan';
 import { p2shCommand, validateP2shState, emptyP2shState, clearP2shReviews, type P2shContext, type P2shState } from './p2sh';
 import { p2shHdRequired } from '../shared/p2sh';
 import { covenantVaultCommand, clearCovenantVaultReviews, type VaultContext } from './covenantVaults';
@@ -35,6 +38,8 @@ import {
   submitRocket,
   validateRocketFunds,
   type RocketToken,
+  requireRocketNetwork,
+  type RocketNetwork,
 } from "./kasparocket";
 configureDotkDeriver(async request => JSON.parse((await core()).deriveDotkDeed(JSON.stringify(request))));
 import {
@@ -144,6 +149,7 @@ interface VaultWallet {
   type: "mnemonic" | "private";
   secret: string;
   hiddenKas?: P2shState;
+  rocketSwaps?: Record<string, RocketRecoveryState>;
 }
 interface VaultPayload {
   version: 2;
@@ -196,6 +202,8 @@ void chrome.storage.session.remove("unlockedVault");
 void loadState();
 const preparedEvmTransfers = new Map<string, { request: any; review: any; address: string; walletId: string; network: "kasplex" | "igra"; createdAt: number }>();
 interface PreparedRocketSwap {
+  network: RocketNetwork;
+  binding: string;
   address: string;
   walletId: string;
   token: RocketToken;
@@ -207,6 +215,37 @@ interface PreparedRocketSwap {
   createdAt: number;
 }
 const preparedRocketSwaps = new Map<string, PreparedRocketSwap>();
+function rocketRecoveryContext(state: Awaited<ReturnType<typeof loadState>>, signal?: AbortSignal): RocketContext {
+  requireRocketNetwork(state.network);
+  const address = state.selectedAddress;
+  const entry = state.addresses.find(item => item.address === address);
+  const wallet = sessionVault?.wallets.find(item => item.id === entry?.walletId);
+  if (!address || !entry || entry.watchOnly || !wallet) throw Error('Unlock a Mainnet signing wallet first.');
+  const generation = sessionGeneration, revision = nftContextRevision, network = state.network;
+  const key = `${network}:${address}`;
+  const guard = async () => {
+    signal?.throwIfAborted();
+    await hydrateSession();
+    const fresh = await loadState(); await expireSessionIfNeeded(fresh);
+    const selected = fresh.addresses.find(item => item.address === address);
+    if (!sessionVault || generation !== sessionGeneration || revision !== nftContextRevision ||
+        !sessionVault.wallets.includes(wallet) || fresh.network !== network || fresh.selectedAddress !== address ||
+        !selected || selected.watchOnly || selected.walletId !== wallet.id || selected.path !== entry.path)
+      throw Error('Wallet locked or account/network changed. Review the swap again.');
+    signal?.throwIfAborted();
+  };
+  return {address, network, binding: `${generation}:${revision}:${wallet.id}:${entry.path}:${address}`, signal, guard,
+    load: () => structuredClone(wallet.rocketSwaps?.[key] ?? {}),
+    save: async value => {
+      await guard();
+      const previous = wallet.rocketSwaps?.[key];
+      (wallet.rocketSwaps ??= {})[key] = structuredClone(value);
+      try { await persistVault(guard); await guard(); }
+      catch (error) { if (previous) wallet.rocketSwaps[key] = previous; else delete wallet.rocketSwaps[key]; throw error; }
+    },
+    record: recordWalletActivity,
+  };
+}
 interface ApprovalView {
   id: string;
   origin: string;
@@ -244,7 +283,7 @@ async function runExclusiveInscription<T>(operation: () => Promise<T>): Promise<
   }
 }
 interface PreparedAssetTransfer {
-  type: "inscription" | "kcc20" | "kron";
+  type: "inscription" | "kcc20" | "kron" | "kcc20-plan";
   sender: string;
   operation: any;
   plan?: any;
@@ -371,6 +410,7 @@ async function walletCommand(
       "encryptedVault",
       "pendingInscription",
       "pendingKcc20Compound",
+      "pendingKcc20Plans",
     ]);
     return {
       ...state,
@@ -378,6 +418,7 @@ async function walletCommand(
       hasVault: Boolean(stored.encryptedVault),
       pendingInscription: stored.pendingInscription ?? null,
       pendingKcc20Compound: stored.pendingKcc20Compound?.compoundSender === state.selectedAddress ? stored.pendingKcc20Compound : null,
+      pendingKcc20Plan: stored.pendingKcc20Plans?.[state.selectedAddress??''] ?? null,
     };
   }
   if (message.command === "pendingApproval") {
@@ -508,8 +549,10 @@ async function walletCommand(
   }
   if (message.command === "assetCategory") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
-    if (state.network === "testnet-10" && String(message.category) === "kcc20")
+    if (String(message.category) === "rocket") {
+      requireRocketNetwork(state.network);
       return rocketWalletAssets(state.selectedAddress);
+    }
     const items=await walletAssetCategory(state.selectedAddress, state.network, String(message.category));
     return String(message.category)==='kcc20' ? {items,warning:kcc20DiscoveryWarning(state.selectedAddress)} : items;
   }
@@ -918,18 +961,17 @@ async function walletCommand(
     throw Error('Unknown KRON command.');
   }
   if (message.command === "rocketTokens") {
-    if (state.network !== "testnet-10")
-      throw new Error("KaspaRocket swaps are available on TN10 only.");
-    return rocketTokens();
+    requireRocketNetwork(state.network);
+    return rocketTokens(state.network);
   }
   if (message.command === "rocketActivity") {
-    if (state.network !== "testnet-10" || !state.selectedAddress)
-      throw new Error("Select a TN10 wallet first.");
+    requireRocketNetwork(state.network);
+    if (!state.selectedAddress) throw new Error("Select a Mainnet wallet first.");
     return rocketActivity(state.selectedAddress);
   }
   if (message.command === "rocketTokenContext") {
-    if (state.network !== "testnet-10" || !state.selectedAddress)
-      throw new Error("Select a TN10 wallet first.");
+    requireRocketNetwork(state.network);
+    if (!state.selectedAddress) throw new Error("Select a Mainnet wallet first.");
     const tokenId = String(message.tokenId ?? "");
     const [poolId, holding, balance] = await Promise.all([
       rocketPool(tokenId),
@@ -944,11 +986,14 @@ async function walletCommand(
       holdingDisplay: formatRocketTokenRaw(holdingRaw),
       balanceSompi: String(balance.balanceSompi),
       balanceKas: balance.balanceKas,
+      pending: sessionVault && !state.addresses.find(item => item.address === state.selectedAddress)?.watchOnly
+          ? rocketPendingInfo(rocketRecoveryContext(state, operationSignal)) : null,
     };
   }
   if (message.command === "rocketQuote") {
-    if (state.network !== "testnet-10")
-      throw new Error("KaspaRocket swaps are available on TN10 only.");
+    requireRocketNetwork(state.network);
+    const recovery = rocketRecoveryContext(state, operationSignal);
+    await requireFreshRocketSwap(recovery);
     const side = String(message.side) as "buy" | "sell";
     if (!["buy", "sell"].includes(side))
       throw new Error("Invalid swap direction.");
@@ -957,7 +1002,7 @@ async function walletCommand(
       side === "buy" ? 8 : 3,
     );
     if (!state.selectedAddress)
-      throw new Error("Select a TN10 wallet first.");
+      throw new Error("Select a Mainnet wallet first.");
     const tokenId = String(message.tokenId ?? "");
     const [holding, balance] = await Promise.all([
       rocketHolding(state.selectedAddress, tokenId),
@@ -985,15 +1030,22 @@ async function walletCommand(
       quote,
       String(message.ticker ?? "token"),
     );
+    await recovery.guard();
     return quote;
+  }
+  if (message.command === 'resumeRocketSwap') {
+    const recovery = rocketRecoveryContext(state, operationSignal);
+    return exclusiveRocket(recovery, () => resumeRocketSwap(recovery));
   }
   if (message.command === "prepareRocketSwap") {
     if (
       !sessionVault ||
-      state.network !== "testnet-10" ||
+      state.network !== "mainnet" ||
       !state.selectedAddress
     )
-      throw new Error("Unlock a TN10 signing wallet first.");
+      throw new Error("Unlock a Mainnet signing wallet first.");
+    const recovery = rocketRecoveryContext(state, operationSignal);
+    await requireFreshRocketSwap(recovery);
     const entry = state.addresses.find(
       (item) => item.address === state.selectedAddress,
     );
@@ -1071,8 +1123,14 @@ async function walletCommand(
     const reviews = requests.map((request: any) =>
       JSON.parse(wasm.preparePskt(JSON.stringify(request))),
     );
+    await verifyRocketInputs(requests, reviews, operationSignal);
+    await recovery.guard();
+    for (const [key, old] of preparedRocketSwaps) if (Date.now() - old.createdAt > 600_000) preparedRocketSwaps.delete(key);
+    if (preparedRocketSwaps.size >= 100) preparedRocketSwaps.delete(preparedRocketSwaps.keys().next().value!);
     const id = crypto.randomUUID();
     preparedRocketSwaps.set(id, {
+      network: recovery.network,
+      binding: recovery.binding,
       address: entry.address,
       walletId: wallet.id,
       token,
@@ -1085,6 +1143,7 @@ async function walletCommand(
     });
     return {
       id,
+      network: recovery.network,
       token,
       side,
       poolId,
@@ -1095,6 +1154,9 @@ async function walletCommand(
     };
   }
   if (message.command === "submitRocketSwap") {
+    const recovery = rocketRecoveryContext(state, operationSignal);
+    return exclusiveRocket(recovery, async () => {
+    await requireFreshRocketSwap(recovery);
     const id = String(message.id ?? "");
     const prepared = preparedRocketSwaps.get(id);
     if (!prepared || Date.now() - prepared.createdAt > 10 * 60_000)
@@ -1102,7 +1164,7 @@ async function walletCommand(
     preparedRocketSwaps.delete(id);
     if (
       !sessionVault ||
-      state.network !== "testnet-10" ||
+      state.network !== prepared.network || prepared.binding !== recovery.binding ||
       state.selectedAddress !== prepared.address
     )
       throw new Error("Account or network changed. Review the swap again.");
@@ -1125,7 +1187,7 @@ async function walletCommand(
         origin: "Kaspire Wallet",
         title: `${prepared.side.toUpperCase()} ${prepared.token.ticker}`,
         description:
-          "Verify both covenant IDs before signing this TN10 DEX swap.",
+          "Verify both covenant IDs before signing this Mainnet DEX swap.",
         details: [
           `Token covenant: ${prepared.token.tokenId}`,
           `Pool covenant: ${prepared.poolId}`,
@@ -1138,16 +1200,18 @@ async function walletCommand(
           ]),
         ],
         rawJson: prepared.plan,
-      })))
+      }, operationSignal)))
       throw rpc(4001, "Swap rejected.");
     const fresh = await loadState();
     if (
-      fresh.network !== "testnet-10" ||
+      fresh.network !== prepared.network ||
       fresh.selectedAddress !== prepared.address
     )
       throw new Error("Account or network changed. Review the swap again.");
     const wasm = await core();
+    await recovery.guard();
     const secret = signingSecret(wallet, entry);
+    const transactionIds: string[] = [];
     const signed = prepared.requests.map((request: any, index: number) => {
       const result = JSON.parse(
         wasm.signPskt(
@@ -1156,20 +1220,20 @@ async function walletCommand(
           prepared.reviews[index].reviewHash,
         ),
       );
+      transactionIds.push(result.transactionId);
       return mergeRocketTransaction(
         prepared.plan.transactions[index].tx,
         result.signedTxJson,
+        result.transactionId,
       );
     });
-    const receipts = [];
-    for (let index = 0; index < signed.length; index++)
-      receipts.push(
-        await submitRocket(
-          signed[index],
-          index === signed.length - 1 ? prepared.plan.order_row : undefined,
-        ),
-      );
-    return { receipts, reviews: prepared.reviews, plan: prepared.plan };
+    await recovery.save({...recovery.load(), pending: {
+      address: recovery.address, network: recovery.network, token: prepared.token,
+      side: prepared.side, poolId: prepared.poolId, signed, transactionIds, next: 0, receipts: [],
+      summary: prepared.plan.summary, reviews: prepared.reviews, plan: prepared.plan, timestamp: Date.now(),
+    }});
+    return resumeRocketSwap(recovery, false);
+    });
   }
 
   if (message.command === "nftCollection") {
@@ -1973,6 +2037,11 @@ async function walletCommand(
       throw new Error("Node returned a mismatching transaction ID.");
     return signed.transactionId;
   }
+  if (message.command === 'resumeKcc20Plan') {
+    const plan=(await chrome.storage.local.get('pendingKcc20Plans')).pendingKcc20Plans?.[state.selectedAddress??''];
+    if(!plan || state.network!=='mainnet')throw Error('No saved KCC20 plan for this wallet.');
+    return runExclusiveInscription(()=>finishKcc20Plan(plan,progress));
+  }
   if (message.command === "recoverKcc20Payment") {
     const pending=(await chrome.storage.local.get('pendingKcc20Compound')).pendingKcc20Compound;
     if(pending?.compoundSender!==state.selectedAddress || state.network!=='mainnet' || !pending?.finalPayment)
@@ -2024,6 +2093,7 @@ async function walletCommand(
         String(message.preparedId ?? ""),
         state,
         sessionVault!,
+        'Kaspire Wallet', progress,
       ),
     );
   }
@@ -3605,6 +3675,8 @@ async function prepareWalletAsset(
     state.network,
   );
   if(String(input.kind)==='kcc20') {
+    if((await chrome.storage.local.get('pendingKcc20Plans')).pendingKcc20Plans?.[sender])
+      throw Error('An approved KCC20 payment plan is saved. Use Continue KCC20 transfer before preparing another payment.');
     const pending=(await chrome.storage.local.get('pendingKcc20Compound')).pendingKcc20Compound;
     if(pending?.compoundSender===sender && pending?.finalPayment)
       throw Error('An already signed KCC20 payment awaits confirmation. Use Continue KCC20 transfer before preparing another payment.');
@@ -3654,7 +3726,7 @@ async function prepareWalletAsset(
       progress("Verifying KCC20 cells…");
       const standard = covenantAsset?.standard === 'kcc20';
       const verified = standard
-        ? {...await standardKcc20SigningData(sender,covenantId,numericAmount,{signal,progress}), ticker:covenantAsset.symbol, decimals:covenantAsset.decimals}
+        ? {...await standardKcc20SigningData(sender,covenantId,numericAmount,{signal,progress,fullPlan:true}), ticker:covenantAsset.symbol, decimals:covenantAsset.decimals}
         : await kcc20TransferData(sender,covenantId,numericAmount);
       const step = standard ? verified as any : planKcc20Step(verified.cells,numericAmount,2);
       const compound = step.compound === true;
@@ -3676,6 +3748,15 @@ async function prepareWalletAsset(
       };
       progress("Preparing native KCC20 review…");
       const wasm = await core();
+      if(standard && verified.cells.length>(step.inputLimit??3)) {
+        request.recipient=recipient;request.amount=numericAmount;
+        const plan=JSON.parse(wasm.prepareKcc20Plan(JSON.stringify(request)));
+        prepared={type:'kcc20-plan',sender,request,review:plan,createdAt:Date.now(),operation:{
+          kind,sender,recipient,covenantId,standard:'kcc20',ticker:verified.ticker,
+          amount:String(numericAmount),displayAmount:formatRawTokenAmount(String(numericAmount),verified.decimals),
+          transactionCount:plan.transactionCount,requiredCells:verified.cells.length,
+        }};
+      } else {
       const native = standard ? JSON.parse(wasm.prepareKronTransfer(JSON.stringify(request))) : null;
       const signingRequest = native?.psktRequest ?? request;
       const review = standard ? {...native,...JSON.parse(wasm.preparePskt(JSON.stringify(signingRequest))),networkFeeSompi:native.feeSompi,mass:native.feeMass,covenantId}
@@ -3702,6 +3783,7 @@ async function prepareWalletAsset(
         createdAt: Date.now(),
         ...(compound ? {continuation:{...input,to:recipient,compoundSender:sender,completedSteps:(Number.isSafeInteger(input.completedSteps)?Number(input.completedSteps):0)+1,afterCompound:{transactionId:'',standard:standard?'kcc20':'legacy-kcc20'}}} : {}),
       };
+      }
     }
   } else {
     let operation: any = {
@@ -4278,6 +4360,7 @@ async function confirmPreparedAsset(
   state: Awaited<ReturnType<typeof loadState>>,
   vault: VaultPayload,
   origin = 'Kaspire Wallet',
+  progress: (stage:string)=>void = ()=>{},
 ) {
   const stored = (await chrome.storage.session.get("preparedAsset"))
     .preparedAsset as (PreparedAssetTransfer & { id: string }) | undefined;
@@ -4297,6 +4380,37 @@ async function confirmPreparedAsset(
   if (!entry || entry.watchOnly || !wallet)
     throw new Error("Selected wallet cannot sign.");
   const wasm = await core();
+  if(stored.type==='kcc20-plan') {
+    if((await chrome.storage.local.get('pendingKcc20Plans')).pendingKcc20Plans?.[stored.sender])
+      throw Error('This wallet has an approved KCC20 plan. Resume the saved plan; do not sign again.');
+    const rebuilt=JSON.parse(wasm.prepareKcc20Plan(JSON.stringify(stored.request)));
+    if(rebuilt.reviewHash!==stored.review.reviewHash)throw Error('KCC20 plan changed after review.');
+    const generation=sessionGeneration;
+    if(!await approve({origin,title:'Authorize complete KCC20 payment plan?',
+      description:'One approval signs every fixed transaction in this plan. No additional or changed transaction is authorized.',
+      details:[`Send: ${stored.operation.displayAmount} ${rebuilt.ticker}`,`To: ${rebuilt.recipient}`,
+        `Covenant ID: ${rebuilt.covenantId}`,`${rebuilt.transactionCount} on-chain transactions`,
+        `TOTAL network fees: ${formatSompi(rebuilt.totalFeeSompi)} KAS`,
+        'Self-consolidations pay only your wallet. The final transaction pays the recipient.',
+        'An interruption preserves the exact signed transactions for recovery; fees cannot be changed.',
+        ...rebuilt.steps.map((s:any,i:number)=>`${i+1}. ${i+1===rebuilt.transactionCount?'Recipient payment':'Self-consolidation'} · ${formatSompi(s.feeSompi)} KAS · ${s.transactionId}`)],
+      rawJson:rebuilt}))throw rpc(4001,'KCC20 plan rejected.');
+    const current=await loadState();
+    if(generation!==sessionGeneration||current.selectedAddress!==stored.sender||current.network!=='mainnet')
+      throw rpc(4001,'Wallet session changed during approval.');
+    progress('Signing and locally validating the complete KCC20 plan…');
+    const signed=JSON.parse(wasm.signKcc20Plan(signingSecret(wallet,entry),JSON.stringify(stored.request),rebuilt.reviewHash));
+    const plan:Kcc20PaymentPlan={sender:stored.sender,operation:stored.operation,reviewHash:signed.reviewHash,
+      totalFeeSompi:signed.totalFeeSompi,nextStep:0,createdAt:Date.now(),
+      transactions:signed.transactions.map((tx:any,i:number)=>({...tx,feeSompi:rebuilt.steps[i].feeSompi,
+        operation:{...stored.operation,recipient:i+1===rebuilt.transactionCount?rebuilt.recipient:stored.sender,
+          amount:String(rebuilt.steps[i].psktRequest.tradeSummary.amount),
+          displayAmount:formatRawTokenAmount(String(rebuilt.steps[i].psktRequest.tradeSummary.amount),rebuilt.decimals),
+          compound:i+1<rebuilt.transactionCount}}))};
+    await saveKcc20Plan(plan);
+    await chrome.storage.session.remove('preparedAsset');
+    return finishKcc20Plan(plan,progress);
+  }
   if (stored.type === "kcc20") {
     const generation = sessionGeneration;
     if (
@@ -4479,6 +4593,37 @@ async function confirmPreparedAsset(
   await chrome.storage.local.set({ pendingInscription: pending });
   await chrome.storage.session.remove("preparedAsset");
   return finishPendingInscription("Kaspire Wallet", pending, state, vault);
+}
+
+async function saveKcc20Plan(plan:Kcc20PaymentPlan) {
+  const plans=(await chrome.storage.local.get('pendingKcc20Plans')).pendingKcc20Plans??{};
+  await chrome.storage.local.set({pendingKcc20Plans:{...plans,[plan.sender]:plan}});
+}
+
+async function finishKcc20Plan(plan:Kcc20PaymentPlan,progress:(stage:string)=>void) {
+  const current=await loadState();
+  if(current.network!=='mainnet'||current.selectedAddress!==plan.sender)throw Error('Return to the original mainnet wallet to resume this plan.');
+  // Migrate a matching continuation from an older extension only AFTER the
+  // complete signed replacement plan is durable. Otherwise its old Continue
+  // button could prepare the same recipient payment again after completion.
+  const old=(await chrome.storage.local.get('pendingKcc20Compound')).pendingKcc20Compound;
+  if(old?.compoundSender===plan.sender && old?.covenantId===plan.operation.covenantId &&
+    old?.to===plan.operation.recipient && String(old?.amount)===String(plan.operation.amount))
+    await chrome.storage.local.remove('pendingKcc20Compound');
+  const final=await runKcc20PaymentPlan(plan,current.selectedAddress,{
+    save:saveKcc20Plan,accepted:isKcc20TransactionAccepted,broadcast:broadcastKcc20,progress,
+    check:async()=>{const s=await loadState();if(s.network!=='mainnet'||s.selectedAddress!==plan.sender)throw Error('Wallet changed. KCC20 plan saved; return to the original wallet to resume.');},
+    record:async(tx)=>{const op=tx.operation;await recordWalletActivity(plan.sender,{
+      transactionId:tx.transactionId,blockTime:Date.now(),isAccepted:true,incoming:false,
+      assetKind:'KCC20',assetSymbol:op.ticker,displayAmount:op.displayAmount,
+      tokenId:op.covenantId,covenantId:op.covenantId,counterparty:op.recipient,
+      from:[{address:plan.sender}],to:[{address:op.recipient}],feeSompi:tx.feeSompi,
+      type:op.compound?'compound':'transfer',standard:'kcc20',rawJson:JSON.parse(tx.signedTxJson)});},
+  });
+  const plans=(await chrome.storage.local.get('pendingKcc20Plans')).pendingKcc20Plans??{};
+  delete plans[plan.sender];await chrome.storage.local.set({pendingKcc20Plans:plans});
+  return {kind:'kcc20',operation:plan.operation,transactionId:final.transactionId,
+    revealTransactionId:final.transactionId,revealFeeSompi:plan.totalFeeSompi,transactionCount:plan.transactions.length};
 }
 
 async function inscriptionTransfer(

@@ -1,9 +1,29 @@
-const API_ROOT = "https://kasparocket.fun/pro-api";
-const CATALOGUE_ROOT = "https://kasparocket.fun";
+const API_ROOT = "https://kaspire.kaslab.space/api/kasparocket/pro-api";
+const CATALOGUE_ROOT = "https://kaspire.kaslab.space/api/kasparocket";
+export type RocketNetwork = 'mainnet' | 'testnet-10';
+export function requireRocketNetwork(network: string): asserts network is RocketNetwork {
+  if (network !== 'mainnet') throw Error('KaspaRocket currently serves Kaspa Mainnet. Switch to Layer 1 to trade; TN10 is not available from the provider.');
+}
+function requireRocketAddress(address: string) {
+  if (!address.startsWith('kaspa:')) throw Error('The wallet address does not match KaspaRocket Mainnet.');
+}
+export class RocketConflict extends Error {}
+export class RocketQuoteExpired extends Error {
+  constructor() { super('The pool changed before this swap executed. The obsolete swap was archived. Refresh the quote to try again.'); }
+}
+let protocolCheck: { at: number; task: Promise<void> } | undefined;
+export async function verifyRocketNetwork(network: string = 'mainnet') {
+  requireRocketNetwork(network);
+  if (!protocolCheck || Date.now() - protocolCheck.at > 30_000) {
+    const task = request('GET', `${API_ROOT}/protocol`).then(value => {
+      if (value?.network !== network || Number(value?.token?.decimals) !== ROCKET_TOKEN_DECIMALS)
+        throw Error('KaspaRocket is not serving the expected network or token configuration. Nothing was signed.');
+    }).catch(error => { protocolCheck = undefined; throw error; });
+    protocolCheck = {at: Date.now(), task};
+  }
+  return protocolCheck.task;
+}
 export const ROCKET_TOKEN_DECIMALS = 3;
-// KaspaRocket SDK identifier dedicated to the published browser extension.
-const API_KEY =
-  "kr_test_0f128159_86b50e4472637268098138ae475390a5";
 
 export interface RocketToken {
   tokenId: string;
@@ -24,6 +44,7 @@ async function request(
   url: string,
   body?: Record<string, unknown>,
   retry = true,
+  signal?: AbortSignal,
 ): Promise<any> {
   let last: unknown;
   for (let attempt = 0; attempt < (retry ? 2 : 1); attempt++) {
@@ -35,20 +56,18 @@ async function request(
       );
       const response = await fetch(url, {
         method,
-        signal: controller.signal,
+        signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
+        redirect: 'error',
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
-          Authorization: `Bearer ${API_KEY}`,
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
       }).finally(() => clearTimeout(timeout));
       const value = response.status === 204 ? {} : await response.json();
       if (!response.ok) {
-        if (response.status === 409)
-          throw new Error(
-            "The live pool or wallet balance changed. Refresh the quote and try again.",
-          );
+        if (response.status === 409) throw new RocketConflict(String(
+          value?.error?.message ?? value?.message ?? value?.detail ?? value?.error ?? 'The live pool or wallet state changed.'));
         throw new Error(
           `KaspaRocket: ${value?.message ?? value?.detail ?? value?.error ?? response.status}`,
         );
@@ -56,6 +75,7 @@ async function request(
       return value;
     } catch (error) {
       last = error;
+      if (error instanceof RocketConflict || signal?.aborted) throw error;
       if (!retry || attempt === 1) throw error;
       await new Promise((resolve) => setTimeout(resolve, 350));
     }
@@ -65,6 +85,7 @@ async function request(
 }
 
 export async function rocketWalletAssets(address: string): Promise<any[]> {
+  requireRocketAddress(address);
   const value = await request(
     "GET",
     `${API_ROOT}/tokens/${encodeURIComponent(address)}`,
@@ -88,7 +109,7 @@ export async function rocketWalletAssets(address: string): Promise<any[]> {
         covenantId,
         tokenId: covenantId,
         image_url: String(row?.image_url ?? ""),
-        priceKas: priceSompi == null ? null : priceSompi / 100_000_000,
+        priceKas: priceSompi == null ? null : priceSompi * 10 ** ROCKET_TOKEN_DECIMALS / 100_000_000,
         standard: "kasparocket-kcc20",
         validationStatus: "kasparocket-indexed",
         discoveryComplete: false,
@@ -103,11 +124,13 @@ export async function rocketWalletAssets(address: string): Promise<any[]> {
 }
 
 function numeric(value: unknown): number | null {
+  if (value == null || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export async function rocketTokens(): Promise<RocketToken[]> {
+export async function rocketTokens(network: string = 'mainnet'): Promise<RocketToken[]> {
+  await verifyRocketNetwork(network);
   const [catalogue, analytics] = await Promise.all([
     request("GET", `${CATALOGUE_ROOT}/api/tokens`),
     request("GET", `${CATALOGUE_ROOT}/api/analytics?page=1&limit=500`),
@@ -156,6 +179,7 @@ export async function rocketPool(tokenId: string): Promise<string> {
 }
 
 export function rocketHolding(address: string, tokenId: string) {
+  requireRocketAddress(address);
   return request(
     "GET",
     `${API_ROOT}/tokens/${encodeURIComponent(address)}/${encodeURIComponent(tokenId)}`,
@@ -208,7 +232,7 @@ export function validateRocketFunds(
   const required = quotedMagnitude > requested ? quotedMagnitude : requested;
   if (required > BigInt(balanceSompi))
     throw new Error(
-      "Insufficient test KAS. Reduce the trade amount to leave room for DEX and network fees.",
+      "Insufficient KAS. Reduce the trade amount to leave room for DEX and network fees.",
     );
 }
 
@@ -273,6 +297,8 @@ export async function rocketPlan(
   side: "buy" | "sell",
   rawAmount: string,
 ) {
+  requireRocketAddress(address);
+  await verifyRocketNetwork();
   const route = await request(
     "POST",
     `${API_ROOT}/route`,
@@ -285,6 +311,10 @@ export async function rocketPlan(
     false,
   );
   const summary = plan?.summary;
+  if (plan?.networkId !== 'mainnet' || summary?.direction !== side ||
+      !/^\d+$/.test(String(side === 'buy' ? summary?.kasFlowSompi : summary?.amountTokens)) ||
+      BigInt(side === 'buy' ? summary.kasFlowSompi : summary.amountTokens) > BigInt(rawAmount))
+    throw Error('KaspaRocket plan differs from the requested Mainnet trade. Nothing was signed.');
   return {
     ...plan,
     ...(summary && typeof summary === "object"
@@ -346,6 +376,7 @@ export function rocketSigningRequest(
   summary: any,
   planned: any,
 ) {
+  requireRocketAddress(address);
   const signInputs: any[] = [];
   const scripts: any[] = [];
   for (const item of planned.signingInstructions ?? []) {
@@ -372,7 +403,7 @@ export function rocketSigningRequest(
   }
   return {
     sender: address,
-    profile: "kasparocket-testnet-v1",
+    profile: "kasparocket-mainnet-v1",
     tokenId: token.tokenId,
     lpCovenantId: poolId,
     ticker: token.ticker,
@@ -384,7 +415,7 @@ export function rocketSigningRequest(
   };
 }
 
-export function mergeRocketTransaction(original: any, signedJson: string) {
+export function mergeRocketTransaction(original: any, signedJson: string, transactionId?: string) {
   const signed = JSON.parse(signedJson);
   const inputs = (original.inputs ?? []).map((item: any) => ({ ...item }));
   if (inputs.length !== signed.inputs?.length)
@@ -392,12 +423,14 @@ export function mergeRocketTransaction(original: any, signedJson: string) {
   inputs.forEach((item: any, index: number) => {
     item.signatureScript = signed.inputs[index].signatureScript;
   });
-  return { ...original, inputs };
+  if (transactionId && !/^[0-9a-f]{64}$/.test(transactionId)) throw Error('Invalid locally signed transaction ID.');
+  return { ...original, inputs, ...(transactionId ? {id: transactionId} : {}) };
 }
 
 export function submitRocket(
   transaction: any,
   orderRow?: Record<string, unknown>,
+  signal?: AbortSignal,
 ) {
   return request(
     "POST",
@@ -407,14 +440,26 @@ export function submitRocket(
       ...(orderRow ? { order_row: orderRow } : {}),
     },
     false,
+    signal,
   );
 }
 
 export function rocketActivity(address: string) {
+  requireRocketAddress(address);
   return request(
     "GET",
     `${CATALOGUE_ROOT}/api/activity/${encodeURIComponent(address)}?page=1&limit=100`,
   );
+}
+
+export function mergeRocketAssets(ordinary: any[], rocket: any[]) {
+  const key = (row: any) => String(row.covenantId ?? row.tokenId ?? row.id ?? row.symbol).toLowerCase();
+  const rows = new Map(ordinary.map(row => [key(row), row]));
+  for (const row of rocket) {
+    const previous = rows.get(key(row));
+    if (!previous || previous.discoveryComplete !== true) rows.set(key(row), row);
+  }
+  return [...rows.values()].sort((a, b) => String(a.symbol).localeCompare(String(b.symbol), 'en') || key(a).localeCompare(key(b)));
 }
 
 export function rawRocketAmount(input: string, decimals: number): string {

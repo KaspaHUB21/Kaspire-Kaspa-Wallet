@@ -1,4 +1,5 @@
 import type { KaspaNetwork } from "../shared/protocol";
+import {rocketWalletAssets, mergeRocketAssets} from './kasparocket';
 import {directKronAssets, directKronTransfer} from './kronHoldings';
 import {standardKcc20Assets, standardKcc20TransferData, cachedStandardKcc20Asset, standardKcc20Token, waitForStandardKcc20Cell} from './standardKcc20';
 import {dotkNamesOf, resolveDotkName} from "./dotk";
@@ -530,7 +531,7 @@ export async function selectedKcc20Asset(address:string,covenantId:string) {
     return (await loadKcc20Assets(address)).find((row:any)=>row.covenantId===covenantId);
   }
 }
-export async function standardKcc20SigningData(address: string, covenantId: string, amount: number, options:{signal?:AbortSignal;progress?:(stage:string)=>void}={}) {
+export async function standardKcc20SigningData(address: string, covenantId: string, amount: number, options:{signal?:AbortSignal;progress?:(stage:string)=>void;fullPlan?:boolean}={}) {
   return standardKcc20TransferData(get, covenantId, ownerId(address), amount, options);
 }
 export async function waitForStandardKcc20Output(address:string,covenantId:string,txid:string,options:{signal?:AbortSignal;progress?:(stage:string)=>void}={}) {
@@ -1344,9 +1345,10 @@ export async function walletAssets(
     return { tokens: [], domains: [], krc721: [], kcc20: [], transactions: [] };
   const cached = assetCache.get(address);
   if (cached && Date.now() - cached.at < 30_000) return cached.value;
-  const [rawAssets, kcc20] = await Promise.all([
+  const [rawAssets, kcc20, rocket] = await Promise.all([
     loadTokenAssets(address).catch(() => null),
     loadKcc20Assets(address).catch(() => []),
+    rocketWalletAssets(address).catch(() => []),
   ]);
   const data =
     rawAssets?.data && typeof rawAssets.data === "object" ? rawAssets.data : {};
@@ -1381,7 +1383,7 @@ export async function walletAssets(
             symbol: String(item.symbol).toUpperCase(),
           }))
       : [],
-    kcc20: kcc20.map((item: any) => ({
+    kcc20: mergeRocketAssets(kcc20, rocket).map((item: any) => ({
       ...item,
       symbol: String(item.symbol).toUpperCase(),
     })),

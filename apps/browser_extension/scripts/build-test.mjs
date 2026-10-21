@@ -11,6 +11,7 @@ await rm("tests/generated", { recursive: true, force: true });
 await mkdir("tests/generated/wasm", { recursive: true });
 await build({entryPoints:["src/shared/operationDeadline.ts"],outfile:"tests/generated/operationDeadline.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/shared/kcc20Compound.ts"],outfile:"tests/generated/kcc20Compound.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
+await build({entryPoints:["src/shared/kcc20Plan.ts"],outfile:"tests/generated/kcc20Plan.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/background/standardKcc20.ts"],outfile:"tests/generated/standardKcc20.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/background/secretInputs.ts"],outfile:"tests/generated/secretInputs.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/shared/nexusListings.ts"],outfile:"tests/generated/nexusListings.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
@@ -24,6 +25,7 @@ await build({entryPoints:["src/shared/tokenAmount.ts"],outfile:"tests/generated/
 await build({entryPoints:["src/background/api.ts"],outfile:"tests/generated/api.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/background/krc721Reads.ts"],outfile:"tests/generated/krc721Reads.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/background/kasparocket.ts"],outfile:"tests/generated/kasparocket.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
+await build({entryPoints:["src/background/rocketSwaps.ts"],outfile:"tests/generated/rocketSwaps.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 execFileSync("cargo",["build","--locked","--release","-p","kaspa_secure_core","--target","wasm32-unknown-unknown"],{cwd:"../..",stdio:"inherit"});
 execFileSync("/root/.cargo/bin/wasm-bindgen",[resolve(cargoTargetDir,"wasm32-unknown-unknown/release/kaspa_secure_core.wasm"),"--target","web","--out-dir","tests/generated/wasm","--no-typescript"],{stdio:"inherit"});
 await rename("tests/generated/wasm/kaspa_secure_core.js","tests/generated/wasm/kaspa_secure_core.mjs");

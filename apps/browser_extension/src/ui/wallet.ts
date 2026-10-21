@@ -6,6 +6,7 @@ import {openCovenantVaults} from './covenantVaults';
 import {openP2sh, receiveModeTabs} from './p2sh';
 import { sortedAssets, assetTicker, sameAsset } from "../shared/assetPresentation";
 import {operationDeadline} from '../shared/operationDeadline';
+import {mergeRocketAssets} from '../background/kasparocket';
 const root = document.querySelector<HTMLElement>("#app")!;
 // This port lets the background distinguish an open wallet UI from a closed
 // popup. It is security-relevant only for the "Immediately" auto-lock mode.
@@ -77,7 +78,7 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}, s
     const port = chrome.runtime.connect({ name: "wallet-operation" });
     let finished = false;
     const kcc20 = name === 'prepareAsset' && values.kind === 'kcc20';
-    const long = name.startsWith('kronDex') || name.startsWith('covenantVault') || name.startsWith('p2sh') || ["resumeInscription", "nftMarketOperation"].includes(name);
+    const long = name.startsWith('kronDex') || name.toLowerCase().includes('rocket') || name.startsWith('covenantVault') || name.startsWith('p2sh') || ["resumeInscription", "nftMarketOperation", "confirmPreparedAsset", "resumeKcc20Plan"].includes(name);
     const deadline = operationDeadline(() => {
       if(finished)return;
       finished=true; signal?.removeEventListener('abort',abort); port.disconnect();
@@ -96,7 +97,7 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}, s
       if(response?.progress) {
         if(kcc20)deadline.progress();
         if(name.startsWith('p2sh'))document.dispatchEvent(new CustomEvent('kaspire-operation-progress',{detail:response.progress}));
-        const button=document.querySelector<HTMLButtonElement>(kcc20?'#review, #confirm-asset':'#review');
+        const button=document.querySelector<HTMLButtonElement>(kcc20?'#review, #confirm-asset':['confirmPreparedAsset','resumeKcc20Plan'].includes(name)?'#confirm-asset, .warning-box button':'#review');
         if(button)button.textContent=response.progress;
         const reveal=document.querySelector<HTMLElement>('#reveal-progress');
         if(reveal)reveal.textContent=response.progress;
@@ -662,6 +663,19 @@ function home() {
 }
 
 function mountPendingCompound() {
+  const pendingPlan=status?.pendingKcc20Plan;
+  if(pendingPlan) {
+    const host=root.querySelector('.dashboard, .send-screen');if(!host)return;
+    const card=document.createElement('section');card.className='warning-box';
+    card.innerHTML='<h2>Approved KCC20 payment plan saved</h2><p>'+esc(`${pendingPlan.nextStep}/${pendingPlan.transactions.length} transactions confirmed. Continue sends only the exact already-approved transactions, without another signature. The recipient is paid by the final transaction.`)+'</p><button>Continue KCC20 transfer</button><p class="error"></p>';
+    host.prepend(card);
+    card.querySelector('button')!.onclick=async()=>{
+      const button=card.querySelector('button')!;button.disabled=true;
+      try{const result=await persistentCommand('resumeKcc20Plan');kaspaTransactionReceipt(result,{kind:'kcc20',recipient:result.operation.recipient,amount:result.operation.displayAmount,symbol:result.operation.ticker});}
+      catch(e){card.querySelector('.error')!.textContent=(e as Error).message;button.disabled=false;}
+    };
+    return;
+  }
   if(!status?.pendingKcc20Compound)return;
   const host=root.querySelector('.dashboard, .send-screen');if(!host)return;
   const card=document.createElement('section');card.className='warning-box';
@@ -1613,7 +1627,7 @@ async function loadHome() {
           " · " + fmt(core.utxoCount, 0) + " UTXOs";
       addCompound(core);
     }).catch(() => undefined);
-    const assets: any = {tokens: [], domains: [], krc721: [], kcc20: [], dotk: []};
+    const assets: any = {tokens: [], domains: [], krc721: [], kcc20: [], dotk: [], rocket: []};
     const failures: string[] = [];
     let kcc20Warning='';
     await Promise.all(Object.keys(assets).map(async category => {
@@ -1624,8 +1638,9 @@ async function loadHome() {
       }
       catch { failures.push(category === "tokens" ? "KRC20" : category.toUpperCase()); }
       if (!stillHome()) return;
-      snapshot = { ...snapshot, assets: {...assets} };
-      renderAssetGroups(assets);
+      const visible = {...assets, kcc20: mergeRocketAssets(assets.kcc20, assets.rocket)};
+      snapshot = { ...snapshot, assets: visible };
+      renderAssetGroups(visible);
     }));
     if (stillHome() && failures.length)
       homeElement?.insertAdjacentHTML("beforeend", `<p class="error">${esc(failures.join(", "))}: temporarily unavailable. Please retry.</p>`);
@@ -1973,6 +1988,10 @@ function assetTransferReview(prepared: any) {
     review = prepared.review;
   const row = (label: string, value: any) =>
     `<div class="detail-row"><span>${esc(label)}</span><b ${label === "Ticker" ? "data-preserve-case" : ""}>${esc(value)}</b></div>`;
+  if(prepared.type==='kcc20-plan') {
+    review.feeSompi=review.totalFeeSompi;
+    review.rawJson=review.steps;
+  }
   if (prepared.type === "kron") review.feeSompi = review.networkFeeSompi;
   const kcc =
     prepared.type === "kcc20" || prepared.type === "kron"
@@ -1984,6 +2003,15 @@ function assetTransferReview(prepared: any) {
     "Review asset transfer",
     true,
   );
+  if(prepared.type==='kcc20-plan') {
+    const details=document.createElement('section');details.className='detail-section';
+    details.innerHTML=row('Covenant ID',review.covenantId)+row('Original token cells',operation.requiredCells)+'<p class="warning-box">'+esc(`COMPLETE PAYMENT PLAN · ${review.transactionCount} fixed transactions, ONE approval. TOTAL fees: ${sompiLabel(review.totalFeeSompi)}. Self-consolidations return tokens to your wallet. Only the final transaction pays the recipient. Interrupted plans remain saved; recovery cannot change their fees, amounts or recipient.`)+'</p>'+review.steps.map((s:any,i:number)=>{
+      const terms=s.psktRequest.tradeSummary;
+      return '<details><summary>'+esc(`${i+1}. ${i+1===review.transactionCount?'Recipient payment':'Self-consolidation'} · ${sompiLabel(s.feeSompi)}`)+'</summary>'+row('To',terms.recipient)+row('Raw token amount',terms.amount)+row('Transaction ID',s.transactionId)+row('Token inputs',s.covenantInputCount)+row('Token outputs',s.covenantOutputCount)+row('KAS reserve top-up',sompiLabel(s.lockedKasTopUpSompi))+row('KAS released',sompiLabel(s.lockedKasReleasedSompi))+'</details>';
+    }).join('');
+    document.querySelector('#confirm-asset')!.before(details);
+    document.querySelector('#confirm-asset')!.textContent='Authorize complete payment plan';
+  }
   if(operation.compound) {
     const notice=document.createElement('p');notice.className='warning-box';
     notice.textContent=`CONSOLIDATION REQUIRED · ${operation.requiredCells??review.covenantInputCount} token cells are needed. This payment requires ${operation.transactionCount??'multiple'} remaining on-chain transactions because this contract allows only ${operation.standard==='kcc20'?3:2} token inputs per transaction. Each transaction has its own fee and approval. Only the current step's fee is quoted. Recipient NOT paid yet. Intended payment: ${operation.intendedDisplayAmount} ${operation.ticker} to ${operation.intendedRecipient}.`;
@@ -2025,6 +2053,13 @@ function assetTransferReview(prepared: any) {
         });
       } catch (error) {
         status = await command("status");
+        if(status.pendingKcc20Plan) {
+          const host=document.querySelector('.transaction-detail')!;host.classList.add('send-screen');
+          mountPendingCompound();
+          document.querySelector('#review-error')!.textContent=(error as Error).message;
+          button.textContent='Plan saved — use Continue KCC20 transfer';button.disabled=true;
+          return;
+        }
         if (status.pendingInscription) {
           view = "pending-reveal";
           context.returnView = "home";
@@ -2300,9 +2335,11 @@ const rocket = {
   amount: "",
   loading: false,
   error: "",
+  busy: false,
 };
 
 function rocketKas(value: any) {
+  if (value === null || value === undefined || value === "") return "—";
   const number = Number(value);
   return Number.isFinite(number)
     ? `${number.toFixed(Math.abs(number) < 1 ? 8 : 2)} KAS`
@@ -2327,13 +2364,13 @@ function rocketRows() {
 }
 function paintRocket() {
   const host = document.querySelector<HTMLElement>("#market-content");
-  if (!host || status.network !== "testnet-10") return;
+  if (!host || status.network !== "mainnet") return;
   if (rocket.selected) return paintRocketTrade(host);
   const tabs = `<div class="market-tabs two"><button data-rocket-tab="swaps" class="${rocket.tab === "swaps" ? "active" : ""}">DEX swaps</button><button data-rocket-tab="activity" class="${rocket.tab === "activity" ? "active" : ""}">My activity</button></div>`;
   let body = "";
   if (rocket.tab === "swaps") {
     const rows = rocketRows();
-    body = `<div class="review-card"><b>KaspaRocket · TN10</b><p>Market swaps across covenant bonding curves, AMMs and order books.</p></div><div class="market-tools"><label>Token ticker, name or covenant ID<input id="rocket-search" value="${esc(rocket.query)}"></label></div>${rows.map((token) => `<button class="rocket-token market-offer" data-rocket-token="${esc(token.tokenId)}"><span class="rocket-logo">${token.image ? `<img src="${esc(token.image)}" alt="">` : "◈"}</span><span><b>${esc(String(token.ticker).toUpperCase())}</b><small>${esc(token.name)}</small><code>${esc(token.tokenId)}</code><em>Price ${esc(rocketKas(token.priceKas))} · Pool ${esc(rocketKas(token.poolValueKas))}</em></span><i>›</i></button>`).join("") || (rocket.loading ? '<div class="loading">Loading covenant tokens…</div>' : '<div class="empty">No tokens found</div>')}`;
+    body = `<div class="review-card"><b>KaspaRocket · Mainnet</b><p>Market swaps across covenant bonding curves, AMMs and order books.</p></div><div class="market-tools"><label>Token ticker, name or covenant ID<input id="rocket-search" value="${esc(rocket.query)}"></label></div>${rows.map((token) => `<button class="rocket-token market-offer" data-rocket-token="${esc(token.tokenId)}"><span class="rocket-logo">${token.image ? `<img src="${esc(token.image)}" alt="">` : "◈"}</span><span><b>${esc(String(token.ticker).toUpperCase())}</b><small>${esc(token.name)}</small><code>${esc(token.tokenId)}</code><em>Price ${esc(rocketKas(token.priceKas))} · Pool ${esc(rocketKas(token.poolValueKas))}</em></span><i>›</i></button>`).join("") || (rocket.loading ? '<div class="loading">Loading covenant tokens…</div>' : '<div class="empty">No tokens found</div>')}`;
   } else {
     body = rocket.activity.length
       ? rocket.activity
@@ -2398,6 +2435,17 @@ function paintRocketTrade(host: HTMLElement) {
   const token = rocket.selected;
   const context = rocket.tokenContext;
   const quote = rocket.quote;
+  const address = status.selectedAddress;
+  const active = () => host.isConnected && status.selectedAddress === address && rocket.selected?.tokenId === token.tokenId && status.network === 'mainnet';
+  const setBusy = (busy: boolean) => {
+    rocket.busy = busy;
+    if (host.isConnected) host.querySelectorAll<HTMLInputElement | HTMLButtonElement>('#rocket-amount, .rocket-side button, #rocket-quote, #rocket-resume, #rocket-review')
+        .forEach(control => control.disabled = busy || (control.id === 'rocket-review' && Boolean(rocket.tokenContext?.pending)));
+  };
+  const refreshContext = async () => {
+    const value = await command('rocketTokenContext', {tokenId: token.tokenId});
+    if (active()) rocket.tokenContext = value;
+  };
   const available = !context
     ? "…"
     : rocket.side === "buy"
@@ -2433,21 +2481,31 @@ function paintRocketTrade(host: HTMLElement) {
       rocket.amount = amount.value;
     };
   host.querySelector<HTMLButtonElement>("#rocket-quote")!.onclick = async () => {
+    if (rocket.busy) return;
+    setBusy(true);
+    rocket.quote = null;
     try {
       rocket.error = "";
-      rocket.quote = await command("rocketQuote", {
+      const result = await command("rocketQuote", {
         tokenId: token.tokenId,
         poolId: context.poolId,
         side: rocket.side,
         amount: rocket.amount,
         ticker: token.ticker,
       });
+      await refreshContext();
+      if (active()) rocket.quote = result;
     } catch (error) {
-      rocket.error = (error as Error).message;
+      if (active()) rocket.error = (error as Error).message;
+      try { await refreshContext(); } catch { /* Preserve the original failure and journal. */ }
+    } finally {
+      setBusy(false);
     }
-    paintRocket();
+    if (active()) paintRocket();
   };
   host.querySelector<HTMLButtonElement>("#rocket-review")!.onclick = async () => {
+    if (rocket.busy || context?.pending) return;
+    setBusy(true);
     const button = host.querySelector<HTMLButtonElement>("#rocket-review")!;
     try {
       button.disabled = true;
@@ -2457,12 +2515,31 @@ function paintRocketTrade(host: HTMLElement) {
         side: rocket.side,
         amount: rocket.amount,
       });
-      rocketReview(prepared);
+      if (active()) rocketReview(prepared);
     } catch (error) {
-      rocket.error = (error as Error).message;
-      paintRocket();
+      if (active()) {
+        rocket.error = (error as Error).message;
+        paintRocket();
+      }
+    } finally {
+      setBusy(false);
     }
   };
+  const quoteButton = host.querySelector<HTMLButtonElement>('#rocket-quote')!;
+  quoteButton.textContent = context?.pending || rocket.error || quote ? 'Refresh quote' : 'Get live quote';
+  host.querySelector<HTMLButtonElement>('#rocket-review')!.disabled = !context || Boolean(context.pending) || rocket.busy;
+  if (context?.pending) {
+    const card = document.createElement('article'); card.className = 'review-card kron-recovery';
+    card.innerHTML = `<h2>Signed swap saved</h2><p>Check its status, or refresh the quote to safely check for an obsolete plan.</p><p>${esc(context.pending.token?.ticker)} · ${esc(context.pending.side)}</p><button id="rocket-resume">Check saved swap</button>`;
+    quoteButton.before(card);
+    card.querySelector<HTMLButtonElement>('#rocket-resume')!.onclick = async () => {
+      if (rocket.busy) return;
+      setBusy(true);
+      try { const result = await command('resumeRocketSwap'); if (active()) rocketReceipt(result); }
+      catch (error) { if (active()) rocket.error = (error as Error).message; try { await refreshContext(); } catch { /* Keep pending visible. */ } }
+      finally { setBusy(false); if (active()) paintRocket(); }
+    };
+  }
   classicCase(host);
 }
 
@@ -2475,7 +2552,7 @@ function rocketReview(prepared: any) {
   );
   const overlay = document.createElement("div");
   overlay.className = "kaspire-modal approval-modal";
-  overlay.innerHTML = `<section class="approval-sheet"><p class="eyebrow">SECURE REVIEW · TN10</p><h1>${esc(String(prepared.side).toUpperCase())} ${esc(String(prepared.token.ticker).toUpperCase())}</h1><div class="approval-details">${detailRow("Token covenant", prepared.token.tokenId)}${detailRow("Pool covenant", prepared.poolId)}${detailRow("Token amount", `${summary.amountTokensDisplay ?? "\u2014"} ${String(prepared.token.ticker).toUpperCase()}`)}${detailRow("KAS flow", sompiMagnitude(summary.kasFlowSompi))}${detailRow("Treasury fee", sompiMagnitude(summary.platformFeeSompi))}${detailRow("Partner fee", sompiMagnitude(summary.partnerFeeSompi))}${detailRow("Network fees", sompiLabel(fees))}${detailRow("Transactions", prepared.transactionCount)}</div><p class="warning-box">Ticker symbols are not unique. Verify both covenant IDs.</p><details class="raw-json"><summary>Raw plan JSON</summary><pre>${esc(prettyJson(prepared.rawPlan))}</pre></details><p id="rocket-submit-error" class="error"></p><div class="approval-actions"><button id="rocket-cancel" class="outline">Cancel</button><button id="rocket-submit">Authorize & swap</button></div></section>`;
+  overlay.innerHTML = `<section class="approval-sheet"><p class="eyebrow">SECURE REVIEW · MAINNET</p><h1>${esc(String(prepared.side).toUpperCase())} ${esc(String(prepared.token.ticker).toUpperCase())}</h1><div class="approval-details">${detailRow("Token covenant", prepared.token.tokenId)}${detailRow("Pool covenant", prepared.poolId)}${detailRow("Token amount", `${summary.amountTokensDisplay ?? "\u2014"} ${String(prepared.token.ticker).toUpperCase()}`)}${detailRow("KAS flow", sompiMagnitude(summary.kasFlowSompi))}${detailRow("Treasury fee", sompiMagnitude(summary.platformFeeSompi))}${detailRow("Partner fee", sompiMagnitude(summary.partnerFeeSompi))}${detailRow("Network fees", sompiLabel(fees))}${detailRow("Transactions", prepared.transactionCount)}</div><p class="warning-box">Ticker symbols are not unique. Verify both covenant IDs.</p><details class="raw-json"><summary>Raw plan JSON</summary><pre>${esc(prettyJson(prepared.rawPlan))}</pre></details><p id="rocket-submit-error" class="error"></p><div class="approval-actions"><button id="rocket-cancel" class="outline">Cancel</button><button id="rocket-submit">Authorize & swap</button></div></section>`;
   document.body.append(overlay);
   overlay.querySelector<HTMLButtonElement>("#rocket-cancel")!.onclick = () =>
     overlay.remove();
@@ -2490,34 +2567,38 @@ function rocketReview(prepared: any) {
         overlay.remove();
         rocketReceipt(result);
       } catch (error) {
-        overlay.querySelector("#rocket-submit-error")!.textContent = (
-          error as Error
-        ).message;
-        button.disabled = false;
-        button.textContent = "Authorize & swap";
+        overlay.remove();
+        rocket.error = (error as Error).message;
+        rocket.quote = null;
+        try { rocket.tokenContext = await command('rocketTokenContext', {tokenId: prepared.token.tokenId}); } catch { /* Retain the safe previous recovery view. */ }
+        paintRocket();
       }
     };
 }
 
 function rocketReceipt(result: any) {
   shell(
-    `<section class="receipt-screen"><div class="receipt-check">✓</div><p class="eyebrow">TN10 SWAP SUBMITTED</p><h1>KaspaRocket swap sent</h1><details class="raw-json" open><summary>Receipt and transaction details</summary><pre>${esc(prettyJson(result))}</pre></details><button id="rocket-done">Done</button></section>`,
-    "K-Agora",
+    `<section class="receipt-screen"><div class="receipt-check">✓</div><p class="eyebrow">MAINNET SWAP CONFIRMED</p><h1>KaspaRocket swap sent</h1><details class="raw-json" open><summary>Receipt and transaction details</summary><pre>${esc(prettyJson(result))}</pre></details><button id="rocket-done">Return to KaspaRocket</button></section>`,
+    "KaspaRocket",
   );
   document.querySelector<HTMLButtonElement>("#rocket-done")!.onclick = () => {
     rocket.selected = null;
-    view = "marketplace";
-    void render();
+    view = "swap";
+    void rocketMarketplace();
   };
 }
 
 async function rocketMarketplace(initialTokenId?: string) {
+  if (status.network !== 'mainnet') {
+    shell('<section class="marketplace-screen"><h1>KaspaRocket</h1><p>KaspaRocket currently serves Kaspa Mainnet. Switch to Layer 1 to trade. TN10 is not available from the provider.</p></section>', 'Swap', true);
+    return;
+  }
   rocket.selected = null;
   rocket.quote = null;
   rocket.error = "";
   shell(
-    '<section class="marketplace-screen"><div class="market-title"><span class="market-emblem">'+agoraIcon()+'</span><div><p class="eyebrow">TN10 DEX</p><h1>K-Agora</h1></div><button id="market-refresh" class="icon" aria-label="Refresh DEX">↻</button></div><div id="market-content"><div class="loading">Loading KaspaRocket…</div></div></section>',
-    "K-Agora",
+    '<section class="marketplace-screen"><div class="market-title"><span class="market-emblem">'+agoraIcon()+'</span><div><p class="eyebrow">MAINNET DEX</p><h1>KaspaRocket</h1></div><button id="market-refresh" class="icon" aria-label="Refresh DEX">↻</button></div><div id="market-content"><div class="loading">Loading KaspaRocket…</div></div></section>',
+    "KaspaRocket",
     true,
   );
   const load = async () => {
@@ -2537,7 +2618,7 @@ async function rocketMarketplace(initialTokenId?: string) {
           (token) => token.tokenId === initialTokenId,
         );
         if (!rocket.selected)
-          throw new Error("This TN10 covenant token is no longer available.");
+          throw new Error("This covenant token is no longer available.");
         rocket.tokenContext = await command("rocketTokenContext", {
           tokenId: rocket.selected.tokenId,
         });
@@ -2639,6 +2720,7 @@ async function command(name: string, values: Record<string, unknown> = {}, signa
     "nftMarketOperation",
     "nexusConnect",
     "submitRocketSwap",
+    "resumeRocketSwap",
     "prepareRocketSwap",
     "kronDexPrepare",
     "kronDexSubmit",

@@ -43,6 +43,15 @@ try{
     await evaluate(reopenedWallet,'document.querySelector("#swap").click();true');
     await waitFor(reopenedWallet,'Boolean(document.querySelector("#kron-open"))');
     assert.match(String(await evaluate(reopenedWallet,'document.querySelector(".marketplace-screen").innerText')),/KCC20 DEX Swaps.*Kron DEX/s);
+    assert.equal(await evaluate(reopenedWallet,'Boolean(document.querySelector("#rocket-open"))'),true);
+    assert.equal(await evaluate(reopenedWallet,'document.querySelector("#rocket-open").getBoundingClientRect().top < document.querySelector("#kron-open").getBoundingClientRect().top'),true);
+    assert.equal(await evaluate(reopenedWallet,'Math.abs(document.querySelector("#rocket-open").getBoundingClientRect().width-document.querySelector("#kron-open").getBoundingClientRect().width)<1'),true);
+    if (theme === 'midnight') {
+      await evaluate(reopenedWallet,'document.querySelector("#rocket-open").click();true');
+      await waitFor(reopenedWallet,'document.querySelectorAll("[data-rocket-tab]").length===2');
+      assert.match(String(await evaluate(reopenedWallet,'document.querySelector("#market-content").innerText')),/DEX swaps.*My activity/s);
+      assert.match(String(await evaluate(reopenedWallet,'document.querySelector(".marketplace-screen").innerText')),/MAINNET DEX.*KaspaRocket/si);
+    }
     await evaluate(reopenedWallet,'document.querySelector("#back").click();true');
     await waitFor(reopenedWallet,'Boolean(document.querySelector("#vaults"))');
     await evaluate(reopenedWallet,'document.querySelector("#vaults").click();true');

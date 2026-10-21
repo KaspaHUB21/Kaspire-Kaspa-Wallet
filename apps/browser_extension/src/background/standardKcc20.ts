@@ -2,10 +2,11 @@
 // template; indexer state is cross-checked against accepted, live own-node UTXOs.
 import template from '../../../../crates/kaspa_secure_core/src/kcc20_standard_template.json';
 import {kcc20TransactionCount} from '../shared/kcc20Compound';
+import {kcc20Program,kcc20TokenProgram} from '../shared/kcc20Programs';
 const BASE = 'https://kasvio.network/api/kcc20/v1';
 const NODE = 'https://kaspire.kaslab.space/api/local-node';
 export const STANDARD_TEMPLATE = 'argent-kcc20-c8a0871';
-type ReadOptions = {signal?:AbortSignal;progress?:(stage:string)=>void};
+type ReadOptions = {signal?:AbortSignal;progress?:(stage:string)=>void;fullPlan?:boolean};
 const HASH = '9703112ee6e3555107cd168858992b77d3b74f655205b2b463b1f9ec2ec73cf7';
 const hex64 = /^[0-9a-f]{64}$/;
 type Get = (url: string) => Promise<any>;
@@ -73,7 +74,8 @@ async function discover(get: Get, owner: string):Promise<{assets:any[];warning:s
   const assets: any[] = [], rows = [...tokens.values()];let failures=0;
   for(let start=0; start<rows.length; start+=6) {
     await Promise.all(rows.slice(start,start+6).map(async t=>{
-      if(t.profile_id !== 'KCC20PublicMint@c8a0871' || t.recognition !== 'hash_proven_reference_actor_family') return;
+      const program=kcc20TokenProgram(t);
+      if(!program || !['hash_proven_reference_actor_family','hash_proven_program_artifact'].includes(t.recognition)) return;
       const m=t.metadata??{}, verified=m.binding_verified===true;
       const symbol=String(verified?(m.ticker??m.symbol??'KCC20_RAW'):'KCC20_RAW').toUpperCase();
       const decimals=verified?Number(m.decimals):0;
@@ -83,7 +85,7 @@ async function discover(get: Get, owner: string):Promise<{assets:any[];warning:s
       if(!/^\d+$/.test(raw))throw Error('Invalid KCC20 balance.');
       if(BigInt(raw)<=0n)return;
       assets.push({covenantId:t.covenant_id,symbol,name:verified?String(m.name??symbol):symbol,
-        rawBalance:raw,decimals,standard:'kcc20',templateHash:STANDARD_TEMPLATE,
+        rawBalance:raw,decimals,standard:'kcc20',templateHash:program.id,
         validationStatus:'observed',directTransfer:true,
         image_url:m.image_bytes_verified===true&&hex64.test(m.image_hash)?`${BASE}/images/${m.image_hash}`:'',
         explorerUrl:`https://kasvio.network/`});
@@ -99,12 +101,13 @@ export function cachedStandardKcc20Asset(get:Get,owner:string,cid:string) {
 export async function standardKcc20Token(get:Get,cid:string) {
   if(!hex64.test(cid))throw Error('Invalid KCC20 covenant ID.');
   const {data:t}=await read(get,`/tokens/${cid}`),m=t?.metadata??{};
-  if(t?.covenant_id!==cid||t?.profile_id!=='KCC20PublicMint@c8a0871'||t?.recognition!=='hash_proven_reference_actor_family')
+  const program=kcc20TokenProgram(t);
+  if(t?.covenant_id!==cid||!program||!['hash_proven_reference_actor_family','hash_proven_program_artifact'].includes(t?.recognition))
     throw Error('Token is not the pinned standard KCC20 actor.');
   const symbol=String(m.binding_verified===true?(m.ticker??m.symbol??'KCC20_RAW'):'KCC20_RAW').toUpperCase();
   const decimals=m.binding_verified===true?Number(m.decimals):0;
   if(!/^[A-Z0-9_.-]{1,32}$/.test(symbol)||!Number.isInteger(decimals)||decimals<0||decimals>18)throw Error('Invalid KCC20 metadata.');
-  return {covenantId:cid,symbol,decimals,standard:'kcc20',templateHash:STANDARD_TEMPLATE};
+  return {covenantId:cid,symbol,decimals,standard:'kcc20',templateHash:program.id};
 }
 export async function waitForStandardKcc20Cell(get:Get,cid:string,owner:string,txid:string,options:ReadOptions={}) {
   const deadline=Date.now()+90_000;
@@ -133,21 +136,28 @@ export async function standardKcc20TransferData(get: Get, cid: string, owner: st
   let covered=0n,requiredCells=0;
   for(const raw of outputs){covered+=BigInt(raw.balance_raw);requiredCells++;if(covered>=BigInt(amount))break;}
   if(covered<BigInt(amount))throw Error('KCC20 cell discovery is incomplete.');
-  const transactionCount=kcc20TransactionCount(requiredCells);
   const memo=new Map<string,Promise<any>>();
   const once=(url:string,load:()=>Promise<any>)=>{
     options.signal?.throwIfAborted();
     let p=memo.get(url);if(!p){p=load();memo.set(url,p);}return p;
   };
-  const mandatory=Math.min(3,requiredCells);
+  if(!outputs.length)throw Error('No standard KCC20 token outputs.');
+  const first=outputs[0],firstPath=`/tokens/${cid}/transactions/${first.txid}`;
+  const firstDetail=(await once(BASE+firstPath,()=>read(get,firstPath))).data;
+  const firstStates=(firstDetail?.outputs??[]).filter((r:any)=>r.io_index===first.output_index&&r.covenant_id===cid&&r.actor==='KCC20');
+  if(firstDetail?.txid!==first.txid||firstStates.length!==1||firstStates[0].state_hash_verified!==true)throw Error('Missing KCC20 program proof.');
+  const program=kcc20Program(firstStates[0].template_hash),limit=program.maxInputs;
+  const transactionCount=kcc20TransactionCount(requiredCells,limit);
+  if(options.fullPlan && requiredCells>65)throw Error('This payment needs more than 65 token cells. Split the amount into smaller payments.');
+  const mandatory=options.fullPlan?requiredCells:Math.min(limit,requiredCells);
   const candidates=outputs.slice(0,mandatory);
   // Use spare slots of an ordinary payment to consume the smallest leftover
   // cells. This cleans up fragmentation without a separate consolidation TX.
   for(const raw of [...outputs].reverse()) {
-    if(candidates.length>=3)break;
+    if(candidates.length>=limit)break;
     if(!candidates.includes(raw))candidates.push(raw);
   }
-  const verified=await Promise.all(candidates.map(async (raw,position)=>{
+  const verify=async (raw:any,position:number)=>{
     try {
     options.signal?.throwIfAborted();
     options.progress?.(`Verifying KCC20 cell ${position+1} of ${candidates.length} with the local node…`);
@@ -157,12 +167,12 @@ export async function standardKcc20TransferData(get: Get, cid: string, owner: st
     const rows=(detail?.outputs??[]).filter((r:any)=>r.io_index===index&&r.covenant_id===cid&&r.actor==='KCC20');
     if(detail?.txid!==id||rows.length!==1)throw Error('Missing KCC20 state reconstruction.');
     const s=rows[0], units=Number(s.token_amount);
-    if(s.state_hash_verified!==true||s.template_hash!==HASH||s.owner_value!==owner||s.owner_scheme!==0||
+    if(s.state_hash_verified!==true||s.template_hash!==program.hash||s.owner_value!==owner||s.owner_scheme!==0||
       !Number.isSafeInteger(units)||units<=0||String(s.token_amount)!==String(raw.balance_raw)||!hex64.test(s.extension_commitment))
       throw Error('KCC20 reconstructed state differs.');
     if(s.borrow_scheme!==0||s.borrow_guard!=='0'.repeat(64))throw Error('KCC20 borrowing policies are not supported by direct transfers.');
     const little=Array.from({length:8},(_,i)=>Number((BigInt(units)>>BigInt(8*i))&255n).toString(16).padStart(2,'0')).join('');
-    const redeemScript=`${template.prefix}08${little}20${owner}0100010020${'0'.repeat(64)}20${s.extension_commitment}${template.suffix}`;
+    const redeemScript=`${program.template.prefix}08${little}20${owner}0100010020${'0'.repeat(64)}20${s.extension_commitment}${program.template.suffix}`;
     const origin=await once(`${NODE}/transactions/${id}`,()=>get(`${NODE}/transactions/${id}`)), os=(origin?.outputs??[]).filter((r:any)=>r.index===index);
     if(origin.transaction_id!==id||origin.is_accepted!==true||os.length!==1||os[0].covenant_id!==cid||String(os[0].amount)!==String(raw.amount_sompi))
       throw Error('The own node does not confirm this KCC20 output.');
@@ -180,7 +190,11 @@ export async function standardKcc20TransferData(get: Get, cid: string, owner: st
       if(position>=mandatory && !options.signal?.aborted)return null;
       throw error;
     }
-  }));
+  };
+  // Bound own-node proof concurrency even for a complete multi-TX plan.
+  const verified:Awaited<ReturnType<typeof verify>>[]=[];
+  for(let offset=0;offset<candidates.length;offset+=3)
+    verified.push(...await Promise.all(candidates.slice(offset,offset+3).map((raw,i)=>verify(raw,offset+i))));
   options.signal?.throwIfAborted();
   const cells=[];
   for(let i=0;i<verified.length;i++) {
@@ -194,5 +208,5 @@ export async function standardKcc20TransferData(get: Get, cid: string, owner: st
   const total=cells.reduce((sum,c)=>sum+c.tokenAmount,0);
   if(!Number.isSafeInteger(total))throw Error('KCC20 amount exceeds safe range.');
   if(!cells.length)throw Error('No verified KCC20 cells.');
-  return {cells,templateHash:STANDARD_TEMPLATE,compound:total<amount,stepAmount:Math.min(total,amount),requiredCells,transactionCount};
+  return {cells,templateHash:program.id,inputLimit:limit,compound:total<amount,stepAmount:Math.min(total,amount),requiredCells,transactionCount};
 }

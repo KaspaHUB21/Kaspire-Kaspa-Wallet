@@ -76,7 +76,7 @@ const highlights = [
   {
     number: "12",
     title: "Mainnet DEX swaps, inside your wallet.",
-    copy: "Choose KaspaRocket or KRON under Swap on Android to trade supported mainnet covenant tokens. KaspaRocket brings the familiar DEX Swaps and My Activity flow, with bonding-curve, AMM and order-book routing. Review covenant IDs, wallet flows and fees before local signing. Signed swaps are encrypted for recovery. The browser extension continues to support KRON DEX.",
+    copy: "Choose KaspaRocket or KRON under Swap on Android or the browser extension to trade supported mainnet covenant tokens. KaspaRocket brings DEX Swaps and My Activity, with bonding-curve, AMM and order-book routing. Bonding-curve holdings load directly from KaspaRocket, independently of Kasvio, and prices are shown per complete token. Review covenant IDs, wallet flows and fees before local signing. Signed swaps are encrypted for recovery. If a confirmed conflicting spend makes an old plan obsolete, refresh the quote safely; uncertain broadcasts remain saved for recovery.",
     tags: ["KaspaRocket", "KRON DEX", "Mainnet swaps"],
   },
   {
@@ -709,9 +709,12 @@ export default function Home() {
                 </a>.
               </p>
               <p>
-                Includes standard KCC20 discovery, in-payment cell
-                consolidation, explicit multi-step fee reviews and resumable
-                transfer recovery.
+                Includes KaspaRocket Mainnet swaps before KRON, direct
+                bonding-curve token balances and safe quote refresh for
+                confirmed obsolete swap plans. Supported pinned KCC20
+                configurations allow up to ten token inputs and outputs,
+                with whole-payment consolidation review and resumable
+                encrypted transaction recovery.
               </p>
               <div className="checksum">
                 <span>Extension ZIP SHA-256</span>

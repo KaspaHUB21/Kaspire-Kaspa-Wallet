@@ -9,7 +9,8 @@ const details = (summary: any, token: KronToken) => kronSwapDetails(summary, tok
 export function openDexSelection(hooks: Hooks, network: string, rocket: () => void) {
   if (network === 'testnet-10') { rocket(); return; }
   if (network !== 'mainnet') { hooks.shell('<article class="review-card"><h1>KCC20 DEX Swaps</h1><p>Switch to Kaspa Mainnet to use Kron DEX.</p></article>', 'Swap', true); return; }
-  hooks.shell(`<section class="marketplace-screen"><h1>KCC20 DEX Swaps</h1><button id="kron-open" class="rocket-token market-offer"><span class="rocket-logo"><img src="https://kron.technology/icon-512.png" alt="Kron"></span><span><b>Kron DEX</b><small>Kaspa Mainnet · DEX & Launchpad</small></span><i>›</i></button><p class="kron-coming">More KCC20 DEXes are coming soon.</p></section>`, 'Swap', true);
+  hooks.shell(`<section class="marketplace-screen"><h1>KCC20 DEX Swaps</h1><button id="rocket-open" class="rocket-token market-offer"><span class="rocket-logo"><img src="https://kasparocket.fun/icon.jpeg" alt="KaspaRocket"></span><span><b>KaspaRocket</b><small>Kaspa Mainnet · DEX & Launchpad</small></span><i>›</i></button><button id="kron-open" class="rocket-token market-offer"><span class="rocket-logo"><img src="https://kron.technology/icon-512.png" alt="Kron"></span><span><b>Kron DEX</b><small>Kaspa Mainnet · DEX & Launchpad</small></span><i>›</i></button><p class="kron-coming">More KCC20 DEXes are coming soon.</p></section>`, 'Swap', true);
+  document.querySelector<HTMLButtonElement>('#rocket-open')!.onclick = () => rocket();
   document.querySelector<HTMLButtonElement>('#kron-open')!.onclick = () => void openKronDex(hooks);
 }
 export async function openKronDex(hooks: Hooks) {

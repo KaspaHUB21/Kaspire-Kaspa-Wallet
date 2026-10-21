@@ -2,6 +2,13 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {planKcc20Step,kcc20TransactionCount} from './generated/kcc20Compound.mjs';
 const cells=(amounts)=>amounts.map((tokenAmount,index)=>({tokenAmount,index:0,transactionId:index.toString(16).padStart(64,'0')}));
+test('ten-input program only compounds above ten, with accurate transaction counts',()=>{
+  for(const [n,count] of [[1,1],[3,1],[7,1],[10,1],[11,2],[19,2],[20,3]]){
+    const p=planKcc20Step(cells(Array(n).fill(10)),n*10,10);
+    assert.equal(p.compound,n>10);assert.equal(p.transactionCount,count);
+    assert.equal(p.cells.length,Math.min(n,10));
+  }
+});
 test('picks largest cells, not the first three small outputs',()=>{
   const plan=planKcc20Step(cells([1,1,1,90,1]),85,3);
   assert.equal(plan.compound,false);assert.equal(plan.cells.length,1);assert.equal(plan.amount,85);

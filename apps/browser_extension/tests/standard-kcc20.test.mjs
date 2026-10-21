@@ -5,7 +5,7 @@ const cid='c'.repeat(64),owner='d'.repeat(64),address='kaspa:'+'q'.repeat(61);
 const reference='c8a087117735a1f87c5c6d115fcddeaf2562c784';
 const templateHash='9703112ee6e3555107cd168858992b77d3b74f655205b2b463b1f9ec2ec73cf7';
 const id=i=>i.toString(16).padStart(64,'0');
-function source({amounts=[10,10,10,10],borrow=false,spent=false,wrongOwner=false,wrongCid=false,network='mainnet'}={}) {
+function source({amounts=[10,10,10,10],borrow=false,spent=false,wrongOwner=false,wrongCid=false,network='mainnet',programHash=templateHash}={}) {
   const seen=[];
   const get=async url=>{
     seen.push(url);const u=new URL(url),p=u.pathname;
@@ -17,11 +17,33 @@ function source({amounts=[10,10,10,10],borrow=false,spent=false,wrongOwner=false
     if(p.endsWith('/utxos'))return spent?[]:amounts.map((a,i)=>({outpoint:{transactionId:id(i),index:0},utxoEntry:{amount:'100000000',blockDaaScore:'123',isCoinbase:false,scriptPublicKey:{scriptPublicKey:'aa'}}}));
     if(p.includes('/transactions/')) {
       const txid=p.split('/').at(-1),i=parseInt(txid,16);
-      return envelope({txid,outputs:[{io_index:0,actor:'KCC20',covenant_id:cid,token_amount:String(amounts[i]),owner_scheme:0,owner_value:wrongOwner?'e'.repeat(64):owner,state_hash_verified:true,template_hash:templateHash,borrow_scheme:borrow?1:0,borrow_guard:'0'.repeat(64),extension_commitment:'0'.repeat(64)}]});
+      return envelope({txid,outputs:[{io_index:0,actor:'KCC20',covenant_id:cid,token_amount:String(amounts[i]),owner_scheme:0,owner_value:wrongOwner?'e'.repeat(64):owner,state_hash_verified:true,template_hash:programHash,borrow_scheme:borrow?1:0,borrow_guard:'0'.repeat(64),extension_commitment:'0'.repeat(64)}]});
     }
     throw Error('Unexpected URL '+url);
   };return {get,seen};
 }
+test('10/10 proof controls batching; eleven cells require a two-step payment plan',async()=>{
+  const hash='ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b';
+  for(const n of [10,11]) {
+    const s=source({amounts:Array(n).fill(10),programHash:hash});
+    const batch=await standardKcc20TransferData(s.get,cid,owner,n*10-1);
+    assert.equal(batch.inputLimit,10);assert.equal(batch.templateHash,'argent-kcc20-c8a0871-10x10');
+    assert.equal(batch.cells.length,10);assert.equal(batch.compound,n>10);
+    assert.equal(batch.transactionCount,n===10?1:2);
+    const full=await standardKcc20TransferData(s.get,cid,owner,n*10-1,{fullPlan:true});
+    assert.equal(full.cells.length,n);assert.equal(full.transactionCount,n===10?1:2);
+  }
+});
+test('unsupported or mixed program hashes never become a ten-input transfer',async()=>{
+  await assert.rejects(standardKcc20TransferData(source({programHash:'f'.repeat(64)}).get,cid,owner,40),/Unsupported KCC20 program/);
+  const s=source({amounts:[10,10,10,10],programHash:'ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b'});
+  const get=async url=>{
+    const r=await s.get(url);
+    if(url.endsWith('/transactions/'+id(1)))r.data.outputs[0].template_hash=templateHash;
+    return r;
+  };
+  await assert.rejects(standardKcc20TransferData(get,cid,owner,40),/reconstructed state differs/);
+});
 test('standard discovery is KCC20, never Last Call, and has verified decimals',async()=>{
   const s=source(),assets=await standardKcc20Assets(s.get,owner);
   assert.equal(assets[0].standard,'kcc20');assert.equal(assets[0].symbol,'TEST');assert.equal(assets[0].decimals,0);

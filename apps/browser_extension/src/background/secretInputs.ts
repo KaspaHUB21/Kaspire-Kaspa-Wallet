@@ -10,7 +10,7 @@ export const secretArguments: Readonly<Record<string, readonly number[]>> = Obje
   signHiddenKas: [0], verifyHiddenKasRecovery: [0], signDotkMarket: [0],
   deriveBackupKey: [0], deriveBackupKeyV3: [0], signTransaction: [0],
   signEvmTransaction: [0], signPersonalMessage: [0], signPskt: [0], signReveal: [0],
-  signKcc20Transfer: [0], signPolicyTransaction: [0], signWyrmGenesis: [0],
+  signKcc20Transfer: [0], signKcc20Plan: [0], signPolicyTransaction: [0], signWyrmGenesis: [0],
   signWyrmTransition: [0], signCovenantVault: [0],
 });
 

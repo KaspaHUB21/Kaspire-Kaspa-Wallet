@@ -33,6 +33,8 @@ type CoreModule = {
   signPersonalMessage(secret: string, address: string, message: string): string;
   preparePskt(request: string): string;
   prepareKronTransfer(request: string): string;
+  prepareKcc20Plan(request: string): string;
+  signKcc20Plan(secret: string, request: string, reviewHash: string): string;
   prepareNftMarket(request: string): string;
   signPskt(secret: string, request: string, reviewHash: string): string;
   prepareInscription(request: string): string;
