@@ -23,6 +23,25 @@ class MemoryStore implements EncryptedStore {
 }
 
 void main() {
+  const wallet = 'kaspa:qfixture';
+  final origin = 'a' * 64, savedId = 'c' * 64, competing = 'b' * 64;
+  Map<String, Object?> savedSwap({int next = 0}) => {
+        'network': 'mainnet',
+        'address': wallet,
+        'next': next,
+        'transactionIds': [savedId],
+        'receipts': <Object?>[],
+        'signed': [
+          {
+            'inputs': [
+              {
+                'previousOutpoint': {'transactionId': origin, 'index': 0},
+                'utxo': {'covenantId': 'd' * 64},
+              }
+            ]
+          }
+        ],
+      };
   setUp(() => SharedPreferences.setMockInitialValues({}));
   test('Mainnet uses only the pinned gateway, never client bearer credentials',
       () async {
@@ -137,11 +156,186 @@ void main() {
       'next': 0,
     });
     await expectLater(
-        service.resume('kaspa:qfixture', accepted: (_) async => false),
+        service.resume('kaspa:qfixture',
+            accepted: (_) async => false, conflict: (_, __) async => null),
         throwsStateError);
     expect(posts, 1);
     expect((await service.pending('kaspa:qfixture'))!['signed'], [
       {'signatureScript': 'signed-bytes'}
     ]);
+  });
+  for (final scenario in [
+    'confirmed-conflict',
+    'unaccepted-conflict',
+    'different-output',
+    'own-transaction',
+    'rate-limit',
+    'empty-history'
+  ]) {
+    test('Own-node stale-plan proof: $scenario', () async {
+      final store = MemoryStore();
+      var posts = 0;
+      final candidate = scenario == 'own-transaction' ? savedId : competing;
+      final spends = {
+        'previous_outpoint_hash': origin,
+        'previous_outpoint_index': scenario == 'different-output' ? '1' : '0'
+      };
+      final service = KaspaRocketService(
+          mainnet: true,
+          store: store,
+          client: MockClient((request) async {
+            if (request.method == 'POST') posts++;
+            if (scenario == 'rate-limit') return http.Response('{}', 429);
+            if (request.url.path.endsWith('/transactions/$origin')) {
+              return http.Response(
+                  jsonEncode({
+                    'transaction_id': origin,
+                    'is_accepted': true,
+                    'outputs': [
+                      {'index': 0, 'script_public_key_address': 'kaspa:qpool'}
+                    ]
+                  }),
+                  200);
+            }
+            if (request.url.path.endsWith('/full-transactions')) {
+              return http.Response(
+                  jsonEncode(scenario == 'empty-history'
+                      ? []
+                      : [
+                          {
+                            'transaction_id': candidate,
+                            'inputs': [spends]
+                          }
+                        ]),
+                  200);
+            }
+            return http.Response(
+                jsonEncode({
+                  'transaction_id': candidate,
+                  'is_accepted': scenario != 'unaccepted-conflict',
+                  'inputs': [spends]
+                }),
+                200);
+          }));
+      await service.retain(wallet, savedSwap());
+      if (scenario == 'rate-limit') {
+        await expectLater(
+            service.retireConflictedSwap(wallet, accepted: (_) async => false),
+            throwsStateError);
+      } else {
+        expect(
+            await service.retireConflictedSwap(wallet,
+                accepted: (_) async => false),
+            scenario == 'confirmed-conflict');
+      }
+      expect(posts, 0);
+      if (scenario == 'confirmed-conflict') {
+        expect(await service.pending(wallet), isNull);
+        final archive = jsonDecode(store.values.values.single) as Map;
+        expect(archive['conflictingTransactionId'], competing);
+        expect(archive['signed'], savedSwap()['signed']);
+      } else {
+        expect(await service.pending(wallet), savedSwap());
+      }
+    });
+  }
+  test('Existing stale journals become refreshable without another broadcast',
+      () async {
+    final store = MemoryStore();
+    var calls = 0;
+    final service = KaspaRocketService(
+        mainnet: true,
+        store: store,
+        client: MockClient((_) async {
+          calls++;
+          throw StateError('Must not broadcast');
+        }));
+    await service.retain(wallet, savedSwap());
+    await expectLater(
+        service.resume(wallet,
+            accepted: (_) async => false,
+            conflict: (_, ids) async {
+              expect(ids, {savedId});
+              return competing;
+            }),
+        throwsA(isA<KaspaRocketQuoteExpired>()));
+    expect(calls, 0);
+    expect(await service.pending(wallet), isNull);
+  });
+  test('A fresh submit conflict archives only after independent proof, once',
+      () async {
+    final store = MemoryStore();
+    var posts = 0;
+    final service = KaspaRocketService(
+        mainnet: true,
+        store: store,
+        client: MockClient((request) async {
+          if (request.method == 'POST') {
+            posts++;
+            return http.Response(
+                '{"error":{"message":"selected pool input spent"}}', 409);
+          }
+          return http.Response('{"network":"mainnet"}', 200);
+        }));
+    await service.retain(wallet, savedSwap());
+    await expectLater(
+        service.resume(wallet,
+            checkConflict: false,
+            accepted: (_) async => false,
+            conflict: (_, __) async => competing),
+        throwsA(isA<KaspaRocketQuoteExpired>()));
+    expect(posts, 1);
+    expect(await service.pending(wallet), isNull);
+  });
+  test('409 alone never releases a signed swap and preserves provider details',
+      () async {
+    final store = MemoryStore();
+    var posts = 0;
+    final service = KaspaRocketService(
+        mainnet: true,
+        store: store,
+        client: MockClient((request) async {
+          if (request.method == 'POST') {
+            posts++;
+            return http.Response(
+                '{"error":{"message":"node rejected transaction for another reason"}}',
+                409);
+          }
+          return http.Response('{"network":"mainnet"}', 200);
+        }));
+    await service.retain(wallet, savedSwap());
+    await expectLater(
+        service.resume(wallet,
+            checkConflict: false,
+            accepted: (_) async => false,
+            conflict: (_, __) async => null),
+        throwsA(isA<KaspaRocketConflict>().having(
+            (e) => e.detail, 'provider error', contains('another reason'))));
+    expect(posts, 1);
+    expect(await service.pending(wallet), savedSwap());
+  });
+  test('Partial multi-transaction plans are never discarded as a fresh swap',
+      () async {
+    final store = MemoryStore();
+    final service = KaspaRocketService(mainnet: true, store: store);
+    await service.retain(wallet, savedSwap(next: 1));
+    expect(
+        await service.retireConflictedSwap(wallet,
+            accepted: (_) async => false, conflict: (_, __) async => competing),
+        isFalse);
+    expect(await service.pending(wallet), isNotNull);
+  });
+  test('Acceptance arriving during conflict lookup keeps the signed journal',
+      () async {
+    final store = MemoryStore();
+    var checks = 0;
+    final service = KaspaRocketService(mainnet: true, store: store);
+    await service.retain(wallet, savedSwap());
+    expect(
+        await service.retireConflictedSwap(wallet,
+            accepted: (_) async => ++checks > 1,
+            conflict: (_, __) async => competing),
+        isFalse);
+    expect(await service.pending(wallet), isNotNull);
   });
 }

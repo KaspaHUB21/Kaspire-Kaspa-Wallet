@@ -276,12 +276,32 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
 
   String readableError(Object error) =>
       error.toString().replaceFirst(RegExp(r'^(Bad state: |Exception: )'), '');
+  Future<void> showFailure(Object error) async {
+    final saved = await widget.service.pending(widget.address);
+    if (mounted) {
+      setState(() {
+        errorText = readableError(error);
+        pendingSwap = saved;
+        quote = null;
+      });
+    }
+  }
+
   Future<void> getQuote() async {
     setState(() {
       busy = true;
       errorText = null;
+      quote = null;
     });
     try {
+      if (await widget.service.pending(widget.address) != null) {
+        if (!await widget.service.retireConflictedSwap(widget.address)) {
+          throw StateError(
+              'The saved swap has not been proven obsolete. Check its status before creating another swap.');
+        }
+        if (mounted) setState(() => pendingSwap = null);
+      }
+      await load();
       final rawAmount = raw();
       validateAvailable(rawAmount);
       final result = await widget.service.quote(
@@ -296,7 +316,7 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
       }
       if (mounted) setState(() => quote = result);
     } catch (e) {
-      if (mounted) setState(() => errorText = readableError(e));
+      await showFailure(e);
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -440,7 +460,8 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
       };
       await widget.service.retain(widget.address, saved);
       if (mounted) setState(() => pendingSwap = saved);
-      final completed = await widget.service.resume(widget.address);
+      final completed =
+          await widget.service.resume(widget.address, checkConflict: false);
       if (mounted) {
         setState(() {
           completedSwap = completed;
@@ -448,7 +469,7 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => errorText = readableError(e));
+      await showFailure(e);
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -468,7 +489,7 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
         });
       }
     } catch (error) {
-      if (mounted) setState(() => errorText = readableError(error));
+      await showFailure(error);
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -584,7 +605,10 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
           const SizedBox(height: 10),
           OutlinedButton(
               onPressed: busy || pool == null ? null : getQuote,
-              child: const Text('Get live quote')),
+              child: Text(
+                  pendingSwap != null || errorText != null || quote != null
+                      ? 'Refresh quote'
+                      : 'Get live quote')),
           if (quote != null)
             Card(
                 child: Padding(
@@ -619,12 +643,12 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
                     padding: const EdgeInsets.all(16),
                     child: Column(children: [
                       const Text(
-                          'Signed swap saved. Do not create another swap.',
+                          'Signed swap saved. Check its status, or refresh the quote to safely check for an obsolete plan.',
                           style: TextStyle(fontWeight: FontWeight.bold)),
                       FilledButton.icon(
                           onPressed: busy ? null : resumeSwap,
                           icon: const Icon(Icons.play_arrow_rounded),
-                          label: const Text('Resume saved swap')),
+                          label: const Text('Check saved swap')),
                     ]))),
           FilledButton.icon(
               onPressed:

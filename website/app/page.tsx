@@ -652,6 +652,8 @@ export default function Home() {
                 with local Rust signing, own-node input checks and encrypted
                 swap recovery. This update also supports verified KCC20
                 10-input/10-output configurations and whole-payment approvals.
+                The latest hotfix restores Refresh quote after confirmed pool
+                conflicts, including obsolete swaps saved by the previous app.
                 Signed with the existing Android release certificate and
                 signing lineage.
               </p>

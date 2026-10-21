@@ -40,7 +40,7 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.58**, build **197**
+- Android app: **0.11.59**, build **198**
 - Android package: `space.kaspire.wallet`
 - Browser extension package: **0.5.14** (submitted to Chrome Web Store review)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
@@ -52,6 +52,10 @@ DEX Swaps and My Activity, direct bonding-curve token balances independent
 of Kasvio, local Rust contract execution, own-node input checks and encrypted
 swap recovery. Mainnet SDK credentials remain server-side. This release does
 not change the browser extension.
+
+Android 0.11.59 fixes obsolete KaspaRocket recovery locks: a confirmed competing
+spend is checked on the own node before archiving an expired plan and allowing
+a fresh quote. Ambiguous broadcasts and partially completed plans stay saved.
 
 Android and the browser extension now expose a separate Mainnet **P2SH account**
 under Receive KAS. It uses KIP-22 derivation to hide spending public keys until

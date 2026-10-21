@@ -6,6 +6,19 @@ import 'kaspa_api.dart';
 import 'activity_store.dart';
 import 'kron_dex_service.dart';
 
+class KaspaRocketConflict extends StateError {
+  KaspaRocketConflict(this.detail)
+      : super(
+            'The swap could not use the current pool or wallet state. $detail');
+  final String detail;
+}
+
+class KaspaRocketQuoteExpired extends StateError {
+  KaspaRocketQuoteExpired()
+      : super(
+            'The pool changed before this swap executed. The obsolete swap was archived. Refresh the quote to try again.');
+}
+
 class KaspaRocketToken {
   const KaspaRocketToken(
       {required this.tokenId,
@@ -46,6 +59,113 @@ class KaspaRocketService {
 
   Future<void> retain(String address, Map<String, Object?> receipt) =>
       _store.write(_pendingKey(address), jsonEncode(receipt));
+
+  /// A missing transaction/UTXO is NOT proof of failure. Only a different,
+  /// accepted own-node transaction spending the exact input can retire a swap.
+  /// A plan with an already completed leg must remain recoverable, not restart.
+  Future<bool> retireConflictedSwap(String address,
+      {Future<bool> Function(String)? accepted,
+      Future<String?> Function(Map<String, Object?>, Set<String>)?
+          conflict}) async {
+    final receipt = await pending(address);
+    if (receipt == null ||
+        receipt['network'] != networkId ||
+        receipt['address'] != address ||
+        receipt['next'] != 0) {
+      return false;
+    }
+    final ids = (receipt['transactionIds'] as List).cast<String>();
+    final transactions = (receipt['signed'] as List).whereType<Map>().toList();
+    if (ids.isEmpty || ids.length != transactions.length) return false;
+    final check = accepted ?? KaspaApi().kcc20PlanTransactionAccepted;
+    if (await check(ids.first)) return false;
+    final competing = await (conflict ?? _confirmedConflictingSpend)(
+        transactions.first.cast<String, Object?>(), ids.toSet());
+    if (competing == null || ids.contains(competing)) return false;
+    // Recheck after obtaining the proof, including older recovery journals.
+    if (await check(ids.first)) return false;
+    await _store.write(
+        '${_pendingKey(address)}_last_obsolete',
+        jsonEncode({
+          ...receipt,
+          'retiredReason': 'confirmed-conflicting-spend',
+          'conflictingTransactionId': competing,
+          'retiredAt': DateTime.now().toIso8601String(),
+        }));
+    await _store.delete(_pendingKey(address));
+    return true;
+  }
+
+  Future<String?> _confirmedConflictingSpend(
+      Map<String, Object?> tx, Set<String> savedIds) async {
+    if (!mainnet) return null;
+    const node = 'https://kaspire.kaslab.space/api/local-node';
+    Future<Object?> read(String path) async {
+      final response = await _client
+          .get(Uri.parse('$node$path'))
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) {
+        throw StateError(
+            'Own-node swap status is temporarily unavailable. The saved swap is preserved.');
+      }
+      return jsonDecode(response.body);
+    }
+
+    final inputs = (tx['inputs'] as List).whereType<Map>().toList()
+      ..sort((a, b) => ((b['utxo'] as Map)['covenantId'] != null ? 1 : 0)
+          .compareTo((a['utxo'] as Map)['covenantId'] != null ? 1 : 0));
+    final visited = <String>{};
+    for (final input in inputs) {
+      if (visited.length >= 3) break;
+      final outpoint = input['previousOutpoint'] as Map;
+      final originId = outpoint['transactionId'].toString();
+      final index = outpoint['index'];
+      if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(originId)) return null;
+      final origin = await read('/transactions/$originId') as Map;
+      if (origin['transaction_id'] != originId ||
+          origin['is_accepted'] != true) {
+        continue;
+      }
+      final outputs = (origin['outputs'] as List)
+          .whereType<Map>()
+          .where((o) => o['index'] == index)
+          .toList();
+      if (outputs.length != 1) continue;
+      final address = outputs.single['script_public_key_address'];
+      if (address is! String ||
+          !address.startsWith('kaspa:') ||
+          !visited.add(address)) {
+        continue;
+      }
+      final rows = await read(
+          '/addresses/${Uri.encodeComponent(address)}/full-transactions?limit=50&offset=0');
+      if (rows is! List) {
+        throw StateError(
+            'Invalid own-node history. The saved swap is preserved.');
+      }
+      for (final row in rows.whereType<Map>()) {
+        final id = row['transaction_id'];
+        if (id is! String ||
+            savedIds.contains(id) ||
+            !RegExp(r'^[0-9a-f]{64}$').hasMatch(id)) {
+          continue;
+        }
+        bool spends(Map candidate) => (candidate['inputs'] as List? ?? const [])
+            .whereType<Map>()
+            .any((i) =>
+                i['previous_outpoint_hash'] == originId &&
+                i['previous_outpoint_index'].toString() == index.toString());
+        if (!spends(row)) continue;
+        final confirmed = await read('/transactions/$id') as Map;
+        if (confirmed['transaction_id'] == id &&
+            confirmed['is_accepted'] == true &&
+            spends(confirmed)) {
+          return id;
+        }
+      }
+    }
+    return null;
+  }
 
   /// Reuse the same strict own-node UTXO/origin checks as the existing DEX.
   /// Planned child inputs must match a preceding locally reviewed output.
@@ -94,12 +214,19 @@ class KaspaRocketService {
 
   Future<Map<String, Object?>> resume(String address,
       {Future<bool> Function(String)? accepted,
+      Future<String?> Function(Map<String, Object?>, Set<String>)? conflict,
+      bool checkConflict = true,
       ActivityStore? activity}) async {
     final receipt = await pending(address);
     if (receipt == null ||
         receipt['network'] != networkId ||
         receipt['address'] != address) {
       throw StateError('No saved swap for this wallet and network.');
+    }
+    if (checkConflict &&
+        await retireConflictedSwap(address,
+            accepted: accepted, conflict: conflict)) {
+      throw KaspaRocketQuoteExpired();
     }
     final transactions = (receipt['signed'] as List).whereType<Map>().toList();
     final ids = (receipt['transactionIds'] as List).cast<String>();
@@ -111,10 +238,19 @@ class KaspaRocketService {
       // Confirm before any replay; a timeout never permits a new payment.
       if (!await check(ids[i])) {
         await verifyNetwork();
-        final result = await submit(transactions[i].cast<String, Object?>(),
-            orderRow: i == transactions.length - 1 && receipt['order'] is Map
-                ? (receipt['order'] as Map).cast<String, Object?>()
-                : null);
+        Map<String, Object?> result;
+        try {
+          result = await submit(transactions[i].cast<String, Object?>(),
+              orderRow: i == transactions.length - 1 && receipt['order'] is Map
+                  ? (receipt['order'] as Map).cast<String, Object?>()
+                  : null);
+        } on KaspaRocketConflict {
+          if (await retireConflictedSwap(address,
+              accepted: accepted, conflict: conflict)) {
+            throw KaspaRocketQuoteExpired();
+          }
+          rethrow;
+        }
         receipts.add(result);
         receipt['receipts'] = receipts;
         await retain(address, receipt);
@@ -211,12 +347,20 @@ class KaspaRocketService {
               ? decoded['message'] ?? decoded['error'] ?? response.reasonPhrase
               : response.reasonPhrase;
           if (response.statusCode == 409) {
-            throw StateError(
-                'The live pool or wallet balance changed. Refresh the quote and try again.');
+            final error = decoded is Map ? decoded['error'] : null;
+            final detail =
+                (error is Map ? error['message'] ?? error['detail'] : null) ??
+                    (decoded is Map
+                        ? decoded['message'] ?? decoded['detail']
+                        : null) ??
+                    message;
+            throw KaspaRocketConflict(detail.toString());
           }
           throw StateError('KaspaRocket: ${message ?? response.statusCode}');
         }
         return decoded;
+      } on KaspaRocketConflict {
+        rethrow;
       } catch (_) {
         if (!retry || attempt == 1) rethrow;
         await Future<void>.delayed(const Duration(milliseconds: 350));
