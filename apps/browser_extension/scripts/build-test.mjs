@@ -9,6 +9,9 @@ const cargoTargetDir = process.env.CARGO_TARGET_DIR
 
 await rm("tests/generated", { recursive: true, force: true });
 await mkdir("tests/generated/wasm", { recursive: true });
+await build({entryPoints:["src/shared/operationDeadline.ts"],outfile:"tests/generated/operationDeadline.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
+await build({entryPoints:["src/shared/kcc20Compound.ts"],outfile:"tests/generated/kcc20Compound.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
+await build({entryPoints:["src/background/standardKcc20.ts"],outfile:"tests/generated/standardKcc20.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/background/secretInputs.ts"],outfile:"tests/generated/secretInputs.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/shared/nexusListings.ts"],outfile:"tests/generated/nexusListings.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/background/kronDex.ts"],outfile:"tests/generated/kronDex.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});

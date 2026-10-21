@@ -1,5 +1,6 @@
 import type { KaspaNetwork } from "../shared/protocol";
 import {directKronAssets, directKronTransfer} from './kronHoldings';
+import {standardKcc20Assets, standardKcc20TransferData, cachedStandardKcc20Asset, standardKcc20Token, waitForStandardKcc20Cell} from './standardKcc20';
 import {dotkNamesOf, resolveDotkName} from "./dotk";
 import { nftWalletPage, nftMetadata, nftImage, requireUnlistedNft } from "./krc721Reads";
 const MAINNET = "https://kaspire.kaslab.space/api";
@@ -15,9 +16,11 @@ async function request(
     const response = await fetch(url, { ...init, signal: controller.signal });
     if (!response.ok) {
       const parsed = new URL(url);
-      throw new Error(
+      const error = new Error(
         `Network request failed (${response.status}) for ${parsed.hostname}${parsed.pathname}.`,
       );
+      Object.assign(error,{httpStatus:response.status,retryAfterMs:Math.max(0,Number(response.headers.get('retry-after')??0)*1000)||0});
+      throw error;
     }
     return await response.json();
   } catch (error) {
@@ -498,16 +501,40 @@ async function loadKcc20AssetsFromIndexer(address: string) {
     )
   ).filter(Boolean);
 }
+const kcc20Warnings = new Map<string,string>();
+export function kcc20DiscoveryWarning(address:string) {return kcc20Warnings.get(address)??'';}
 async function loadKcc20Assets(address: string) {
-  const [legacy, kron] = await Promise.allSettled([
+  let warning='';
+  const [legacy, kron, standard] = await Promise.allSettled([
     loadKcc20AssetsFromIndexer(address).catch(() => loadKascovAssets(address)),
     directKronAssets(url => request(url, {headers: {accept: 'application/json'}}, 5000), address),
+    standardKcc20Assets(get, ownerId(address), value=>{warning=value;}).catch(error=>{
+      warning='Standard KCC20 balances are temporarily unavailable. Please retry.';throw error;
+    }),
   ]);
-  if (legacy.status === 'rejected' && kron.status === 'rejected') throw legacy.reason;
+  kcc20Warnings.set(address,warning);
+  if (legacy.status === 'rejected' && kron.status === 'rejected' && standard.status === 'rejected') throw new Error(warning||'KCC20 balances are temporarily unavailable.');
   const assets = legacy.status === 'fulfilled' ? legacy.value : [];
-  if (kron.status === 'rejected') return assets;
-  const ids = new Set(kron.value.map((item: any) => item.covenantId));
-  return [...assets.filter((item: any) => item.standard !== 'kron-native' && !ids.has(item.covenantId)), ...kron.value];
+  const direct = [...(kron.status==='fulfilled'?kron.value:[]), ...(standard.status==='fulfilled'?standard.value:[])];
+  const ids = new Set(direct.map((item: any) => item.covenantId));
+  return [...assets.filter((item: any) => item.standard !== 'kron-native' && !ids.has(item.covenantId)), ...direct];
+}
+
+export async function selectedKcc20Asset(address:string,covenantId:string) {
+  const category=categoryCache.get(`mainnet:${address}:kcc20`);
+  const cached=category && Date.now()-category.at<300_000 ? category.value.find(row=>row.covenantId===covenantId) : undefined;
+  const known=cached??cachedStandardKcc20Asset(get,ownerId(address),covenantId);
+  if(known)return known; // Display metadata only; signing state is always fresh.
+  try{return await standardKcc20Token(get,covenantId);}catch(error) {
+    if((error as any)?.httpStatus===429 || (error as any)?.httpStatus>=500)throw error;
+    return (await loadKcc20Assets(address)).find((row:any)=>row.covenantId===covenantId);
+  }
+}
+export async function standardKcc20SigningData(address: string, covenantId: string, amount: number, options:{signal?:AbortSignal;progress?:(stage:string)=>void}={}) {
+  return standardKcc20TransferData(get, covenantId, ownerId(address), amount, options);
+}
+export async function waitForStandardKcc20Output(address:string,covenantId:string,txid:string,options:{signal?:AbortSignal;progress?:(stage:string)=>void}={}) {
+  return waitForStandardKcc20Cell(get,covenantId,ownerId(address),txid,options);
 }
 
 async function loadKascovAssets(address: string) {
@@ -868,6 +895,12 @@ export async function kcc20TransferData(
     rawBalance,
   };
 }
+export async function isKcc20TransactionAccepted(transactionId: string) {
+  if(!/^[0-9a-f]{64}$/.test(transactionId))throw Error('Invalid KCC20 transaction ID.');
+  const tx=await get(`${MAINNET}/local-node/transactions/${transactionId}`);
+  return tx?.transaction_id===transactionId && tx?.is_accepted===true;
+}
+
 export async function verifyWyrmCell(cell: any) {
   const outputAddress = String(cell?.outputAddress ?? "");
   const transactionId = String(cell?.transactionId ?? "").toLowerCase();

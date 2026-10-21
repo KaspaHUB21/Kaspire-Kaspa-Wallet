@@ -6,6 +6,7 @@ import 'kasparocket_service.dart';
 import 'krc721_reads.dart';
 import 'kron_holdings.dart';
 import 'kcc20_standard_service.dart';
+import 'kcc20_compound.dart';
 import 'activity_store.dart';
 
 import 'package:http/http.dart' as http;
@@ -73,8 +74,20 @@ class KaspaApi {
   Kcc20StandardService get standardKcc20 => Kcc20StandardService(_client,
       base: '$kasvioBaseUrl/api/kcc20/v1', node: '$baseUrl/local-node');
   Future<List<Kcc20CellRecord>> loadStandardKcc20SigningCells(
-          String address, String covenantId, int amount) =>
-      standardKcc20.signingCells(address, covenantId, amount);
+          String address, String covenantId, int amount,
+          {bool allowCompound = false}) =>
+      standardKcc20.signingCells(address, covenantId, amount,
+          allowCompound: allowCompound);
+  Future<Kcc20Step> loadStandardKcc20SigningBatch(
+          String address, String covenantId, int amount,
+          {bool Function()? isCancelled, void Function(String)? onProgress}) =>
+      standardKcc20.signingBatch(address, covenantId, amount,
+          isCancelled: isCancelled, onProgress: onProgress);
+  Future<void> waitForStandardKcc20Cell(
+          String address, String covenantId, String transactionId,
+          {bool Function()? isCancelled, void Function(String)? onProgress}) =>
+      standardKcc20.waitForCell(address, covenantId, transactionId,
+          isCancelled: isCancelled, onProgress: onProgress);
   final String toccataBroadcastUrl;
   Future<Map<String, double>>? _floorPrices;
 
@@ -2699,6 +2712,13 @@ class KaspaApi {
     throw KaspaApiException(
       'Covenant broadcast could not be confirmed: $broadcastError',
     );
+  }
+
+  Future<bool> isKcc20TransactionAccepted(String transactionId) {
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(transactionId)) {
+      throw StateError('Invalid KCC20 transaction ID.');
+    }
+    return _waitForAcceptedTransaction(transactionId);
   }
 
   Future<bool> _waitForAcceptedTransaction(String transactionId) async {

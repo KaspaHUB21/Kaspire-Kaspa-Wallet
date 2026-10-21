@@ -32,6 +32,7 @@ type CoreModule = {
   signTransaction(secret: string, request: string, reviewHash: string): string;
   signPersonalMessage(secret: string, address: string, message: string): string;
   preparePskt(request: string): string;
+  prepareKronTransfer(request: string): string;
   prepareNftMarket(request: string): string;
   signPskt(secret: string, request: string, reviewHash: string): string;
   prepareInscription(request: string): string;

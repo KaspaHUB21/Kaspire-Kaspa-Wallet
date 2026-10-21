@@ -516,6 +516,12 @@ pub fn prepare_pskt_js(request: &str) -> std::result::Result<String, JsError> {
     json(prepare_pskt(&request))
 }
 
+#[wasm_bindgen(js_name = prepareKronTransfer)]
+pub fn prepare_kron_transfer_js(request: &str) -> std::result::Result<String, JsError> {
+    let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid KCC20 request"))?;
+    json(crate::prepare_kron_transfer(&request))
+}
+
 #[wasm_bindgen(js_name = signPskt)]
 pub fn sign_pskt_js(
     secret: Vec<u8>,

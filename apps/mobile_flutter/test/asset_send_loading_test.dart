@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -44,6 +45,36 @@ class SlowApi extends KaspaApi {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets(
+      'pending KCC20 compound survives closing the view without implying recipient payment',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'kaspire_pending_kcc20_compound_kaspa:test': jsonEncode({
+        'operation': {
+          'kind': 'kcc20',
+          'covenantId': 'second',
+          'intendedRecipient': 'kaspa:recipient',
+          'intendedAmount': '2',
+          'intendedDisplayAmount': '2',
+          'standard': 'kcc20'
+        },
+        'transactionId': 'a' * 64,
+      })
+    });
+    final api = SlowApi();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: AssetSendScreen(
+                address: 'kaspa:test', onDone: () {}, api: api))));
+    await tester.pump();
+    expect(find.text('KCC20 TRANSFER NOT COMPLETED'), findsOneWidget);
+    expect(find.textContaining('recipient has NOT been paid'), findsOneWidget);
+    expect(find.text('Continue KCC20 transfer'), findsOneWidget);
+    api.result.complete(snapshot);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
   testWidgets('selected asset is usable before the refresh finishes',
       (tester) async {
     final api = SlowApi();

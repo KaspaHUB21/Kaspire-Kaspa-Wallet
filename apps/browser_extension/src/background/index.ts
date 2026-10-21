@@ -52,6 +52,11 @@ import {
   inscriptionAssets,
   kcc20History,
   kcc20TransferData,
+  standardKcc20SigningData,
+  selectedKcc20Asset,
+  waitForStandardKcc20Output,
+  kcc20DiscoveryWarning,
+  isKcc20TransactionAccepted,
   kronTransferData,
   marketPrice,
   networkDiagnostics,
@@ -80,6 +85,7 @@ import {
   type ProviderMethod,
 } from "../shared/protocol";
 import { formatRawTokenAmount } from "../shared/tokenAmount";
+import { planKcc20Step } from "../shared/kcc20Compound";
 import { kcc20 as kronKcc20, spend as kronSpend } from "@kronsdk/kron-sdk";
 import { loadKaspa as loadKronKaspa } from "@kronsdk/kron-sdk/wasm";
 import {
@@ -245,6 +251,7 @@ interface PreparedAssetTransfer {
   request: any;
   review: any;
   createdAt: number;
+  continuation?: Record<string, unknown>;
 }
 
 chrome.runtime.onInstalled.addListener(() =>
@@ -363,12 +370,14 @@ async function walletCommand(
     const stored = await chrome.storage.local.get([
       "encryptedVault",
       "pendingInscription",
+      "pendingKcc20Compound",
     ]);
     return {
       ...state,
       locked: sessionVault === null,
       hasVault: Boolean(stored.encryptedVault),
       pendingInscription: stored.pendingInscription ?? null,
+      pendingKcc20Compound: stored.pendingKcc20Compound?.compoundSender === state.selectedAddress ? stored.pendingKcc20Compound : null,
     };
   }
   if (message.command === "pendingApproval") {
@@ -501,7 +510,8 @@ async function walletCommand(
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
     if (state.network === "testnet-10" && String(message.category) === "kcc20")
       return rocketWalletAssets(state.selectedAddress);
-    return walletAssetCategory(state.selectedAddress, state.network, String(message.category));
+    const items=await walletAssetCategory(state.selectedAddress, state.network, String(message.category));
+    return String(message.category)==='kcc20' ? {items,warning:kcc20DiscoveryWarning(state.selectedAddress)} : items;
   }
   if (message.command === "resolveDotkName") {
     if (state.network !== "mainnet") throw new Error("dot.k is available on Layer 1 only.");
@@ -1963,6 +1973,26 @@ async function walletCommand(
       throw new Error("Node returned a mismatching transaction ID.");
     return signed.transactionId;
   }
+  if (message.command === "recoverKcc20Payment") {
+    const pending=(await chrome.storage.local.get('pendingKcc20Compound')).pendingKcc20Compound;
+    if(pending?.compoundSender!==state.selectedAddress || state.network!=='mainnet' || !pending?.finalPayment)
+      throw Error('No final KCC20 payment awaits confirmation for this wallet.');
+    const payment=pending.finalPayment;
+    let accepted=false;
+    try {accepted=await isKcc20TransactionAccepted(payment.transactionId);} catch { /* Discovery can lag. */ }
+    if(!accepted) {
+      if(typeof payment.signedTxJson!=='string') throw Error(`Final payment ${payment.transactionId} is not confirmed. No duplicate will be created.`);
+      await broadcastKcc20(payment.signedTxJson,payment.transactionId);
+    }
+    await recordWalletActivity(state.selectedAddress!,{
+      transactionId:payment.transactionId,blockTime:Date.now(),isAccepted:true,incoming:false,
+      assetKind:'KCC20',assetSymbol:payment.operation.ticker,displayAmount:payment.operation.displayAmount,
+      tokenId:payment.operation.covenantId,covenantId:payment.operation.covenantId,
+      counterparty:payment.operation.recipient,from:[{address:state.selectedAddress}],to:[{address:payment.operation.recipient}],
+      feeSompi:payment.feeSompi,type:'transfer',standard:payment.operation.standard});
+    await chrome.storage.local.remove('pendingKcc20Compound');
+    return {...payment,revealTransactionId:payment.transactionId,revealFeeSompi:payment.feeSompi,kind:'kcc20'};
+  }
   if (message.command === "resumeInscription") {
     if (!sessionVault) throw new Error("Unlock Kaspire first.");
     const pending = (await chrome.storage.local.get("pendingInscription"))
@@ -1985,7 +2015,7 @@ async function walletCommand(
   }
   if (message.command === "prepareAsset") {
     if (!sessionVault) throw new Error("Unlock Kaspire first.");
-    return prepareWalletAsset(message, state, progress);
+    return prepareWalletAsset(message, state, progress, operationSignal);
   }
   if (message.command === "confirmPreparedAsset") {
     if (!sessionVault) throw new Error("Unlock Kaspire first.");
@@ -3541,15 +3571,44 @@ async function prepareWalletAsset(
   input: Record<string, unknown>,
   state: Awaited<ReturnType<typeof loadState>>,
   progress: (stage: string) => void,
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   if (state.network !== "mainnet" || !state.selectedAddress)
     throw new Error("Kaspa assets are available on Mainnet only.");
   const sender = state.selectedAddress;
+  if(input.finalPayment) throw Error(`Final KCC20 payment ${(input.finalPayment as any).transactionId} already signed. Check its confirmation instead of preparing another payment.`);
+  if(input.compoundSender && input.compoundSender !== sender)
+    throw new Error('Switch back to the original wallet to continue this KCC20 transfer.');
+  const after = input.afterCompound as any;
+  if(after) {
+    if(!/^[0-9a-f]{64}$/.test(String(after.transactionId??'')))throw Error('Invalid compound transaction ID.');
+    if(after.standard==='kcc20') {
+      await waitForStandardKcc20Output(sender,String(input.covenantId),after.transactionId,{signal,progress});
+    } else {
+    let ready=false;
+    for(let attempt=0;attempt<24;attempt++) {
+      progress('Cells compounded; waiting for indexed, spendable output. Recipient NOT paid…');
+      try {
+        signal?.throwIfAborted();
+        const verified=await kcc20TransferData(sender,String(input.covenantId),Number(input.amount));
+        if(verified.cells.some((cell:any)=>cell.transactionId===after.transactionId)) {ready=true;break;}
+      } catch { /* Wait for the accepted self-transfer, never send another one. */ }
+      await new Promise(resolve=>setTimeout(resolve,3000));
+    }
+    if(!ready)throw Error(`Your cells were compounded (${after.transactionId}). The recipient has NOT been paid. The indexer is still catching up; resume this transfer later.`);
+    }
+  }
   progress("Resolving recipient…");
   const recipient = await resolveWalletInput(
     String(input.to ?? ""),
     state.network,
   );
+  if(String(input.kind)==='kcc20') {
+    const pending=(await chrome.storage.local.get('pendingKcc20Compound')).pendingKcc20Compound;
+    if(pending?.compoundSender===sender && pending?.finalPayment)
+      throw Error('An already signed KCC20 payment awaits confirmation. Use Continue KCC20 transfer before preparing another payment.');
+  }
   if (
     state.settings.recipientAllowlist &&
     !state.contacts.some((item) => item.address === recipient) &&
@@ -3561,7 +3620,7 @@ async function prepareWalletAsset(
   const savedSnapshot = (
     await chrome.storage.session.get("assetReviewSnapshot")
   ).assetReviewSnapshot as any;
-  const assets =
+  const assets = kind === 'kcc20' ? {tokens:[],domains:[],krc721:[]} :
     savedSnapshot?.address === sender &&
     savedSnapshot?.network === state.network
       ? savedSnapshot.assets
@@ -3580,11 +3639,8 @@ async function prepareWalletAsset(
       numericAmount <= 0
     )
       throw new Error("Invalid KCC20 request.");
-    const covenantAsset = (
-      await walletAssets(sender, state.network)
-    ).kcc20.find(
-      (item: any) => String(item.covenantId).toLowerCase() === covenantId,
-    );
+    // No full-wallet/token-catalogue scan while preparing a selected token.
+    const covenantAsset = await selectedKcc20Asset(sender,covenantId);
     if (covenantAsset?.standard === "kron-native") {
       prepared = await prepareKronTransfer(
         sender,
@@ -3596,43 +3652,55 @@ async function prepareWalletAsset(
       );
     } else {
       progress("Verifying KCC20 cells…");
-      const verified = await kcc20TransferData(
-        sender,
-        covenantId,
-        numericAmount,
-      );
+      const standard = covenantAsset?.standard === 'kcc20';
+      const verified = standard
+        ? {...await standardKcc20SigningData(sender,covenantId,numericAmount,{signal,progress}), ticker:covenantAsset.symbol, decimals:covenantAsset.decimals}
+        : await kcc20TransferData(sender,covenantId,numericAmount);
+      const step = standard ? verified as any : planKcc20Step(verified.cells,numericAmount,2);
+      const compound = step.compound === true;
+      const stepAmount = standard ? step.stepAmount : step.amount;
+      const stepRecipient = compound ? sender : recipient;
       progress("Loading wallet UTXOs and fee…");
       const funding = await spendingData(sender, state.network);
       const request = {
         sender,
-        recipient,
+        recipient: stepRecipient,
         covenantId,
         ticker: verified.ticker,
-        amount: numericAmount,
+        amount: stepAmount,
         decimals: verified.decimals,
         feeRate: funding.feeRate,
         templateHash: verified.templateHash,
-        cells: verified.cells,
+        cells: standard ? verified.cells : step.cells,
         fundingUtxosJson: funding.utxosJson,
       };
       progress("Preparing native KCC20 review…");
-      const review = JSON.parse(
-        (await core()).prepareKcc20Transfer(JSON.stringify(request)),
-      );
+      const wasm = await core();
+      const native = standard ? JSON.parse(wasm.prepareKronTransfer(JSON.stringify(request))) : null;
+      const signingRequest = native?.psktRequest ?? request;
+      const review = standard ? {...native,...JSON.parse(wasm.preparePskt(JSON.stringify(signingRequest))),networkFeeSompi:native.feeSompi,mass:native.feeMass,covenantId}
+        : JSON.parse(wasm.prepareKcc20Transfer(JSON.stringify(request)));
       prepared = {
-        type: "kcc20",
+        type: standard ? "kron" : "kcc20",
         sender,
         operation: {
           kind,
           sender,
-          recipient,
+          recipient: stepRecipient,
           ticker: verified.ticker,
-          amount,
-          displayAmount: String(input.displayAmount ?? ""),
+          amount: String(stepAmount),
+          displayAmount: formatRawTokenAmount(String(stepAmount),verified.decimals),
+          covenantId, standard: standard ? 'kcc20' : 'legacy-kcc20', compound,
+          intendedRecipient: recipient, intendedAmount: amount,
+          intendedDisplayAmount: formatRawTokenAmount(String(numericAmount),verified.decimals),
+          requiredCells:step.requiredCells,
+          transactionCount:step.transactionCount,
+          completedSteps:Number.isSafeInteger(input.completedSteps)?Number(input.completedSteps):0,
         },
-        request,
+        request: signingRequest,
         review,
         createdAt: Date.now(),
+        ...(compound ? {continuation:{...input,to:recipient,compoundSender:sender,completedSteps:(Number.isSafeInteger(input.completedSteps)?Number(input.completedSteps):0)+1,afterCompound:{transactionId:'',standard:standard?'kcc20':'legacy-kcc20'}}} : {}),
       };
     }
   } else {
@@ -3720,6 +3788,7 @@ async function prepareWalletAsset(
     };
   }
   const preparedId = crypto.randomUUID();
+  signal?.throwIfAborted();
   progress("Opening secure review…");
   await chrome.storage.session.set({
     preparedAsset: { id: preparedId, ...prepared },
@@ -4184,10 +4253,31 @@ async function broadcastKron(
   }
 }
 
+async function saveCompoundContinuation(stored: PreparedAssetTransfer, transactionId: string) {
+  const continuation={...stored.continuation,afterCompound:{...(stored.continuation?.afterCompound as any),transactionId}};
+  await chrome.storage.local.set({pendingKcc20Compound:continuation});
+  return continuation;
+}
+
+async function clearCompoundContinuation(stored: PreparedAssetTransfer) {
+  const pending=(await chrome.storage.local.get('pendingKcc20Compound')).pendingKcc20Compound;
+  if(pending?.compoundSender===stored.sender && pending?.covenantId===stored.operation.covenantId &&
+    pending?.to===stored.operation.recipient && String(pending?.amount)===String(stored.operation.amount))
+    await chrome.storage.local.remove('pendingKcc20Compound');
+}
+
+async function saveCompoundFinalPayment(stored: PreparedAssetTransfer, transactionId: string, signedTxJson: string) {
+  const pending=(await chrome.storage.local.get('pendingKcc20Compound')).pendingKcc20Compound;
+  if(pending?.compoundSender===stored.sender && pending?.covenantId===stored.operation.covenantId &&
+    pending?.to===stored.operation.recipient && String(pending?.amount)===String(stored.operation.amount))
+    await chrome.storage.local.set({pendingKcc20Compound:{...pending,finalPayment:{transactionId,signedTxJson,operation:stored.operation,feeSompi:stored.review.feeSompi}}});
+}
+
 async function confirmPreparedAsset(
   preparedId: string,
   state: Awaited<ReturnType<typeof loadState>>,
   vault: VaultPayload,
+  origin = 'Kaspire Wallet',
 ) {
   const stored = (await chrome.storage.session.get("preparedAsset"))
     .preparedAsset as (PreparedAssetTransfer & { id: string }) | undefined;
@@ -4199,22 +4289,28 @@ async function confirmPreparedAsset(
     throw new Error("Prepared asset review expired. Prepare it again.");
   if (stored.sender !== state.selectedAddress)
     throw new Error("The selected wallet changed after review.");
+  const current = await loadState();
+  if(current.selectedAddress !== stored.sender || current.network !== 'mainnet')
+    throw Error('Wallet or network changed after review. Prepare the transfer again.');
   const entry = state.addresses.find((item) => item.address === stored.sender);
   const wallet = vault.wallets.find((item) => item.id === entry?.walletId);
   if (!entry || entry.watchOnly || !wallet)
     throw new Error("Selected wallet cannot sign.");
   const wasm = await core();
   if (stored.type === "kcc20") {
+    const generation = sessionGeneration;
     if (
       !(await approve({
-        origin: "Kaspire Wallet",
-        title: "Authorize KCC20 covenant transfer?",
+        origin,
+        title: stored.operation.compound ? "Authorize KCC20 self-compound?" : "Authorize KCC20 covenant transfer?",
         description: "Verify the native Rust review before signing.",
         details: kcc20ReviewDetails(stored.operation, stored.review),
         rawJson: stored.review.rawJson ?? stored.request,
       }))
     )
       throw rpc(4001, "KCC20 transfer rejected.");
+    if(generation !== sessionGeneration || (await loadState()).selectedAddress !== stored.sender)
+      throw rpc(4001,'Wallet session changed during KCC20 approval.');
     const signed = JSON.parse(
       wasm.signKcc20Transfer(
         signingSecret(wallet, entry),
@@ -4222,7 +4318,10 @@ async function confirmPreparedAsset(
         stored.review.reviewHash,
       ),
     );
+    if(stored.continuation) await saveCompoundContinuation(stored,signed.transactionId);
+    else await saveCompoundFinalPayment(stored,signed.transactionId,signed.wrpcJson);
     await broadcastKcc20(signed.wrpcJson, signed.transactionId);
+    if(!stored.continuation) await clearCompoundContinuation(stored);
     await recordWalletActivity(stored.sender, {
       transactionId: signed.transactionId,
       blockTime: Date.now(),
@@ -4251,7 +4350,7 @@ async function confirmPreparedAsset(
       lockedKasTopUpSompi: stored.review.lockedKasTopUpSompi,
       lockedKasReleasedSompi: stored.review.lockedKasReleasedSompi,
       lockedKasOutputSompi: stored.review.lockedKasOutputSompi,
-      type: "transfer",
+      type: stored.operation.compound ? "compound" : "transfer",
     });
     await chrome.storage.session.remove("preparedAsset");
     return {
@@ -4259,19 +4358,23 @@ async function confirmPreparedAsset(
       transactionId: signed.transactionId,
       revealTransactionId: signed.transactionId,
       revealFeeSompi: stored.review.feeSompi,
+      ...(stored.continuation ? {continuation:await saveCompoundContinuation(stored,signed.transactionId)} : {}),
     };
   }
   if (stored.type === "kron") {
+    const generation = sessionGeneration;
     const warnings = ((stored.review.warnings as string[]) ?? []).map(
       (item) => `Warning: ${item}`,
     );
     if (
       !(await approve({
-        origin: "Kaspire Wallet",
-        title: `Authorize ${stored.operation.ticker} transfer?`,
+        origin,
+        title: stored.operation.compound ? 'Authorize KCC20 self-compound?' : `Authorize ${stored.operation.ticker} transfer?`,
         description:
-          "Kaspire independently reviewed the KRON covenant PSKT and will sign only the selected P2PK funding inputs.",
+          stored.operation.standard === 'kcc20' ? 'Kaspire rebuilt the pinned KCC20 covenant and locally validates every input.' : "Kaspire independently reviewed the KRON covenant PSKT and will sign only the selected P2PK funding inputs.",
         details: [
+          ...(stored.operation.transactionCount>1 ? [`Payment needs ${stored.operation.transactionCount} remaining on-chain transactions (${stored.operation.requiredCells} token cells, contract limit 3). Each has a separate fee. This approval covers ONLY the current transaction.`] : []),
+          ...(stored.operation.compound ? ['AUTO-COMPOUND: self-transfer only. Recipient has NOT been paid.',`Intended payment: ${stored.operation.intendedDisplayAmount} to ${stored.operation.intendedRecipient}`] : []),
           `Send: ${stored.operation.displayAmount} ${stored.operation.ticker}`,
           `To: ${stored.operation.recipient}`,
           `Covenant ID: ${stored.operation.covenantId}`,
@@ -4287,6 +4390,8 @@ async function confirmPreparedAsset(
       }))
     )
       throw rpc(4001, "KRON transfer rejected.");
+    if(generation !== sessionGeneration || (await loadState()).selectedAddress !== stored.sender)
+      throw rpc(4001,'Wallet session changed during KCC20 approval.');
     const signed = JSON.parse(
       wasm.signPskt(
         signingSecret(wallet, entry),
@@ -4294,7 +4399,10 @@ async function confirmPreparedAsset(
         stored.review.reviewHash,
       ),
     ).signedTxJson;
+    if(stored.continuation) await saveCompoundContinuation(stored,stored.review.transactionId);
+    else await saveCompoundFinalPayment(stored,stored.review.transactionId,signed);
     await broadcastKron(signed, stored.review.transactionId);
+    if(!stored.continuation) await clearCompoundContinuation(stored);
     await recordWalletActivity(stored.sender, {
       transactionId: stored.review.transactionId,
       blockTime: Date.now(),
@@ -4324,8 +4432,8 @@ async function confirmPreparedAsset(
       lockedKasReleasedSompi: stored.review.lockedKasReleasedSompi,
       lockedKasOutputSompi: stored.review.lockedKasOutputSompi,
       rawJson: JSON.parse(signed),
-      type: "kron-transfer",
-      standard: "kron-native",
+      type: stored.operation.compound ? 'compound' : "transfer",
+      standard: stored.operation.standard ?? "kron-native",
     });
     await chrome.storage.session.remove("preparedAsset");
     return {
@@ -4333,6 +4441,7 @@ async function confirmPreparedAsset(
       transactionId: stored.review.transactionId,
       revealTransactionId: stored.review.transactionId,
       revealFeeSompi: stored.review.feeSompi,
+      ...(stored.continuation ? {continuation:await saveCompoundContinuation(stored,stored.review.transactionId)} : {}),
     };
   }
   if (
@@ -4889,98 +4998,29 @@ async function kcc20Transfer(
   state: Awaited<ReturnType<typeof loadState>>,
   vault: VaultPayload,
 ) {
-  if (state.network !== "mainnet")
-    throw rpc(4200, "KCC20 is available on Mainnet only.");
+  if (state.network !== "mainnet") throw rpc(4200, "KCC20 is available on Mainnet only.");
   const input = params as any;
   const sender = String(input?.from ?? state.selectedAddress ?? "");
   const recipient = String(input?.to ?? "");
   const covenantId = String(input?.covenantId ?? "").toLowerCase();
   const amount = Number(String(input?.amount ?? ""));
-  if (
-    sender !== state.selectedAddress ||
-    !/^kaspa:[a-z0-9]{61,63}$/.test(recipient) ||
-    !/^[0-9a-f]{64}$/.test(covenantId) ||
-    !Number.isSafeInteger(amount) ||
-    amount <= 0
-  )
+  if(sender !== state.selectedAddress || !/^kaspa:[a-z0-9]{61,63}$/.test(recipient) ||
+    !/^[0-9a-f]{64}$/.test(covenantId) || !Number.isSafeInteger(amount) || amount<=0)
     throw rpc(-32602, "Invalid KCC20 request.");
-  const entry = state.addresses.find((item) => item.address === sender);
-  const wallet = vault.wallets.find((item) => item.id === entry?.walletId);
-  if (!entry || entry.watchOnly || !wallet)
-    throw rpc(4100, "Selected wallet cannot sign.");
-  const verified = await kcc20TransferData(sender, covenantId, amount);
-  const funding = await spendingData(sender, state.network);
-  const request = {
-    sender,
-    recipient,
-    covenantId,
-    ticker: verified.ticker,
-    amount,
-    decimals: verified.decimals,
-    feeRate: funding.feeRate,
-    templateHash: verified.templateHash,
-    cells: verified.cells,
-    fundingUtxosJson: funding.utxosJson,
-  };
-  const wasm = await core();
-  const review = JSON.parse(wasm.prepareKcc20Transfer(JSON.stringify(request)));
-  const display = (amount / 10 ** verified.decimals).toLocaleString("en-US", {
-    maximumFractionDigits: verified.decimals,
-  });
-  if (
-    !(await approve({
-      origin,
-      title: "Approve verified KCC20 transfer?",
-      description:
-        "Kaspire checked indexer cells against the local node and executes the covenant locally.",
-      details: kcc20ReviewDetails(
-        { ticker: verified.ticker, displayAmount: display, recipient },
-        review,
-      ),
-      rawJson: { request, review },
-    }))
-  )
-    throw rpc(4001, "KCC20 transfer rejected.");
-  const signed = JSON.parse(
-    wasm.signKcc20Transfer(
-      signingSecret(wallet, entry),
-      JSON.stringify(request),
-      review.reviewHash,
-    ),
-  );
-  await broadcastKcc20(signed.wrpcJson, signed.transactionId);
-  await recordWalletActivity(sender, {
-    transactionId: signed.transactionId,
-    blockTime: Date.now(),
-    isAccepted: true,
-    incoming: false,
-    assetKind: "KCC20",
-    assetSymbol: verified.ticker,
-    displayAmount: display,
-    tokenId: covenantId,
-    covenantId: review.covenantId,
-    templateHash: review.templateHash,
-    counterparty: recipient,
-    from: [{ address: sender }],
-    to: [{ address: recipient }],
-    feeSompi: review.feeSompi,
-    inputCount: review.covenantInputCount,
-    outputCount: review.covenantOutputCount,
-    mass: review.mass,
-    computeMass: review.computeMass,
-    storageMass: review.storageMass,
-    storageMassTarget: review.storageMassTarget,
-    transientMass: review.transientMass,
-    feeMass: review.feeMass,
-    computeBudget: review.computeBudget,
-    lockedKasSompi: review.lockedKasSompi,
-    lockedKasTopUpSompi: review.lockedKasTopUpSompi,
-    lockedKasReleasedSompi: review.lockedKasReleasedSompi,
-    lockedKasOutputSompi: review.lockedKasOutputSompi,
-    type: "transfer",
-  });
-  lastActivity = Date.now();
-  return signed.transactionId;
+  let intent: Record<string,unknown> = {kind:'kcc20',to:recipient,covenantId,amount:String(amount)};
+  // Same reviewed pipeline as wallet sends, including bounded self-compounds.
+  // Never return a compound ID as if the dApp's recipient had been paid.
+  for(let step=0;step<1000;step++) {
+    const current=await loadState();
+    if(current.selectedAddress!==sender || current.network!=='mainnet')
+      throw rpc(4001,'Wallet or network changed during KCC20 transfer.');
+    const prepared=await prepareWalletAsset(intent,current,()=>{});
+    const result=await confirmPreparedAsset(prepared.preparedId,current,vault,origin);
+    if('continuation' in result && result.continuation) { intent=result.continuation; continue; }
+    lastActivity=Date.now();
+    return result.revealTransactionId;
+  }
+  throw Error('KCC20 consolidation paused. Your compounded tokens remain in your wallet; review the transfer again.');
 }
 
 async function finishPendingInscription(
@@ -5148,6 +5188,8 @@ function formatSignedSompi(value: unknown) {
 }
 function kcc20ReviewDetails(operation: any, review: any) {
   return [
+    ...(operation.transactionCount>1 ? [`Payment needs ${operation.transactionCount} remaining on-chain transactions. Each has a separate network fee. This approval covers ONLY this step.`] : []),
+    ...(operation.compound ? ['AUTO-COMPOUND: self-transfer only. Recipient has NOT been paid.',`Intended payment: ${operation.intendedDisplayAmount} to ${operation.intendedRecipient}`] : []),
     `${operation.displayAmount || operation.amount} ${operation.ticker}`,
     `To: ${operation.recipient}`,
     `Covenant ID: ${review.covenantId}`,

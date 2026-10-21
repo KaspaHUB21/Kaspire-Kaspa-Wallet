@@ -1,4 +1,4 @@
-//! Pinned KCC-20 Last Call reference actor. No indexer-supplied program is trusted.
+//! Pinned KCC20 reference actor. No indexer-supplied program is trusted.
 use crate::{CoreError, Result, KronTransferRequest, PreparedKronTransfer, PsktRequest};
 use crate::transaction::parse_utxos;
 use kaspa_addresses::{Address, Prefix, Version};
@@ -31,7 +31,7 @@ fn state_bytes(s:&State)->Vec<u8>{
 fn redeem(s:&State)->Result<Vec<u8>>{let(p,q)=template()?;Ok([p,state_bytes(s),q].concat())}
 fn decode(bytes:&[u8])->Result<State>{
     let(p,q)=template()?;
-    if bytes.len()!=p.len()+112+q.len()||!bytes.starts_with(&p)||!bytes.ends_with(&q){return Err(bad("KCC20 program is not the pinned Last Call reference actor"));}
+    if bytes.len()!=p.len()+112+q.len()||!bytes.starts_with(&p)||!bytes.ends_with(&q){return Err(bad("KCC20 program is not the pinned KCC20 reference actor"));}
     let v=&bytes[p.len()..p.len()+112];
     if v[0]!=8||v[9]!=32||v[42]!=1||v[43]!=0||v[44]!=1||v[46]!=32||v[79]!=32||v[45]>3{return Err(bad("Unsupported KCC20 state or owner scheme (this test supports scheme 0)"));}
     let amount=u64::from_le_bytes(v[1..9].try_into().unwrap());
@@ -138,7 +138,8 @@ pub(crate) fn validate(request:&PsktRequest)->Result<()> {
         let spk=pay_to_script_hash_script(&script);
         let funding=serde_json::json!([{"address":sender.to_string(),"outpoint":{"transactionId":"bb".repeat(32),"index":0},"utxoEntry":{"amount":2_000_000_000u64,"scriptPublicKey":{"version":0,"scriptPublicKey":hex::encode(pay_to_address_script(&sender).script())},"blockDaaScore":123,"isCoinbase":false}}]);
         let request=KronTransferRequest{sender:sender.to_string(),recipient:recipient.to_string(),covenant_id:"cc".repeat(32),ticker:"WALLET".into(),amount:10_000_000_000_000,decimals:8,fee_rate:100.0,template_hash:TEMPLATE_ID.into(),cells:vec![crate::kron::KronCell{transaction_id:"aa".repeat(32),index:0,value_sompi:DEPOSIT,block_daa_score:123,script_public_key:hex::encode(spk.script()),token_amount:state.amount,redeem_script:hex::encode(script)}],funding_utxos_json:funding.to_string()};
-        let prepared=prepare(&request).unwrap();
+        let prepared=crate::prepare_kron_transfer(&request).unwrap();
+        assert_eq!(prepared.pskt_request.profile.as_deref(),Some("kcc20-standard-transfer-v1"));
         let review=crate::prepare_pskt(&prepared.pskt_request).unwrap();
         crate::sign_pskt(&secret,&prepared.pskt_request,&review.review_hash).unwrap();
         let mut android_roundtrip:PsktRequest=serde_json::from_str(&serde_json::to_string(&prepared.pskt_request).unwrap()).unwrap();
@@ -155,9 +156,17 @@ pub(crate) fn validate(request:&PsktRequest)->Result<()> {
             let mut multi=request.clone();
             multi.cells=(0..count).map(|i| {let mut c=request.cells[0].clone();c.transaction_id=format!("{:02x}",160+i).repeat(32);c}).collect();
             multi.amount=state.amount * count as u64;
-            let full=prepare(&multi).unwrap();
+            let full=crate::prepare_kron_transfer(&multi).unwrap();
             let reviewed=crate::prepare_pskt(&full.pskt_request).unwrap();
             crate::sign_pskt(&secret,&full.pskt_request,&reviewed.review_hash).unwrap();
+            // A compound consumes the whole selected quantity into one cell
+            // owned by the sender, using the same real covenant/VM validation.
+            multi.recipient=multi.sender.clone();
+            let compounded=crate::prepare_kron_transfer(&multi).unwrap();
+            assert_eq!(compounded.covenant_output_count,1);
+            assert_eq!(compounded.token_change,0);
+            let reviewed=crate::prepare_pskt(&compounded.pskt_request).unwrap();
+            crate::sign_pskt(&secret,&compounded.pskt_request,&reviewed.review_hash).unwrap();
         }
         let mut changed=prepared.pskt_request.clone();
         changed.trade_summary.as_mut().unwrap()["amount"]=serde_json::json!(1);

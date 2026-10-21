@@ -82,6 +82,13 @@ struct State {
 }
 
 pub fn prepare_kron_transfer(request: &KronTransferRequest) -> Result<PreparedKronTransfer> {
+    // Shared entry point for Android, browser WASM and desktop. The pinned
+    // standard KCC20 actor has a different state layout from KRON; dispatch
+    // before attempting to decode any cells. Both branches still rebuild and
+    // validate their own exact templates, ownership and live scripts.
+    if request.template_hash == crate::kcc20_standard::TEMPLATE_ID {
+        return crate::kcc20_standard::prepare(request);
+    }
     if request.amount == 0
         || request.cells.is_empty()
         || request.cells.len() > 4

@@ -5,6 +5,7 @@ import {openDexSelection} from './kronDex';
 import {openCovenantVaults} from './covenantVaults';
 import {openP2sh, receiveModeTabs} from './p2sh';
 import { sortedAssets, assetTicker, sameAsset } from "../shared/assetPresentation";
+import {operationDeadline} from '../shared/operationDeadline';
 const root = document.querySelector<HTMLElement>("#app")!;
 // This port lets the background distinguish an open wallet UI from a closed
 // popup. It is security-relevant only for the "Immediately" auto-lock mode.
@@ -75,59 +76,40 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}, s
   return new Promise<any>((resolve, reject) => {
     const port = chrome.runtime.connect({ name: "wallet-operation" });
     let finished = false;
-    const timer = setTimeout(() => {
-      if (!finished) {
-        finished = true;
-        port.disconnect();
-        reject(
-          new Error(
-            name.startsWith('kronDex')
-              ? "Swap interrupted. Check for a saved swap before starting another trade."
-              : "The secure operation did not respond within 45 seconds. Try again.",
-          ),
-        );
-      }
-    }, name.startsWith('kronDex') || name.startsWith('covenantVault') || name.startsWith('p2sh') || ["resumeInscription", "nftMarketOperation"].includes(name) ? 600_000 : 45_000);
-    const abort = () => { if (!finished) { finished = true; clearTimeout(timer); port.disconnect(); reject(new Error('The account view was closed. Saved payments remain preserved.')); } };
-    signal?.addEventListener('abort', abort, { once: true });
-    if (signal?.aborted) { abort(); return; }
-    const close = () => {
-      if (!finished) {
-        finished = true;
-        clearTimeout(timer);
-        port.disconnect();
-      }
-    };
-    port.onMessage.addListener((response) => {
-      if (response?.progress) {
-        if (name.startsWith('p2sh')) document.dispatchEvent(new CustomEvent('kaspire-operation-progress', { detail: response.progress }));
-        const button = document.querySelector<HTMLButtonElement>("#review");
-        if (button) button.textContent = response.progress;
-        const revealProgress = document.querySelector<HTMLElement>("#reveal-progress");
-        if (revealProgress) revealProgress.textContent = response.progress;
+    const kcc20 = name === 'prepareAsset' && values.kind === 'kcc20';
+    const long = name.startsWith('kronDex') || name.startsWith('covenantVault') || name.startsWith('p2sh') || ["resumeInscription", "nftMarketOperation"].includes(name);
+    const deadline = operationDeadline(() => {
+      if(finished)return;
+      finished=true; signal?.removeEventListener('abort',abort); port.disconnect();
+      reject(new Error(kcc20
+        ? 'KCC20 verification paused. This preparation signed no transaction. Previously approved consolidations remain saved; resume them instead of approving the same step again.'
+        : name.startsWith('kronDex')
+          ? 'Swap interrupted. Check for a saved swap before starting another trade.'
+          : 'The secure operation did not respond within '+(long?'10 minutes':'45 seconds')+'. Try again.'));
+    },kcc20?90_000:long?600_000:45_000,kcc20?300_000:long?600_000:45_000);
+    const close=()=>{finished=true;deadline.close();signal?.removeEventListener('abort',abort);port.disconnect();};
+    const abort=()=>{if(!finished){close();reject(new Error('The account view was closed. Saved payments remain preserved.'));}};
+    signal?.addEventListener('abort',abort,{once:true});
+    if(signal?.aborted){abort();return;}
+    port.onMessage.addListener(response=>{
+      if(finished)return;
+      if(response?.progress) {
+        if(kcc20)deadline.progress();
+        if(name.startsWith('p2sh'))document.dispatchEvent(new CustomEvent('kaspire-operation-progress',{detail:response.progress}));
+        const button=document.querySelector<HTMLButtonElement>(kcc20?'#review, #confirm-asset':'#review');
+        if(button)button.textContent=response.progress;
+        const reveal=document.querySelector<HTMLElement>('#reveal-progress');
+        if(reveal)reveal.textContent=response.progress;
         return;
       }
       close();
-      response?.error
-        ? reject(
-            Object.assign(new Error(response.error.message), response.error),
-          )
-        : resolve(response?.result);
+      response?.error?reject(Object.assign(new Error(response.error.message),response.error)):resolve(response?.result);
     });
-    port.onDisconnect.addListener(() => {
-      signal?.removeEventListener('abort', abort);
-      if (!finished) {
-        finished = true;
-        clearTimeout(timer);
-        reject(
-          new Error(
-            chrome.runtime.lastError?.message ??
-              "Kaspire background operation was interrupted.",
-          ),
-        );
-      }
+    port.onDisconnect.addListener(()=>{
+      signal?.removeEventListener('abort',abort);
+      if(!finished){finished=true;deadline.close();reject(new Error(chrome.runtime.lastError?.message??'Kaspire background operation was interrupted.'));}
     });
-    port.postMessage({ channel: "wallet", command: name, ...values });
+    port.postMessage({channel:'wallet',command:name,...values});
   });
 }
 function esc(input: any) {
@@ -336,6 +318,7 @@ function shell(content: string, title = "KASPIRE", back = false) {
   if (balance) balance.insertAdjacentHTML("beforeend", '<span class="neptune-slogan" aria-hidden="true">Deeper<br>Stronger<br>Freer ♡</span><span class="neptune-orb" aria-hidden="true"><img src="themes/neptune/orb.png" alt=""><img class="orb-logo" src="kaspire-icon.png" alt=""></span>');
   root.querySelector(".dashboard")?.insertAdjacentHTML("beforeend", '<span class="neptune-footer" aria-hidden="true">─ ☽ ☽ ─ ♆ ─ ☾ ☾ ─<small>— KASPA LIVES —</small></span>');
   mountPendingReveal();
+  mountPendingCompound();
   if(status&&!status.locked&&status.network==='mainnet') {
     const lock=root.querySelector<HTMLButtonElement>('#top-lock');
     if(lock){const wrapper=document.createElement('span');wrapper.className='nexus-header-actions';lock.replaceWith(wrapper);wrapper.innerHTML='<button id="nexus-bell" class="icon" aria-label="Nexus Offers notifications" title="Nexus Offers notifications"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9 21h6"/></svg><span class="nexus-count"></span></button>';wrapper.append(lock);mountNexusBell(nexusHooks(),root);}
@@ -676,6 +659,25 @@ function home() {
   document.querySelector<HTMLButtonElement>("#app-promo")!.onclick = () =>
     chrome.tabs.create({ url: "https://kaspire.kaslab.space/" });
   void loadHome();
+}
+
+function mountPendingCompound() {
+  if(!status?.pendingKcc20Compound)return;
+  const host=root.querySelector('.dashboard, .send-screen');if(!host)return;
+  const card=document.createElement('section');card.className='warning-box';
+  card.innerHTML='<h2>KCC20 transfer not completed</h2><p>Self-compound confirmation is pending. The recipient has NOT been paid. Continue with a fresh fee review; this does not automatically authorize a payment.</p><button>Continue KCC20 transfer</button><p class="error"></p>';
+  if(status.pendingKcc20Compound.finalPayment)card.querySelector('p')!.textContent='Final payment confirmation is pending. Continue to check the existing transaction; no duplicate payment will be created.';
+  host.prepend(card);
+  card.querySelector('button')!.onclick=async()=>{
+    const button=card.querySelector('button')!;button.disabled=true;
+    try {
+      if(status.pendingKcc20Compound.finalPayment) {
+        const result=await command('recoverKcc20Payment');
+        kaspaTransactionReceipt(result,{kind:'kcc20',recipient:result.operation.recipient,amount:result.operation.displayAmount,symbol:result.operation.ticker});
+      } else assetTransferReview(await persistentCommand('prepareAsset',status.pendingKcc20Compound));
+    }
+    catch(e){card.querySelector('.error')!.textContent=(e as Error).message;button.disabled=false;}
+  };
 }
 
 function mountPendingReveal() {
@@ -1613,8 +1615,13 @@ async function loadHome() {
     }).catch(() => undefined);
     const assets: any = {tokens: [], domains: [], krc721: [], kcc20: [], dotk: []};
     const failures: string[] = [];
+    let kcc20Warning='';
     await Promise.all(Object.keys(assets).map(async category => {
-      try { assets[category] = await command("assetCategory", {category}); }
+      try {
+        const result=await command("assetCategory", {category});
+        assets[category]=Array.isArray(result)?result:result.items;
+        if(category==='kcc20' && !Array.isArray(result))kcc20Warning=String(result.warning??'');
+      }
       catch { failures.push(category === "tokens" ? "KRC20" : category.toUpperCase()); }
       if (!stillHome()) return;
       snapshot = { ...snapshot, assets: {...assets} };
@@ -1622,6 +1629,7 @@ async function loadHome() {
     }));
     if (stillHome() && failures.length)
       homeElement?.insertAdjacentHTML("beforeend", `<p class="error">${esc(failures.join(", "))}: temporarily unavailable. Please retry.</p>`);
+    if(stillHome() && kcc20Warning)homeElement?.insertAdjacentHTML('beforeend',`<p class="error">${esc(kcc20Warning)}</p>`);
   } catch (error) {
     if (stillHome())
       document.querySelector("#asset-list")!.innerHTML =
@@ -1960,6 +1968,7 @@ function send(asset: any) {
 }
 
 function assetTransferReview(prepared: any) {
+  const lifecycle=new AbortController();
   const operation = prepared.operation,
     review = prepared.review;
   const row = (label: string, value: any) =>
@@ -1967,7 +1976,7 @@ function assetTransferReview(prepared: any) {
   if (prepared.type === "kron") review.feeSompi = review.networkFeeSompi;
   const kcc =
     prepared.type === "kcc20" || prepared.type === "kron"
-      ? `${row("Validation", prepared.type === "kron" ? "KRON template verified" : "Indexer verified")}${row("Covenant ID", review.covenantId ?? operation.covenantId)}${review.templateHash ? row("Template hash", review.templateHash) : ""}${row("Covenant inputs", fmt(review.covenantInputCount, 0))}${row("Covenant outputs", fmt(review.covenantOutputCount, 0))}${row("KAS in token inputs", sompiLabel(review.lockedKasSompi))}${Number(review.lockedKasTopUpSompi) ? row("KAS reserve top-up", sompiLabel(review.lockedKasTopUpSompi)) : ""}${Number(review.lockedKasReleasedSompi) ? row("KAS returned to wallet", sompiLabel(review.lockedKasReleasedSompi)) : ""}${row("KAS in new token cells", sompiLabel(review.lockedKasOutputSompi))}${row("Effective mass", fmt(review.mass, 0))}${row("Compute mass", fmt(review.computeMass, 0))}${review.storageMass != null ? row("Storage mass (normalized)", fmt(review.storageMass, 0)) : ""}${review.storageMassTarget != null ? row("Safe storage target", fmt(review.storageMassTarget, 0)) : ""}${row("Transient mass (normalized)", fmt(review.transientMass, 0))}${row("Fee mass", fmt(review.feeMass, 0))}${row("Compute budget", fmt(review.computeBudget, 0))}`
+      ? `${row("Validation", operation.standard === 'kcc20' ? 'KCC20 template + local node' : prepared.type === "kron" ? "KRON template verified" : "Indexer verified")}${row("Covenant ID", review.covenantId ?? operation.covenantId)}${review.templateHash ? row("Template hash", review.templateHash) : ""}${row("Covenant inputs", fmt(review.covenantInputCount, 0))}${row("Covenant outputs", fmt(review.covenantOutputCount, 0))}${row("KAS in token inputs", sompiLabel(review.lockedKasSompi))}${Number(review.lockedKasTopUpSompi) ? row("KAS reserve top-up", sompiLabel(review.lockedKasTopUpSompi)) : ""}${Number(review.lockedKasReleasedSompi) ? row("KAS returned to wallet", sompiLabel(review.lockedKasReleasedSompi)) : ""}${row("KAS in new token cells", sompiLabel(review.lockedKasOutputSompi))}${row("Effective mass", fmt(review.mass, 0))}${row("Compute mass", fmt(review.computeMass, 0))}${review.storageMass != null ? row("Storage mass (normalized)", fmt(review.storageMass, 0)) : ""}${review.storageMassTarget != null ? row("Safe storage target", fmt(review.storageMassTarget, 0)) : ""}${row("Transient mass (normalized)", fmt(review.transientMass, 0))}${row("Fee mass", fmt(review.feeMass, 0))}${row("Compute budget", fmt(review.computeBudget, 0))}`
       : "";
   const raw = review.rawJson ?? prepared.request ?? {};
   shell(
@@ -1975,7 +1984,20 @@ function assetTransferReview(prepared: any) {
     "Review asset transfer",
     true,
   );
+  if(operation.compound) {
+    const notice=document.createElement('p');notice.className='warning-box';
+    notice.textContent=`CONSOLIDATION REQUIRED · ${operation.requiredCells??review.covenantInputCount} token cells are needed. This payment requires ${operation.transactionCount??'multiple'} remaining on-chain transactions because this contract allows only ${operation.standard==='kcc20'?3:2} token inputs per transaction. Each transaction has its own fee and approval. Only the current step's fee is quoted. Recipient NOT paid yet. Intended payment: ${operation.intendedDisplayAmount} ${operation.ticker} to ${operation.intendedRecipient}.`;
+    document.querySelector('.transaction-detail')!.prepend(notice);
+    if(operation.transactionCount>3 && !operation.completedSteps) {
+      const acknowledge=document.createElement('label');acknowledge.className='warning-box';
+      acknowledge.innerHTML='<input type="checkbox" id="ack-consolidation"> I understand this payment needs '+esc(operation.transactionCount)+' separate on-chain transactions, each with a network fee. I can stop after any step.';
+      const button=document.querySelector<HTMLButtonElement>('#confirm-asset')!;
+      button.before(acknowledge);button.disabled=true;
+      acknowledge.querySelector<HTMLInputElement>('input')!.onchange=event=>{button.disabled=!(event.target as HTMLInputElement).checked;};
+    }
+  }
   document.querySelector<HTMLButtonElement>("#cancel-asset")!.onclick = () => {
+    lifecycle.abort();
     view = "home";
     void render();
   };
@@ -1989,6 +2011,11 @@ function assetTransferReview(prepared: any) {
         const result = await command("confirmPreparedAsset", {
           preparedId: prepared.preparedId,
         });
+        if(result.continuation) {
+          button.textContent='Cells compounded. Waiting for next review…';
+          assetTransferReview(await persistentCommand('prepareAsset', result.continuation, lifecycle.signal));
+          return;
+        }
         kaspaTransactionReceipt(result, {
           kind: operation.kind,
           recipient: operation.recipient,
@@ -2008,7 +2035,7 @@ function assetTransferReview(prepared: any) {
           error as Error
         ).message;
         button.disabled = false;
-        button.textContent = "Authorize commit + reveal";
+        button.textContent = prepared.type === 'inscription' ? 'Authorize commit + reveal' : 'Authorize on-chain transfer';
       }
     };
 }

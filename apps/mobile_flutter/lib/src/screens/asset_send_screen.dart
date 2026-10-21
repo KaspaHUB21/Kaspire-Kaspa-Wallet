@@ -12,6 +12,7 @@ import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
 import '../services/kaspa_api.dart';
 import '../services/kcc20_standard_service.dart';
+import '../services/kcc20_compound.dart';
 import '../services/activity_store.dart';
 import '../services/app_settings.dart';
 import '../services/native_security.dart';
@@ -43,6 +44,9 @@ class AssetSendScreen extends StatefulWidget {
 class _AssetSendScreenState extends State<AssetSendScreen> {
   String get _pendingKey =>
       'kaspire_pending_inscription_v2_${widget.address.toLowerCase()}';
+  String get _compoundKey =>
+      'kaspire_pending_kcc20_compound_${widget.address.toLowerCase()}';
+  Map<String, Object?>? _pendingCompound;
   late final KaspaApi _api;
   final _security = NativeSecurity();
   final _signer = SignerService();
@@ -127,6 +131,10 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       var pendingRaw = prefs.getString(_pendingKey);
+      final compoundRaw = prefs.getString(_compoundKey);
+      _pendingCompound = compoundRaw == null
+          ? null
+          : (jsonDecode(compoundRaw) as Map).cast<String, Object?>();
       const legacyPendingKey = 'kaspire_pending_inscription_v1';
       final legacyPendingRaw = prefs.getString(legacyPendingKey);
       if (pendingRaw == null && legacyPendingRaw != null) {
@@ -278,8 +286,14 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
       _working = true;
       _error = null;
       _receipt = null;
+      _status = 'Preparing asset transfer…';
     });
     try {
+      if (_kind == _AssetKind.kcc20 &&
+          _pendingCompound?['finalPayment'] != null) {
+        throw StateError(
+            'A previously signed KCC20 payment is awaiting confirmation. Use Continue KCC20 transfer to check it before preparing another payment.');
+      }
       if (!await _security.hasNativeWalletFor(widget.address)) {
         throw StateError('This is a watch-only wallet.');
       }
@@ -316,7 +330,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         case _AssetKind.kcc20:
           final token = _covenantToken;
           if (token == null) throw StateError('Select a KCC20 token.');
-          final isStandard = token.standard == Kcc20StandardService.standard;
+          final isStandard = Kcc20StandardService.isStandard(token.standard);
           final dynamicCells = isStandard || token.standard == 'kron-native';
           if (!dynamicCells && token.validationStatus != 'verified') {
             throw StateError('Only indexer-verified KCC20 tokens can be sent.');
@@ -331,23 +345,43 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             throw StateError(
                 'Invalid amount, too many decimals, or insufficient token balance.');
           }
-          final cells = isStandard
-              ? await _api.loadStandardKcc20SigningCells(
-                  widget.address, token.covenantId!, int.parse(raw))
-              : token.standard == 'kron-native'
+          final standardStep = isStandard
+              ? await _api.loadStandardKcc20SigningBatch(
+                  widget.address, token.covenantId!, int.parse(raw),
+                  isCancelled: () => !mounted,
+                  onProgress: (stage) {
+                    if (mounted) setState(() => _status = stage);
+                  })
+              : null;
+          if (!mounted) return;
+          final availableCells = standardStep?.cells ??
+              (token.standard == 'kron-native'
                   ? await _api.loadKronSigningCells(
                       widget.address, token.covenantId!, int.parse(raw))
-                  : token.kcc20Cells;
-          if (token.standard != 'kron-native') {
+                  : token.kcc20Cells);
+          // Keep optional verified dust inputs. Reapplying the legacy minimal
+          // planner here would discard them and undo in-payment consolidation.
+          final step = standardStep ??
+              (token.standard == 'kron-native'
+                  ? null
+                  : planKcc20Step(availableCells, int.parse(raw), 2));
+          final compound = step?.compound == true;
+          final cells = step?.cells ?? availableCells;
+          final stepAmount = step?.amount ?? int.parse(raw);
+          final stepRecipient = compound ? widget.address : recipient;
+          if (!isStandard && token.standard != 'kron-native') {
             await _api.verifyKcc20CellsOnOwnNode(cells, token.covenantId!);
           }
           final fundingUtxos = await _api.loadUtxos(widget.address);
+          if (!mounted) return;
+          setState(() => _status =
+              'Verifying the covenant transaction in the native core…');
           final request = <String, Object?>{
             'sender': widget.address,
-            'recipient': recipient,
+            'recipient': stepRecipient,
             'covenantId': token.covenantId,
             'ticker': token.symbol,
-            'amount': int.parse(raw),
+            'amount': stepAmount,
             'decimals': token.decimals,
             'feeRate': 100.0,
             'templateHash': token.templateHash ?? '',
@@ -364,10 +398,10 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             }
             final kronRequest = <String, Object?>{
               'sender': widget.address,
-              'recipient': recipient,
+              'recipient': stepRecipient,
               'covenantId': token.covenantId,
               'ticker': token.symbol,
-              'amount': int.parse(raw),
+              'amount': stepAmount,
               'decimals': token.decimals,
               'feeRate': 100.0,
               'templateHash': token.templateHash ?? '',
@@ -385,6 +419,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
               'fundingUtxosJson': fundingUtxos,
             };
             final prepared = await _security.prepareKronTransfer(kronRequest);
+            if (!mounted) return;
             signingRequest =
                 (prepared['psktRequest'] as Map).cast<String, Object?>();
             final psktReview = await _security.preparePskt(signingRequest);
@@ -404,10 +439,26 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             review = await _security.prepareKcc20Transfer(request);
           }
           operation['ticker'] = token.symbol;
-          operation['amount'] = raw;
-          operation['displayAmount'] = _amount.text.trim();
+          operation['amount'] = stepAmount.toString();
+          operation['displayAmount'] =
+              formatRawTokenAmount(BigInt.from(stepAmount), token.decimals);
+          operation['recipient'] = stepRecipient;
+          operation['compound'] = compound;
+          if (compound) operation['operationLabel'] = 'KCC20 auto-compound';
+          operation['intendedRecipient'] = recipient;
+          operation['intendedAmount'] = raw;
+          operation['intendedDisplayAmount'] = _amount.text.trim();
           operation['covenantId'] = token.covenantId;
           operation['standard'] = token.standard;
+          operation['requiredCells'] = step?.requiredCells ?? cells.length;
+          operation['transactionCount'] = step?.transactionCount ?? 1;
+          final previous = _pendingCompound?['operation'] as Map?;
+          operation['completedSteps'] = previous != null &&
+                  previous['covenantId'] == token.covenantId &&
+                  previous['intendedRecipient'] == recipient &&
+                  previous['intendedAmount'] == raw
+              ? ((previous['completedSteps'] as num?)?.toInt() ?? 0) + 1
+              : 0;
           if (mounted) {
             setState(() {
               _operation = operation;
@@ -453,6 +504,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
       if (mounted) {
         setState(() {
           _working = false;
+          _status = null;
           _error = e.toString().replaceFirst('Bad state: ', '');
         });
       }
@@ -480,12 +532,49 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
             () => _status = 'Transaction signed. Sending to Kaspa mainnet…');
       }
       final expectedTransactionId = signed['transactionId']! as String;
+      if (operation['compound'] == true) {
+        final continuation = <String, Object?>{
+          'operation': operation,
+          'transactionId': expectedTransactionId
+        };
+        await (await SharedPreferences.getInstance())
+            .setString(_compoundKey, jsonEncode(continuation));
+        if (mounted) setState(() => _pendingCompound = continuation);
+      }
+      if (operation['compound'] != true && _pendingCompound != null) {
+        final pendingOperation = _pendingCompound!['operation'] as Map;
+        if (pendingOperation['covenantId'] == operation['covenantId'] &&
+            pendingOperation['intendedRecipient'] == operation['recipient'] &&
+            pendingOperation['intendedAmount'] == operation['amount']) {
+          final continuation = <String, Object?>{
+            ..._pendingCompound!,
+            'finalPayment': {
+              'transactionId': expectedTransactionId,
+              'signedTxJson': signed['wrpcJson'],
+              'operation': operation,
+              'feeSompi': review['feeSompi']
+            }
+          };
+          await (await SharedPreferences.getInstance())
+              .setString(_compoundKey, jsonEncode(continuation));
+          _pendingCompound = continuation;
+        }
+      }
       final transactionId = await _api.broadcastKcc20(
         signed['wrpcJson']! as String,
         expectedTransactionId: expectedTransactionId,
       );
       if (transactionId.isEmpty) {
         throw StateError('Broadcast was accepted without a transaction ID.');
+      }
+      if (operation['compound'] != true && _pendingCompound != null) {
+        final pendingOperation = (_pendingCompound!['operation'] as Map);
+        if (pendingOperation['covenantId'] == operation['covenantId'] &&
+            pendingOperation['intendedRecipient'] == operation['recipient'] &&
+            pendingOperation['intendedAmount'] == operation['amount']) {
+          await (await SharedPreferences.getInstance()).remove(_compoundKey);
+          _pendingCompound = null;
+        }
       }
       await ActivityStore().recordAssetTransfer(
         wallet: widget.address,
@@ -494,6 +583,10 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         timestamp: DateTime.now(),
       );
       if (!mounted) return;
+      if (operation['compound'] == true) {
+        await _continueKcc20Compound(operation, transactionId);
+        return;
+      }
       setState(() {
         _working = false;
         _status = null;
@@ -520,6 +613,127 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
         });
       }
     }
+  }
+
+  Future<void> _continueKcc20Compound(
+      Map operation, String transactionId) async {
+    if (!mounted) return;
+    final payment = _pendingCompound?['finalPayment'] as Map?;
+    if (payment != null) {
+      setState(() {
+        _working = true;
+        _error = null;
+        _status =
+            'Checking the already signed final payment. No duplicate will be sent…';
+      });
+      try {
+        final id = payment['transactionId'].toString();
+        if (!await _api.isKcc20TransactionAccepted(id)) {
+          final bytes = payment['signedTxJson'];
+          if (bytes is! String) {
+            throw StateError(
+                'Final payment $id is not confirmed. No duplicate will be created.');
+          }
+          // Retry only the identical, already-approved transaction/outpoints.
+          await _api.broadcastKcc20(bytes, expectedTransactionId: id);
+        }
+        await ActivityStore().recordAssetTransfer(
+            wallet: widget.address,
+            operation: payment['operation'] as Map,
+            transactionId: id,
+            timestamp: DateTime.now());
+        await (await SharedPreferences.getInstance()).remove(_compoundKey);
+        if (!mounted) return;
+        setState(() {
+          _pendingCompound = null;
+          _working = false;
+          _status = null;
+          _receipt = {
+            'operation': payment['operation'],
+            'recipient': (payment['operation'] as Map)['recipient'],
+            'revealTransactionId': id,
+            'revealFeeSompi': payment['feeSompi'],
+            'kcc20': true
+          };
+        });
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _working = false;
+            _status = null;
+            _error = e.toString();
+          });
+        }
+      }
+      return;
+    }
+    setState(() {
+      _working = true;
+      _error = null;
+      _status = 'Waiting for the compounded cell. Recipient NOT paid…';
+    });
+    var indexed = false;
+    final standard =
+        Kcc20StandardService.isStandard(operation['standard']?.toString());
+    if (standard) {
+      try {
+        await _api.waitForStandardKcc20Cell(
+            widget.address, operation['covenantId'].toString(), transactionId,
+            isCancelled: () => !mounted,
+            onProgress: (stage) {
+              if (mounted) setState(() => _status = stage);
+            });
+        if (!mounted) return;
+        final token = _wallet?.kcc20Tokens
+            .where((t) => t.covenantId == operation['covenantId'])
+            .firstOrNull;
+        if (token != null) {
+          _covenantToken = token;
+          indexed = true;
+        }
+      } catch (_) {/* Saved continuation remains available on timeout. */}
+    }
+    for (var attempt = 0; !standard && attempt < 20 && mounted; attempt++) {
+      try {
+        final wallet = await _api.loadWallet(widget.address,
+            includeNativeTransactions: false,
+            includeAssetHistory: false,
+            includeMarketData: false);
+        if (!mounted) return;
+        final token = wallet.kcc20Tokens
+            .where((t) => t.covenantId == operation['covenantId'])
+            .firstOrNull;
+        if (token == null ||
+            (!Kcc20StandardService.isStandard(token.standard) &&
+                !token.kcc20Cells
+                    .any((c) => c.transactionId == transactionId))) {
+          await Future<void>.delayed(const Duration(seconds: 3));
+          continue;
+        }
+        _applyWallet(wallet);
+        _covenantToken = token;
+        indexed = true;
+        break;
+      } catch (_) {/* Indexer lag never authorizes a new payment. */}
+      await Future<void>.delayed(Duration(seconds: attempt < 5 ? 3 : 6));
+    }
+    if (!mounted) return;
+    setState(() {
+      _kind = _AssetKind.kcc20;
+      _operation = null;
+      _kcc20Request = null;
+      _kcc20Review = null;
+      _kronTransfer = false;
+      _working = false;
+      _status = null;
+      _recipient.text = operation['intendedRecipient'].toString();
+      _amount.text = operation['intendedDisplayAmount'].toString();
+      if (!indexed) {
+        _error =
+            'Compound transaction: $transactionId. Recipient NOT paid. The indexer has not confirmed the new cell yet. Use Continue KCC20 transfer later.';
+      }
+    });
+    if (indexed) await _prepare();
   }
 
   Future<void> _commitAndReveal() async {
@@ -834,6 +1048,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
     final covenantReview = _kcc20Review;
     if (covenantReview != null) {
       return _Kcc20Review(
+        key: ValueKey(covenantReview['reviewHash']),
         operation: _operation!,
         review: covenantReview,
         working: _working,
@@ -851,6 +1066,22 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
     return SafeArea(
       top: false,
       child: ListView(padding: const EdgeInsets.all(20), children: [
+        if (_pendingCompound != null) ...[
+          const Text('KCC20 TRANSFER NOT COMPLETED',
+              style: TextStyle(
+                  color: Color(0xFFFFC857), fontWeight: FontWeight.w900)),
+          Text(_pendingCompound!['finalPayment'] != null
+              ? 'Final payment confirmation is pending. Continue to check the existing transaction; no duplicate payment will be created.'
+              : 'Self-compound confirmation is pending. The recipient has NOT been paid. Continue with a new review; every transaction still requires approval.'),
+          OutlinedButton(
+              onPressed: _working
+                  ? null
+                  : () => _continueKcc20Compound(
+                      _pendingCompound!['operation'] as Map,
+                      _pendingCompound!['transactionId'].toString()),
+              child: const Text('Continue KCC20 transfer')),
+          const SizedBox(height: 16),
+        ],
         if (_refreshing) ...[
           const LinearProgressIndicator(),
           const SizedBox(height: 8),
@@ -943,8 +1174,8 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           const SizedBox(height: 10),
           if (_covenantToken != null)
             Text(
-              _covenantToken!.standard == Kcc20StandardService.standard
-                  ? 'KCC20 Last Call · Signing cells are verified on the local node before review.'
+              Kcc20StandardService.isStandard(_covenantToken!.standard)
+                  ? 'KCC20 · Signing cells are verified on the local node before review.'
                   : _covenantToken!.standard == 'kron-native'
                       ? 'KRON balance · Signing cells are verified on the local node before review.'
                       : _covenantToken!.discoveryComplete
@@ -952,7 +1183,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                           : 'Sending disabled: cell discovery is incomplete.',
               style: TextStyle(
                 color:
-                    _covenantToken!.standard == Kcc20StandardService.standard ||
+                    Kcc20StandardService.isStandard(_covenantToken!.standard) ||
                             _covenantToken!.standard == 'kron-native' ||
                             _covenantToken!.discoveryComplete
                         ? KasVaultTheme.mint
@@ -1007,6 +1238,12 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
               padding: const EdgeInsets.only(top: 14),
               child: Text(_error!,
                   style: const TextStyle(color: Color(0xFFFF8A65)))),
+        if (_working && _status != null) ...[
+          const SizedBox(height: 14),
+          const LinearProgressIndicator(),
+          const SizedBox(height: 8),
+          Hub21Readable(child: Text(_status!)),
+        ],
         const SizedBox(height: 20),
         FilledButton.icon(
             onPressed: _working ? null : _prepare,
@@ -1098,8 +1335,9 @@ class _Krc20TokenOption extends StatelessWidget {
   }
 }
 
-class _Kcc20Review extends StatelessWidget {
+class _Kcc20Review extends StatefulWidget {
   const _Kcc20Review({
+    super.key,
     required this.operation,
     required this.review,
     required this.working,
@@ -1116,6 +1354,23 @@ class _Kcc20Review extends StatelessWidget {
   final String? error;
   final VoidCallback onCancel;
   final VoidCallback onConfirm;
+
+  @override
+  State<_Kcc20Review> createState() => _Kcc20ReviewState();
+}
+
+class _Kcc20ReviewState extends State<_Kcc20Review> {
+  bool _acknowledged = false;
+  Map<String, Object?> get operation => widget.operation;
+  Map<String, Object?> get review => widget.review;
+  bool get working => widget.working;
+  String? get status => widget.status;
+  String? get error => widget.error;
+  VoidCallback get onCancel => widget.onCancel;
+  VoidCallback get onConfirm => widget.onConfirm;
+  int get _remaining => (operation['transactionCount'] as num?)?.toInt() ?? 1;
+  int get _completed => (operation['completedSteps'] as num?)?.toInt() ?? 0;
+  bool get _needsAcknowledgement => _remaining > 3 && _completed == 0;
 
   @override
   Widget build(BuildContext context) => SafeArea(
@@ -1139,6 +1394,32 @@ class _Kcc20Review extends StatelessWidget {
               style: TextStyle(color: KasVaultTheme.muted),
             )),
             const SizedBox(height: 18),
+            if (_remaining > 1 || _completed > 0) ...[
+              Hub21Readable(
+                  child: Text(
+                      'MULTI-TRANSACTION PAYMENT · $_remaining transaction(s) remaining, including the recipient payment. $_completed self-consolidation(s) completed.\n'
+                      'The current balance needs ${operation['requiredCells']} token cells to cover this payment. Each transaction requires separate approval and a network fee. You can stop and resume the saved transfer later.',
+                      style: const TextStyle(fontWeight: FontWeight.w700))),
+              const SizedBox(height: 12),
+            ],
+            if (_needsAcknowledgement)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                    'I understand that this payment needs approximately $_remaining separate on-chain transactions, each with its own fee.'),
+                value: _acknowledged,
+                onChanged: working
+                    ? null
+                    : (value) => setState(() => _acknowledged = value == true),
+              ),
+            if (operation['compound'] == true) ...[
+              const Text('AUTO-COMPOUND · SELF-TRANSFER',
+                  style: TextStyle(
+                      color: Color(0xFFFFC857), fontWeight: FontWeight.w900)),
+              Text(
+                  'Combines your own token cells first. The recipient has NOT been paid. After confirmation, Kaspire prepares the next step for review. Each step has a separate network fee.\nIntended payment: ${operation['intendedDisplayAmount']} ${operation['ticker']} to ${operation['intendedRecipient']}'),
+              const SizedBox(height: 18),
+            ],
             _Card(children: [
               _Row('Validation',
                   review['validation']?.toString() ?? 'Indexer verified'),
@@ -1213,7 +1494,9 @@ class _Kcc20Review extends StatelessWidget {
               ),
             const SizedBox(height: 20),
             FilledButton.icon(
-              onPressed: working ? null : onConfirm,
+              onPressed: working || (_needsAcknowledgement && !_acknowledged)
+                  ? null
+                  : onConfirm,
               icon: const Icon(Icons.send_rounded),
               label: Text(buttonLabel(
                 working ? 'SENDING ON-CHAIN…' : 'SEND ON-CHAIN',
