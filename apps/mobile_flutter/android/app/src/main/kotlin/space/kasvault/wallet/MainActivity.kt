@@ -2558,7 +2558,13 @@ class MainActivity : FlutterFragmentActivity() {
                     "${json.getLong("vaultAmountSompi")} sompi governed by covenant · " +
                     "Fee ${json.getLong("feeSompi")} sompi"
             "signPskt" ->
-                if (json.optString("profile") in listOf("kasparocket-testnet-v1", "kasparocket-mainnet-v1"))
+                if (json.optString("profile") in listOf("kasseal-tn10-swap-v1", "kasseal-tn10-prepare-v1", "kasseal-mainnet-swap-v1", "kasseal-mainnet-prepare-v1"))
+                    "Kasseal · ${if (json.optString("profile").endsWith("-prepare-v1")) "PREPARE OWN TOKENS" else json.optString("side").uppercase()} ${json.optString("ticker")}\n" +
+                        "Token covenant ${json.optString("tokenId")}\nMarket covenant ${json.optString("lpCovenantId")}\n" +
+                        "Funding inputs and change are not trade proceeds.\n" +
+                        "Wallet input ${json.optString("walletInputSompi")} sompi\nWallet output ${json.optString("walletOutputSompi")} sompi\n" +
+                        "Network fee ${json.optString("feeSompi")} sompi\nTransaction ${json.optString("transactionId")}"
+                else if (json.optString("profile") in listOf("kasparocket-testnet-v1", "kasparocket-mainnet-v1"))
                     "KaspaRocket ${if (json.optString("profile") == "kasparocket-mainnet-v1") "Mainnet" else "TN10"} · ${json.optString("side").uppercase()}\n" +
                         "${json.optString("ticker")} · token ${json.optString("tokenId")}\n" +
                         "Pool covenant ${json.optString("lpCovenantId")}\n" +

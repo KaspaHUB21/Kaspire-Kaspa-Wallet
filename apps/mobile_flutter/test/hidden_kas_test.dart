@@ -172,8 +172,8 @@ class ConfirmedPaymentService extends HiddenKasService {
   }
 
   @override
-  Future<List<WalletTransaction>> activity(
-          Map<String, Object?> snapshot) async =>
+  Future<List<WalletTransaction>> activity(Map<String, Object?> snapshot,
+          {bool more = false}) async =>
       activities;
   @override
   Future<void> resume() async {
@@ -346,6 +346,55 @@ void main() {
     expect(nodeReads, 1);
     expect(clock.waits, isEmpty);
     expect(native.signatures, 0);
+    service.close();
+  });
+  test(
+      'P2SH history loads older pages and deduplicates across receive/change addresses',
+      () async {
+    final native = HiddenSecurity();
+    final offsets = <int>[];
+    final service =
+        hiddenService(owner, security: native, client: MockClient((r) async {
+      final offset = int.parse(r.url.queryParameters['offset']!);
+      offsets.add(offset);
+      final rows = offset == 0
+          ? List.generate(
+              50,
+              (i) => {
+                    'transaction_id':
+                        (i + 1).toRadixString(16).padLeft(64, '0'),
+                    'is_accepted': true,
+                    'block_time': 1792000000000 - i * 1000,
+                    'inputs': [],
+                    'outputs': [
+                      {'amount': 10000, 'script_public_key_address': p2sh}
+                    ]
+                  })
+          : [
+              {
+                'transaction_id': 'f' * 64,
+                'is_accepted': true,
+                'block_time': 1791000000000,
+                'inputs': [],
+                'outputs': [
+                  {'amount': 10000, 'script_public_key_address': p2sh}
+                ]
+              }
+            ];
+      return http.Response(jsonEncode(rows), 200);
+    }));
+    final snapshot = <String, Object?>{
+      'state': {'receiveCount': 1, 'changeCount': 1},
+      'addresses': [
+        {'address': p2sh, 'branch': 0, 'index': 0},
+        {'address': 'kaspa:pother', 'branch': 1, 'index': 0}
+      ]
+    };
+    expect((await service.activity(snapshot)).length, 50);
+    expect(service.activityHasMore, true);
+    expect((await service.activity(snapshot, more: true)).length, 51);
+    expect(service.activityHasMore, false);
+    expect(offsets, [0, 0, 50, 50]);
     service.close();
   });
   test('discovery and activity never depend on the public history fallback',

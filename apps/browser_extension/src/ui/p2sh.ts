@@ -35,7 +35,7 @@ export async function openP2sh(hooks: Hooks) {
   const observer = new MutationObserver(() => { if (!active()) { controller.abort(); observer.disconnect(); } });
   observer.observe(document.querySelector('#app')!, { childList: true, subtree: true });
   const command = (name: string, data: Record<string, unknown> = {}) => hooks.command(name, data, controller.signal);
-  let accepted = false, busy = false, error = '', progress = '', hdMessage = '', supportKnown = false;
+  let accepted = false, busy = false, error = '', progress = '', hdMessage = '', supportKnown = false, historyHasMore = false;
   let snapshot: Row | null = null, state: Row | null = null, receive: Row | null = null, prepared: Row | null = null, receipt: Row | null = null;
   let recipient = '', amount = '', sendAll = false, transactions: Row[] = [], copied = '';
   let view: 'receive' | 'send' | 'activity' = 'receive', recoveryOpen = false;
@@ -58,7 +58,7 @@ export async function openP2sh(hooks: Hooks) {
     const result = await command('p2shRefresh');
     state = result.state; prepared = null;
     if (result.payment) { receipt = result.payment; receive = null; snapshot = null; transactions = []; return; }
-    receipt = null; snapshot = result; receive = result.receive; transactions = result.transactions; error = result.activityError ?? '';
+    receipt = null; snapshot = result; receive = result.receive; transactions = result.transactions; historyHasMore = result.historyHasMore === true; error = result.activityError ?? '';
   }
   async function backup() {
     const password = await backupPassword(); if (password == null || !active()) return;
@@ -90,6 +90,7 @@ export async function openP2sh(hooks: Hooks) {
     if (usable && view === 'send') html += `<section class="send-screen p2sh-send"><p class="eyebrow">Send</p><h1>Send KAS</h1><div class="form"><label>Kaspa Mainnet recipient address<input id="p2sh-recipient" value="${esc(recipient)}" spellcheck="false" autocomplete="off" placeholder="Paste recipient address"></label><label>Amount<div class="amount"><input id="p2sh-amount" value="${esc(amount)}" inputmode="decimal" placeholder="${sendAll ? 'Entire spendable balance' : '0.00'}" aria-label="Amount in KAS" ${sendAll ? 'readonly' : ''}><button id="p2sh-max" type="button">${sendAll ? 'Cancel' : 'Max'}</button></div></label><small class="available">Available: ${esc(balance)}</small>${sendAll ? '<p class="muted">The network fee is deducted automatically. Review shows the exact amount; no change output is created.</p>' : ''}<section class="tx-meta"><span>Network</span><b>Kaspa Mainnet</b><span>Fee</span><b>Live node estimate</b><span>Signer</span><b>Rusty Kaspa v2.1.0</b></section><button id="p2sh-review">Review transaction</button></div></section>`;
     if (usable && view === 'send' && review) html += `<section class="transaction-detail p2sh-review" id="p2sh-reviewed"><p class="eyebrow">Review payment</p><h1>Verify every detail</h1><section class="detail-section">${line('Recipient', review.recipient)}${line(review.sendAll ? 'Amount (Max)' : 'Amount', kas(review.amountSompi))}${line('Network fee', kas(review.feeSompi))}${BigInt(review.changeSompi) > 0n ? line('Fresh P2SH change', kas(review.changeSompi)) + line('Change address', review.changeAddress) : '<p>No change output · entire spendable balance minus the network fee.</p>'}${line('Inputs', review.inputCount)}</section><p class="warning-box">Signing reveals input public keys and permanently retires those addresses. All currently available account outputs are spent together.</p><button id="p2sh-submit">Sign and send</button></section>`;
     if (usable && view === 'activity') html += `<section class="activity p2sh-history"><p class="eyebrow">Activity</p><h1>Transactions</h1>${transactions.length ? transactions.map(tx => `<div class="review-card p2sh-activity"><span aria-hidden="true">${tx.incoming ? '↙' : '↗'}</span><div><b data-preserve-case>${esc(kas(tx.amountSompi))}</b><code>${esc(tx.transactionId)}</code></div><button class="outline mini" data-p2sh-tx="${esc(tx.transactionId)}" title="Copy transaction ID" aria-label="Copy transaction ID">Copy</button></div>`).join('') : '<p class="empty">No confirmed activity found.</p>'}</section>`;
+    if (usable && view === 'activity' && historyHasMore) html += panel('<p>Older transactions are available. History is not complete yet.</p><button id="p2sh-history-more" class="outline">Load more</button>');
     host.innerHTML = html;
     host.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button,input').forEach(control => { if (busy) control.disabled = true; });
     document.querySelector<HTMLButtonElement>('#receive-regular')!.disabled = busy;
@@ -104,6 +105,9 @@ export async function openP2sh(hooks: Hooks) {
     });
     host.querySelector<HTMLInputElement>('#p2sh-accept')?.addEventListener('change', () => { accepted = true; void run(refresh); });
     click('p2sh-refresh', () => void run(refresh)); click('p2sh-return', () => void run(refresh));
+    click('p2sh-history-more', () => void run(async () => {
+      const result = await command('p2shHistoryMore'); transactions = result.transactions; historyHasMore = result.historyHasMore === true;
+    }));
     click('p2sh-backup', () => void run(backup));
     click('p2sh-resume', () => void run(async () => { receipt = await command('p2shResume'); state = await command('p2shState'); }));
     click('p2sh-copy', () => hooks.copy(String(receive!.address), 'Address copied'));

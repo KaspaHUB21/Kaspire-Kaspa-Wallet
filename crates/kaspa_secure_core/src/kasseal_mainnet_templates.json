@@ -1,0 +1,813 @@
+{
+  "source": "Sealkaspa/kasseal-sdk@71d25563a594d47a5d421646a8a4b02df2eec848",
+  "sdk": "0.1.1",
+  "network": "mainnet",
+  "curves": [
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "3f2e99521fcbc1e3b37f17615f1da2d0cc2ebd0c0ae6efc88e26c68cadc0e7e0"
+    },
+    {
+      "length": 7977,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        249,
+        5273,
+        7313,
+        7548
+      ],
+      "sha256": "bfe030abce9a705e9c96ff4487a9e170a702b8a08f20772b3b36a83acdbb501d"
+    },
+    {
+      "length": 7990,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        251,
+        5284,
+        7326,
+        7561
+      ],
+      "sha256": "76a0d1a4e98f29deb4d3b7338c15c4e843b4cbc3d30f3e70695c58f9bf7054ec"
+    },
+    {
+      "length": 7990,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        251,
+        5284,
+        7326,
+        7561
+      ],
+      "sha256": "069a936949ccd7ebab2fd28d1c3b14ccd4a37a0ea2433bc757b4c0c984fdebf7"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "9c29ecf3e836a2a6be8fbad4d47e83efc0aa46f5aacd9c023597692b7e2bcab3"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "70d749c2017b466621f83fa4589e4c0cba84112741dca4b4dfae33db55317164"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "58fcabdd2d91d29791bcdb708c88a6b141a8fdce118c9dfb6c956f1f352fadcc"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "a5d29e3082d316b1ef91c60b259caefa514754d2424f9bf7b414a54baaa67bfd"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "ea2a6bca7d48d5dc1b1bb006fb255c411e838ef31012d7e57bbf9d6ee244d006"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "d587903f50f902ef494cfb6ad4012c195d617dbcff6085358cf073b2aa204907"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "aa5a30915059ae684296014bb7b40a2e43bbd7f78b244aeffc9389364752d743"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "894c04800d98ef56433dc2ca2f7e2c1e22c169ef3f6bd2d1105e499d3211ec68"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "a719d7bc48ff35d07fcd5e03239d6dd2fd6822aeb160b93a0e3e317b8a289a6d"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "000425032ad48fd08824479b1dd169398a1738bed57950930dd69ed3874c083d"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "cf4777c48d47140bdb4e6e269e9c2e9d9f2cf01569621def9d3be0c193101fc8"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "034febfaf58c4165eba211cbf6162456d414dd650ab3ac9335e05edd6bf35816"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "07461a351ed83794a1e9917b20c7cfd2633762643b07f4b1ee68fa13c34246f8"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "3ba57f646bda6ac5a9bb3fb1f308dded1cb70a54c477686dadfa29f74d73eaa3"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "e0d46fb792bcc48405b7fe44ccec4762f086a569fdb9a2a6defe6c2bfbd13eba"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "70da927826d28212ecab00427febb422846dfbd6c1c7fd749eddedcb22337d5b"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "80ba4845b86f35563727b631c2e6239547da8d11b09a3fad15e6018647b6ad8e"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "ab2cc384d0c3190295b58cf6d9472449fda45361e65ea574cfa2ce4acb4de11c"
+    },
+    {
+      "length": 7977,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        249,
+        5273,
+        7313,
+        7548
+      ],
+      "sha256": "a8f282338f5de782123ec694c8e54a1254a0f129cd293ba1f889fd86f0398667"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "b0f43f7b9dcb17aa96b4345ed3b2f9731037c49da52aafe7fa191a7d3cb3c40f"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "c5539211ece60aa22673e804a3a38df1a05c992b79302ae583f1c2f78a84997e"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "eb0e65115bff889d4e3ecef4e32cee6b39dc4a15a6c5107e26f6647997f85a06"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "9cb7f8db1ea9bff6af60ca771bcc6753e0b70ef9fbe7410734ae75a3d5c5b9cf"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "a980ff8f5fdaeb5d0a53e54a6034f3001212b41d3963e59b4ca8073ca63b3c67"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "a007219a2a7f043c9705e933e43b998ff0c39f62184d8a8be2ad8953e7b7be17"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "4a4f8f1d897b704e302cf9702b8235334c6e6574c48539efa22a940217542b8b"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "7bceffe6463ac2eb40ca6c4b7a907172697b47ee112ca7cab22908a08a65bc20"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "627aa7ec21438bf63a48fa6512caa417388efef5fdf95df2ba3c784ff754a830"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "ebef5538933edc59fdb4a8834ac1513217bc314a17110e83a390924efd580384"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "4aef047e05fb51e3a47b985aff407e5c9a5804313a514aa9883e7975ae46013d"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "27045f1b5fd40fd574c1116e3e1f4fcb6709c1b823c3bf7fbb963f76e43fea14"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "7a7afe42cc1b7a172f09e75773aaf7eff30f71ce759ceee5ab3d992e219169e2"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "374f1962ced2e7fe61e0827b5b9af0d358665041a24cc9970bf17fbf0ac73756"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "11aba5c9085de84d6609f033a342c54623d8b5e2ab5c855af677b1140600b136"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "0cfa26e448c146356cc4f6e49570bdbfc2df31df21b7bc89681915b12c444690"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "0d70d5fdbd7ac32979b2bdd9b5ee68ca8f5039e3dc8013231eaa8c530ad12054"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "40554cfea001ae7d11395302237b2bbb68eecc70889c4daea0215ca69d70ae9b"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "a6c4c63359e14645e1e5a48e213b19f17cd4a10cd310eb6d009b750c73b19c8a"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "9277964a26c3a99bf69f5a3116affa844bd91b92bfa0e3c371c26787a6ada93d"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "665dc621b92084b28b858528247808b2e4805b7342b19528d634cc3a95a99e12"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "d6ddbb86866f6d491751a13f2f5da7783f888a2d6da61833de1d89a0bc49334c"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "3ab23860298e575ddbf364c67c4aadf027e4427c49990b66040b257da5ac2663"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "d97a1aa10231a85c92a35da00ef3851a8bf7ea920ae05c4be1ae18f54f13989a"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "6ec02d7dc8ee3c2b8a31a78f048a5fc1aad037758340eba1fdec29605a77723a"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "c34d19350e459ca805364d891fe2139519644e61217fb0666dc7c452762cf109"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "eb577d46ca3b57dd7374989ad3b2bf86f6cb71548a657fa792d997e9e78b989f"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "df49b0f720a18d320ce402471fe1792383443481d9cdcfda7ede90a4a5290fad"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "9352c77198bc588311fb9ffe4689e579ac896a2ffdfff6e388a6506785288dc3"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "1684259c6f8c7e0d50ff52010af802d0ef8a086ace7655076a54d23c92ec9367"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "525b39bfab492a3dac4e3703dd0856d42c8370ee98549afebecf50fa2c4970c8"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "f7f5a5de942004e5b4a0806653a01b69019f48f7efe9b62671c30b2a1d6f6cb6"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "5a601504aba352cdb08222d8f5b75a3f53bf96a4077a47e5411e341cf57dea7f"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "f7502fa046c2b6888d68115f682cf00f77608c9974082db290b3d21de25badfa"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "cdb69fd1155193e54525a5622819cb5d31eff1087cc5875f4377180265624a65"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "adde4b1ed3102d7c592851b532db457d34200cc779b815484bdbbd60158c7b89"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "72e2c8b754bb78761bc85e4c63c292e80d17a315c939b0b1631e24fe7d2342dd"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "2559363b00aa7a27aa93d29325087c31d2c9d9489a4801eaf6928a6cb1119ec1"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "450fa8e2be4cd3edb701572d80b0ab9363dd27ee25a9edec7fd2c04ee842ee7c"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "120cf9303486c4de1457ee03c9bc1c629d2ecc471c33e71bf8d30b0e8ad55558"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "931237eb70f263ec582ef93c3d7c3f3e2a1ff29b90cee802729ba212aae46810"
+    },
+    {
+      "length": 8008,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        5299,
+        7344,
+        7579
+      ],
+      "sha256": "f4f1d9427dd0c1c5052151819877a38a6ca8d0c5ecf0e4b595ff697175465fcc"
+    },
+    {
+      "length": 7995,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        5288,
+        7331,
+        7566
+      ],
+      "sha256": "235060cd61444a085385e9afa3be900748f84f42a5d9dbcd6b0f7e42e6741330"
+    }
+  ],
+  "pool": {
+    "length": 15197,
+    "stateOffset": 1,
+    "stateLength": 139,
+    "creatorOffsets": [],
+    "sha256": "2450900925fca123de1c7d8bd51ee9ad926981d47284a508ff050405f0550c73"
+  },
+  "token": {
+    "length": 4031,
+    "stateOffset": 34,
+    "stateLength": 112,
+    "creatorOffsets": [],
+    "sha256": "77d1bf0010f639e881c8d56ffe5bb78c2d2bc9b883365959e84cdbc2744c7ba7"
+  }
+}

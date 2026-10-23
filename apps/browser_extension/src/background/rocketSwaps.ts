@@ -42,31 +42,56 @@ export function rocketPendingInfo(context: RocketContext) {
   return receipt ? {token: receipt.token, side: receipt.side, transactionIds: receipt.transactionIds, next: receipt.next} : null;
 }
 export async function confirmedRocketConflict(tx: any, savedIds: Set<string>, get: NodeRead = rocketNodeJson, signal?: AbortSignal) {
-  const inputs = [...(tx.inputs ?? [])].sort((a: any, b: any) => Number(b.utxo?.covenantId != null) - Number(a.utxo?.covenantId != null));
-  const visited = new Set<string>();
+  const inputs = [...(tx.inputs ?? [])];
+  if(inputs.length>64)throw new RocketConflictUnknown();
+  const groups = new Map<string,Set<string>>(), points=new Set<string>(),origins=new Map<string,any>();
+  let incomplete=false,totalPages=0;
   for (const input of inputs) {
     signal?.throwIfAborted();
-    if (visited.size >= 3) break;
     const {transactionId: originId, index} = input.previousOutpoint ?? {};
     if (!/^[a-f0-9]{64}$/.test(originId) || !Number.isInteger(index)) throw Error('Invalid saved swap input.');
-    const origin = await get(`${node}/transactions/${originId}`, undefined, signal);
-    if (origin?.transaction_id !== originId || origin.is_accepted !== true) continue;
-    const outputs = (origin.outputs ?? []).filter((o: any) => o.index === index);
-    const address = outputs.length === 1 ? outputs[0].script_public_key_address : null;
-    if (typeof address !== 'string' || !/^kaspa:[a-z0-9]+$/.test(address) || visited.has(address)) continue;
-    visited.add(address);
-    const rows = await get(`${node}/addresses/${encodeURIComponent(address)}/full-transactions?limit=50&offset=0`, undefined, signal);
-    if (!Array.isArray(rows)) throw Error('Invalid own-node history. The saved swap is preserved.');
-    const spends = (candidate: any) => Array.isArray(candidate?.inputs) && candidate.inputs.some((i: any) =>
-      i.previous_outpoint_hash === originId && String(i.previous_outpoint_index) === String(index));
-    for (const row of rows) {
-      const id = row?.transaction_id;
-      if (typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id) || savedIds.has(id) || !spends(row)) continue;
-      const confirmed = await get(`${node}/transactions/${id}`, undefined, signal);
-      if (confirmed?.transaction_id === id && confirmed.is_accepted === true && spends(confirmed)) return id;
+    const point=`${originId}:${index}`;points.add(point);
+    let address=input.utxo?.address;
+    if(typeof address!=='string'||!/^kaspa:[a-z0-9]+$/.test(address)){
+      if(!origins.has(originId)) {
+        try{origins.set(originId,await get(`${node}/transactions/${originId}`,undefined,signal));}
+        catch(e){if((e as any)?.httpStatus!==404)throw e;origins.set(originId,null);}
+      }
+      const origin=origins.get(originId);
+      if(origin?.transaction_id!==originId||origin.is_accepted!==true){incomplete=true;continue;}
+      const outputs=(origin.outputs??[]).filter((o:any)=>o.index===index);
+      address=outputs.length===1?outputs[0].script_public_key_address:null;
     }
+    if(typeof address!=='string'||!/^kaspa:[a-z0-9]+$/.test(address)){incomplete=true;continue;}
+    if(!groups.has(address))groups.set(address,new Set());groups.get(address)!.add(point);
   }
+  const spends=(candidate:any)=>Array.isArray(candidate?.inputs)&&candidate.inputs.some((i:any)=>points.has(`${i.previous_outpoint_hash}:${i.previous_outpoint_index}`));
+  const checked=new Set<string>();
+  for(const address of groups.keys()){
+    const pages=new Set<string>();let complete=false;
+    for(let page=0;page<20;page++){
+      signal?.throwIfAborted();
+      if(++totalPages>100){incomplete=true;break;}
+      const rows=await get(`${node}/addresses/${encodeURIComponent(address)}/full-transactions?limit=50&offset=${page*50}`,undefined,signal);
+      if(!Array.isArray(rows)||rows.length>50)throw Error('Invalid own-node history. The saved swap is preserved.');
+      const signature=rows.map(row=>row?.transaction_id).join(',');
+      if(rows.length&&pages.has(signature)){incomplete=true;break;}pages.add(signature);
+      for(const row of rows){
+        const id=row?.transaction_id;
+        if(typeof id!=='string'||!/^[a-f0-9]{64}$/.test(id)||savedIds.has(id)||!spends(row)||checked.has(id))continue;
+        checked.add(id);
+        const confirmed=await get(`${node}/transactions/${id}`,undefined,signal);
+        if(confirmed?.transaction_id===id&&confirmed.is_accepted===true&&spends(confirmed))return id;
+      }
+      if(rows.length<50){complete=true;break;}
+    }
+    if(!complete)incomplete=true;
+  }
+  if(incomplete)throw new RocketConflictUnknown();
   return null;
+}
+export class RocketConflictUnknown extends Error {
+  constructor(){super('Unable to determine whether the saved swap is obsolete within the history lookup limit. Its signed transaction remains saved; no replacement was created.');}
 }
 export async function retireRocketSwap(context: RocketContext,
     findConflict: typeof confirmedRocketConflict = confirmedRocketConflict) {
@@ -117,7 +142,8 @@ export async function resumeRocketSwap(context: RocketContext, checkConflict = t
   const receipt = pending(context);
   if (!receipt) throw Error('No saved swap for this wallet and network.');
   const findConflict = dependencies.conflict ?? confirmedRocketConflict;
-  if (checkConflict && await retireRocketSwap(context, findConflict)) throw new RocketQuoteExpired();
+  const retireOrKeep=async()=>{try{return await retireRocketSwap(context,findConflict);}catch(e){if(e instanceof RocketConflictUnknown)return false;throw e;}};
+  if (checkConflict && await retireOrKeep()) throw new RocketQuoteExpired();
   const accepted = context.accepted ?? ((id: string) => rocketAccepted(id, context.signal));
   const submit = dependencies.submit ?? submitRocket;
   const sleep = dependencies.sleep ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
@@ -128,7 +154,7 @@ export async function resumeRocketSwap(context: RocketContext, checkConflict = t
       let result: any;
       try { result = await submit(receipt.signed[i], i === receipt.signed.length - 1 ? receipt.plan?.order_row : undefined, context.signal); }
       catch (error) {
-        if (error instanceof RocketConflict && await retireRocketSwap(context, findConflict)) throw new RocketQuoteExpired();
+        if (error instanceof RocketConflict && await retireOrKeep()) throw new RocketQuoteExpired();
         throw error;
       }
       receipt.receipts.push(result);

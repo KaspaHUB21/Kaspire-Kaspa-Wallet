@@ -27,8 +27,22 @@ String formatEnglishNumber(
       trimTrailingZeros: trimTrailingZeros,
     );
 
-String formatSompi(int sompi, {int decimals = 8}) =>
-    formatEnglishNumber(sompi / 100000000, decimals: decimals);
+String formatSompi(int sompi, {int decimals = 8}) {
+  if (decimals < 0 || decimals > 18)
+    throw RangeError.range(decimals, 0, 18, 'decimals');
+  var raw = BigInt.from(sompi).abs();
+  if (decimals < 8) {
+    final scale = BigInt.from(10).pow(8 - decimals);
+    raw = (raw + scale ~/ BigInt.two) ~/ scale;
+  }
+  if (decimals > 8) raw *= BigInt.from(10).pow(decimals - 8);
+  final digits = raw.toString().padLeft(decimals + 1, '0');
+  final value = decimals == 0
+      ? digits
+      : '${digits.substring(0, digits.length - decimals)}.${digits.substring(digits.length - decimals)}';
+  return formatEnglishDecimal(
+      '${sompi < 0 && raw != BigInt.zero ? '-' : ''}$value');
+}
 
 String formatRawTokenAmount(BigInt amount, int decimals) {
   if (decimals <= 0) return _groupWholeDigits(amount.toString());

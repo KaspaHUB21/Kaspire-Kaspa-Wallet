@@ -103,6 +103,33 @@ test('An already accepted swap completes without re-broadcasting or querying the
   assert.equal(f.state().pending,undefined);assert.equal(f.records.length,1);
   assert.equal(f.records[0].row.displayAmount,'69.913');assert.equal(f.records[0].row.assetSymbol,'ROCKET');
 });
+test('Conflict search covers the fourth address, older pages and every outpoint at a shared address',async()=>{
+  const ids=[1,2,3,4].map(n=>String(n).padStart(64,'0'));
+  const tx={inputs:ids.map(transactionId=>({previousOutpoint:{transactionId,index:0}}))};
+  const seen=[];
+  const row={transaction_id:competing,is_accepted:true,inputs:[{previous_outpoint_hash:ids[3],previous_outpoint_index:'0'}]};
+  const get=async url=>{
+    if(url.endsWith('/transactions/'+competing))return row;
+    const originId=ids.find(id=>url.endsWith('/transactions/'+id));
+    if(originId)return {transaction_id:originId,is_accepted:true,outputs:[{index:0,script_public_key_address:'kaspa:q'+(ids.indexOf(originId)+1)}]};
+    const u=new URL(url),address=decodeURIComponent(u.pathname),offset=Number(u.searchParams.get('offset'));seen.push({address,offset});
+    if(!address.includes('kaspa:q4'))return [];
+    return offset===0?Array.from({length:50},(_,n)=>({transaction_id:(n+100).toString(16).padStart(64,'0'),inputs:[]})):[row];
+  };
+  assert.equal(await confirmedRocketConflict(tx,new Set([savedId]),get),competing);
+  assert(seen.some(s=>s.address.includes('kaspa:q4')&&s.offset===50));
+  const shared={inputs:[0,1].map(index=>({previousOutpoint:{transactionId:origin,index}}))};
+  const second={...row,inputs:[{previous_outpoint_hash:origin,previous_outpoint_index:'1'}]};
+  assert.equal(await confirmedRocketConflict(shared,new Set(),async url=>url.includes('/full-transactions')?[second]:url.endsWith('/'+competing)?second:
+    {transaction_id:origin,is_accepted:true,outputs:[0,1].map(index=>({index,script_public_key_address:'kaspa:qpool'}))}),competing);
+});
+test('Repeated pages explicitly preserve an indeterminate swap rather than silently clearing it',async()=>{
+  const f=context();
+  const get=async url=>url.includes('/full-transactions')?Array.from({length:50},(_,n)=>({transaction_id:String(n+100).padStart(64,'0'),inputs:[]})):
+    {transaction_id:origin,is_accepted:true,outputs:[{index:0,script_public_key_address:'kaspa:qpool'}]};
+  await assert.rejects(retireRocketSwap(f.context,(tx,ids)=>confirmedRocketConflict(tx,ids,get)),/Unable to determine/);
+  assert.deepEqual(f.state().pending,fixture());
+});
 test('Existing obsolete journals become refreshable without another broadcast',async()=>{
   const f=context();let submits=0;
   await assert.rejects(resumeRocketSwap(f.context,true,{conflict:async()=>competing,submit:async()=>{submits++;}}),RocketQuoteExpired);

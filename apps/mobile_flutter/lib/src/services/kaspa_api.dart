@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'kns_holdings_loader.dart';
 import 'dotk_service.dart';
 import 'kasparocket_service.dart';
+import 'kasseal_service.dart';
 import 'krc721_reads.dart';
 import 'kron_holdings.dart';
 import 'kcc20_standard_service.dart';
 import 'kcc20_compound.dart';
+import 'kcc20_metadata.dart';
 import 'activity_store.dart';
 
 import 'package:http/http.dart' as http;
@@ -162,13 +164,20 @@ class KaspaApi {
               publish();
             }).catchError((_) => null),
       testnet
-          ? KaspaRocketService(client: _client)
-              .walletAssets(address)
+          ? Future.wait([
+              KassealService(client: _client)
+                  .walletAssets(address)
+                  .catchError((_) => <WalletAsset>[]),
+              KaspaRocketService(client: _client)
+                  .walletAssets(address)
+                  .catchError((_) => <WalletAsset>[]),
+            ])
+              .then((groups) => groups.expand((a) => a).toList())
               .then<Object?>((assets) => _Kcc20Wallet(
                     assets: assets,
                     transactions: const [],
                     warning: assets.any((asset) => !asset.discoveryComplete)
-                        ? 'KaspaRocket TN10 balances are visible. Generic KCC20 transfers remain disabled until complete signing cells are independently verified.'
+                        ? 'TN10 DEX balances are visible. Open the token to trade; generic transfers require independently verified signing cells.'
                         : '',
                   ))
               .catchError((_) => null)
@@ -1125,8 +1134,9 @@ class KaspaApi {
       {required int historyLimit,
       void Function(_Kcc20Wallet)? onProgress}) async {
     _Kcc20Wallet? ordinary;
-    List<WalletAsset> rocket = const [];
+    List<WalletAsset> rocket = const [], seal = const [];
     var rocketUnavailable = false;
+    var sealUnavailable = false;
     _Kcc20Wallet merged() {
       String key(WalletAsset asset) =>
           (asset.covenantId ?? asset.id ?? asset.symbol).toLowerCase();
@@ -1134,10 +1144,30 @@ class KaspaApi {
         for (final asset in ordinary?.assets ?? <WalletAsset>[])
           key(asset): asset
       };
-      for (final asset in rocket) {
+      for (final asset in [...rocket, ...seal]) {
         final current = assets[key(asset)];
         if (current == null || !current.discoveryComplete) {
           assets[key(asset)] = asset;
+        } else {
+          // Preserve independently discovered signing cells while retaining
+          // the venue identity and market data needed by the token detail UI.
+          assets[key(asset)] = WalletAsset(
+            symbol: asset.symbol,
+            balance: current.balance,
+            kind: current.kind,
+            imageUrl: asset.imageUrl ?? current.imageUrl,
+            id: current.id,
+            decimals: current.decimals,
+            rawBalance: current.rawBalance,
+            priceKas: asset.priceKas ?? current.priceKas,
+            priceUsd: current.priceUsd,
+            covenantId: current.covenantId,
+            templateHash: current.templateHash,
+            validationStatus: current.validationStatus,
+            kcc20Cells: current.kcc20Cells,
+            discoveryComplete: current.discoveryComplete,
+            standard: asset.standard,
+          );
         }
       }
       return _Kcc20Wallet(
@@ -1146,12 +1176,21 @@ class KaspaApi {
           warning: [
             if (ordinary?.warning.isNotEmpty == true) ordinary!.warning,
             if (rocketUnavailable)
-              'KaspaRocket token balances are temporarily unavailable. Pull to refresh.'
+              'KaspaRocket token balances are temporarily unavailable. Pull to refresh.',
+            if (sealUnavailable)
+              'Kasseal token balances are temporarily unavailable. Pull to refresh.'
           ].join(' '));
     }
 
     void publish() => onProgress?.call(merged());
     await Future.wait([
+      KassealService(client: _client).walletAssets(address).then((assets) {
+        seal = assets;
+        publish();
+      }).catchError((_) {
+        sealUnavailable = true;
+        publish();
+      }),
       KaspaRocketService(client: _client, mainnet: true)
           .walletAssets(address)
           .then((assets) {
@@ -1873,9 +1912,14 @@ class KaspaApi {
       ));
     }
     final fields = _map(token['fields'] ?? directoryRow['fields']);
-    final decimals =
-        _asInt(token['claimed_decimals'] ?? fields['decimals'] ?? 8);
-    final ticker = (token['claimed_ticker'] ??
+    final declaration = verifiedKascovDeclaration(covenantId, token) ??
+        verifiedKascovDeclaration(covenantId, coin);
+    final decimals = _asInt(declaration?['decimals'] ??
+        token['claimed_decimals'] ??
+        fields['decimals'] ??
+        8);
+    final ticker = (declaration?['ticker'] ??
+            token['claimed_ticker'] ??
             directoryRow['claimed_ticker'] ??
             fields['tick'] ??
             token['name'] ??
@@ -2009,6 +2053,26 @@ class KaspaApi {
       price = _asDouble(
           _map(await _getReadOnlyWithFallback('/info/price'))['price']);
     } catch (_) {}
+    if (asset.standard == 'kasparocket-kcc20') {
+      return WalletAsset(
+          symbol: asset.symbol,
+          balance: asset.balance,
+          kind: asset.kind,
+          imageUrl: asset.imageUrl,
+          id: asset.id,
+          decimals: asset.decimals,
+          rawBalance: asset.rawBalance,
+          priceKas: asset.priceKas,
+          priceUsd: asset.priceKas == null || price == null
+              ? asset.priceUsd
+              : asset.priceKas! * price,
+          covenantId: asset.covenantId,
+          templateHash: asset.templateHash,
+          validationStatus: asset.validationStatus,
+          kcc20Cells: asset.kcc20Cells,
+          discoveryComplete: asset.discoveryComplete,
+          standard: asset.standard);
+    }
     return _withTokenMarket(asset, price);
   }
 

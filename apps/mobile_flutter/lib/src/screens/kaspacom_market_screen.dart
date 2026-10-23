@@ -5,6 +5,7 @@ import '../services/kaspacom_market_service.dart';
 import '../services/nft_market_service.dart';
 import '../services/krc721_reads.dart';
 import '../widgets/krc20_order_card.dart';
+import '../number_format.dart';
 
 /// KaspaCom's fees and orders are independent of Kaspire's marketplaces.
 class KaspaComMarketScreen extends StatefulWidget {
@@ -472,7 +473,8 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
                   content: SingleChildScrollView(
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
                     if (kind == 'krc20') ...[
-                      Text('Available: ${asset['balance']} ${asset['ticker']}'),
+                      Text(
+                          'Available: ${formatEnglishDecimal('${asset['balance']}')} ${asset['ticker']}'),
                       Text(
                           'Floor Price: ${floor ?? 'Unavailable'} KAS / ${asset['ticker']}'),
                       const SizedBox(height: 12),
@@ -559,7 +561,7 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
                 .round());
         if (units <= BigInt.zero || units > balance) {
           throw StateError(
-              'Insufficient token balance. Available: ${asset['balance']} ${asset['ticker']}.');
+              'Insufficient token balance. Available: ${formatEnglishDecimal('${asset['balance']}')} ${asset['ticker']}.');
         }
         quantity = num.parse(text);
         if (quantity > 9007199254740991) {
@@ -943,7 +945,8 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
                                                   fontWeight: FontWeight.bold)),
                                           if (tab == 'assets' &&
                                               kind == 'krc20')
-                                            Text('Available: ${r['balance']}'),
+                                            Text(
+                                                'Available: ${formatEnglishDecimal('${r['balance']}')}'),
                                           if (r['totalPrice'] != null)
                                             Text('${r['totalPrice']} KAS'),
                                           if (r['quantity'] != null)

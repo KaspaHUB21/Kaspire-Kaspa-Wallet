@@ -1,4 +1,5 @@
 import type { KaspaNetwork } from "../shared/protocol";
+import {verifiedKascovDeclaration} from '../shared/kcc20Metadata';
 import {rocketWalletAssets, mergeRocketAssets} from './kasparocket';
 import {directKronAssets, directKronTransfer} from './kronHoldings';
 import {standardKcc20Assets, standardKcc20TransferData, cachedStandardKcc20Asset, standardKcc20Token, waitForStandardKcc20Cell} from './standardKcc20';
@@ -556,10 +557,11 @@ async function loadKascovAssets(address: string) {
         const detail = await get(`https://kascov.io/data/mainnet/token/${id}`), token = detail?.token;
         if (token?.status !== 'verified') return null;
         const balance = (Array.isArray(detail?.balances) ? detail.balances : []).find((item: any) => String(item?.owner).toLowerCase() === owner);
-        const rawBalance = String(balance?.balance ?? ''), decimals = Number(token?.claimed_decimals ?? row?.claimed_decimals ?? 8);
+        const declaration=verifiedKascovDeclaration(id,token);
+        const rawBalance = String(balance?.balance ?? ''), decimals = Number(declaration?.decimals ?? token?.claimed_decimals ?? row?.claimed_decimals ?? 8);
         if (!/^\d+$/.test(rawBalance) || BigInt(rawBalance) <= 0n || !Number.isInteger(decimals) || decimals < 0 || decimals > 18) return null;
         const image = String(token?.claimed_image ?? row?.claimed_image ?? '');
-        return {covenantId:id, symbol:String(token?.claimed_ticker ?? row?.claimed_ticker ?? token?.claimed_name ?? 'KCC20').toUpperCase(),
+        return {covenantId:id, symbol:String(declaration?.ticker ?? token?.claimed_ticker ?? row?.claimed_ticker ?? token?.claimed_name ?? 'KCC20').toUpperCase(),
           name:String(token?.claimed_name ?? row?.claimed_name ?? 'KCC20'), rawBalance, decimals,
           image_url:/^https:\/\//.test(image) ? image : '', standard:'legacy-kcc20', validationStatus:'verified', directTransfer:true,
           explorerUrl:`https://kascov.io/token/${id}`};

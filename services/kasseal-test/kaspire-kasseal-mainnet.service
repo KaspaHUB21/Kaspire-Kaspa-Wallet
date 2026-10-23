@@ -1,0 +1,23 @@
+[Unit]
+Description=Kaspire Kasseal unsigned Mainnet planner
+After=network-online.target kaspad.service
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/kaspire/source/services/kasseal-test
+Environment=KASPIRE_KASSEAL_NETWORK=mainnet
+Environment=PORT=8175
+ExecStart=/opt/node-v22.23.1/bin/node /srv/kaspire/source/services/kasseal-test/server.mjs
+User=www-data
+Group=www-data
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=512M
+TasksMax=48
+
+[Install]
+WantedBy=multi-user.target

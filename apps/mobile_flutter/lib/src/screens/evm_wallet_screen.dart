@@ -9,6 +9,7 @@ import '../services/network_settings.dart';
 import '../services/preferences_service.dart';
 import '../services/privacy_settings.dart';
 import '../theme.dart';
+import '../number_format.dart';
 import '../widgets/kaspire_brand.dart';
 
 class EvmWalletScreen extends StatefulWidget {
@@ -215,8 +216,9 @@ class _EvmWalletScreenState extends State<EvmWalletScreen> {
                                           subtitle: Text(token.name),
                                           trailing: Text(hideAmounts
                                               ? '••••'
-                                              : formatUnits(token.rawBalance,
-                                                  token.decimals)),
+                                              : formatEnglishDecimal(
+                                                  formatUnits(token.rawBalance,
+                                                      token.decimals))),
                                           onTap: () => widget.onSend(token),
                                         ))),
                               if (snapshot.hasData &&
@@ -339,7 +341,9 @@ class _EvmBalanceCard extends StatelessWidget {
   Widget build(BuildContext context) => KasVaultTheme.isDecorative
       ? Hub21BalanceCard(
           walletName: walletName,
-          amount: balance == null ? '—' : formatUnits(balance!, 18),
+          amount: balance == null
+              ? '—'
+              : formatEnglishDecimal(formatUnits(balance!, 18)),
           symbol: EvmNetworkConfig.current.nativeSymbol,
           fiat: '',
           hideAmounts: hideAmounts,
@@ -382,7 +386,7 @@ class _EvmBalanceCard extends StatelessWidget {
                         ? '••••••'
                         : balance == null
                             ? '—'
-                            : '${formatUnits(balance!, 18)} ${EvmNetworkConfig.current.nativeSymbol}',
+                            : '${formatEnglishDecimal(formatUnits(balance!, 18))} ${EvmNetworkConfig.current.nativeSymbol}',
                     style: const TextStyle(
                         fontSize: 38,
                         fontWeight: FontWeight.w900,
@@ -439,7 +443,7 @@ class _EvmActivityTile extends StatelessWidget {
             title: Text(sent ? 'Sent' : 'Received'),
             subtitle: Text(transaction.method ?? 'Native transfer'),
             trailing: Text(
-                '${formatUnits(transaction.value, transaction.decimals)} $symbol'),
+                '${formatEnglishDecimal(formatUnits(transaction.value, transaction.decimals))} $symbol'),
             onTap: () => showDialog<void>(
                 context: context,
                 builder: (context) => AlertDialog(

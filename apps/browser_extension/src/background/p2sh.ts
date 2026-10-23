@@ -25,7 +25,8 @@ const operations = new Set<string>();
 type ReadLane = { next: number; cooldown: number; queue: Promise<unknown> };
 const nodeReads: ReadLane = { next: 0, cooldown: 0, queue: Promise.resolve() };
 const historyReads: ReadLane = { next: 0, cooldown: 0, queue: Promise.resolve() };
-export function clearP2shReviews() { reviews.clear(); }
+export function clearP2shReviews() { reviews.clear(); activityPages.clear(); }
+const activityPages = new Map<string, {addresses:Row[]; offsets:Map<string,number|null>; transactions:Map<string,Row>}>();
 export const emptyP2shState = (): P2shState => ({ descriptor: P2SH_DESCRIPTOR, receiveCount: 0, changeCount: 0, exposed: [] });
 export const p2shKas = (raw: unknown) => formatRawTokenAmount(String(raw), 8) + ' KAS';
 export function parseP2shKas(text: string) {
@@ -161,22 +162,29 @@ async function scan(context: P2shContext) {
   }
   return { state: await observe(context, used), addresses, utxos, balanceSompi: total.toString() };
 }
-async function activity(context: P2shContext, addresses: Row[]) {
-  const transactions = new Map<string, Row>(), owned = new Set(addresses.map(a => a.address));
+async function activity(context: P2shContext, addresses: Row[], more = false) {
+  const owned = new Set(addresses.map(a => a.address));
   // Only addresses with confirmed history/outputs need an activity request.
   const retired = new Set(context.load().exposed);
-  for (const a of addresses.filter(a => retired.has(key(a)))) {
-    const rows = await read(context, `${node}/addresses/${encodeURIComponent(a.address)}/full-transactions?limit=50&offset=0&resolve_previous_outpoints=light`);
+  if(!more||!activityPages.has(context.binding)) {
+    activityPages.set(context.binding,{addresses,offsets:new Map(addresses.filter(a=>retired.has(key(a))).map(a=>[a.address,0])),transactions:new Map()});
+  }
+  const pager=activityPages.get(context.binding)!,{transactions}=pager;
+  for (const [address,offset] of pager.offsets) {
+    if(offset===null)continue;
+    const rows = await read(context, `${node}/addresses/${encodeURIComponent(address)}/full-transactions?limit=50&offset=${offset}&resolve_previous_outpoints=light`);
     if (!Array.isArray(rows)) throw Error('Account activity lookup unavailable.');
     for (const row of rows) if (/^[0-9a-f]{64}$/.test(row.transaction_id) && row.is_accepted === true) transactions.set(row.transaction_id, row);
+    pager.offsets.set(address,rows.length<50?null:offset+50);
   }
-  return [...transactions.values()].map(tx => {
+  const items=[...transactions.values()].map(tx => {
     let incoming = 0n, outgoing = 0n;
     for (const input of tx.inputs ?? []) if (owned.has(input.previous_outpoint_address)) outgoing += BigInt(String(input.previous_outpoint_amount));
     for (const output of tx.outputs ?? []) if (owned.has(output.script_public_key_address)) incoming += BigInt(String(output.amount));
     const net = incoming - outgoing;
     return { transactionId: tx.transaction_id, amountSompi: (net < 0n ? -net : net).toString(), incoming: net >= 0n, timestamp: tx.block_time ?? 0 };
   }).sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
+  return {transactions:items,historyHasMore:[...pager.offsets.values()].some(offset=>offset!==null)};
 }
 async function confirmed(context: P2shContext, pending: Row) {
   await context.verify(pending);
@@ -248,14 +256,19 @@ async function resume(context: P2shContext) {
 async function execute(context: P2shContext, message: Row): Promise<any> {
   await context.guard();
   if (message.command === 'p2shState') return validateP2shState(context.load());
+  if (message.command === 'p2shHistoryMore') {
+    const pager=activityPages.get(context.binding);
+    if(!pager)throw Error('Refresh the P2SH account before loading older history.');
+    return activity(context,pager.addresses,true);
+  }
   if (message.command === 'p2shRefresh') {
     if (context.load().pending) return { payment: await resume(context), state: context.load() };
     const snapshot = await scan(context);
     const available = snapshot.addresses.filter(a => a.branch === 0 && a.index < snapshot.state.receiveCount && !snapshot.state.exposed.includes(key(a)));
     const receiving = available.at(-1) ?? await issue(context, 0);
-    let transactions: Row[] = [], activityError = '';
-    try { transactions = await activity(context, snapshot.addresses); } catch (e) { activityError = (e as Error).message; }
-    return { ...snapshot, state: context.load(), receive: receiving, transactions, activityError };
+    let result = {transactions:[] as Row[],historyHasMore:false}, activityError = '';
+    try { result = await activity(context, snapshot.addresses); } catch (e) { activityError = (e as Error).message; }
+    return { ...snapshot, state: context.load(), receive: receiving, ...result, activityError };
   }
   if (message.command === 'p2shReceive') {
     const snapshot = await scan(context), s = snapshot.state;

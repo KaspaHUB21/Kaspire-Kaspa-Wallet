@@ -76,8 +76,8 @@ const highlights = [
   {
     number: "12",
     title: "Mainnet DEX swaps, inside your wallet.",
-    copy: "Choose KaspaRocket or KRON under Swap on Android or the browser extension to trade supported mainnet covenant tokens. KaspaRocket brings DEX Swaps and My Activity, with bonding-curve, AMM and order-book routing. Bonding-curve holdings load directly from KaspaRocket, independently of Kasvio, and prices are shown per complete token. Review covenant IDs, wallet flows and fees before local signing. Signed swaps are encrypted for recovery. If a confirmed conflicting spend makes an old plan obsolete, refresh the quote safely; uncertain broadcasts remain saved for recovery.",
-    tags: ["KaspaRocket", "KRON DEX", "Mainnet swaps"],
+    copy: "On Android, choose KaspaRocket, Kasseal or KRON under Swap to trade supported mainnet covenant tokens. Kasseal supports exact 1,000-token bonding-curve lots and whole-token constant-product pool swaps after graduation, with launch-proof verification, token preparation and a separate swap history. KaspaRocket token details show your balance, price and value with separate Send Asset and Swap buttons. The browser extension supports KaspaRocket and KRON. Review covenant IDs, wallet flows and fees before local signing. Signed swaps are encrypted for recovery; uncertain broadcasts remain saved.",
+    tags: ["KaspaRocket", "Kasseal", "KRON DEX", "Mainnet swaps"],
   },
   {
     number: "13",
@@ -647,13 +647,13 @@ export default function Home() {
                 file manager. Verify the checksum before installation.
               </p>
               <p>
-                KaspaRocket Mainnet is now available under Swap, before KRON,
-                with DEX Swaps and My Activity. Buy and sell covenant tokens
-                with local Rust signing, own-node input checks and encrypted
-                swap recovery. This update also supports verified KCC20
-                10-input/10-output configurations and whole-payment approvals.
-                The latest hotfix restores Refresh quote after confirmed pool
-                conflicts, including obsolete swaps saved by the previous app.
+                Mainnet Swap now offers KaspaRocket, Kasseal and KRON, in that
+                order. Kasseal brings launch-proof-verified curve and pool trades,
+                partial-sale token preparation and swap history. KaspaRocket
+                tokens open a balance and price detail page with separate Send
+                Asset and Swap buttons. This update also improves P2SH history
+                pagination, saved-swap conflict recovery, dot.k newest/length
+                filters, verified token metadata and US-style number formatting.
                 Signed with the existing Android release certificate and
                 signing lineage.
               </p>

@@ -4,6 +4,7 @@ import '../services/kasparocket_service.dart';
 import '../services/kaspa_api.dart';
 import '../services/native_security.dart';
 import '../services/network_settings.dart';
+import '../number_format.dart';
 
 class KaspaRocketScreen extends StatefulWidget {
   const KaspaRocketScreen(
@@ -253,8 +254,9 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
       amount.text, side == 'buy' ? 8 : KaspaRocketService.tokenDecimals);
 
   BigInt get holdingRaw => KaspaRocketService.holdingRaw(holding);
-  String get holdingDisplay => KaspaRocketService.displayRaw(
-      holdingRaw, KaspaRocketService.tokenDecimals);
+  String get holdingDisplay =>
+      formatEnglishDecimal(KaspaRocketService.displayRaw(
+          holdingRaw, KaspaRocketService.tokenDecimals));
 
   void validateAvailable(String rawAmount, {Map<String, Object?>? liveQuote}) {
     final requested = BigInt.parse(rawAmount);
@@ -379,7 +381,7 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
                         line('Token covenant', widget.token.tokenId),
                         line('Pool covenant', pool),
                         line('Quoted token amount',
-                            '${KaspaRocketService.amountTokensDisplay(summary)} ${widget.token.ticker}'),
+                            '${formatEnglishDecimal(KaspaRocketService.amountTokensDisplay(summary))} ${widget.token.ticker}'),
                         line('Quoted KAS flow', sompi(summary['kasFlowSompi'])),
                         line('Quoted treasury fee',
                             sompi(summary['platformFeeSompi'])),
@@ -524,7 +526,7 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
                     child: Column(children: [
                       line('Status', 'Submitted successfully'),
                       line('Token amount',
-                          '${KaspaRocketService.amountTokensDisplay(summary)} ${receipt['token']}'),
+                          '${formatEnglishDecimal(KaspaRocketService.amountTokensDisplay(summary))} ${receipt['token']}'),
                       line('KAS flow', sompi(summary['kasFlowSompi'])),
                       line('Treasury fee', sompi(summary['platformFeeSompi'])),
                       line('Partner fee', sompi(summary['partnerFeeSompi'])),
@@ -615,7 +617,7 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
                     padding: const EdgeInsets.all(12),
                     child: Column(children: [
                       line('Token amount',
-                          '${KaspaRocketService.amountTokensDisplay(quote!)} ${widget.token.ticker}'),
+                          '${formatEnglishDecimal(KaspaRocketService.amountTokensDisplay(quote!))} ${widget.token.ticker}'),
                       line(
                           side == 'buy'
                               ? 'KAS into swap'
@@ -703,14 +705,11 @@ Widget idCard(String name, String value) => Card(
         ])));
 String kas(double? value) => value == null
     ? '—'
-    : '${value.toStringAsFixed(value.abs() < 1 ? 8 : 2)} KAS';
+    : '${formatEnglishNumber(value, decimals: value.abs() < 1 ? 8 : 2)} KAS';
 String sompi(Object? value) {
   final raw = BigInt.tryParse(value?.toString() ?? '');
   if (raw == null) return '—';
-  final base = BigInt.from(100000000), whole = raw ~/ base;
-  final fraction =
-      (raw % base).toString().padLeft(8, '0').replaceFirst(RegExp(r'0+$'), '');
-  return fraction.isEmpty ? '$whole KAS' : '$whole.$fraction KAS';
+  return '${formatRawTokenAmount(raw, 8)} KAS';
 }
 
 String sompiSigned(Object? value) {

@@ -10,6 +10,7 @@ export type MarketOffer = {
   terms: { name: string; seller: string; feeAddress: string; priceSompi: number };
   listingTxId: string;
   saleId: string;
+  listedAt?: number;
 };
 export type MarketState = "active" | "pending" | "sold" | "cancelled" | "unavailable";
 export type MarketStatus = { state: MarketState; transactionId?: string };
@@ -66,7 +67,8 @@ export function marketOffer(raw: any): MarketOffer {
       typeof terms?.seller !== "string" || typeof terms?.feeAddress !== "string")
     throw new Error("Invalid marketplace offer.");
   return { terms: { name: terms.name, seller: terms.seller, feeAddress: terms.feeAddress,
-    priceSompi: terms.priceSompi }, listingTxId: raw.listingTxId, saleId: raw.saleId };
+    priceSompi: terms.priceSompi }, listingTxId: raw.listingTxId, saleId: raw.saleId,
+    ...(Number.isSafeInteger(raw.listedAt)&&raw.listedAt>0?{listedAt:raw.listedAt}:{}) };
 }
 
 export async function marketOffers(query = "") {

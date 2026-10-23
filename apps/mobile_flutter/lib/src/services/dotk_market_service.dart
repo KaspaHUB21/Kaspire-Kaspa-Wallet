@@ -12,10 +12,22 @@ typedef MarketMap = Map<String, Object?>;
 
 enum DotkOfferState { active, pending, sold, cancelled, unavailable }
 
+int dotkLengthGroup(String bareName) => bareName.runes.length <= 3
+    ? 0
+    : bareName.runes.length <= 6
+        ? 1
+        : bareName.runes.length <= 9
+            ? 2
+            : 3;
+
 List<DotkOffer> sortMarketOffers(List<DotkOffer> offers,
-    {bool descending = false}) {
+    {bool descending = false, bool newest = false}) {
   final sorted = [...offers];
   sorted.sort((a, b) {
+    if (newest) {
+      final time = b.listedAt.compareTo(a.listedAt);
+      return time != 0 ? time : a.listingTxId.compareTo(b.listingTxId);
+    }
     final price =
         (a.terms['priceSompi'] as int).compareTo(b.terms['priceSompi'] as int);
     return price == 0
@@ -57,14 +69,22 @@ class DotkOfferStatus {
 
 class DotkOffer {
   DotkOffer(
-      {required this.terms, required this.listingTxId, required this.saleId});
+      {required this.terms,
+      required this.listingTxId,
+      required this.saleId,
+      this.listedAt = 0});
   final MarketMap terms;
   final String listingTxId;
   final String saleId;
+  final int listedAt;
   String get name => '${terms['name']}.k';
   String get seller => terms['seller'] as String;
-  MarketMap toJson() =>
-      {'terms': terms, 'listingTxId': listingTxId, 'saleId': saleId};
+  MarketMap toJson() => {
+        'terms': terms,
+        'listingTxId': listingTxId,
+        'saleId': saleId,
+        if (listedAt > 0) 'listedAt': listedAt
+      };
   factory DotkOffer.fromJson(Object? raw) {
     final row = (raw as Map).cast<String, Object?>();
     final terms = (row['terms'] as Map).cast<String, Object?>();
@@ -78,6 +98,7 @@ class DotkOffer {
     }
     return DotkOffer(
         terms: terms,
+        listedAt: row['listedAt'] is int ? row['listedAt'] as int : 0,
         listingTxId: row['listingTxId'] as String,
         saleId: row['saleId'] as String);
   }

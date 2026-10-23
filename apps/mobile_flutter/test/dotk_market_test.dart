@@ -19,6 +19,29 @@ Map<String, Object?> offer(int id, {String name = 'market'}) => {
     };
 
 void main() {
+  test('Newest listings sort globally before pagination; lengths exclude .k',
+      () {
+    final rows = [
+      for (var i = 1; i <= 30; i++)
+        DotkOffer.fromJson({...offer(i), 'listedAt': i * 1000})
+    ];
+    expect(sortMarketOffers(rows, newest: true).take(12).first.listingTxId,
+        rows.last.listingTxId);
+    expect(sortMarketOffers(rows, newest: true).last.listingTxId,
+        rows.first.listingTxId);
+    for (final length in [1, 3, 4, 6, 7, 9, 10, 64]) {
+      expect(
+          dotkLengthGroup('x' * length),
+          length <= 3
+              ? 0
+              : length <= 6
+                  ? 1
+                  : length <= 9
+                      ? 2
+                      : 3);
+    }
+    expect(DotkOffer.fromJson(rows.last.toJson()).listedAt, 30000);
+  });
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
   test('own listings group active first and newest first within groups', () {

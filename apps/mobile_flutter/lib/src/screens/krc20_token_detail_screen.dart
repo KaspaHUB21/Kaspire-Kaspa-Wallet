@@ -16,6 +16,7 @@ class Krc20TokenDetailScreen extends StatefulWidget {
     required this.fiatCode,
     required this.fiatSymbol,
     required this.onSend,
+    this.onSwap,
   });
 
   final WalletAsset asset;
@@ -23,6 +24,7 @@ class Krc20TokenDetailScreen extends StatefulWidget {
   final String fiatCode;
   final String fiatSymbol;
   final VoidCallback onSend;
+  final VoidCallback? onSwap;
 
   @override
   State<Krc20TokenDetailScreen> createState() => _Krc20TokenDetailScreenState();
@@ -63,12 +65,7 @@ class _Krc20TokenDetailScreenState extends State<Krc20TokenDetailScreen> {
         trimTrailingZeros: true,
       );
     }
-    final digits = raw.toString().padLeft(asset.decimals + 1, '0');
-    final split = digits.length - asset.decimals;
-    final fraction = digits.substring(split).replaceFirst(RegExp(r'0+$'), '');
-    return fraction.isEmpty
-        ? digits.substring(0, split)
-        : '${digits.substring(0, split)}.$fraction';
+    return formatRawTokenAmount(raw, asset.decimals);
   }
 
   Future<void> _openExplorer() => launchUrl(
@@ -121,7 +118,7 @@ class _Krc20TokenDetailScreenState extends State<Krc20TokenDetailScreen> {
             )),
             const SizedBox(height: 28),
             _PricePanel(
-              title: 'Floor price',
+              title: widget.onSwap == null ? 'Floor price' : 'Price per token',
               kas: _price(asset.priceKas, 'KAS'),
               fiat: _price(
                 floorFiat,
@@ -149,6 +146,14 @@ class _Krc20TokenDetailScreenState extends State<Krc20TokenDetailScreen> {
               label: Text(buttonLabel('SEND ASSET')),
             ),
             const SizedBox(height: 12),
+            if (widget.onSwap != null) ...[
+              OutlinedButton.icon(
+                onPressed: widget.onSwap,
+                icon: const Icon(Icons.swap_horiz_rounded),
+                label: const Text('Swap'),
+              ),
+              const SizedBox(height: 12),
+            ],
             OutlinedButton.icon(
               onPressed: _openExplorer,
               icon: const Icon(Icons.open_in_new_rounded),

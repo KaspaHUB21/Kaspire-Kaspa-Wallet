@@ -621,6 +621,20 @@ class _HiddenKasScreenState extends State<HiddenKasScreen> {
                       style: Theme.of(context).textTheme.titleLarge),
                   if (transactions.isEmpty)
                     const Text('No confirmed activity found.'),
+                  if (service.activityHasMore) ...[
+                    const Text(
+                        'Older transactions are available. History is not complete yet.'),
+                    OutlinedButton(
+                        onPressed: busy
+                            ? null
+                            : () => run(() async {
+                                  final rows = await service.activity(snapshot!,
+                                      more: true);
+                                  if (mounted)
+                                    setState(() => transactions = rows);
+                                }),
+                        child: const Text('Load more')),
+                  ],
                   ...transactions.map((t) => ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(

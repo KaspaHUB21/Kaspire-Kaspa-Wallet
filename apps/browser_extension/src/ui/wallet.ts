@@ -2159,7 +2159,7 @@ async function activity() {
 type MarketTab = "browse" | "names" | "listings";
 const market = {
   offers: [] as any[], saved: [] as any[], names: [] as any[], statuses: {} as Record<string, any>,
-  published: new Set<string>(), tab: "browse" as MarketTab, query: "", descending: false,
+  published: new Set<string>(), tab: "browse" as MarketTab, query: "", sort: 'newest', lengths: new Set<number>(),
   limit: 12, generation: 0, loading: false, namesLoading: false, verifying: false, error: "", verifyEpoch: 0,
 };
 function marketPrice(value: any) { return `${sompiLabel(value)}`; }
@@ -2176,15 +2176,23 @@ function sortedMarketRows(rows: any[], mine = false) {
     return result.reverse().sort((a, b) => group(a) - group(b));
   }
   result.sort((a, b) => {
+    if (market.sort === 'newest') return Number(b.listedAt ?? 0) - Number(a.listedAt ?? 0) || String(a.listingTxId).localeCompare(String(b.listingTxId));
     const difference = Number(a.terms.priceSompi) - Number(b.terms.priceSompi);
-    return difference === 0 ? String(a.terms.name).localeCompare(String(b.terms.name)) : market.descending ? -difference : difference;
+    return difference === 0 ? String(a.terms.name).localeCompare(String(b.terms.name)) : market.sort === 'desc' ? -difference : difference;
   });
   return result;
 }
 function visibleMarketRows() {
   const source = market.tab === "listings" ? sortedMarketRows(market.saved, true) :
-    sortedMarketRows(market.offers.filter((offer) => `${offer.terms.name}.k`.includes(market.query.trim().toLowerCase())));
+    sortedMarketRows(filteredMarketRows());
   return source.slice(0, market.limit);
+}
+function filteredMarketRows() {
+  return market.offers.filter(offer => {
+    const length = Array.from(String(offer.terms.name)).length;
+    const group = length <= 3 ? 0 : length <= 6 ? 1 : length <= 9 ? 2 : 3;
+    return `${offer.terms.name}.k`.includes(market.query.trim().toLowerCase()) && (!market.lengths.size || market.lengths.has(group));
+  });
 }
 function marketOfferCard(offer: any, mine: boolean) {
   const item = market.statuses[offer.listingTxId], active = item?.state === "active";
@@ -2203,7 +2211,7 @@ function paintMarketplace() {
   let body = "";
   if (market.tab === "browse") {
     const rows = visibleMarketRows();
-    body = `<div class="market-tools"><label>Search dot.k names<input id="market-search" value="${esc(market.query)}"></label><label>Sort offers<select id="market-sort"><option value="asc" ${market.descending ? "" : "selected"}>Price: Low to High</option><option value="desc" ${market.descending ? "selected" : ""}>Price: High to Low</option></select></label></div>${rows.length ? rows.map((offer) => marketOfferCard(offer, offer.terms.seller === status.selectedAddress)).join("") : market.loading ? '<div class="loading">Loading offers…</div>' : '<div class="empty">No offers found</div>'}${market.offers.filter((offer) => `${offer.terms.name}.k`.includes(market.query.trim().toLowerCase())).length > market.limit ? '<button id="market-more" class="outline">Load more</button>' : ""}`;
+    body = `<div class="market-tools"><label>Search dot.k names<input id="market-search" value="${esc(market.query)}"></label><label>Sort offers<select id="market-sort">${[['newest','Newest listings'],['asc','Price: Low to High'],['desc','Price: High to Low']].map(([value,label])=>`<option value="${value}" ${market.sort===value?'selected':''}>${label}</option>`).join('')}</select></label></div><details class="review-card"><summary>Name length</summary>${['1–3 characters','4–6 characters','7–9 characters','10+ characters'].map((label,index)=>`<label><input type="checkbox" data-market-length="${index}" ${market.lengths.has(index)?'checked':''}> ${label}</label>`).join('')}</details>${rows.length ? rows.map((offer) => marketOfferCard(offer, offer.terms.seller === status.selectedAddress)).join("") : market.loading ? '<div class="loading">Loading offers…</div>' : '<div class="empty">No offers found</div>'}${filteredMarketRows().length > market.limit ? '<button id="market-more" class="outline">Load more</button>' : ""}`;
   } else if (market.tab === "names") {
     body = `${market.namesLoading ? '<div class="loading">Loading names…</div>' : ""}${market.names.length ? market.names.map((name) => `<article class="market-name"><span class="market-name-icon">@</span><b data-preserve-case>${esc(name.name)}</b><button class="list-name" data-name="${esc(name.name)}">List for sale</button></article>`).join("") : !market.namesLoading ? '<div class="empty">No dot.k names found for this address</div>' : ""}`;
   } else {
@@ -2223,7 +2231,12 @@ function paintMarketplace() {
     void verifyVisibleMarket();
   };
   const sort = host.querySelector<HTMLSelectElement>("#market-sort");
-  if (sort) sort.onchange = () => { market.descending = sort.value === "desc"; market.limit = 12; paintMarketplace(); void verifyVisibleMarket(); };
+  if (sort) sort.onchange = () => { market.sort = sort.value; market.limit = 12; paintMarketplace(); void verifyVisibleMarket(); };
+  host.querySelectorAll<HTMLInputElement>('[data-market-length]').forEach(input => input.onchange = () => {
+    const group = Number(input.dataset.marketLength);
+    if(input.checked)market.lengths.add(group);else market.lengths.delete(group);
+    market.limit=12;paintMarketplace();host.querySelector<HTMLDetailsElement>('details')?.setAttribute('open','');void verifyVisibleMarket();
+  });
   host.querySelector<HTMLButtonElement>("#market-more")?.addEventListener("click", () => { market.limit += 12; paintMarketplace(); void verifyVisibleMarket(); });
   host.querySelector<HTMLButtonElement>("#market-import")?.addEventListener("click", restoreMarketOffer);
   host.querySelectorAll<HTMLButtonElement>(".list-name").forEach((button) => button.onclick = () => listMarketName(button.dataset.name ?? ""));

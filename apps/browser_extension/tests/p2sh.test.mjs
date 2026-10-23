@@ -87,6 +87,23 @@ function environment(t) {
     setLocked:value=>{locked=value;}, setAccepted:value=>{accepted=value;}, setProof:value=>{proof=value;}, setBroadcastProof:value=>{broadcastProof=value;}, setOffline:value=>{unavailable=value;}, setBadResponse:value=>{badResponse=value;}, set429:value=>{response429=value;}, fail:value=>{failureAt=value;}, afterApprove:fn=>{afterApprove=fn;}, reply:(status,body,accepted=false)=>{postReply={status,body,accepted};}};
 }
 const prepare = e => e.command('p2shPrepare',{recipient:fixture.cases[0].request.recipient, amount:'1'});
+test('P2SH history pages beyond 50, merges addresses and exposes incomplete-history state',async t=>{
+  const e=environment(t),original=globalThis.fetch,offsets=[];
+  globalThis.fetch=async(url,options)=>{
+    const u=new URL(String(url));
+    if(u.pathname.includes('/full-transactions')&&u.searchParams.get('limit')==='50'){
+      const offset=Number(u.searchParams.get('offset'));offsets.push(offset);
+      const rows=offset===0?Array.from({length:50},(_,i)=>({transaction_id:(i+1).toString(16).padStart(64,'0'),is_accepted:true,block_time:1000-i,
+        inputs:[],outputs:[{script_public_key_address:fixture.addresses[0].address,amount:'10000'}]})):
+        [{transaction_id:'f'.repeat(64),is_accepted:true,block_time:1,inputs:[],outputs:[{script_public_key_address:fixture.addresses[0].address,amount:'10000'}]}];
+      return new Response(JSON.stringify(rows));
+    }
+    return original(url,options);
+  };
+  const first=await e.command('p2shRefresh');assert.equal(first.transactions.length,50);assert.equal(first.historyHasMore,true);
+  const second=await e.command('p2shHistoryMore');assert.equal(second.transactions.length,51);assert.equal(second.historyHasMore,false);
+  assert(offsets.includes(50));assert.equal(new Set(second.transactions.map(t=>t.transactionId)).size,51);
+});
 test('P2SH discovery reads fresh outputs, retires used keys and issues only after persistence', async t => {
   const e = environment(t); const result = await e.command('p2shRefresh');
   assert.equal(result.balanceSompi, '2000000000'); assert.equal(result.receive.index, 2);

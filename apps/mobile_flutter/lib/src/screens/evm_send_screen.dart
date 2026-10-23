@@ -6,6 +6,7 @@ import '../services/app_settings.dart';
 import '../services/evm_api.dart';
 import '../services/native_security.dart';
 import '../theme.dart';
+import '../number_format.dart';
 import 'qr_scanner_screen.dart';
 
 class EvmSendScreen extends StatefulWidget {
@@ -116,7 +117,7 @@ class _EvmAssetPanelState extends State<_EvmAssetPanel> {
                   .map((token) => DropdownMenuItem(
                       value: token,
                       child: Text(
-                          '${token.symbol} · ${formatUnits(token.rawBalance, token.decimals)}')))
+                          '${token.symbol} · ${formatEnglishDecimal(formatUnits(token.rawBalance, token.decimals))}')))
                   .toList(),
               onChanged: (token) => setState(() => _selected = token))),
       Expanded(
@@ -314,7 +315,7 @@ class _EvmSendPanelState extends State<_EvmSendPanel> {
         const SizedBox(height: 7),
         Hub21Readable(
             child: Text(
-                'Available ${formatUnits(_balance, _decimals, visible: _decimals)} $_symbol',
+                'Available ${formatEnglishDecimal(formatUnits(_balance, _decimals, visible: _decimals))} $_symbol',
                 textAlign: TextAlign.right,
                 style:
                     const TextStyle(color: KasVaultTheme.muted, fontSize: 12))),

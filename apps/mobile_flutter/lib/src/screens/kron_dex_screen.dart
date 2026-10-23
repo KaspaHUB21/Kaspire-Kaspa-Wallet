@@ -5,6 +5,8 @@ import '../services/kaspa_api.dart';
 import '../services/native_security.dart';
 import '../services/network_settings.dart';
 import 'kasparocket_screen.dart' show rocketListPadding, KaspaRocketScreen;
+import 'kasseal_screen.dart';
+import '../services/kasseal_service.dart';
 
 class DexSelectionScreen extends StatelessWidget {
   const DexSelectionScreen({super.key, required this.address});
@@ -30,6 +32,22 @@ class DexSelectionScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute<void>(
                         builder: (_) => KaspaRocketScreen(address: address))))),
+        if (KassealService.enabled)
+          Card(
+              child: ListTile(
+            contentPadding: const EdgeInsets.all(18),
+            leading: Image.asset('assets/browser/kasseal.png',
+                width: 40, height: 40),
+            title: const Text('Kasseal DEX'),
+            subtitle: Text(NetworkSettings.isTestnet
+                ? 'Kaspa Testnet 10 · DEX & Launchpad'
+                : 'Kaspa Mainnet · DEX & Launchpad'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                    builder: (_) => KassealScreen(address: address))),
+          )),
         Card(
             child: ListTile(
                 contentPadding: const EdgeInsets.all(18),

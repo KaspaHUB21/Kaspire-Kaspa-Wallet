@@ -46,6 +46,11 @@ class HiddenKasService {
   static const history = 'https://kaspire.kaslab.space/api';
   static const descriptor = 'kip22-p2sh-v1';
   bool _closed = false;
+  final _activityRows = <String, Map<String, Object?>>{};
+  final _activityOffsets = <String, int?>{};
+  String _activityKey = '';
+  bool get activityHasMore =>
+      _activityOffsets.values.any((offset) => offset != null);
   void close() {
     _closed = true;
     onPaymentProgress = null;
@@ -373,8 +378,8 @@ class HiddenKasService {
         'The Kaspire node has not confirmed this payment yet. It may already be on the network. The same signed transaction remains safely saved. Check its status later; do not create another payment.');
   }
 
-  Future<List<WalletTransaction>> activity(
-      Map<String, Object?> snapshot) async {
+  Future<List<WalletTransaction>> activity(Map<String, Object?> snapshot,
+      {bool more = false}) async {
     await guard();
     final state = hiddenMap(snapshot['state']);
     final addresses = (snapshot['addresses'] as List)
@@ -384,26 +389,35 @@ class HiddenKasService {
             hiddenInt(state[a['branch'] == 0 ? 'receiveCount' : 'changeCount']))
         .map((a) => a['address'].toString())
         .toSet();
-    if (addresses.isEmpty) return [];
-    final merged = <String, Map<String, Object?>>{};
-    final all = addresses.toList();
+    final sorted = addresses.toList()..sort();
+    final identity = jsonEncode(sorted);
+    if (!more || identity != _activityKey) {
+      _activityKey = identity;
+      _activityRows.clear();
+      _activityOffsets
+        ..clear()
+        ..addEntries(sorted.map((a) => MapEntry(a, 0)));
+    }
+    final all = sorted.where((a) => _activityOffsets[a] != null).toList();
     for (var offset = 0; offset < all.length; offset += 5) {
-      final responses = await Future.wait(all.skip(offset).take(5).map((a) => get(
-          '$node/addresses/${Uri.encodeComponent(a)}/full-transactions?limit=20&offset=0&resolve_previous_outpoints=light')));
-      for (final response in responses) {
+      await Future.wait(all.skip(offset).take(5).map((a) async {
+        final pageOffset = _activityOffsets[a]!;
+        final response = await get(
+            '$node/addresses/${Uri.encodeComponent(a)}/full-transactions?limit=50&offset=$pageOffset&resolve_previous_outpoints=light');
         if (response is! List) {
           throw StateError('Incomplete account activity response.');
         }
         for (final raw in response) {
           final row = hiddenMap(raw);
           final id = (row['transaction_id'] ?? row['id'] ?? '').toString();
-          if (id.isNotEmpty) merged[id] = row;
+          if (id.isNotEmpty) _activityRows[id] = row;
         }
-      }
+        _activityOffsets[a] = response.length < 50 ? null : pageOffset + 50;
+      }));
     }
     final result = KaspaApi.parseTransactionsForAddresses(
-        merged.values.toList(), addresses)
+        _activityRows.values.toList(), addresses)
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return result.take(20).toList();
+    return result;
   }
 }

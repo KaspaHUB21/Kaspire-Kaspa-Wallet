@@ -2,6 +2,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kasvault_wallet/src/number_format.dart';
 
 void main() {
+  test(
+      'US grouping preserves large sompi values without floating-point rounding',
+      () {
+    expect(formatSompi(9007199254740993), '90,071,992.54740993');
+    expect(formatSompi(-9007199254740993), '-90,071,992.54740993');
+    expect(formatSompi(123456789, decimals: 2), '1.23');
+    expect(formatRawTokenAmount(BigInt.parse('1000000000000000000000001'), 8),
+        '10,000,000,000,000,000.00000001');
+  });
   test('formats English thousands and decimal separators', () {
     expect(formatEnglishNumber(1234567.89, decimals: 2), '1,234,567.89');
     expect(formatSompi(123456789012), '1,234.56789012');

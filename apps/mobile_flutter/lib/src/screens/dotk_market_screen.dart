@@ -98,7 +98,8 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
   bool _busy = false;
   bool _loading = false;
   bool _namesLoading = true;
-  bool _priceDescending = false;
+  String _sort = 'newest';
+  final Set<int> _lengths = {};
   Map<String, DotkOfferStatus> _statuses = {};
   Set<String> _published = {};
   final Set<String> _publishing = {};
@@ -109,7 +110,8 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
   bool _verifying = false;
   List<DotkOffer> get _page => (_tab == 2
           ? sortMyMarketOffers(_saved, _statuses)
-          : sortMarketOffers(_visibleOffers, descending: _priceDescending))
+          : sortMarketOffers(_visibleOffers,
+              descending: _sort == 'desc', newest: _sort == 'newest'))
       .take(_limit)
       .toList();
 
@@ -167,6 +169,9 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
 
   List<DotkOffer> get _visibleOffers => _offers
       .where((o) => o.name.contains(_search.text.trim().toLowerCase()))
+      .where((o) =>
+          _lengths.isEmpty ||
+          _lengths.contains(dotkLengthGroup('${o.terms['name']}')))
       .toList();
   @override
   void initState() {
@@ -613,20 +618,44 @@ class _DotkMarketScreenState extends State<DotkMarketScreen> {
               if (_visibleOffers.isEmpty && !_busy && !_loading)
                 const ListTile(title: Text('No offers found')),
               const SizedBox(height: 12),
-              DropdownButtonFormField<bool>(
-                  initialValue: _priceDescending,
+              DropdownButtonFormField<String>(
+                  initialValue: _sort,
                   decoration: const InputDecoration(labelText: 'Sort offers'),
                   items: const [
                     DropdownMenuItem(
-                        value: false, child: Text('Price: Low to High')),
+                        value: 'newest', child: Text('Newest listings')),
                     DropdownMenuItem(
-                        value: true, child: Text('Price: High to Low')),
+                        value: 'asc', child: Text('Price: Low to High')),
+                    DropdownMenuItem(
+                        value: 'desc', child: Text('Price: High to Low')),
                   ],
                   onChanged: (value) {
                     if (value != null) {
-                      _selectionChanged(() => _priceDescending = value);
+                      _selectionChanged(() => _sort = value);
                     }
                   }),
+              Card(
+                  child: ExpansionTile(
+                      title: Text(
+                          'Name length${_lengths.isEmpty ? '' : ' (${_lengths.length})'}'),
+                      children: [
+                    for (final entry in const {
+                      0: '1–3 characters',
+                      1: '4–6 characters',
+                      2: '7–9 characters',
+                      3: '10+ characters'
+                    }.entries)
+                      CheckboxListTile(
+                          title: Text(entry.value),
+                          value: _lengths.contains(entry.key),
+                          onChanged: (checked) => _selectionChanged(() {
+                                if (checked == true) {
+                                  _lengths.add(entry.key);
+                                } else {
+                                  _lengths.remove(entry.key);
+                                }
+                              }))
+                  ])),
               ..._page.map((o) => _offer(o, mine: o.seller == widget.address)),
             ],
             if (_tab == 1) ...[

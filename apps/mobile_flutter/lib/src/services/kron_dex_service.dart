@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'encrypted_store.dart';
 import 'kaspa_api.dart';
 import 'activity_store.dart';
+import '../number_format.dart';
 
 class KronDexService {
   KronDexService({http.Client? client}) : client = client ?? http.Client();
@@ -191,12 +192,6 @@ class KronDexService {
 
   static String display(Object? raw, int decimals) {
     final value = BigInt.tryParse(raw.toString()) ?? BigInt.zero;
-    final digits = value.abs().toString().padLeft(decimals + 1, '0');
-    final formatted = decimals == 0
-        ? digits
-        : '${digits.substring(0, digits.length - decimals)}.${digits.substring(digits.length - decimals)}'
-            .replaceFirst(RegExp(r'0+$'), '')
-            .replaceFirst(RegExp(r'\.$'), '');
-    return '${value.isNegative ? '-' : ''}$formatted';
+    return formatRawTokenAmount(value, decimals);
   }
 }

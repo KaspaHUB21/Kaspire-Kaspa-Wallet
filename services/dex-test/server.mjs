@@ -1,5 +1,6 @@
 import http from 'node:http';
 import {catalogue,quote,plan} from './kron.mjs';
+import {proxyKasseal} from '../kasseal-test/proxy.mjs';
 let active=0;
 const limits=new Map();
 const server=http.createServer(async(req,res)=>{
@@ -11,6 +12,7 @@ const server=http.createServer(async(req,res)=>{
   if(limits.size>10000)for(const[key,value]of limits)if(now-value.time>60000)limits.delete(key);
   try{
     const path=new URL(req.url,'http://localhost').pathname;
+    if(path.startsWith('/kasseal/')||path.startsWith('/kasseal-mainnet/'))return proxyKasseal(req,res);
     if(req.method==='GET'&&path==='/kron/tokens')return send(200,await catalogue());
     if(req.method!=='POST'||!['/kron/quote','/kron/plan'].includes(path))return send(404,{error:'Not found'});
     let text='',length=0;

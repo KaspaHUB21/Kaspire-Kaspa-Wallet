@@ -56,7 +56,7 @@ async function verify(record,{live=true}={}){
       if(!cells.some(u=>u.outpoint.transactionId===record.listingTxId&&u.outpoint.index===out.index&&String(u.utxoEntry.amount)===String(amount)))throw Error('Listing no longer available');
     }
   }
-  return {terms:record.terms,listingTxId:record.listingTxId,saleId:sale.covenant_id};
+  return {terms:record.terms,listingTxId:record.listingTxId,saleId:sale.covenant_id,listedAt:Number(tx.block_time)||0};
 }
 // Controlled public recovery hints, never trusted until the original covenant
 // outputs have been reconstructed and matched against an accepted transaction.
@@ -68,6 +68,17 @@ for(const hint of [...offers,...recovery]){
   archive.records[offer.listingTxId]={offer,recordedAt:Date.now(),completion:null};
 }
 await persistArchive();
+// Use chain creation times, not alphabetical directory order or restart time.
+async function hydrateListingTimes(){
+  const missing=offers.filter(offer=>!(offer.listedAt>0));
+  for(let start=0;start<missing.length;start+=4)await Promise.all(missing.slice(start,start+4).map(async offer=>{
+    try{const tx=await json(`${node}/transactions/${offer.listingTxId}`);
+      if(tx.transaction_id===offer.listingTxId&&tx.is_accepted===true)offer.listedAt=Number(tx.block_time)||0;
+    }catch{/* Unknown dates remain zero; never invent a listing date. */}
+  }));
+}
+// Do not delay marketplace availability while historical display metadata loads.
+void hydrateListingTimes();
 http.createServer(async(req,res)=>{
   res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -79,7 +90,7 @@ http.createServer(async(req,res)=>{
     if(req.method==='GET'&&url.pathname==='/offers'){
       const q=(url.searchParams.get('q')||'').toLowerCase().slice(0,64),offset=Number(url.searchParams.get('offset')||0);
       if(!Number.isSafeInteger(offset)||offset<0)return send(400,{error:'Invalid offset'});
-      const rows=offers.filter(o=>o.terms.name.includes(q)).sort((a,b)=>a.terms.name.localeCompare(b.terms.name)||a.listingTxId.localeCompare(b.listingTxId));
+      const rows=offers.filter(o=>o.terms.name.includes(q)).sort((a,b)=>(Number(b.listedAt)||0)-(Number(a.listedAt)||0)||a.listingTxId.localeCompare(b.listingTxId));
       return send(200,{offers:rows.slice(offset,offset+50),nextOffset:offset+50<rows.length?offset+50:null,verification:'discovery-hints-only'});
     }
     if(req.method==='POST'&&url.pathname==='/offers'){
