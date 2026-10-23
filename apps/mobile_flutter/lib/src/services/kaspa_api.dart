@@ -84,14 +84,29 @@ class KaspaApi {
           String address, String covenantId, int amount,
           {bool Function()? isCancelled,
           void Function(String)? onProgress,
+          String? sourceStandard,
           bool fullPlan = false}) =>
-      standardKcc20.signingBatch(address, covenantId, amount,
-          isCancelled: isCancelled, onProgress: onProgress, fullPlan: fullPlan);
+      sourceStandard == 'kasparocket-kcc20'
+          ? KaspaRocketService(client: _client, mainnet: true).signingBatch(
+              address, covenantId, amount,
+              isCancelled: isCancelled,
+              onProgress: onProgress,
+              fullPlan: fullPlan)
+          : standardKcc20.signingBatch(address, covenantId, amount,
+              isCancelled: isCancelled,
+              onProgress: onProgress,
+              fullPlan: fullPlan);
   Future<void> waitForStandardKcc20Cell(
           String address, String covenantId, String transactionId,
-          {bool Function()? isCancelled, void Function(String)? onProgress}) =>
-      standardKcc20.waitForCell(address, covenantId, transactionId,
-          isCancelled: isCancelled, onProgress: onProgress);
+          {bool Function()? isCancelled,
+          void Function(String)? onProgress,
+          String? sourceStandard}) =>
+      sourceStandard == 'kasparocket-kcc20'
+          ? KaspaRocketService(client: _client, mainnet: true).waitForCell(
+              address, covenantId, transactionId,
+              isCancelled: isCancelled, onProgress: onProgress)
+          : standardKcc20.waitForCell(address, covenantId, transactionId,
+              isCancelled: isCancelled, onProgress: onProgress);
   final String toccataBroadcastUrl;
   Future<Map<String, double>>? _floorPrices;
 

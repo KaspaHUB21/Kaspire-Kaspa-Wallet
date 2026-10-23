@@ -351,6 +351,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           final standardStep = isStandard
               ? await _api.loadStandardKcc20SigningBatch(
                   widget.address, token.covenantId!, int.parse(raw),
+                  sourceStandard: token.standard,
                   fullPlan: !isWindowsDesktop,
                   isCancelled: () => !mounted,
                   onProgress: (stage) {
@@ -806,6 +807,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
       try {
         await _api.waitForStandardKcc20Cell(
             widget.address, operation['covenantId'].toString(), transactionId,
+            sourceStandard: operation['standard']?.toString(),
             isCancelled: () => !mounted,
             onProgress: (stage) {
               if (mounted) setState(() => _status = stage);

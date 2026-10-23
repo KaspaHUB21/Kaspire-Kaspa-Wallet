@@ -60,7 +60,9 @@ class Kcc20StandardService {
   final String base, node;
   static const standard = 'kcc20';
   static bool isStandard(String? value) =>
-      value == standard || value == 'kcc20-last-call';
+      value == standard ||
+      value == 'kcc20-last-call' ||
+      value == 'kasparocket-kcc20';
   static const templateId = 'argent-kcc20-c8a0871';
   static const reference = 'c8a087117735a1f87c5c6d115fcddeaf2562c784';
   static const templateHash =

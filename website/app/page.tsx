@@ -651,7 +651,9 @@ export default function Home() {
                 order. Kasseal brings launch-proof-verified curve and pool trades,
                 partial-sale token preparation and swap history. KaspaRocket
                 tokens open a balance and price detail page with separate Send
-                Asset and Swap buttons. This update also improves P2SH history
+                Asset and Swap buttons. The latest hotfix resolves live Rocket
+                transfer cells independently of Kasvio, while Kasseal holdings
+                load directly into your wallet. This update also improves P2SH history
                 pagination, saved-swap conflict recovery, dot.k newest/length
                 filters, verified token metadata and US-style number formatting.
                 Signed with the existing Android release certificate and

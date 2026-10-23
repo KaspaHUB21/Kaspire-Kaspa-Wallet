@@ -16,6 +16,14 @@ TN10 remains on 8173. The existing DEX gateway mounts `/kasseal-mainnet` and
   The sender prefix, reviewed network and fixed native profile must agree.
 - Mainnet UTXOs and confirmations come from Kaspire's synchronized, UTXO-indexed
   node. Saved journals and history keys are network-specific.
+- Android 0.11.61 adds `GET /rocket-cells` on the Mainnet process. Rocket
+  holdings supply only public outpoint hints. The resolver reconstructs the
+  locally pinned 10x10 reference program, derives its P2SH address and checks
+  exact live outpoints, covenant IDs, script commitments and deposits on our
+  own node. No historical origin lookup or Kasvio recognition is required.
+  The app then uses the existing native reference transfer/compound flow;
+  Rust reconstructs and simulates the payment independently. No remote plan
+  or arbitrary executable program becomes a signing authority.
 - Loopback planner on 8173: public token pages, quotes and unsigned plans only.
 - Existing DEX gateway mounts it at `/dex-test-v1/kasseal`; no nginx changes.
 - `GET /apk` serves only the fixed signed internal APK with an attachment filename.

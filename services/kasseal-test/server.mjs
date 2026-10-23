@@ -3,6 +3,7 @@ import {createReadStream,statSync} from 'node:fs';
 import {catalogue,quote,plan,preparationReady} from './planner.mjs';
 import {utxos} from './node.mjs';
 import {NETWORK} from './network.mjs';
+import {rocketCells} from './rocket-cells.mjs';
 let active=0;
 const server=http.createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');res.setHeader('cache-control','no-store');
@@ -20,6 +21,10 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='GET'&&url.pathname==='/tokens')return send(200,await catalogue(url.searchParams.get('cursor')??''));
     if(req.method==='GET'&&url.pathname==='/health')return send(200,{network:NETWORK,unsignedOnly:true,sdk:'0.1.1'});
+    if(req.method==='GET'&&url.pathname==='/rocket-cells'){
+      if(active>=3)return send(503,{error:'Cell verification is busy. Please retry shortly.'});
+      active++;try{return send(200,await rocketCells(url.searchParams.get('address'),url.searchParams.get('tokenId'),url.searchParams.get('amount'),url.searchParams.get('fullPlan')??'1'));}finally{active--;}
+    }
     if(req.method==='GET'&&url.pathname==='/prepared'){
       if(active>=3)return send(503,{error:'Kasseal preparation lookup is busy. Please retry shortly.'});
       active++;try{return send(200,await preparationReady(url.searchParams.get('address'),url.searchParams.get('tokenId'),url.searchParams.get('transactionId')));}finally{active--;}

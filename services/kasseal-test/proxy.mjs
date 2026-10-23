@@ -1,6 +1,6 @@
 // Narrow mount behind the existing /dex-test-v1/ gateway. No nginx changes required.
 import http from 'node:http';
-const paths=new Set(['/health','/tokens','/quote','/plan','/apk','/utxos','/prepared']);
+const paths=new Set(['/health','/tokens','/quote','/plan','/apk','/utxos','/prepared','/rocket-cells']);
 export function proxyKasseal(req,res) {
   const url=new URL(req.url,'http://localhost');
   const mainnet=url.pathname.startsWith('/kasseal-mainnet/');

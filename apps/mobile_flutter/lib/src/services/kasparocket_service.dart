@@ -6,6 +6,9 @@ import 'kaspa_api.dart';
 import 'activity_store.dart';
 import 'kron_dex_service.dart';
 import 'swap_conflict_lookup.dart';
+import '../kaspa_address.dart';
+import 'kcc20_compound.dart';
+import 'kcc20_standard_service.dart';
 
 class KaspaRocketConflict extends StateError {
   KaspaRocketConflict(this.detail)
@@ -377,6 +380,132 @@ class KaspaRocketService {
       (await _request('GET', Uri.parse('$apiRoot/tokens/$address/$tokenId'))
               as Map)
           .cast<String, Object?>();
+
+  /// Provider outpoints are only hints. The read-only resolver reconstructs
+  /// the pinned 10x10 program and checks live full UTXOs on our own node.
+  /// The native core independently rebuilds and simulates the actual payment.
+  Future<Kcc20Step> signingBatch(String address, String tokenId, int amount,
+      {bool fullPlan = false,
+      bool Function()? isCancelled,
+      void Function(String)? onProgress}) async {
+    if (!mainnet ||
+        !address.startsWith('kaspa:') ||
+        kaspaOwnerIdFromAddress(address).isEmpty ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(tokenId) ||
+        amount <= 0) {
+      throw StateError(
+          'Rocket token transfers require a valid Mainnet wallet and amount.');
+    }
+    void check() {
+      if (isCancelled?.call() == true)
+        throw StateError('Token preparation cancelled.');
+    }
+
+    check();
+    await verifyNetwork();
+    onProgress?.call('Verifying KaspaRocket token cells with the local node…');
+    final uri = Uri.parse(
+            'https://kaspire.kaslab.space/dex-test-v1/kasseal-mainnet/rocket-cells')
+        .replace(queryParameters: {
+      'address': address,
+      'tokenId': tokenId,
+      'amount': '$amount',
+      'fullPlan': fullPlan ? '1' : '0'
+    });
+    final result = await _request('GET', uri);
+    check();
+    if (result is! Map ||
+        result['network'] != 'mainnet' ||
+        result['address'] != address ||
+        result['tokenId'] != tokenId ||
+        result['requestedAmount'] != '$amount' ||
+        result['templateId'] != Kcc20StandardService.tenTemplateId ||
+        result['inputLimit'] != 10 ||
+        result['cells'] is! List ||
+        (result['cells'] as List).isEmpty ||
+        (result['cells'] as List).length > 65) {
+      throw StateError(
+          'Rocket signing-cell identity or configuration differs.');
+    }
+    int positive(Object? v) {
+      final n = BigInt.tryParse('$v');
+      if (n == null || n <= BigInt.zero || n > BigInt.from(0x7fffffffffffffff))
+        throw StateError('Invalid Rocket cell amount.');
+      return n.toInt();
+    }
+
+    final seen = <String>{}, cells = <Kcc20CellRecord>[];
+    var total = BigInt.zero;
+    for (final row in (result['cells'] as List)) {
+      if (row is! Map) throw StateError('Invalid Rocket cell.');
+      final id = '${row['transactionId']}',
+          index = int.tryParse('${row['index']}'),
+          daa = int.tryParse('${row['blockDaaScore']}'),
+          script = '${row['scriptPublicKey']}',
+          redeem = '${row['redeemScript']}';
+      if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(id) ||
+          index == null ||
+          index < 0 ||
+          index > 0xffffffff ||
+          daa == null ||
+          daa < 0 ||
+          !RegExp(r'^aa20[a-f0-9]{64}87$').hasMatch(script) ||
+          redeem.length > 100000 ||
+          !RegExp(r'^[a-f0-9]+$').hasMatch(redeem) ||
+          !seen.add('$id:$index'))
+        throw StateError('Malformed or duplicate Rocket signing cell.');
+      final units = positive(row['tokenAmount']);
+      total += BigInt.from(units);
+      cells.add(Kcc20CellRecord(
+          covenantId: tokenId,
+          transactionId: id,
+          index: index,
+          valueSompi: positive(row['valueSompi']),
+          blockDaaScore: daa,
+          scriptPublicKey: script,
+          tokenAmount: units,
+          redeemScript: redeem));
+    }
+    final required = positive(result['requiredCells']);
+    if (total > BigInt.from(0x7fffffffffffffff) ||
+        required > 1000 ||
+        (fullPlan && (required > 65 || total < BigInt.from(amount))) ||
+        (!fullPlan && cells.length > 10))
+      throw StateError('Rocket token coverage or input limit differs.');
+    return Kcc20Step(
+        cells,
+        total < BigInt.from(amount) ? total.toInt() : amount,
+        total < BigInt.from(amount),
+        requiredCells: required,
+        transactionCount: kcc20TransactionCount(required, 10),
+        inputLimit: 10,
+        templateId: Kcc20StandardService.tenTemplateId);
+  }
+
+  Future<void> waitForCell(String address, String tokenId, String transactionId,
+      {bool Function()? isCancelled, void Function(String)? onProgress}) async {
+    if (!mainnet || !RegExp(r'^[a-f0-9]{64}$').hasMatch(transactionId))
+      throw StateError('Invalid Rocket continuation.');
+    for (var attempt = 0; attempt < 30; attempt++) {
+      if (isCancelled?.call() == true)
+        throw StateError('Token preparation cancelled.');
+      onProgress?.call(
+          'Waiting for the indexed Rocket consolidation; recipient NOT paid…');
+      try {
+        final data = await holding(address, tokenId);
+        if (data['address'] == address &&
+            data['kcc20_covenant_id'] == tokenId &&
+            (data['utxos'] as List? ?? const [])
+                .whereType<Map>()
+                .any((r) => r['transactionId'] == transactionId)) return;
+      } catch (_) {
+        if (isCancelled?.call() == true) rethrow;
+      }
+      await Future<void>.delayed(const Duration(seconds: 3));
+    }
+    throw StateError(
+        'Rocket consolidation is saved but not indexed yet. Continue the saved transfer later; recipient NOT paid.');
+  }
 
   Future<List<WalletAsset>> walletAssets(String address) async {
     final root = (await _request(

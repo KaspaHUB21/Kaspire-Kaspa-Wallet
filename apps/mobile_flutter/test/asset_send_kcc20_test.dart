@@ -32,8 +32,9 @@ final snapshot = WalletSnapshot(
     kcc20Tokens: [token]);
 
 class SendApi extends KaspaApi {
-  SendApi(this.count);
+  SendApi(this.count, {this.initialSnapshot});
   final int count;
+  final WalletSnapshot? initialSnapshot;
   int walletLoads = 0, waits = 0, proofs = 0;
   bool accepted = true;
   final broadcasts = <String>[];
@@ -55,7 +56,7 @@ class SendApi extends KaspaApi {
       bool includeMarketData = true,
       void Function(WalletSnapshot)? onProgress}) async {
     walletLoads++;
-    return snapshot;
+    return initialSnapshot ?? snapshot;
   }
 
   @override
@@ -73,7 +74,9 @@ class SendApi extends KaspaApi {
       String address, String covenantId, int amount,
       {bool Function()? isCancelled,
       void Function(String)? onProgress,
+      String? sourceStandard,
       bool fullPlan = false}) async {
+    if (initialSnapshot != null) expect(sourceStandard, 'kasparocket-kcc20');
     proofs++;
     onProgress?.call('Verifying selected token only…');
     final cells = List.generate(
@@ -94,7 +97,9 @@ class SendApi extends KaspaApi {
   @override
   Future<void> waitForStandardKcc20Cell(
       String address, String covenantId, String transactionId,
-      {bool Function()? isCancelled, void Function(String)? onProgress}) async {
+      {bool Function()? isCancelled,
+      void Function(String)? onProgress,
+      String? sourceStandard}) async {
     waits++;
     expect(covenantId, cid);
   }
@@ -107,6 +112,7 @@ class PlanSendApi extends SendApi {
       String address, String covenantId, int amount,
       {bool Function()? isCancelled,
       void Function(String)? onProgress,
+      String? sourceStandard,
       bool fullPlan = false}) async {
     expect(fullPlan, isTrue);
     proofs++;
@@ -216,8 +222,8 @@ void main() {
                 address: address,
                 onDone: () {},
                 api: api,
-                initialAsset:
-                    AssetSendIntent.kcc20('TEST.K', cid, wallet: snapshot)))));
+                initialAsset: AssetSendIntent.kcc20('TEST.K', cid,
+                    wallet: api.initialSnapshot ?? snapshot)))));
     await tester.pumpAndSettle();
   }
 
@@ -231,6 +237,39 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets(
+      'Rocket display-only balance reaches native transfer review without legacy discovery gate',
+      (tester) async {
+    final api = SendApi(1,
+        initialSnapshot: WalletSnapshot(
+            balanceSompi: 100000000,
+            kasUsd: null,
+            transactions: [],
+            krc20Tokens: [],
+            krc721Collections: [],
+            knsDomains: [],
+            kcc20Tokens: [
+              WalletAsset(
+                  symbol: 'TEST.K',
+                  balance: 100,
+                  rawBalance: '100',
+                  decimals: 0,
+                  kind: 'KCC20',
+                  covenantId: cid,
+                  standard: 'kasparocket-kcc20',
+                  discoveryComplete: false,
+                  validationStatus: 'kasparocket-indexed')
+            ]));
+    await open(tester, api);
+    expect(find.text('Sending disabled: cell discovery is incomplete.'),
+        findsNothing);
+    await prepare(tester);
+    expect(api.proofs, 1);
+    expect(requests, hasLength(1));
+    expect(requests.single['amount'], 80);
+    expect(api.broadcasts, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
       'ordinary payment passes all three selected cells without changing recipient amount',
       (tester) async {
