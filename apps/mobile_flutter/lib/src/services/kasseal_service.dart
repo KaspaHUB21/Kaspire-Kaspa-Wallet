@@ -61,9 +61,21 @@ class KassealService {
     return data;
   }
 
-  Future<Map<String, dynamic>> tokens([String? cursor]) async =>
-      Map<String, dynamic>.from(await request(
-          '$planner/tokens${cursor == null ? '' : '?cursor=${Uri.encodeComponent(cursor)}'}'));
+  Future<Map<String, dynamic>> tokens([String? cursor]) =>
+      searchTokens('', cursor);
+
+  Future<Map<String, dynamic>> searchTokens(String query,
+      [String? cursor]) async {
+    final search = query.trim();
+    if (search.length > 64 || (cursor?.length ?? 0) > 1024)
+      throw StateError('Invalid Kasseal search or page cursor.');
+    final uri = Uri.parse('$planner/tokens').replace(queryParameters: {
+      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      if (search.isNotEmpty) 'search': search,
+    });
+    return Map<String, dynamic>.from(await request(uri.toString()));
+  }
+
   Future<Map<String, dynamic>> wallet(String address) async {
     guard(address);
     return Map<String, dynamic>.from(

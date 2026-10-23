@@ -19,7 +19,7 @@ const server=http.createServer(async(req,res)=>{
       if(req.method==='HEAD'){res.end();return;}
       const stream=createReadStream(path);res.on('close',()=>stream.destroy());stream.on('error',()=>res.destroy());stream.pipe(res);return;
     }
-    if(req.method==='GET'&&url.pathname==='/tokens')return send(200,await catalogue(url.searchParams.get('cursor')??''));
+    if(req.method==='GET'&&url.pathname==='/tokens')return send(200,await catalogue(url.searchParams.get('cursor')??'',url.searchParams.get('search')??''));
     if(req.method==='GET'&&url.pathname==='/health')return send(200,{network:NETWORK,unsignedOnly:true,sdk:'0.1.1'});
     if(req.method==='GET'&&url.pathname==='/rocket-cells'){
       if(active>=3)return send(503,{error:'Cell verification is busy. Please retry shortly.'});

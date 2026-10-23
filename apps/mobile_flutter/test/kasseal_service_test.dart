@@ -25,6 +25,19 @@ class MemoryStore implements EncryptedStore {
 }
 
 void main() {
+  test(
+      'Global token search preserves search text and cursor without query injection',
+      () async {
+    final service = KassealService(client: MockClient((r) async {
+      expect(r.url.path, endsWith('/tokens'));
+      expect(r.url.queryParameters['search'], 'unnachod &limit=100');
+      expect(r.url.queryParameters['cursor'], 'query-page-2');
+      expect(r.url.queryParameters.containsKey('limit'), false);
+      return http.Response('{"tokens":[],"nextCursor":null}', 200);
+    }));
+    await service.searchTokens(' unnachod &limit=100 ', 'query-page-2');
+    await expectLater(service.searchTokens('x' * 65), throwsStateError);
+  });
   final fixture = Map<String, Object?>.from(jsonDecode(
       File('../../crates/kaspa_secure_core/src/fixtures/kasseal-tn10-buy.json')
           .readAsStringSync()));

@@ -10,6 +10,10 @@ TN10 remains on 8173. The existing DEX gateway mounts `/kasseal-mainnet` and
 - Source inspected at `Sealkaspa/kasseal-sdk@71d25563a594d47a5d421646a8a4b02df2eec848`.
 - Mainnet API: `https://app.kasseal.com/v1`; TN10: `https://testnet.kasseal.com/v1`.
 - Both are public; no API key or wallet login is needed.
+- Android 0.11.63 forwards debounced catalogue searches through the official
+  `search` query parameter. Search and pagination remain bound to the same
+  query; exact 64-hex covenant IDs resolve `/tokens/{id}` directly. Older APKs
+  can continue using the unchanged unfiltered `/tokens` and cursor route.
 - `template-pins.mjs NETWORK` reproducibly emits native template allowlists
   from integrity-verified SDK artifacts. Mainnet venue pins are distinct from TN10.
 - Mainnet profiles are `kasseal-mainnet-swap-v1` / `kasseal-mainnet-prepare-v1`.

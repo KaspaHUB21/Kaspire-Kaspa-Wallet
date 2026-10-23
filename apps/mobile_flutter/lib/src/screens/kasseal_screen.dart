@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/kasseal_service.dart';
@@ -24,6 +25,9 @@ class _KassealScreenState extends State<KassealScreen>
   String? cursor;
   String error = '';
   bool loading = false;
+  Timer? _searchDebounce;
+  int _generation = 0;
+  bool _initialTokenRequested = false;
   late final TabController tabs;
   late Future<List<Map<String, dynamic>>> history;
   int historyLimit = 20;
@@ -37,22 +41,37 @@ class _KassealScreenState extends State<KassealScreen>
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _generation++;
     search.dispose();
     tabs.dispose();
     super.dispose();
   }
 
   Future<void> load({bool more = false}) async {
-    if (loading) return;
+    if (more && (loading || cursor == null)) return;
+    final query = search.text.trim(), pageCursor = more ? cursor : null;
+    final generation = ++_generation;
     setState(() {
       loading = true;
       error = '';
       if (!more) history = service.history(address);
+      if (!more) {
+        rows.clear();
+        cursor = null;
+      }
     });
     try {
       service.guard(address);
-      final data = await service.tokens(more ? cursor : null);
-      if (!mounted) return;
+      final data = query.isEmpty
+          ? await service.tokens(pageCursor)
+          : await service.searchTokens(query, pageCursor);
+      if (!mounted || generation != _generation) return;
+      if (more &&
+          data['nextCursor'] != null &&
+          data['nextCursor'] == pageCursor)
+        throw StateError(
+            'Kasseal returned a repeated page cursor. Please refresh.');
       setState(() {
         if (!more) rows.clear();
         final ids = rows.map((t) => (t['meta'] as Map)['covenantId']).toSet();
@@ -64,16 +83,45 @@ class _KassealScreenState extends State<KassealScreen>
             .map((t) => Map<String, dynamic>.from(t)));
         cursor = data['nextCursor'] as String?;
       });
-      if (widget.tokenId != null) {
-        final selected =
-            rows.where((t) => t['meta']['covenantId'] == widget.tokenId);
-        if (selected.isNotEmpty && mounted) await open(selected.first);
+      if (widget.tokenId != null &&
+          !_initialTokenRequested &&
+          !more &&
+          query.isEmpty) {
+        _initialTokenRequested = true;
+        var selected = rows
+            .where((t) => t['meta']['covenantId'] == widget.tokenId)
+            .toList();
+        if (selected.isEmpty) {
+          final direct = await service.searchTokens(widget.tokenId!);
+          selected = (direct['tokens'] as List)
+              .whereType<Map>()
+              .where((t) =>
+                  t['verification'] == 'verified' &&
+                  t['meta']['covenantId'] == widget.tokenId)
+              .map((t) => Map<String, dynamic>.from(t))
+              .toList();
+        }
+        if (selected.isNotEmpty && mounted && generation == _generation)
+          await open(selected.first);
       }
     } catch (e) {
-      if (mounted) setState(() => error = _readable(e));
+      if (mounted && generation == _generation)
+        setState(() => error = _readable(e));
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted && generation == _generation) setState(() => loading = false);
     }
+  }
+
+  void searchChanged(String _) {
+    _searchDebounce?.cancel();
+    ++_generation; // invalidate in-flight results immediately, before debounce
+    setState(() {
+      rows.clear();
+      cursor = null;
+      error = '';
+      loading = true;
+    });
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () => load());
   }
 
   Future<void> open(Map<String, dynamic> token) async {
@@ -150,17 +198,29 @@ class _KassealScreenState extends State<KassealScreen>
         const SizedBox(height: 12),
         TextField(
             controller: search,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
+            maxLength: 64,
+            textInputAction: TextInputAction.search,
+            onChanged: searchChanged,
+            onSubmitted: (_) {
+              _searchDebounce?.cancel();
+              load();
+            },
+            decoration: InputDecoration(
                 labelText: 'Search ticker, name or covenant ID',
-                prefixIcon: Icon(Icons.search))),
+                counterText: '',
+                suffixIcon: search.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          search.clear();
+                          searchChanged('');
+                        }),
+                prefixIcon: const Icon(Icons.search))),
         if (error.isNotEmpty)
           Padding(padding: const EdgeInsets.all(16), child: Text(error)),
-        ...rows
-            .where((t) => '${t['meta']}'
-                .toLowerCase()
-                .contains(search.text.trim().toLowerCase()))
-            .map((t) {
+        ...rows.map((t) {
           final m = t['meta'] as Map, image = service.image(m);
           return Card(
               child: ListTile(
@@ -186,9 +246,11 @@ class _KassealScreenState extends State<KassealScreen>
               onPressed: () => load(more: true),
               child: const Text('Load more')),
         if (rows.isEmpty && !loading && error.isEmpty)
-          const Padding(
-              padding: EdgeInsets.all(20),
-              child: Text('No verified Kasseal tokens found.')),
+          Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text(search.text.trim().isEmpty
+                  ? 'No verified Kasseal tokens found.'
+                  : 'No matching verified tokens found.')),
       ]);
 }
 

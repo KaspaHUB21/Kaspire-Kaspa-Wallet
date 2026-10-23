@@ -25,9 +25,20 @@ export async function proofFor(id) {
     throw Error('Pool graduation could not be independently confirmed on TN10. Retry later.');
   return {json,proof};
 }
-export async function catalogue(cursor = '') {
+export function cataloguePath(cursor = '', search = '') {
+  if(typeof cursor!=='string'||typeof search!=='string')throw Error('Invalid catalogue query.');
   if (cursor.length > 1024) throw Error('Invalid page cursor.');
-  return get(`/tokens?sort=active&limit=20${cursor ? '&cursor='+encodeURIComponent(cursor) : ''}`);
+  const query=search.trim();
+  if(query.length>64)throw Error('Search must contain at most 64 characters.');
+  if(/^[a-f0-9]{64}$/i.test(query))return `/tokens/${query.toLowerCase()}`;
+  return `/tokens?${new URLSearchParams({sort:'active',limit:'20',...(cursor?{cursor}:{}),...(query?{search:query}:{})})}`;
+}
+export async function catalogue(cursor = '', search = '') {
+  const path=cataloguePath(cursor,search);
+  if(path.startsWith('/tokens/')) {
+    const token=await get(path);return {tokens:[token],nextCursor:null};
+  }
+  return get(path);
 }
 async function context(body) {
   checkOrder(body);
