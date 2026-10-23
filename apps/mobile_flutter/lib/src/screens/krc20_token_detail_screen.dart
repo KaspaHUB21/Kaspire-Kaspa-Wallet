@@ -8,6 +8,15 @@ import '../services/app_settings.dart';
 import '../services/kaspa_api.dart';
 import '../theme.dart';
 
+Uri tokenExplorerUri(WalletAsset asset) {
+  final covenant = asset.kind.toUpperCase() == 'KCC20';
+  final id = covenant
+      ? asset.covenantId ?? asset.id ?? ''
+      : asset.id ?? 'krc20-${asset.symbol.toLowerCase()}';
+  return Uri.parse(
+      'https://kaspatoken.kaslab.space/${covenant ? 'kcc20' : 'token'}/${Uri.encodeComponent(id)}');
+}
+
 class Krc20TokenDetailScreen extends StatefulWidget {
   const Krc20TokenDetailScreen({
     super.key,
@@ -69,10 +78,7 @@ class _Krc20TokenDetailScreenState extends State<Krc20TokenDetailScreen> {
   }
 
   Future<void> _openExplorer() => launchUrl(
-        Uri.parse(
-          'https://kaspatoken.kaslab.space/token/'
-          '${Uri.encodeComponent(asset.id ?? 'krc20-${asset.symbol.toLowerCase()}')}',
-        ),
+        tokenExplorerUri(asset),
         mode: LaunchMode.externalApplication,
       );
 

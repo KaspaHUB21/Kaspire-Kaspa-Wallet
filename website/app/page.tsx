@@ -653,7 +653,8 @@ export default function Home() {
                 tokens open a balance and price detail page with separate Send
                 Asset and Swap buttons. The latest hotfix resolves live Rocket
                 transfer cells independently of Kasvio, while Kasseal holdings
-                load directly into your wallet. This update also improves P2SH history
+                load directly into your wallet. The newest hotfix also corrects
+                Check on Explorer links for KaspaRocket/KCC20 tokens. This update also improves P2SH history
                 pagination, saved-swap conflict recovery, dot.k newest/length
                 filters, verified token metadata and US-style number formatting.
                 Signed with the existing Android release certificate and

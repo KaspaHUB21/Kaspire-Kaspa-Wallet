@@ -6,6 +6,40 @@ import 'package:kasvault_wallet/src/services/app_settings.dart';
 import 'package:kasvault_wallet/src/theme.dart';
 
 void main() {
+  test('KCC20 explorer links use covenant route and prefer the covenant ID',
+      () {
+    const cid =
+        'd8c4356d20712463bbf2da82a5411c3aea18fec024a2b9c014bba1b4524cc8c2';
+    expect(
+        tokenExplorerUri(const WalletAsset(
+                symbol: 'THEN',
+                balance: 1,
+                kind: 'KCC20',
+                id: 'technical-alias',
+                covenantId: cid,
+                standard: 'kasparocket-kcc20'))
+            .toString(),
+        'https://kaspatoken.kaslab.space/kcc20/$cid');
+    expect(
+        tokenExplorerUri(const WalletAsset(
+                symbol: 'THEN', balance: 1, kind: 'KCC20', id: cid))
+            .path,
+        '/kcc20/$cid');
+  });
+  test(
+      'KRC20 explorer links retain the existing token route and ticker fallback',
+      () {
+    expect(
+        tokenExplorerUri(const WalletAsset(
+                symbol: 'NACHO', balance: 1, kind: 'KRC20', id: 'krc20-nacho'))
+            .path,
+        '/token/krc20-nacho');
+    expect(
+        tokenExplorerUri(
+                const WalletAsset(symbol: 'NACHO', balance: 1, kind: 'KRC20'))
+            .path,
+        '/token/krc20-nacho');
+  });
   for (final theme in KaspireTheme.values) {
     testWidgets(
         'Rocket detail keeps price, grouped balance and explicit Swap in $theme',
