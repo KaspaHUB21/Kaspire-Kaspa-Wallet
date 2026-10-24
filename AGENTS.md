@@ -20,5 +20,8 @@ each platform's last public release, GitHub releases (not only a commit), websit
 version/checksum/download changes and the Android signed update manifest when
 Android is in scope. Preserve signing identity, update trust and other platforms'
 channels. Do not imply Chrome Web Store approval merely because a ZIP is public.
+When releasing Android and extension together, the GitHub Latest release title
+and body must cover BOTH platforms with their versions and cumulative changes.
+A separate extension release/link alone does not satisfy this requirement.
 Stage explicit relevant paths only; unrelated dirty files and private experiment
 directories must never be added wholesale. Do not add Codex co-author trailers.
