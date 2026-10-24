@@ -22,7 +22,7 @@ const highlights = [
   {
     number: "03",
     title: "Built for real wallet history.",
-    copy: "A rich activity feed opens every transfer in-app with sender, recipient, asset data, fees, inputs, outputs, DAA score and transaction ID. Extension swaps show your wallet's actual KAS balance change, with pool and covenant movements separated into expandable transaction details.",
+    copy: "A rich activity feed opens every transfer in-app with sender, recipient, asset data, fees, inputs, outputs, DAA score and transaction ID. Android and the extension load independent sources progressively, start with the latest 50 entries and add 50 with Load more. Verified KCC20 token units take precedence over legacy display fallbacks. Extension swaps show your wallet's actual KAS balance change, with pool and covenant movements separated into expandable transaction details.",
     tags: ["Activity", "TX details", "Local node"],
   },
   {
@@ -40,7 +40,7 @@ const highlights = [
   {
     number: "06",
     title: "Keep UTXOs under control.",
-    copy: "See your wallet's UTXO count and consolidate fragmented KAS outputs through a reviewed, authenticated self-transfer. Android supports verified KCC20 configurations with up to ten token inputs and outputs; existing tokens retain their own contract limits. Larger payments use a reviewed, resumable whole-payment plan.",
+    copy: "See your wallet's UTXO count and consolidate fragmented KAS outputs through a reviewed, authenticated self-transfer. Android and the browser extension support verified KCC20 configurations with up to ten token inputs and outputs; existing tokens retain their own contract limits. Larger payments use a reviewed, resumable whole-payment plan. Standard KCC20 and KaspaRocket transfers can reuse an eligible recipient cell through Borrowed Receive, preserving its tokens, receiving policy and KAS deposit. A new receiving cell is used when no eligible one can be verified.",
     tags: ["UTXO count", "KCC20 consolidation", "Fee preview"],
   },
   {
@@ -84,6 +84,12 @@ const highlights = [
     title: "Receive KAS with a hidden spending key.",
     copy: "Open Receive KAS and switch to P2SH account on Android or the browser extension. KIP-22 P2SH addresses keep the spending public key off-chain until you spend their outputs. Review amounts and fees locally, use Max with automatic fee deduction, and receive change at a fresh P2SH address. This separate Mainnet KAS account requires a seed-based HD wallet and an up-to-date encrypted backup. It reduces public-key exposure, but does not make Schnorr signatures quantum-resistant.",
     tags: ["P2SH account", "KIP-22", "Hidden public keys", "Fresh change"],
+  },
+  {
+    number: "14",
+    title: "Your wallet beside your dApp.",
+    copy: "Use the split-window button in the extension header to open Kaspire in Chrome's Side Panel beside the current website. It is optional: the normal extension popup stays the default. Supported dApp connection, unlock and signing reviews appear inside the matching open panel, with the same explicit approval and native checks. Without a matching panel, Kaspire uses its ordinary approval popup.",
+    tags: ["Optional Side Panel", "In-panel approvals", "Same wallet"],
   },
 ];
 
@@ -647,6 +653,24 @@ export default function Home() {
                 file manager. Verify the checksum before installation.
               </p>
               <p>
+                Android 0.11.67 adds Borrowed Receive for standard KCC20 and
+                KaspaRocket transfers: reuse an eligible live recipient cell
+                instead of creating another, while preserving its tokens,
+                receiving policy and KAS deposit. The review explains whether
+                a cell is reused or a new one is needed. Activity now uses
+                verified KCC20 units and keeps verified receipts ahead of older
+                indexer fallbacks. Kasseal and legacy KRON paths are unchanged.
+              </p>
+              <p>
+                <a
+                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/v0.11.67"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Full Android release notes: 0.11.66 → 0.11.67
+                </a>
+              </p>
+              <p>
                 Android 0.11.66 fixes large KRC20 activity amounts and loads
                 standard KCC20 history from wallet-related transactions instead
                 of scanning global trading history. Activity starts with 50
@@ -722,7 +746,7 @@ export default function Home() {
                 Version
                 {" "}{extensionRelease.version} is available below as a ZIP
                 {extensionRelease.storeReviewPending
-                  ? ". Chrome Web Store review and rollout of this version are pending; the Store may still serve the previous approved version."
+                  ? ". Chrome Web Store availability depends on its separate review and rollout; the Store may still serve an earlier approved version."
                   : "."}
               </p>
               <p>
@@ -731,24 +755,26 @@ export default function Home() {
                 </a>.
               </p>
               <p>
-                Since 0.5.21: Kasseal Mainnet joins KaspaRocket and KRON, with
-                global token search, independent wallet balances, curve and
-                pool trades, reviewed split/merge preparation and swap history.
-                Rocket tokens now have asset details, Send Asset and Swap
-                buttons, live transfer-cell resolution and correct KCC20
-                explorer links. Also includes P2SH history pagination, dot.k
-                newest/length filters, verified token metadata, US-style number
-                formatting and theme-specific form improvements. The 0.5.23
-                hotfix restores saved Kasseal swaps without changing their
-                signed transaction bytes.
+                Since 0.5.23: Activity loads independent sources progressively,
+                starts with 50 entries and adds 50 with Load more. KRC20 logos
+                use Kaspire&apos;s persistent cache and long asset names fit their
+                frames. The optional Chrome Side Panel keeps the wallet beside
+                your dApp and presents approvals inside the matching panel.
+                Standard KCC20 and KaspaRocket transfers support eligible
+                Borrowed Receive cells. Verified KCC20 units correct Activity
+                amounts, and standard token balances now appear as soon as each
+                positive result arrives, without waiting for the full catalogue.
+                Reopening shares the active scan; late results no longer fall
+                outside the ordinary 30-second review timeout. Kasseal and
+                legacy KRON paths are unchanged.
               </p>
               <p>
                 <a
-                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/extension-v0.5.23"
+                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/extension-v0.5.27"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Full extension release notes: 0.5.21 → 0.5.23
+                  Full extension release notes: 0.5.23 → 0.5.27
                 </a>
               </p>
               <div className="checksum">

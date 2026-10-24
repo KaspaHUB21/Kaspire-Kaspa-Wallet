@@ -48,6 +48,9 @@ pub struct KronTransferRequest {
     pub fee_rate: f64,
     pub template_hash: String,
     pub cells: Vec<KronCell>,
+    /// An optional recipient-owned leader, never signed with the sender key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub borrowed_receive: Option<KronCell>,
     pub funding_utxos_json: String,
 }
 
@@ -89,7 +92,7 @@ pub fn prepare_kron_transfer(request: &KronTransferRequest) -> Result<PreparedKr
     if crate::kcc20_standard::is_template(&request.template_hash) {
         return crate::kcc20_standard::prepare(request);
     }
-    if request.amount == 0
+    if request.borrowed_receive.is_some() || request.amount == 0
         || request.cells.is_empty()
         || request.cells.len() > 4
         || !request.fee_rate.is_finite()
@@ -476,6 +479,7 @@ mod tests {
             ticker: "SHAY".into(), amount: 500, decimals: 0, fee_rate: 100.0, template_hash: String::new(),
             cells: vec![KronCell { transaction_id: "bb".repeat(32), index: 0, value_sompi: TOKEN_CELL_VALUE, block_daa_score: 1,
                 script_public_key: hex::encode(pay_to_script_hash_script(&redeem).script()), token_amount: 1_000, redeem_script: hex::encode(&redeem) }],
+            borrowed_receive: None,
             funding_utxos_json: json!([{"address":sender.to_string(),"outpoint":{"transactionId":"cc".repeat(32),"index":0},"utxoEntry":{"amount":"10000000000","blockDaaScore":"1","isCoinbase":false,"scriptPublicKey":{"version":0,"scriptPublicKey":hex::encode(pay_to_address_script(&sender).script())}}}]).to_string(),
         };
         let prepared = prepare_kron_transfer(&request).unwrap();

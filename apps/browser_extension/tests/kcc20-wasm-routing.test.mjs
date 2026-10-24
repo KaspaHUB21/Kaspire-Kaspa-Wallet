@@ -4,6 +4,8 @@ import {readFile} from 'node:fs/promises';
 import init, * as rawCore from './generated/wasm/kaspa_secure_core.mjs';
 import {secureCore} from './generated/secretInputs.mjs';
 import {standardKcc20TransferData} from './generated/standardKcc20.mjs';
+import initKaspa,{payToScriptHashScript} from '../node_modules/@kronsdk/kron-sdk/vendor/kaspa/kaspa.js';
+await initKaspa({module_or_path:await readFile(new URL('../node_modules/@kronsdk/kron-sdk/vendor/kaspa/kaspa_bg.wasm',import.meta.url))});
 
 const exports=await init({module_or_path:await readFile(new URL('./generated/wasm/kaspa_secure_core_bg.wasm',import.meta.url))});
 const core=secureCore(rawCore,exports.memory);
@@ -36,6 +38,21 @@ function tenRequest(count) {
   }
   return r;
 }
+test('packaged WASM reuses a receiver cell without signing it for both pinned configurations',()=>{
+  for(const [t,make] of [[template,request],[template10,tenRequest]]) {
+    const r=make(1),recipientOwner=core.publicKey('private:'+'22'.repeat(32));
+    const redeem=t.prefix+'08881300000000000020'+recipientOwner+'0100010120'+'0'.repeat(64)+'20'+'0'.repeat(64)+t.suffix;
+    const script=payToScriptHashScript(redeem),scriptPublicKey=script.script;script.free();
+    r.borrowedReceive={transactionId:'dd'.repeat(32),index:0,valueSompi:500000000,blockDaaScore:123,scriptPublicKey,tokenAmount:5000,redeemScript:redeem};
+    const prepared=JSON.parse(core.prepareKronTransfer(JSON.stringify(r))),review=JSON.parse(core.preparePskt(JSON.stringify(prepared.psktRequest)));
+    assert.equal(review.outputs[0].amountSompi,500000000);
+    assert(prepared.psktRequest.scripts.every(s=>s.inputIndex!==0));
+    const signed=JSON.parse(core.signPskt(secret,JSON.stringify(prepared.psktRequest),review.reviewHash));
+    assert(!signed.signedInputIndexes.includes(0));
+    const altered=structuredClone(r);altered.borrowedReceive.tokenAmount++;
+    assert.throws(()=>core.prepareKronTransfer(JSON.stringify(altered)));
+  }
+});
 test('actual WASM signs up to ten inputs directly, then compounds eleven without changing templates',()=>{
   for(const count of [4,7,10]){
     const r=tenRequest(count),prepared=JSON.parse(core.prepareKronTransfer(JSON.stringify(r)));

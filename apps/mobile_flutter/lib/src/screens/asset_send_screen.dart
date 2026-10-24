@@ -374,6 +374,27 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           final cells = step?.cells ?? availableCells;
           final stepAmount = step?.amount ?? int.parse(raw);
           final stepRecipient = compound ? widget.address : recipient;
+          Kcc20CellRecord? borrowedReceive;
+          var recipientCellStatus = 'new';
+          if (isStandard && widget.address != recipient && !compound) {
+            setState(() => _status =
+                'Checking whether an existing recipient cell can be reused…');
+            try {
+              borrowedReceive = await _api.loadKcc20BorrowedReceive(
+                  recipient,
+                  token.covenantId!,
+                  int.parse(raw),
+                  cells.first,
+                  standardStep!.templateId!,
+                  isCancelled: () => !mounted);
+              if (borrowedReceive != null) recipientCellStatus = 'reused';
+            } catch (_) {
+              if (!mounted) return;
+              recipientCellStatus = 'lookup-unavailable';
+            }
+          }
+          if (isStandard)
+            operation['recipientCellStatus'] = recipientCellStatus;
           if (!isStandard && token.standard != 'kron-native') {
             await _api.verifyKcc20CellsOnOwnNode(cells, token.covenantId!);
           }
@@ -403,6 +424,16 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                   'KRON signing data is incomplete. Refresh the wallet.');
             }
             final kronRequest = <String, Object?>{
+              if (borrowedReceive != null)
+                'borrowedReceive': {
+                  'transactionId': borrowedReceive.transactionId,
+                  'index': borrowedReceive.index,
+                  'valueSompi': borrowedReceive.valueSompi,
+                  'blockDaaScore': borrowedReceive.blockDaaScore,
+                  'scriptPublicKey': borrowedReceive.scriptPublicKey,
+                  'tokenAmount': borrowedReceive.tokenAmount,
+                  'redeemScript': borrowedReceive.redeemScript,
+                },
               'sender': widget.address,
               'recipient': stepRecipient,
               'covenantId': token.covenantId,
@@ -425,7 +456,9 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                   .toList(),
               'fundingUtxosJson': fundingUtxos,
             };
-            if (isStandard && cells.length > (standardStep?.inputLimit ?? 3)) {
+            if (isStandard &&
+                cells.length + (borrowedReceive == null ? 0 : 1) >
+                    (standardStep?.inputLimit ?? 3)) {
               kronRequest['recipient'] = recipient;
               kronRequest['amount'] = int.parse(raw);
               final plan = await _security.prepareKcc20Plan(kronRequest);
@@ -1616,6 +1649,15 @@ class _Kcc20ReviewState extends State<_Kcc20Review> {
                 '${formatEnglishDecimal(operation['displayAmount'].toString())} ${operation['ticker']}',
               ),
               _Row('Recipient', operation['recipient'].toString()),
+              if (operation['recipientCellStatus'] != null)
+                _Row(
+                    'Recipient cell',
+                    operation['recipientCellStatus'] == 'reused'
+                        ? 'Existing cell reused (Borrowed Receive)'
+                        : operation['recipientCellStatus'] ==
+                                'lookup-unavailable'
+                            ? 'New cell — reuse lookup unavailable'
+                            : 'New cell — no eligible receiving cell'),
               _Row('Covenant ID', review['covenantId'].toString()),
               _Row('Template hash', review['templateHash'].toString()),
               if (_isPlan)

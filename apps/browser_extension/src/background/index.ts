@@ -61,9 +61,11 @@ import {
   kcc20History,
   kcc20TransferData,
   standardKcc20SigningData,
+  kcc20BorrowedReceive,
   selectedKcc20Asset,
   waitForStandardKcc20Output,
   kcc20DiscoveryWarning,
+  observeCovenantAssets,
   isKcc20TransactionAccepted,
   kronTransferData,
   marketPrice,
@@ -93,6 +95,10 @@ import {
   type ProviderMethod,
 } from "../shared/protocol";
 import { formatRawTokenAmount } from "../shared/tokenAmount";
+import {isWalletPage} from '../shared/walletPage';
+import {activitySource} from './activity';
+import {mergeActivity} from '../shared/activityFeed';
+import {SidePanelApprovals} from './sidePanelApprovals';
 import { planKcc20Step } from "../shared/kcc20Compound";
 import { kcc20 as kronKcc20, spend as kronSpend } from "@kronsdk/kron-sdk";
 import { loadKaspa as loadKronKaspa } from "@kronsdk/kron-sdk/wasm";
@@ -267,8 +273,12 @@ const approvals = new Map<
     resolve: (approved: boolean) => void;
     timer: number;
     generation: number | null;
+    panel?: boolean;
   }
 >();
+const sidePanelApprovals=new SidePanelApprovals(chrome.runtime.getURL(''),filter=>chrome.runtime.getContexts(filter),async id=>{
+  try{return (await chrome.windows.get(id)).type==='normal';}catch{return false;}
+});
 let inscriptionOperationInFlight = false;
 async function runExclusiveInscription<T>(operation: () => Promise<T>): Promise<T> {
   if (inscriptionOperationInFlight)
@@ -310,6 +320,10 @@ chrome.alarms.onAlarm.addListener(async ({ name }) => {
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.kind === "approval") {
     const pending = approvals.get(String(message.id ?? ""));
+    if(pending?.panel) {
+      respond({error:{code:4100,message:'This approval belongs to the active Kaspire side panel.'}});
+      return false;
+    }
     if (message.command === "get") {
       respond(
         pending
@@ -326,7 +340,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     }
   }
   if (message?.channel === "wallet") {
-    if ((String(message.command).startsWith('covenantVault') || String(message.command).startsWith('p2sh')) && sender.url !== chrome.runtime.getURL('wallet.html')) {
+    if ((message.command==='historySource'||String(message.command).startsWith('covenantVault') || String(message.command).startsWith('p2sh')) && !isWalletPage(sender.url, chrome.runtime.getURL(''))) {
       respond({ error: { code: 4100, message: 'Covenant vault commands are available only inside Kaspire Wallet.' } });
       return false;
     }
@@ -337,12 +351,15 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
   if (message?.kind !== "provider" || !isProviderRequest(message.request))
     return false;
-  void handle(
+  const invoke=()=>handle(
     message.origin,
     message.request.method,
     message.request.params,
     sender,
-  )
+  );
+  const request=message.request;
+  const mayApprove=unlockProviderMethods.has(request.method)||['requestAccounts','requestNetworkAccounts','eth_requestAccounts','switchNetwork','wallet_switchEthereumChain'].includes(request.method);
+  void (mayApprove?sidePanelApprovals.inRequestWindow(message.origin,sender.tab?.windowId,invoke):invoke())
     .then((result) => respond({ result }))
     .catch((error) => respond({ error: normalize(error) }))
     .finally(() => {
@@ -352,7 +369,19 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   return true;
 });
 chrome.runtime.onConnect.addListener((port) => {
+  if(port.name==='wallet-sidepanel-approvals') {
+    let registered=false;
+    port.onMessage.addListener(message=>{
+      if(registered||message?.kind!=='register')return;
+      registered=true;
+      void sidePanelApprovals.connect(port,Number(message.windowId)).then(accepted=>{
+        if(!accepted)port.disconnect();
+      }).catch(()=>port.disconnect());
+    });
+    return;
+  }
   if (port.name === "wallet-ui-lifetime") {
+    if (!isWalletPage(port.sender?.url, chrome.runtime.getURL(''))) return;
     walletUiConnections += 1;
     port.onDisconnect.addListener(() => {
       walletUiConnections = Math.max(0, walletUiConnections - 1);
@@ -365,7 +394,7 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onDisconnect.addListener(() => disconnected.abort());
   port.onMessage.addListener((message) => {
     if (message?.channel !== "wallet") return;
-    if ((String(message.command).startsWith('covenantVault') || String(message.command).startsWith('p2sh')) && port.sender?.url !== chrome.runtime.getURL('wallet.html')) {
+    if ((message.command==='historySource'||String(message.command).startsWith('covenantVault') || String(message.command).startsWith('p2sh')) && !isWalletPage(port.sender?.url, chrome.runtime.getURL(''))) {
       port.postMessage({ error: { code: 4100, message: 'Covenant vault commands are available only inside Kaspire Wallet.' } });
       return;
     }
@@ -558,8 +587,14 @@ async function walletCommand(
       requireRocketNetwork(state.network);
       return rocketWalletAssets(state.selectedAddress);
     }
-    const items=await walletAssetCategory(state.selectedAddress, state.network, String(message.category));
-    return String(message.category)==='kcc20' ? {items,warning:kcc20DiscoveryWarning(state.selectedAddress)} : items;
+    const stop=message.category==='kcc20'&&state.network==='mainnet'?observeCovenantAssets(state.selectedAddress,items=>{
+      void chrome.runtime.sendMessage({kind:'wallet-covenant-assets-progress',address:state.selectedAddress,items}).catch(()=>{});
+    }):()=>{};
+    try {
+      const items=await walletAssetCategory(state.selectedAddress, state.network, String(message.category));
+      if(message.category==='kcc20'&&state.network==='mainnet')void chrome.runtime.sendMessage({kind:'wallet-activity-origins-ready',address:state.selectedAddress}).catch(()=>{});
+      return String(message.category)==='kcc20' ? {items,warning:kcc20DiscoveryWarning(state.selectedAddress)} : items;
+    } finally {stop();}
   }
   if (message.command === "resolveDotkName") {
     if (state.network !== "mainnet") throw new Error("dot.k is available on Layer 1 only.");
@@ -760,6 +795,23 @@ async function walletCommand(
       catch (error) { return [{ name: config.name, url: config.rpc, ok: false, detail: (error as Error).message, elapsedMs: Date.now() - started }]; }
     }
     return networkDiagnostics(state.selectedAddress, state.network);
+  }
+  if (message.command === 'historySource') {
+    if(!state.selectedAddress)throw Error('No wallet is selected.');
+    const source=String(message.source??''),limit=Number(message.limit??51);
+    if(!Number.isInteger(limit)||limit<1||limit>1000)throw Error('Invalid history limit.');
+    if(source==='Saved activity') {
+      const owned=new Set(kasAccountEntries(state).map(e=>e.address.toLowerCase()));
+      const stored=await chrome.storage.local.get('walletActivity');
+      return {items:mergeActivity([(Array.isArray(stored.walletActivity)?stored.walletActivity:[])
+        .filter((r:any)=>owned.has(String(r.wallet??'').toLowerCase())).map((r:any)=>r.transaction)]).slice(0,limit)};
+    }
+    if(state.network==='kasplex'||state.network==='igra') {
+      const {address}=await evmContext(state);return {items:await evmHistory(state.network,address)};
+    }
+    const primary=kasAccountPrimary(state);
+    if(!primary)throw Error('No wallet is selected.');
+    return activitySource(primary.address,state.network,kasAccountEntries(state).map(e=>e.address),source,limit);
   }
   if (message.command === "history") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
@@ -2578,6 +2630,7 @@ function rejectApprovals(boundOnly = false) {
     clearTimeout(pending.timer);
     approvals.delete(id);
     pending.resolve(false);
+    sidePanelApprovals.cancel(id);
   }
 }
 
@@ -2591,6 +2644,7 @@ async function resolveApproval(id: string, approved: boolean) {
     pending.generation === null ||
     (sessionVault !== null && pending.generation === sessionGeneration);
   pending.resolve(approved && validSession);
+  sidePanelApprovals.cancel(id);
 }
 
 async function lockSession(state: Awaited<ReturnType<typeof loadState>>) {
@@ -2613,6 +2667,7 @@ async function lockSession(state: Awaited<ReturnType<typeof loadState>>) {
     "preparedAsset",
   ]);
   await saveState({ ...state, locked: true });
+  void chrome.runtime.sendMessage({kind:'wallet-session-locked'}).catch(()=>{});
 }
 
 async function lockImmediateSessionWithoutWalletUi() {
@@ -2620,7 +2675,7 @@ async function lockImmediateSessionWithoutWalletUi() {
   await hydrateSession();
   if (!sessionVault) return;
   const state = await loadState();
-  if (state.settings.autoLockMinutes === 0) await lockSession(state);
+  if (walletUiConnections === 0 && state.settings.autoLockMinutes === 0) await lockSession(state);
 }
 
 async function expireSessionIfNeeded(
@@ -3772,6 +3827,12 @@ async function prepareWalletAsset(
       const stepRecipient = compound ? sender : recipient;
       progress("Loading wallet UTXOs and fee…");
       const funding = await spendingData(sender, state.network);
+      let borrowedReceive=null,recipientCellStatus='new';
+      if(standard && sender!==recipient && !compound) {
+        progress('Checking whether an existing recipient cell can be reused…');
+        try {borrowedReceive=await kcc20BorrowedReceive(recipient,covenantId,numericAmount,verified.cells[0],verified.templateHash,{signal,progress});if(borrowedReceive)recipientCellStatus='reused';}
+        catch(error) {if(signal?.aborted)throw error;recipientCellStatus='lookup-unavailable';progress('Recipient cell reuse is unavailable. Preparing a new receiving cell.');}
+      }
       const request = {
         sender,
         recipient: stepRecipient,
@@ -3783,14 +3844,15 @@ async function prepareWalletAsset(
         templateHash: verified.templateHash,
         cells: standard ? verified.cells : step.cells,
         fundingUtxosJson: funding.utxosJson,
+        ...(borrowedReceive?{borrowedReceive}:{}),
       };
       progress("Preparing native KCC20 review…");
       const wasm = await core();
-      if(standard && verified.cells.length>(step.inputLimit??3)) {
+      if(standard && verified.cells.length+Number(Boolean(borrowedReceive))>(step.inputLimit??3)) {
         request.recipient=recipient;request.amount=numericAmount;
         const plan=JSON.parse(wasm.prepareKcc20Plan(JSON.stringify(request)));
         prepared={type:'kcc20-plan',sender,request,review:plan,createdAt:Date.now(),operation:{
-          kind,sender,recipient,covenantId,standard:'kcc20',ticker:verified.ticker,
+          kind,sender,recipient,covenantId,standard:'kcc20',ticker:verified.ticker,recipientCellStatus,
           amount:String(numericAmount),displayAmount:formatRawTokenAmount(String(numericAmount),verified.decimals),
           transactionCount:plan.transactionCount,requiredCells:verified.cells.length,
         }};
@@ -3809,7 +3871,7 @@ async function prepareWalletAsset(
           ticker: verified.ticker,
           amount: String(stepAmount),
           displayAmount: formatRawTokenAmount(String(stepAmount),verified.decimals),
-          covenantId, standard: standard ? 'kcc20' : 'legacy-kcc20', compound,
+          covenantId, standard: standard ? 'kcc20' : 'legacy-kcc20', compound,...(standard?{recipientCellStatus}:{}),
           intendedRecipient: recipient, intendedAmount: amount,
           intendedDisplayAmount: formatRawTokenAmount(String(numericAmount),verified.decimals),
           requiredCells:step.requiredCells,
@@ -5325,6 +5387,7 @@ async function approve(input: Omit<ApprovalView, "id">, signal?: AbortSignal) {
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
       approvals.delete(id);
+      sidePanelApprovals.cancel(id);
       resolve(approved);
     };
     const abort = () => finish(false);
@@ -5339,6 +5402,15 @@ async function approve(input: Omit<ApprovalView, "id">, signal?: AbortSignal) {
     });
     signal?.addEventListener('abort', abort, { once: true });
     if (input.origin === "Kaspire Wallet") return;
+    const pending=approvals.get(id)!;
+    pending.panel=true;
+    if(sidePanelApprovals.present({...view,locked:sessionVault===null},async approved=>{
+      try {
+        await expireSessionIfNeeded(await loadState());
+        await resolveApproval(id,approved);
+      } catch {finish(false);}
+    }))return;
+    pending.panel=false;
     try {
       await chrome.windows.create({
         url: chrome.runtime.getURL(

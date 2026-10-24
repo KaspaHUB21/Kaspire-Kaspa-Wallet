@@ -53,7 +53,7 @@ pub fn prepare_kcc20_plan(source: &KronTransferRequest) -> Result<PreparedKcc20P
     // Validate every original cell, including ones spent by later steps.
     kcc20_standard::validate_plan_cells(source)?;
     for cell in &source.cells {
-        if cell.token_amount == 0 || !seen.insert(format!("{}:{}", cell.transaction_id, cell.index))
+        if cell.token_amount == 0 || !seen.insert(format!("{}:{}", cell.transaction_id, cell.index)) || source.borrowed_receive.as_ref().is_some_and(|b|b.transaction_id==cell.transaction_id&&b.index==cell.index)
         {
             return Err(invalid("Duplicate or empty KCC20 plan input"));
         }
@@ -103,10 +103,12 @@ pub fn prepare_kcc20_plan(source: &KronTransferRequest) -> Result<PreparedKcc20P
             })
             .ok_or_else(|| invalid("Incomplete KCC20 payment plan"))?
             + 1;
-        let compound = required > limit;
-        let selected: Vec<_> = cells.drain(..cells.len().min(limit)).collect();
+        let final_limit=limit-usize::from(source.borrowed_receive.is_some());
+        let compound = required > final_limit;
+        let selected: Vec<_> = cells.drain(..cells.len().min(if compound {limit}else{final_limit})).collect();
         let selected_total: u64 = selected.iter().map(|c| c.token_amount).sum();
         let request = KronTransferRequest {
+            borrowed_receive: if compound {None}else{source.borrowed_receive.clone()},
             cells: selected.clone(),
             recipient: if compound {
                 source.sender.clone()

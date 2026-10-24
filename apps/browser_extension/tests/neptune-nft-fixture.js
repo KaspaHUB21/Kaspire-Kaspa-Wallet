@@ -18,6 +18,7 @@ chrome.runtime.sendMessage=async message=>{
   window.lastNftRequest=message;
   switch(message.command){
     case 'history':return {result:window.swapActivityFixture??[]};
+    case 'historySource':return {result:{items:message.source==='KAS history'?(window.swapActivityFixture??[]):[]}};
     case 'pendingApproval':return {result:kronFixtureApproval};
     case 'resolveWalletApproval': {
       if(!kronFixtureApproval || message.id!==kronFixtureApproval.id)throw Error('Approval expired');

@@ -590,8 +590,7 @@ void main() {
     await expectLater(
         service.signingCells(address, cid, 400), throwsStateError);
   });
-  test(
-      'borrowing-policy cells fail closed rather than implying Borrowed Receive support',
+  test('owner-authorized spending preserves an enabled borrowing policy',
       () async {
     final base = source();
     final service = Kcc20StandardService(MockClient((r) async {
@@ -604,7 +603,94 @@ void main() {
       value['data']['outputs'][0]['borrow_scheme'] = 1;
       return http.Response(jsonEncode(value), 200);
     }));
-    await expectLater(service.signingCells(address, cid, 1), throwsStateError);
+    final cells = await service.signingCells(address, cid, 1);
+    expect(cells.single.redeemScript, contains('0100010120${'0' * 64}20'));
+  });
+  test(
+      'borrowed receive reuses only enabled live cells and preserves the full guard',
+      () async {
+    final base = source();
+    Kcc20StandardService service(int scheme,
+            {String? guard, bool spent = false}) =>
+        Kcc20StandardService(MockClient((r) async {
+          final response = await base.get(r.url),
+              value = jsonDecode(response.body);
+          if (spent && r.url.path.endsWith('/utxos'))
+            return http.Response('[]', 200);
+          if (r.url.path.endsWith('/transactions/$txid') &&
+              !r.url.path.contains('/local-node/')) {
+            value['data']['outputs'][0]['borrow_scheme'] = scheme;
+            value['data']['outputs'][0]['borrow_guard'] = guard ?? '0' * 64;
+          }
+          return http.Response(jsonEncode(value), 200);
+        }));
+    final cells = await service(1).signingCells(address, cid, 1);
+    final reused = await service(1).borrowedReceive(
+        address, cid, 1, cells.first, Kcc20StandardService.templateId);
+    expect(reused!.transactionId, txid);
+    expect(reused.valueSompi, 100000000);
+    expect(
+        await service(0).borrowedReceive(
+            address, cid, 1, cells.first, Kcc20StandardService.templateId),
+        isNull);
+    expect(
+        await service(2).borrowedReceive(
+            address, cid, 1, cells.first, Kcc20StandardService.templateId),
+        isNull);
+    expect(
+        await service(1, spent: true).borrowedReceive(
+            address, cid, 1, cells.first, Kcc20StandardService.templateId),
+        isNull);
+    expect(
+        await service(1, guard: '0100000000000000${'0' * 48}').borrowedReceive(
+            address, cid, 1, cells.first, Kcc20StandardService.templateId),
+        isNull);
+  });
+  test(
+      'BTE protocol units produce exactly 250 tokens from a 250000-unit transfer',
+      () async {
+    final service = Kcc20StandardService(
+        MockClient((r) async => envelope(r.url.path.endsWith('/tokens/$cid')
+            ? {
+                'covenant_id': cid,
+                'recognition': 'hash_proven_parameterized_actor_family',
+                'metadata': {
+                  'ticker': 'BTE',
+                  'binding_verified': true,
+                  'decimals': null
+                },
+                'token_units': {'status': 'verified', 'decimals': 3},
+              }
+            : {
+                'txid': txid,
+                'token': {'covenant_id': cid},
+                'components_complete': true,
+                'time_ms': DateTime.now().millisecondsSinceEpoch,
+                'inputs': [],
+                'outputs': [
+                  {...state(), 'token_amount': '250000'}
+                ]
+              })));
+    final rows = await service.historyForTransactions(address, {
+      cid: {txid}
+    });
+    expect(rows.single.displayAmount, '250');
+    expect(rows.single.unitSource, 'verified-kcc20');
+    expect(
+        Kcc20StandardService.verifiedDecimals({
+          'token_units': {'status': 'verified', 'decimals': 0}
+        }),
+        0);
+    expect(
+        Kcc20StandardService.verifiedDecimals({
+          'metadata': {'binding_verified': true, 'decimals': 8}
+        }),
+        8);
+    expect(
+        Kcc20StandardService.verifiedDecimals({
+          'metadata': {'binding_verified': true, 'decimals': null}
+        }),
+        isNull);
   });
   test('Kasvio standard holdings survive unavailable legacy and KRON sources',
       () async {

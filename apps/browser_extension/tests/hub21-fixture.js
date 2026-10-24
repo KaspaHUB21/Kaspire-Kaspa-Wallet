@@ -38,3 +38,8 @@ window.chrome.runtime = {
   },
 };
 window.chrome.tabs={create:()=>{}};
+window.chrome.runtime.onMessage={addListener(){},removeListener(){}};
+window.chrome.runtime.getContexts=async()=>[{contextType:'TAB',documentUrl:location.href}];
+window.chrome.storage={onChanged:{addListener(){}}};
+window.chrome.windows={getCurrent:async()=>({id:1})};
+window.chrome.sidePanel={open:async options=>{window.sidePanelOpenOptions=options;},close:async options=>{window.sidePanelCloseOptions=options;}};

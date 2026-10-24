@@ -6,6 +6,34 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kasvault_wallet/src/services/kron_dex_service.dart';
 
 void main() {
+  test(
+      'verified token units override old fallback amounts in either merge order',
+      () {
+    final time = DateTime.utc(2026, 10, 24);
+    final verified = WalletTransaction(
+        id: 'bte',
+        timestamp: time,
+        amountSompi: 0,
+        incoming: true,
+        assetKind: 'KCC20',
+        assetSymbol: 'BTE',
+        tokenId: 'c',
+        displayAmount: '250',
+        unitSource: 'verified-kcc20');
+    final legacy = WalletTransaction(
+        id: 'bte',
+        timestamp: time,
+        amountSompi: 0,
+        incoming: true,
+        assetKind: 'KCC20',
+        assetSymbol: 'BTE',
+        tokenId: 'c',
+        displayAmount: '0.025');
+    expect(
+        mergeWalletActivity([verified], [legacy]).single.displayAmount, '250');
+    expect(
+        mergeWalletActivity([legacy], [verified]).single.displayAmount, '250');
+  });
   test('KRON buys and sells record exact units and replay idempotently',
       () async {
     SharedPreferences.setMockInitialValues({});

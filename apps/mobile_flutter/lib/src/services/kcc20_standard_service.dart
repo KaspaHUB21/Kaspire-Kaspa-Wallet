@@ -182,6 +182,19 @@ class Kcc20StandardService {
   }
 
   static String rowId(Map row) => row['covenant_id']?.toString() ?? '';
+  static int? verifiedDecimals(Map token) {
+    final units = map(token['token_units']), metadata = map(token['metadata']);
+    final value = units['status'] == 'verified'
+        ? units['decimals']
+        : metadata['binding_verified'] == true
+            ? metadata['decimals']
+            : null;
+    final decimals = int.tryParse(value?.toString() ?? '');
+    return decimals != null && decimals >= 0 && decimals <= 18
+        ? decimals
+        : null;
+  }
+
   Future<Map<String, dynamic>> balance(String cid, String owner,
       {bool Function()? isCancelled}) async {
     final result = await get('$base/tokens/$cid/balance?owner=$owner&scheme=00',
@@ -371,6 +384,7 @@ class Kcc20StandardService {
         amountSompi: 0,
         incoming: delta > BigInt.zero,
         assetKind: 'KCC20',
+        unitSource: 'verified-kcc20',
         assetSymbol: ticker,
         tokenId: cid,
         displayAmount: formatRawTokenAmount(delta.abs(), decimals),
@@ -395,17 +409,15 @@ class Kcc20StandardService {
         try {
           final token = await _historyGet('tokens/${entry.key}');
           if (rowId(token) != entry.key ||
-              tokenTemplate(token) == null ||
               ![
                 'hash_proven_reference_actor_family',
-                'hash_proven_program_artifact'
+                'hash_proven_program_artifact',
+                'hash_proven_parameterized_actor_family'
               ].contains(token['recognition'])) {
             return;
           }
           final metadata = map(token['metadata']);
-          final decimals = metadata['binding_verified'] == true
-              ? int.tryParse(metadata['decimals'].toString())
-              : 0;
+          final decimals = verifiedDecimals(token);
           final ticker = (metadata['binding_verified'] == true
                   ? metadata['ticker'] ?? metadata['symbol'] ?? 'KCC20_RAW'
                   : 'KCC20_RAW')
@@ -502,6 +514,117 @@ class Kcc20StandardService {
     }
     throw StateError(
         'Consolidation $transactionId is saved but not indexed yet. Recipient NOT paid. Continue the saved transfer later.');
+  }
+
+  /// Reuse only an explicitly enabled amount-threshold recipient cell. A
+  /// disabled/signature/hash-chain cell is never spent without its authority.
+  Future<Kcc20CellRecord?> borrowedReceive(String recipient, String cid,
+      int amount, Kcc20CellRecord first, String programId,
+      {bool Function()? isCancelled}) async {
+    final owner = kaspaOwnerIdFromAddress(recipient);
+    if (!_hex64.hasMatch(owner) || amount <= 0)
+      throw StateError('Invalid borrowed receive request.');
+    final ten = programId == tenTemplateId;
+    if (!ten && programId != templateId)
+      throw StateError('Unsupported borrowed receive program.');
+    final template = map(jsonDecode(await rootBundle.loadString(ten
+        ? 'assets/kcc20_reference_10_template.json'
+        : 'assets/kcc20_standard_template.json')));
+    final prefix = template['prefix'].toString(),
+        suffix = template['suffix'].toString();
+    final senderScript = first.redeemScript ?? '';
+    if (!senderScript.startsWith(prefix) ||
+        senderScript.length < prefix.length + 224)
+      throw StateError('Missing sender token identity.');
+    final extension =
+        senderScript.substring(prefix.length + 160, prefix.length + 224);
+    final b = await balance(cid, owner, isCancelled: isCancelled);
+    for (final raw in (b['outputs'] as List? ?? []).whereType<Map>().take(32)) {
+      if (isCancelled?.call() == true)
+        throw StateError('KCC20 preparation cancelled.');
+      final id = raw['txid']?.toString() ?? '',
+          index = int.tryParse(raw['output_index'].toString());
+      if (!_hex64.hasMatch(id) || index == null || index < 0) continue;
+      final tx = map((await get('$base/tokens/$cid/transactions/$id',
+          isCancelled: isCancelled, priority: true))['data']);
+      final rows = (tx['outputs'] as List? ?? [])
+          .whereType<Map>()
+          .where((s) =>
+              s['io_index'] == index &&
+              s['covenant_id'] == cid &&
+              s['actor'] == 'KCC20')
+          .toList();
+      if (tx['txid'] != id || rows.length != 1) continue;
+      final s = rows.single,
+          units = BigInt.tryParse(s['token_amount'].toString()),
+          guard = s['borrow_guard']?.toString() ?? '';
+      if (s['state_hash_verified'] != true ||
+          s['template_hash'] != (ten ? tenTemplateHash : templateHash) ||
+          s['owner_scheme'] != 0 ||
+          s['owner_value'] != owner ||
+          s['borrow_scheme'] != 1 ||
+          !_hex64.hasMatch(guard) ||
+          s['extension_commitment'] != extension ||
+          units == null ||
+          units < BigInt.zero ||
+          units + BigInt.from(amount) > BigInt.from(0x7fffffffffffffff) ||
+          s['token_amount'].toString() != raw['balance_raw'].toString())
+        continue;
+      final encoded = BigInt.parse(
+          List.generate(8, (i) => guard.substring(i * 2, i * 2 + 2))
+              .reversed
+              .join(),
+          radix: 16);
+      final threshold = encoded >> 63 != BigInt.zero ? BigInt.zero : encoded;
+      if (BigInt.from(amount) <= threshold) continue;
+      final origin =
+          await get('$node/transactions/$id', isCancelled: isCancelled);
+      final outputs = (origin['outputs'] as List? ?? [])
+          .whereType<Map>()
+          .where((o) => o['index'] == index)
+          .toList();
+      if (origin['transaction_id'] != id ||
+          origin['is_accepted'] != true ||
+          outputs.length != 1) continue;
+      final o = outputs.single,
+          outputAddress = o['script_public_key_address']?.toString() ?? '';
+      if (o['covenant_id'] != cid ||
+          o['amount'].toString() != raw['amount_sompi'].toString() ||
+          !RegExp(r'^kaspa:[a-z0-9]{61,63}$').hasMatch(outputAddress)) continue;
+      final response = await client
+          .get(Uri.parse('$node/addresses/$outputAddress/utxos'))
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200)
+        throw StateError('Recipient cell verification unavailable.');
+      final live = (jsonDecode(response.body) as List)
+          .whereType<Map>()
+          .where((r) =>
+              map(r['outpoint'])['transactionId'] == id &&
+              map(r['outpoint'])['index'] == index)
+          .toList();
+      if (live.length != 1) continue;
+      final e = map(live.single['utxoEntry']);
+      if (e['isCoinbase'] != false ||
+          map(e['scriptPublicKey'])['scriptPublicKey'] !=
+              o['script_public_key'] ||
+          e['amount'].toString() != o['amount'].toString()) continue;
+      final little = List.generate(
+          8,
+          (i) => ((units >> (8 * i)).toInt() & 255)
+              .toRadixString(16)
+              .padLeft(2, '0')).join();
+      return Kcc20CellRecord(
+          covenantId: cid,
+          transactionId: id,
+          index: index,
+          valueSompi: int.parse(e['amount'].toString()),
+          blockDaaScore: int.parse(e['blockDaaScore'].toString()),
+          scriptPublicKey: o['script_public_key'].toString(),
+          tokenAmount: units.toInt(),
+          redeemScript:
+              '${prefix}08${little}20${owner}0100010120${guard}20$extension$suffix');
+    }
+    return null;
   }
 
   Future<Kcc20Step> signingBatch(String address, String cid, int amount,
@@ -648,10 +771,13 @@ class Kcc20StandardService {
           throw StateError(
               'KCC20 ownership or token amount differs from the reconstructed state.');
         }
-        if (state['borrow_scheme'] != 0 || state['borrow_guard'] != '0' * 64) {
-          throw StateError(
-              'This KCC20 output has a borrowing policy; direct transfers are not supported yet.');
-        }
+        final borrowScheme = state['borrow_scheme'],
+            guard = state['borrow_guard']?.toString() ?? '';
+        if (borrowScheme is! int ||
+            borrowScheme < 0 ||
+            borrowScheme > 3 ||
+            !_hex64.hasMatch(guard))
+          throw StateError('Invalid KCC20 borrowing policy.');
         final extension = state['extension_commitment']?.toString() ?? '';
         if (!_hex64.hasMatch(extension)) {
           throw StateError('KCC20 extension commitment is missing.');
@@ -664,7 +790,7 @@ class Kcc20StandardService {
         String hex(List<int> b) =>
             b.map((v) => v.toRadixString(16).padLeft(2, '0')).join();
         final redeem =
-            '${template['prefix']}${hex(bytes)}${owner}0100010020${'0' * 64}20$extension${template['suffix']}';
+            '${template['prefix']}${hex(bytes)}${owner}010001${borrowScheme.toRadixString(16).padLeft(2, '0')}20${guard}20$extension${template['suffix']}';
         final origin = await once('$node/transactions/$id');
         final outputs = (origin['outputs'] as List? ?? [])
             .whereType<Map>()

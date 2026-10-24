@@ -214,6 +214,7 @@ class WalletTransaction {
     this.assetKind = 'KAS',
     this.assetSymbol = 'KAS',
     this.displayAmount,
+    this.unitSource,
     this.operationLabel,
     this.amountLabelOverride,
     this.tokenId,
@@ -241,6 +242,7 @@ class WalletTransaction {
         assetKind: json['assetKind']?.toString() ?? 'ASSET',
         assetSymbol: json['assetSymbol']?.toString(),
         displayAmount: json['displayAmount']?.toString(),
+        unitSource: json['unitSource']?.toString(),
         operationLabel: json['operationLabel']?.toString(),
         amountLabelOverride: json['amountLabelOverride']?.toString(),
         tokenId: json['tokenId']?.toString(),
@@ -268,6 +270,7 @@ class WalletTransaction {
   final String assetKind;
   final String? assetSymbol;
   final String? displayAmount;
+  final String? unitSource;
   final String? operationLabel;
   final String? amountLabelOverride;
   final String? tokenId;

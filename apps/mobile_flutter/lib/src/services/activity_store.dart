@@ -208,16 +208,21 @@ List<WalletTransaction> mergeWalletActivity(
   String identity(WalletTransaction transaction) => [
         transaction.id,
         transaction.assetKind,
-        transaction.assetSymbol ?? '',
+        transaction.assetKind == 'KCC20' && transaction.tokenId != null
+            ? ''
+            : transaction.assetSymbol ?? '',
         transaction.tokenId ?? '',
         transaction.incoming.toString(),
       ].join('|');
 
-  final merged = <String, WalletTransaction>{
-    for (final transaction in local) identity(transaction): transaction,
-    for (final transaction in network) identity(transaction): transaction,
+  final selected = <String, WalletTransaction>{};
+  for (final transaction in [...local, ...network]) {
+    final key = identity(transaction), previous = selected[key];
+    if (previous?.unitSource == 'verified-kcc20' &&
+        transaction.unitSource != 'verified-kcc20') continue;
+    selected[key] = transaction;
   }
-      .values
+  final merged = selected.values
       .where((tx) =>
           tx.assetKind != 'KRON SWAP' ||
           ![...local, ...network].any((other) =>

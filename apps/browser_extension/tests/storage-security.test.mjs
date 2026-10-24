@@ -53,8 +53,8 @@ test("KaspaRocket provider IDs cannot replace the locally computed consensus ID"
 });
 
 test('covenant vaults are internal-only, lock-bound and background polling does not extend timed unlock', () => {
-  assert.match(background, /sender\.url !== chrome\.runtime\.getURL\('wallet\.html'\)/);
-  assert.match(background, /port\.sender\?\.url !== chrome\.runtime\.getURL\('wallet\.html'\)/);
+  assert.match(background, /!isWalletPage\(sender\.url, chrome\.runtime\.getURL\(''\)\)/);
+  assert.match(background, /!isWalletPage\(port\.sender\?\.url, chrome\.runtime\.getURL\(''\)\)/);
   assert.match(background, /clearCovenantVaultReviews\(\)/);
   assert.match(background, /'covenantVaultSaved', 'covenantVaultRefresh', 'covenantVaultDaa'\]\.includes\(message\.command\)/);
   const commands=background.slice(background.indexOf("if (String(message.command).startsWith('covenantVault'))"),background.indexOf("if (String(message.command).startsWith('kronDex'))"));
@@ -65,8 +65,8 @@ test('covenant vaults are internal-only, lock-bound and background polling does 
 });
 
 test('P2SH is wallet-UI-only, uses the root seed, binds session/account/network and stores its journal inside the encrypted vault', () => {
-  assert.match(background, /startsWith\('p2sh'\).*sender\.url !== chrome\.runtime\.getURL\('wallet\.html'\)/);
-  assert.match(background, /startsWith\('p2sh'\).*port\.sender\?\.url !== chrome\.runtime\.getURL\('wallet\.html'\)/);
+  assert.match(background, /startsWith\('p2sh'\).*isWalletPage\(sender\.url, chrome\.runtime\.getURL\(''\)\)/);
+  assert.match(background, /startsWith\('p2sh'\).*isWalletPage\(port\.sender\?\.url, chrome\.runtime\.getURL\(''\)\)/);
   const commands=background.slice(background.indexOf("if (String(message.command).startsWith('p2sh'))"),background.indexOf("if (String(message.command).startsWith('covenantVault'))"));
   assert.match(commands,/generation !== sessionGeneration/); assert.match(commands,/revision !== nftContextRevision/);
   assert.match(commands,/fresh\.network !== 'mainnet'/);assert.match(commands,/selected\.path !== entry\.path/);

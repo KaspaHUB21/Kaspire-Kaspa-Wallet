@@ -40,12 +40,25 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.66**, build **209**
+- Android app: **0.11.67**, build **210**
 - Android package: `space.kaspire.wallet`
-- Browser extension package: **0.5.23** (submitted to Chrome Web Store review)
+- Browser extension package: **0.5.27** (ZIP availability is separate from Chrome Web Store approval)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - Extension networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
+
+Android 0.11.67 and extension 0.5.27 add **Borrowed Receive** for standard KCC20
+and KaspaRocket: reuse an eligible live recipient cell while preserving its
+tokens, receiving policy and KAS deposit. Verified token units take precedence
+over older Activity fallbacks. Kasseal and legacy KRON paths remain unchanged.
+The extension also catches up on progressive Activity, 50-entry pagination,
+persistent logos and long-name layouts, and adds an optional **Chrome Side Panel**
+with dApp approvals inside the matching open panel. Standard KCC20 balances appear
+as each positive result arrives, including across reopening and slow later reads.
+
+Full release notes: [Android 0.11.67](docs/release-v0.11.67.md) and
+[Extension 0.5.23 → 0.5.27](docs/release-extension-v0.5.27.md).
+Platform-porting/release completeness requirements are recorded in [AGENTS.md](AGENTS.md).
 
 Android 0.11.66 fixes large KRC20 activity amounts and resolves standard KCC20
 history from wallet-related transactions instead of scanning global trading

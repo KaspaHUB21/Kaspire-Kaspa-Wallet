@@ -153,5 +153,42 @@ try{
   assert.match(await evaluate('document.querySelector(".full-transaction").innerText'),/not the amount sent by your wallet[\s\S]*507600\.24 KAS[\s\S]*507608\.24 KAS/);
   await shot('swap-full-transaction');
   await cdp('Page.reload');await wait('!!document.querySelector("#receive")');await click('#receive');await wait('document.querySelector("#receive-qr")?.complete');assert.equal(await evaluate('getComputedStyle(document.querySelector("#receive-qr")).filter'),'none');await shot('receive');
-  console.log('Neptune/NFT/KRON browser checks passed: four themes, popup sizing, gallery, listings, Nexus KaspaCom price/link, KRON decimals, quote, review, receipt, pagination, filters and QR visibility.');
+  await cdp('Emulation.setDeviceMetricsOverride',{width:320,height:900,deviceScaleFactor:1,mobile:false});
+  await cdp('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/sidepanel.html`});
+  await wait('!!document.querySelector("#balance")');
+  assert.equal(await evaluate('document.documentElement.classList.contains("side-panel")'),true);
+  await evaluate(`fixtureAssets.kcc20.push({symbol:'KASPIREISTHEBESTKASPAWALLET',rawBalance:'21000000',decimals:0,covenantId:'c'.repeat(64)});`);
+  await click('#activity');await wait('!!document.querySelector("#history")');await click('#back');
+  await wait('Array.from(document.querySelectorAll(".asset-row b")).some(e=>e.textContent==="KASPIREISTHEBESTKASPAWALLET")');
+  await evaluate('document.querySelector("details[data-category=kcc20]").open=true');
+  for(const theme of ['midnight','hub21','glacier','neptune']) {
+    await evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+    assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true,theme+' side panel overflows');
+    assert.equal(await evaluate('document.body.getBoundingClientRect().width'),320);
+    const header=await evaluate('Array.from(document.querySelectorAll(".top .icon")).map(e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height}})');
+    assert.ok(header.every(r=>r.x>=0&&r.x+r.w<=320),theme+' header overflows');
+    assert.ok(header.every(r=>Math.abs(r.y-header[0].y)<1),theme+' header controls misaligned');
+    await shot(theme+'-side-panel-320');
+  }
+  await evaluate(`{
+    const base=chrome.runtime.sendMessage;
+    window.pendingActivityFixture=[];
+    window.activityFixtureRows=Array.from({length:121},(_,i)=>({transactionId:i.toString(16).padStart(64,'0'),blockTime:1792800000000-i,isAccepted:true,incoming:true,assetKind:i===0?'KCC20':'KAS',assetSymbol:i===0?'KASPIREISTHEBESTKASPAWALLET':'KAS',displayAmount:'21000000',amountSompi:100000000,from:[],to:[]}));
+    chrome.runtime.sendMessage=async message=>{
+      if(message.command!=='historySource')return base(message);
+      if(message.source==='Covenant history')return new Promise(resolve=>pendingActivityFixture.push(()=>resolve({result:{items:[]}})));
+      if(message.source==='KAS history')return {result:{items:activityFixtureRows.slice(0,message.limit)}};
+      return {result:{items:[]}};
+    };
+  }`);
+  await click('#activity');await wait('document.querySelectorAll(".activity-row").length===50');
+  assert.match(await evaluate('document.querySelector("#activity-status").textContent'),/Loading additional/);
+  assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);
+  assert.match(await evaluate('document.querySelector(".activity-row strong").textContent'),/21,000,000 KASPIREISTHEBESTKASPAWALLET/);
+  await shot('side-panel-progressive-activity');
+  await click('#activity-more');await wait('document.querySelectorAll(".activity-row").length===100');
+  await click('#activity-more');await wait('document.querySelectorAll(".activity-row").length===121');
+  assert.equal(await evaluate('document.querySelector("#activity-more").hidden'),true);
+  await evaluate('pendingActivityFixture.splice(0).forEach(resolve=>resolve())');
+  console.log('Neptune/NFT/KRON and Side Panel layout checks passed: four themes, 320px panel, aligned header, long names, progressive 50/100/121 activity with a stalled source, gallery, listings, Nexus, swaps and QR.');
 }finally{browser.kill('SIGTERM');await new Promise(r=>{browser.once('exit',r);setTimeout(r,3000);});server.close();await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});}

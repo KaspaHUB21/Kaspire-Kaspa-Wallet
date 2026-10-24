@@ -1,4 +1,8 @@
 import QRCode from "qrcode";
+import {mountSidePanel} from './sidePanel';
+import {ActivityFeed} from '../shared/activityFeed';
+import {startSidePanelApprovals} from './sidePanelApprovals';
+import type {PanelApproval} from '../background/sidePanelApprovals';
 import {agoraChooser, openNftMarket, nftImageFallback} from "./nftMarket";
 import {openNexus,mountNexusBell} from './nexus';
 import {openDexSelection} from './kronDex';
@@ -9,6 +13,7 @@ import { sortedAssets, assetTicker, sameAsset } from "../shared/assetPresentatio
 import {operationDeadline} from '../shared/operationDeadline';
 import {mergeRocketAssets} from '../background/kasparocket';
 const root = document.querySelector<HTMLElement>("#app")!;
+document.documentElement.classList.toggle('side-panel', location.pathname === '/sidepanel.html');
 // This port lets the background distinguish an open wallet UI from a closed
 // popup. It is security-relevant only for the "Immediately" auto-lock mode.
 const walletUiLifetime = chrome.runtime.connect({ name: "wallet-ui-lifetime" });
@@ -45,6 +50,9 @@ const chromeWebStoreUrl =
 let storeUpdateRequest: Promise<any> | null = null;
 
 async function rawCommand(name: string, values: Record<string, unknown> = {}) {
+  // Holdings discovery is a paced read across the whole catalogue, not a
+  // signing review. Keep its progressive listener alive beyond 30 seconds.
+  const holdings = name === 'assetCategory' && values.category === 'kcc20';
   let timer: number | undefined;
   try {
     const response = await Promise.race([
@@ -58,10 +66,12 @@ async function rawCommand(name: string, values: Record<string, unknown> = {}) {
           () =>
             reject(
               new Error(
-                "The secure review did not respond within 30 seconds. Try again.",
+                holdings
+                  ? "Some covenant balances are still loading. Already found assets remain visible. Please retry."
+                  : "The secure review did not respond within 30 seconds. Try again.",
               ),
             ),
-          30_000,
+          holdings ? 120_000 : 30_000,
         ) as unknown as number;
       }),
     ]);
@@ -325,6 +335,7 @@ function shell(content: string, title = "KASPIRE", back = false) {
     const lock=root.querySelector<HTMLButtonElement>('#top-lock');
     if(lock){const wrapper=document.createElement('span');wrapper.className='nexus-header-actions';lock.replaceWith(wrapper);wrapper.innerHTML='<button id="nexus-bell" class="icon" aria-label="Nexus Offers notifications" title="Nexus Offers notifications"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9 21h6"/></svg><span class="nexus-count"></span></button>';wrapper.append(lock);mountNexusBell(nexusHooks(),root);}
   }
+  mountSidePanel(root, toast);
   document.querySelector<HTMLButtonElement>("#top-lock")?.addEventListener("click", async () => {
     await command("lock");
     view = "home";
@@ -1631,6 +1642,14 @@ async function loadHome() {
     const assets: any = {tokens: [], domains: [], krc721: [], kcc20: [], dotk: [], rocket: [], kasseal: []};
     const failures: string[] = [];
     let kcc20Warning='';
+    const covenantProgress=(message:any)=>{
+      if(message?.kind!=='wallet-covenant-assets-progress'||message.address!==status.selectedAddress||!stillHome()||!Array.isArray(message.items))return;
+      assets.kcc20=message.items;
+      const visible={...assets,kcc20:mergeRocketAssets(mergeRocketAssets(assets.kcc20,assets.rocket),assets.kasseal)};
+      snapshot={...snapshot,assets:visible};renderAssetGroups(visible);
+    };
+    chrome.runtime.onMessage.addListener(covenantProgress);
+    try {
     await Promise.all(Object.keys(assets).map(async category => {
       try {
         const result=await command("assetCategory", {category});
@@ -1643,6 +1662,7 @@ async function loadHome() {
       snapshot = { ...snapshot, assets: visible };
       renderAssetGroups(visible);
     }));
+    } finally {chrome.runtime.onMessage.removeListener(covenantProgress);}
     if (stillHome() && failures.length)
       homeElement?.insertAdjacentHTML("beforeend", `<p class="error">${esc(failures.join(", "))}: temporarily unavailable. Please retry.</p>`);
     if(stillHome() && kcc20Warning)homeElement?.insertAdjacentHTML('beforeend',`<p class="error">${esc(kcc20Warning)}</p>`);
@@ -1777,7 +1797,7 @@ function assetDetail(asset: any) {
     return rocketAssetDetail(asset);
   if (asset.kind !== "krc20") return send(asset);
   shell(
-    `<section class="token-detail"><div id="token-image" class="token-logo">${esc(asset.symbol.slice(0, 2))}</div><h1>${esc(asset.symbol)}</h1><p>${esc(asset.balance)} ${esc(asset.symbol)}</p><div class="price-grid"><div><small>Floor price</small><b id="floor-kas">Loading…</b><span id="floor-usd"></span></div><div><small>Balance value</small><b id="value-kas">Loading…</b><span id="value-usd"></span></div></div><button id="send-token">SEND ASSET</button><button id="explorer" class="outline">CHECK ON EXPLORER</button><p id="market-error" class="error"></p></section>`,
+    `<section class="token-detail"><div id="token-image" class="token-logo">${asset.raw?.image_url?`<img src="${esc(asset.raw.image_url)}" alt="">`:esc(asset.symbol.slice(0, 2))}</div><h1>${esc(asset.symbol)}</h1><p>${esc(asset.balance)} ${esc(asset.symbol)}</p><div class="price-grid"><div><small>Floor price</small><b id="floor-kas">Loading…</b><span id="floor-usd"></span></div><div><small>Balance value</small><b id="value-kas">Loading…</b><span id="value-usd"></span></div></div><button id="send-token">SEND ASSET</button><button id="explorer" class="outline">CHECK ON EXPLORER</button><p id="market-error" class="error"></p></section>`,
     "TOKEN DETAILS",
     true,
   );
@@ -2004,10 +2024,11 @@ function assetTransferReview(prepared: any) {
     review.rawJson=review.steps;
   }
   if (prepared.type === "kron") review.feeSompi = review.networkFeeSompi;
-  const kcc =
+  const recipientCell=operation.recipientCellStatus?row('Recipient cell',operation.recipientCellStatus==='reused'?'Existing cell reused (Borrowed Receive)':operation.recipientCellStatus==='lookup-unavailable'?'New cell — reuse lookup unavailable':'New cell — no eligible receiving cell'):'';
+  const kcc = recipientCell + (
     prepared.type === "kcc20" || prepared.type === "kron"
       ? `${row("Validation", operation.standard === 'kcc20' ? 'KCC20 template + local node' : prepared.type === "kron" ? "KRON template verified" : "Indexer verified")}${row("Covenant ID", review.covenantId ?? operation.covenantId)}${review.templateHash ? row("Template hash", review.templateHash) : ""}${row("Covenant inputs", fmt(review.covenantInputCount, 0))}${row("Covenant outputs", fmt(review.covenantOutputCount, 0))}${row("KAS in token inputs", sompiLabel(review.lockedKasSompi))}${Number(review.lockedKasTopUpSompi) ? row("KAS reserve top-up", sompiLabel(review.lockedKasTopUpSompi)) : ""}${Number(review.lockedKasReleasedSompi) ? row("KAS returned to wallet", sompiLabel(review.lockedKasReleasedSompi)) : ""}${row("KAS in new token cells", sompiLabel(review.lockedKasOutputSompi))}${row("Effective mass", fmt(review.mass, 0))}${row("Compute mass", fmt(review.computeMass, 0))}${review.storageMass != null ? row("Storage mass (normalized)", fmt(review.storageMass, 0)) : ""}${review.storageMassTarget != null ? row("Safe storage target", fmt(review.storageMassTarget, 0)) : ""}${row("Transient mass (normalized)", fmt(review.transientMass, 0))}${row("Fee mass", fmt(review.feeMass, 0))}${row("Compute budget", fmt(review.computeBudget, 0))}`
-      : "";
+      : "");
   const raw = review.rawJson ?? prepared.request ?? {};
   shell(
     `<section class="transaction-detail"><p class="eyebrow">Review asset transfer</p><h1>Verify every detail</h1><section class="detail-section">${row("Protocol", String(operation.kind).toUpperCase())}${row("Recipient", operation.recipient)}${operation.ticker ? row("Ticker", ticker(operation.ticker)) : ""}${operation.amount ? row("Raw amount", operation.amount) : ""}${operation.displayAmount ? row("Amount", `${operation.displayAmount} ${ticker(operation.ticker)}`) : ""}${operation.tokenId ? row("Token ID", operation.tokenId) : ""}${kcc}${prepared.type === "inscription" ? row("Temporary commit", `${sompiLabel(review.amountSompi)}`) : ""}${row("Network fee", sompiLabel(review.feeSompi))}</section>${prepared.type === "inscription" ? '<p class="muted">The 0.3 KAS commit returns to this wallet through the reveal transaction, minus network fees. A committed transfer can be resumed.</p>' : Number(review.lockedKasTopUpSompi) ? '<p class="reserve-note">The reserve top-up adds only the KAS needed to keep the new token cells spendable. It is not a network fee.</p>' : ""}${Number(review.lockedKasReleasedSompi) ? '<p class="return-note">Excess KAS from consumed token cells returns as normal wallet change.</p>' : ""}<details class="raw-json"><summary>Raw JSON output</summary><pre>${esc(JSON.stringify(raw, null, 2))}</pre></details><button id="confirm-asset">Authorize ${prepared.type === "inscription" ? "commit + reveal" : "on-chain transfer"}</button><button id="cancel-asset" class="outline">Cancel</button><p id="review-error" class="error"></p></section>`,
@@ -2120,18 +2141,29 @@ function prettyJson(value: unknown) {
     2,
   );
 }
+const activityFeeds=new Map<string,ActivityFeed>();
+let refreshStandardActivity:(()=>void)|undefined;
 async function activity() {
   shell(
-    '<section class="activity"><p class="eyebrow">Activity</p><h1>Transactions</h1><div id="history"><div class="loading">Loading activity…</div></div></section>',
+    '<section class="activity"><p class="eyebrow">Activity</p><h1>Transactions</h1><div id="activity-status" class="activity-status"></div><div id="history"></div><button id="activity-more" class="outline" hidden>Load more</button></section>',
     "Activity",
     true,
   );
-  try {
-    const rows = await command("history");
-    if (!document.querySelector("#history")) return;
-    document.querySelector("#history")!.innerHTML = rows.length
+  const host=document.querySelector<HTMLElement>('#history')!;
+  const key=`${status.network}:${status.selectedAddress}`;
+  let feed=activityFeeds.get(key);
+  if(!feed){if(activityFeeds.size>=8)activityFeeds.clear();feed=new ActivityFeed();activityFeeds.set(key,feed);}
+  const currentFeed=feed;
+  const sources=isL2()?['L2 history']:['Saved activity','KAS history',...(status.network==='mainnet'?['KRC20 history','KRON history','NFT/name history','Legacy covenant history','Covenant history']:[])];
+  const active=()=>document.querySelector('#history')===host;
+  const group=(text:any)=>String(text??'').replace(/^(-?\d+)(?=\.| |$)/,whole=>whole.replace(/\B(?=(\d{3})+(?!\d))/g,','));
+  const draw=()=>{
+    if(!active())return;
+    const state=currentFeed.snapshot(),rows=state.items;
+    host.innerHTML = rows.length
       ? rows
           .map((item: any, index: number) => {
+            item={...item};
             if (isL2()) {
               const own = String(snapshot?.address ?? "").toLowerCase();
               item.incoming = String(item.to ?? "").toLowerCase() === own;
@@ -2148,23 +2180,42 @@ async function activity() {
             }
             const amount =
               !isL2() && item.assetKind === "KAS"
-                ? sompiLabel(item.amountSompi)
-                : `${item.displayAmount ? `${esc(item.displayAmount)} ` : ""}${esc(item.assetSymbol ?? item.assetKind)}${item.tokenId ? ` #${esc(item.tokenId)}` : ""}`;
-            return `<button class="activity-row" data-tx="${index}"><span class="activity-direction ${item.incoming ? "incoming" : "outgoing"}">${item.incoming ? "↙" : "↗"}</span><span><b>${direction}</b><small>${esc(item.assetKind)}${item.assetSymbol && item.assetSymbol !== item.assetKind ? ` · ${esc(item.assetSymbol)}` : ""}${item.amountIsWalletChange ? " · Wallet balance change" : ""}</small><em>${item.blockTime ? new Date(item.blockTime).toLocaleString() : "Pending"} · ${short(item.transactionId)}</em>${item.counterparty ? `<em>${item.incoming ? "From" : "To"} ${short(item.counterparty)}</em>` : ""}</span><strong>${status.settings.hideBalances ? "••••••" : `${item.selfTransfer ? "" : item.incoming ? "+" : "-"}${amount}`}</strong><i>›</i></button>`;
+                ? group(sompiLabel(item.amountSompi))
+                : `${item.displayAmount ? `${esc(group(item.displayAmount))} ` : ""}${esc(item.assetSymbol ?? item.assetKind)}${item.tokenId && String(item.assetKind).includes('721') ? ` #${esc(item.tokenId)}` : ""}`;
+            const assetLabel=String(item.assetSymbol??item.assetKind);
+            const displayed=status.settings.hideBalances?'••••••':!isL2()&&item.assetKind!=='KAS'
+              ? `<span class="activity-amount">${item.selfTransfer?'':item.incoming?'+':'-'}${esc(group(item.displayAmount))}</span> <small class="activity-asset-label" title="${esc(assetLabel)}">${esc(assetLabel)}${item.tokenId&&String(item.assetKind).includes('721')?` #${esc(item.tokenId)}`:''}</small>`
+              : `${item.selfTransfer ? "" : item.incoming ? "+" : "-"}${amount}`;
+            return `<button class="activity-row" data-tx="${index}"><span class="activity-direction ${item.incoming ? "incoming" : "outgoing"}">${item.incoming ? "↙" : "↗"}</span><span><b>${direction}</b><small title="${esc(assetLabel)}">${esc(item.assetKind)}${item.assetSymbol && item.assetSymbol !== item.assetKind ? ` · ${esc(item.assetSymbol)}` : ""}${item.amountIsWalletChange ? " · Wallet balance change" : ""}</small><em>${item.blockTime ? new Date(item.blockTime).toLocaleString() : "Pending"} · ${short(item.transactionId)}</em>${item.counterparty ? `<em>${item.incoming ? "From" : "To"} ${short(item.counterparty)}</em>` : ""}</span><strong>${displayed}</strong><i>›</i></button>`;
           })
           .join("")
-      : '<div class="empty">No transactions yet.</div>';
+      : currentFeed.loading.size?'<div class="loading">Loading activity…</div>':currentFeed.warnings.size?'':'<div class="empty">No transactions yet.</div>';
     document
       .querySelectorAll<HTMLButtonElement>("[data-tx]")
       .forEach(
         (button) =>
           (button.onclick = () =>
-            transactionDetail(rows[Number(button.dataset.tx)])),
+            transactionDetail(isL2()?normalizeL2Activity(rows[Number(button.dataset.tx)]):rows[Number(button.dataset.tx)])),
       );
-  } catch (error) {
-    document.querySelector("#history")!.innerHTML =
-      `<p class="error">${esc((error as Error).message)}</p>`;
-  }
+    const info=document.querySelector<HTMLElement>('#activity-status')!;
+    info.hidden=!currentFeed.loading.size&&!currentFeed.warnings.size;
+    info.innerHTML=`${currentFeed.loading.size?'<p>Loading additional activity sources…</p>':''}${currentFeed.warnings.size?'<b>Activity is incomplete</b>':''}${[...currentFeed.warnings.values()].map(w=>`<p>${esc(w)}</p>`).join('')}${currentFeed.warnings.size?'<button id="activity-retry" class="outline">Retry activity</button>':''}`;
+    info.querySelector<HTMLButtonElement>('#activity-retry')?.addEventListener('click',()=>reload([...currentFeed.warnings.keys()]));
+    const more=document.querySelector<HTMLButtonElement>('#activity-more')!;
+    more.hidden=!state.hasMore;
+    more.disabled=currentFeed.loading.has('KAS history')||currentFeed.loading.has('L2 history');
+  };
+  const reload=(selected=sources)=>{
+    for(const source of selected)void currentFeed.load(source,()=>rawCommand('historySource',{source,limit:currentFeed.limit+1}),draw);
+  };
+  document.querySelector<HTMLButtonElement>('#activity-more')!.onclick=()=>{currentFeed.showMore();draw();reload();};
+  refreshStandardActivity=()=>{if(active())reload(['Covenant history']);};
+  draw();reload();
+}
+function normalizeL2Activity(item:any) {
+  const own=String(snapshot?.address??'').toLowerCase(),incoming=String(item.to??'').toLowerCase()===own;
+  return {...item,incoming,isAccepted:item.status!=='error',assetKind:item.symbol,assetSymbol:item.symbol,displayAmount:item.amount,
+    counterparty:incoming?item.from:item.to,from:[{address:item.from}],to:[{address:item.to}]};
 }
 
 type MarketTab = "browse" | "names" | "listings";
@@ -2786,7 +2837,16 @@ async function withInAppApprovals<T>(task: Promise<T>) {
   if (failure) throw failure;
   return result as T;
 }
+let approvalDialogTail=Promise.resolve();
+function approvalDialog(show:()=>Promise<boolean>):Promise<boolean> {
+  const task=approvalDialogTail.then(show);
+  approvalDialogTail=task.then(()=>{},()=>{});
+  return task;
+}
 function approvalModal(item: any, signal?: AbortSignal) {
+  return approvalDialog(()=>renderApprovalModal(item,signal));
+}
+function renderApprovalModal(item: any, signal?: AbortSignal) {
   return new Promise<boolean>((resolve) => {
     if (signal?.aborted) { resolve(false); return; }
     const overlay = document.createElement("div");
@@ -2809,6 +2869,41 @@ function approvalModal(item: any, signal?: AbortSignal) {
       () => copy(String(item.recoveryCode), "Recovery code copied"),
     );
   });
+}
+function panelUnlockModal(item:PanelApproval,signal:AbortSignal):Promise<boolean> {
+  return approvalDialog(()=>new Promise<boolean>(resolve=>{
+    if(signal.aborted){resolve(false);return;}
+    const overlay=document.createElement('div');overlay.className='kaspire-modal approval-modal';
+    overlay.innerHTML=`<section class="approval-sheet"><p class="eyebrow">DAPP REQUEST</p><h1>Unlock Kaspire</h1><h2>${esc(item.origin)}</h2><p>${esc(item.description)}</p><label>Wallet password<input id="panel-unlock-password" type="password" autocomplete="current-password"></label><button id="panel-unlock-show" type="button" class="outline" aria-label="Show password">Show password</button><p id="panel-unlock-error" class="error"></p><div class="approval-actions"><button id="panel-unlock-cancel" class="outline">Cancel</button><button id="panel-unlock-submit">Unlock</button></div><small>Unlocking does not authorize a transaction. Review every signing request separately.</small></section>`;
+    document.body.append(overlay);
+    const input=overlay.querySelector<HTMLInputElement>('#panel-unlock-password')!;
+    const submit=overlay.querySelector<HTMLButtonElement>('#panel-unlock-submit')!;
+    let finished=false;
+    const finish=(unlocked:boolean)=>{if(finished)return;finished=true;input.value='';signal.removeEventListener('abort',abort);overlay.remove();resolve(unlocked);};
+    const abort=()=>finish(false);signal.addEventListener('abort',abort,{once:true});
+    overlay.querySelector<HTMLButtonElement>('#panel-unlock-cancel')!.onclick=()=>finish(false);
+    overlay.querySelector<HTMLButtonElement>('#panel-unlock-show')!.onclick=event=>{
+      const showing=input.type==='password';input.type=showing?'text':'password';
+      const button=event.currentTarget as HTMLButtonElement;button.textContent=showing?'Hide password':'Show password';button.setAttribute('aria-label',button.textContent);input.focus();
+    };
+    const unlock=async()=>{
+      if(submit.disabled||finished)return;
+      submit.disabled=true;
+      try {await rawCommand('unlock',{password:input.value});if(!signal.aborted)finish(true);}
+      catch(error){if(finished)return;overlay.querySelector<HTMLElement>('#panel-unlock-error')!.textContent=(error as Error).message;input.value='';input.focus();submit.disabled=false;}
+    };
+    submit.onclick=()=>void unlock();input.onkeydown=event=>{if(event.key==='Enter')void unlock();};input.focus();
+  }));
+}
+async function presentPanelApproval(item:PanelApproval,signal:AbortSignal):Promise<boolean> {
+  if(signal.aborted)return false;
+  if(item.locked) {
+    if(!await panelUnlockModal(item,signal))return false;
+    await render();
+    if(signal.aborted)return false;
+    if(item.unlockOnly)return true;
+  }
+  return approvalModal(item,signal);
 }
 function kaspaTransactionReceipt(result: any, details: any) {
   const ids =
@@ -2938,10 +3033,22 @@ const casingObserver = new MutationObserver((records) => {
     }
 });
 casingObserver.observe(document.body, { childList: true, subtree: true });
-window.addEventListener("pagehide", () => {
-  if (status?.settings?.autoLockMinutes === 0 && !status?.locked) {
-    void chrome.runtime.sendMessage({ channel: "wallet", command: "lock" });
+let originRefresh:number|undefined;
+chrome.runtime.onMessage.addListener(message=>{
+  if(message?.kind==='wallet-activity-origins-ready'&&message.address===status?.selectedAddress&&view==='activity') {
+    clearTimeout(originRefresh);
+    originRefresh=setTimeout(()=>refreshStandardActivity?.(),800) as unknown as number;
+  }
+  if(message?.kind==='wallet-session-locked') {view='home';context={};void render();}
+});
+chrome.storage.onChanged.addListener((changes,area)=>{
+  const before=changes.walletState?.oldValue,after=changes.walletState?.newValue;
+  if(area==='local'&&before&&after&&(before.selectedAddress!==after.selectedAddress||before.network!==after.network)) {
+    view='home';context={};snapshot=undefined;void render();
   }
 });
+// The background lifetime ports enforce Immediately locking after the last
+// wallet view closes. Closing a popup must not lock a still-open side panel.
+startSidePanelApprovals(presentPanelApproval);
 void render();
 export {};

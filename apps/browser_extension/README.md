@@ -2,6 +2,77 @@
 
 Manifest V3 counterpart to Kaspire Android. Websites communicate with an injected `window.kaspire` provider through an origin-bound content bridge. It does not use WalletConnect.
 
+## 0.5.27 — Progressive standard KCC20 balances
+
+Publish each validated positive holding as soon as its own balance arrives,
+matching Android instead of waiting for all catalogue balances. Concurrent and
+reopened wallet views share the paced scan and receive its existing positives.
+Partial discovery is not cached as a complete or zero balance. Display metadata
+for an already found token is available while later discovery is still pending;
+all signing proofs remain fresh and unchanged.
+
+The read-only covenant discovery request has a separate bounded two-minute UI
+deadline; the ordinary 30-second review deadline and auto-lock remain unchanged.
+`npm run test:holdings-browser` checks the actual Chrome extension with a public
+watch wallet, a stalled standard balance, reopening and a result after 30 seconds.
+An optional ZIP argument runs the same check against the deliverable package.
+
+## 0.5.26 — Borrowed Receive and independent covenant assets
+
+Includes the Side Panel approval flow below. Standard KCC20 and KaspaRocket
+transfers reuse a compatible, independently verified recipient cell when its
+amount-threshold policy permits it. The native core preserves the recipient's
+tokens, full policy, extension identity and KAS deposit, and never signs the
+recipient input. New standard receiving/change cells allow future positive
+receipts; old disabled policies cannot be overridden. Kasseal and legacy KRON
+transfer/swap paths remain unchanged.
+
+Activity uses verified token units, including Rocket's three-decimal units when
+genesis metadata omits decimals. Exact standard history takes precedence over
+legacy display fallbacks. Standard covenant holdings publish independently of
+slow legacy sources, with regression coverage for the long-ticker Kaspire token.
+
+This package is prepared locally; publishing it and updating the public channels
+are separate operations.
+
+## 0.5.25 — dApp approvals inside the Side Panel
+
+When the Side Panel is open in the requesting browser window, dApp connection,
+unlock and signing reviews are displayed there instead of opening separate
+approval windows. The same native review, explicit consent, session generation
+and account/network checks remain in force. Unlocking is not permission to sign.
+Without an open matching panel, the normal approval popup remains available.
+
+The presenter uses a unique local document URL and Chrome's actual `SIDE_PANEL`
+context, not a tab pretending to be a sidebar. Requests are serialized inside
+each panel, decisions match the exact pending ID, and closing the panel rejects
+unanswered requests. There is no heartbeat or auto-lock preference override.
+Expired sessions cannot authorize a request through a delayed panel decision.
+
+## 0.5.24 — Activity and optional Chrome Side Panel
+
+Use the split-window icon in the top bar to open Kaspire beside the current
+webpage. This is opt-in: the toolbar icon still opens the normal popup and no
+side panel is opened automatically. Close it with the same button (where the
+browser supports `sidePanel.close`) or Chrome's built-in close button. The
+panel uses the identical packaged wallet, native signing and private-operation
+checks; it does not embed a remote wallet. It adapts to the available width and
+height in every theme. The new `sidePanel` permission enables this surface;
+there are no additional website host permissions.
+
+Activity loads independent sources without waiting for all asset discovery.
+It initially displays the latest 50 merged entries and Load more adds 50.
+KRC20 history uses direct Kasplex reads with a fallback; standard KCC20 history
+uses exact wallet-related transaction receipts, not global trading-history
+scans. KRON uses exact token quantities. Failed/partial sources retain previous
+entries, show incomplete coverage and offer Retry activity. Targeted standard
+KCC20 reads share rate-limit backoff and take priority over holdings discovery.
+
+KRC20 images use Kaspire's persistent server cache even before market enrichment
+finishes. Long token names wrap or truncate within their cards, with complete
+details still available. The last wallet view closing enforces Immediately
+auto-lock; closing only a popup must not lock an open side panel.
+
 ## 0.5.23 — Kasseal recovery
 
 Recovery recognizes both the Rust SDK's flat SafeJSON input outpoints and the

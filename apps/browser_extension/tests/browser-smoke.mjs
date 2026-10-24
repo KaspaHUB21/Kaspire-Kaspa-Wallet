@@ -167,5 +167,20 @@ try{
     assert(!persisted.includes(secret),'No tested secret may appear in persistent/session storage');
     assert(!observed.includes(secret),'No tested secret may appear in console/log/network events');
   }
-  console.log("Kaspire Chromium smoke test passed, including pending reveal recovery, timed unlock and secret isolation.");
+  console.log('Chromium smoke: shared popup / side panel lifetime and private commands');
+  await evaluate(reopenedWallet,'chrome.runtime.sendMessage({channel:"wallet",command:"unlock",password:"portable backup password 2026"})');
+  await evaluate(reopenedWallet,'chrome.runtime.sendMessage({channel:"wallet",command:"setSettings",settings:{autoLockMinutes:0}})');
+  const secondPanel=await open(`chrome-extension://${extensionId}/sidepanel.html`);
+  await waitFor(secondPanel,'Boolean(document.querySelector("#top-lock"))');
+  const privatePanel=await evaluate(secondPanel,'chrome.runtime.sendMessage({channel:"wallet",command:"p2shSupport"})');assert.equal(privatePanel.result.supported,true);
+  const mainTarget=(await targets()).find(t=>t.url===`chrome-extension://${extensionId}/wallet.html`);
+  await command(browserTarget.webSocketDebuggerUrl,'Target.closeTarget',{targetId:mainTarget.id});
+  await delay(300);
+  assert.equal((await evaluate(secondPanel,'chrome.runtime.sendMessage({channel:"wallet",command:"status"})')).result.locked,false,'Closing popup must not lock a still-open panel');
+  const panelTarget=(await targets()).find(t=>t.url.startsWith(`chrome-extension://${extensionId}/sidepanel.html?view=`));
+  await command(browserTarget.webSocketDebuggerUrl,'Target.closeTarget',{targetId:panelTarget.id});await delay(500);
+  const lastReopen=await open(`chrome-extension://${extensionId}/wallet.html`);
+  await waitFor(lastReopen,'Boolean(document.querySelector("#password"))');
+  assert.equal((await evaluate(lastReopen,'chrome.runtime.sendMessage({channel:"wallet",command:"status"})')).result.locked,true,'Immediately locks after the last wallet view closes');
+  console.log("Kaspire Chromium smoke test passed, including pending reveal recovery, timed unlock, shared-view locking and secret isolation.");
 }finally{for(const observer of securityObservers)observer.close();browser.kill("SIGTERM");if(browser.exitCode===null)await new Promise(resolveExit=>{browser.once("exit",resolveExit);setTimeout(resolveExit,3000)});server.close();await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100})}

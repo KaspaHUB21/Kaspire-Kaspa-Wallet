@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {standardKcc20Assets,standardKcc20TransferData,waitForStandardKcc20Cell,STANDARD_TEMPLATE} from './generated/standardKcc20.mjs';
+import {standardKcc20Assets,standardKcc20TransferData,waitForStandardKcc20Cell,STANDARD_TEMPLATE,standardKcc20History,standardKcc20BorrowedReceive,standardKcc20Decimals,cachedStandardKcc20Asset} from './generated/standardKcc20.mjs';
 const cid='c'.repeat(64),owner='d'.repeat(64),address='kaspa:'+'q'.repeat(61);
 const reference='c8a087117735a1f87c5c6d115fcddeaf2562c784';
 const templateHash='9703112ee6e3555107cd168858992b77d3b74f655205b2b463b1f9ec2ec73cf7';
@@ -22,6 +22,47 @@ function source({amounts=[10,10,10,10],borrow=false,spent=false,wrongOwner=false
     throw Error('Unexpected URL '+url);
   };return {get,seen};
 }
+test('targeted standard history uses exact verified receipts, caches them, and handles sold balances',async()=>{
+  const txid='a'.repeat(64),seen=[];
+  const get=async url=>{
+    seen.push(url);
+    const data=url.endsWith('/tokens/'+cid)?{covenant_id:cid,profile_id:'KCC20PublicMint@c8a0871',recognition:'hash_proven_reference_actor_family',metadata:{binding_verified:true,ticker:'wallet',decimals:8}}:
+      url.endsWith('/transactions/'+txid)?{txid,token:{covenant_id:cid},components_complete:true,time_ms:Date.now(),inputs:[{actor:'KCC20',covenant_id:cid,owner_scheme:0,owner_value:owner,state_hash_verified:true,token_amount:'100000000000000'}],outputs:[]}:(()=>{throw Error('Unexpected global scan '+url);})();
+    return {data,meta:{network:'mainnet',reference_commit:reference}};
+  };
+  const refs=new Map([[cid,new Set([txid])]]);
+  const result=await standardKcc20History(get,owner,refs);
+  assert.equal(result.items.length,1);assert.equal(result.items[0].incoming,false);assert.equal(result.items[0].displayAmount,'1000000');assert.deepEqual(result.warnings,[]);
+  assert.deepEqual(await standardKcc20History(get,owner,refs),result);assert.equal(seen.length,2);
+});
+test('unknown pool covenants are skipped, but missing known token receipts are explicitly incomplete',async()=>{
+  const txid='a'.repeat(64),refs=new Map([[cid,new Set([txid])]]);
+  const unknown=async()=>{throw Object.assign(Error('not found'),{httpStatus:404});};
+  assert.deepEqual(await standardKcc20History(unknown,owner,refs),{items:[],warnings:[]});
+  const get=async url=>{
+    if(url.includes('/transactions/'))return {data:{components_complete:false},meta:{network:'mainnet',reference_commit:reference}};
+    return {data:{covenant_id:cid,profile_id:'KCC20PublicMint@c8a0871',recognition:'hash_proven_reference_actor_family',metadata:{binding_verified:true,ticker:'wallet',decimals:8}},meta:{network:'mainnet',reference_commit:reference}};
+  };
+  const result=await standardKcc20History(get,owner,refs);assert.equal(result.items.length,0);assert.equal(result.warnings.length,1);
+});
+test('targeted Activity reads have priority over queued discovery with shared pacing',async()=>{
+  const seen=[];let release,active=0,peak=0;
+  const first=new Promise(resolve=>{release=resolve;});
+  const get=async url=>{
+    seen.push({path:new URL(url).pathname,time:Date.now()});active++;peak=Math.max(peak,active);
+    if(seen.length===1)await first;
+    active--;
+    if(url.endsWith('/tokens/'+cid))throw Object.assign(Error('unknown pool'),{httpStatus:404});
+    const data=url.endsWith('/status')?{status:'ready'}:[];
+    return {data,meta:{network:'mainnet',reference_commit:reference}};
+  };
+  const jobs=[standardKcc20Assets(get,owner),standardKcc20Assets(get,'e'.repeat(64))];
+  const history=standardKcc20History(get,owner,new Map([[cid,new Set(['a'.repeat(64)])]]));
+  await new Promise(resolve=>setTimeout(resolve,0));release();
+  await Promise.all([...jobs,history]);
+  assert.equal(seen[1].path,'/api/kcc20/v1/tokens/'+cid);assert.equal(peak,1);
+  for(let i=1;i<seen.length;i++)assert.ok(seen[i].time-seen[i-1].time>=250);
+});
 test('10/10 proof controls batching; eleven cells require a two-step payment plan',async()=>{
   const hash='ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b';
   for(const n of [10,11]) {
@@ -66,6 +107,31 @@ test('concurrent holdings coalesce and cache, but signing always fetches fresh s
   assert.equal(s.seen.filter(u=>u.includes('/balance?')).length,1);
   await standardKcc20TransferData(s.get,cid,owner,10);
   assert.equal(s.seen.filter(u=>u.includes('/balance?')).length,2);
+});
+test('positive holdings publish before a later standard balance finishes; joining views replay without another scan',async t=>{
+  const s=source(),other='b'.repeat(64);let release,notify,timer,finished=false;
+  const blocked=new Promise(resolve=>{release=resolve;}),first=new Promise(resolve=>{notify=resolve;});
+  t.after(()=>{release();clearTimeout(timer);});
+  const get=async url=>{
+    const value=await s.get(url),path=new URL(url).pathname;
+    if(path.endsWith('/tokens'))value.data.push({...value.data[0],covenant_id:other});
+    if(path.endsWith('/'+other+'/balance')) {await blocked;value.data.covenant_id=other;value.data.balance_raw='0';}
+    return value;
+  };
+  const initial=standardKcc20Assets(get,owner,()=>{},rows=>notify(rows)).finally(()=>{finished=true;});
+  const rows=await Promise.race([first,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('No per-token progress')),3000);})]);
+  assert.equal(finished,false);assert.equal(rows[0].covenantId,cid);
+  assert.equal(cachedStandardKcc20Asset(get,owner,cid).rawBalance,'40');
+  let replay;
+  const joining=standardKcc20Assets(get,owner,()=>{},rows=>{replay=rows;});
+  assert.deepEqual(replay,rows);
+  // Even a faulty display listener cannot turn valid holdings into failures.
+  const faulty=standardKcc20Assets(get,owner,()=>{},()=>{throw Error('closed view');});
+  release();
+  const [a,b,c]=await Promise.all([initial,joining,faulty]);
+  assert.deepEqual(a,b);assert.deepEqual(a,c);assert.equal(a.length,1);
+  assert.equal(s.seen.filter(url=>url.includes('/balance?')).length,2);
+  assert.equal(s.seen.filter(url=>url.endsWith('/status')).length,1);
 });
 test('429 is retried with backoff and sequentially paced catalogue/balance requests',async()=>{
   const s=source(),starts=[];let attempts=0;
@@ -134,8 +200,47 @@ test('cells from one origin/address share their immutable transaction and fresh 
   assert.equal(p.cells.length,3);assert.equal(calls.length,4);
   assert.equal(new Set(calls).size,4);
 });
-test('spent cells, foreign owner/covenant, borrowing policy and network mismatches fail closed',async()=>{
-  for(const options of [{spent:true},{wrongOwner:true},{wrongCid:true},{borrow:true},{network:'testnet'}]) {
+test('spent cells, foreign owner/covenant and network mismatches fail closed',async()=>{
+  for(const options of [{spent:true},{wrongOwner:true},{wrongCid:true},{network:'testnet'}]) {
     const s=source(options);await assert.rejects(standardKcc20TransferData(s.get,cid,owner,40));
   }
+});
+test('owner-authorized transfers preserve enabled borrowing policies',async()=>{
+  const s=source({borrow:true,amounts:[10]});
+  const value=await standardKcc20TransferData(s.get,cid,owner,5);
+  assert.match(value.cells[0].redeemScript,/0100010120/);
+});
+test('verified protocol token units override missing genesis decimals without venue-wide guesses',()=>{
+  assert.equal(standardKcc20Decimals({metadata:{binding_verified:true,decimals:null},token_units:{status:'verified',decimals:3}}),3);
+  assert.equal(standardKcc20Decimals({token_units:{status:'verified',decimals:0}}),0);
+  assert.equal(standardKcc20Decimals({metadata:{binding_verified:true,decimals:8}}),8);
+  assert.equal(standardKcc20Decimals({metadata:{binding_verified:true,decimals:null}}),undefined);
+  assert.equal(standardKcc20Decimals({token_units:{status:'unverified',decimals:3}}),undefined);
+});
+test('the real long-ticker test token remains visible for its threshold-policy receiver',async()=>{
+  const tokenCid='82f033aed87d6eb39f509b51b1c817a49e0b07c4789b619cab08d4c8fb82d18e';
+  const receiver='3485c974d6e79b75c4ff130ee0cd20ab01b8118329837b2db8ed3b7275777df4';
+  const get=async url=>({meta:{network:'mainnet',reference_commit:reference},data:url.endsWith('/status')?{status:'ready'}:
+    url.includes('/balance?')?{covenant_id:tokenCid,owner_scheme:0,owner_value:receiver,available:true,balance_raw:'59973229',outputs:[]}:
+    [{covenant_id:tokenCid,profile_id:'KCC20PublicMint@c8a0871',recognition:'hash_proven_reference_actor_family',metadata:{binding_verified:true,ticker:'KASPIREISTHEBESTKASPAWALLET',decimals:8}}]});
+  const rows=await standardKcc20Assets(get,receiver);
+  assert.equal(rows.length,1);assert.equal(rows[0].rawBalance,'59973229');assert.equal(rows[0].decimals,8);assert.equal(rows[0].symbol,'KASPIREISTHEBESTKASPAWALLET');
+});
+test('BTE transfer history renders 250000 raw units as 250 BTE, not a legacy decimal fallback',async()=>{
+  const txid='7aebbce2de0f5f107050aaba13c25417bbb823413507376e259bb6977ff603c7';
+  const get=async url=>({meta:{network:'mainnet',reference_commit:reference},data:url.includes('/transactions/')?
+    {txid,components_complete:true,token:{covenant_id:cid},time_ms:Date.now(),inputs:[],outputs:[{actor:'KCC20',covenant_id:cid,owner_scheme:0,owner_value:owner,state_hash_verified:true,token_amount:'250000'}]}:
+    {covenant_id:cid,recognition:'hash_proven_parameterized_actor_family',metadata:{binding_verified:true,ticker:'BTE',decimals:null},token_units:{status:'verified',decimals:3}}});
+  const result=await standardKcc20History(get,owner,new Map([[cid,new Set([txid])]]));
+  assert.equal(result.items[0].displayAmount,'250');assert.equal(result.items[0].unitSource,'verified-kcc20');
+});
+test('recipient threshold cell is reused only after live own-node verification',async()=>{
+  const s=source({amounts:[10],borrow:true});
+  const data=await standardKcc20TransferData(s.get,cid,owner,5);
+  const cell=await standardKcc20BorrowedReceive(s.get,cid,owner,5,data.cells[0],STANDARD_TEMPLATE);
+  assert.equal(cell.tokenAmount,10);assert.equal(cell.valueSompi,100000000);
+  const disabled=source({amounts:[10]});
+  assert.equal(await standardKcc20BorrowedReceive(disabled.get,cid,owner,5,data.cells[0],STANDARD_TEMPLATE),null);
+  const spent=source({amounts:[10],borrow:true,spent:true});
+  assert.equal(await standardKcc20BorrowedReceive(spent.get,cid,owner,5,data.cells[0],STANDARD_TEMPLATE),null);
 });

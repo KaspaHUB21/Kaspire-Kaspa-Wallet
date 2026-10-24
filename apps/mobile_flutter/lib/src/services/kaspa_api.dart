@@ -75,6 +75,11 @@ class KaspaApi {
       KronHoldings(_client, indexer: kronIndexerBaseUrl, kasvio: kasvioBaseUrl);
   Kcc20StandardService get standardKcc20 => Kcc20StandardService(_client,
       base: '$kasvioBaseUrl/api/kcc20/v1', node: '$baseUrl/local-node');
+  Future<Kcc20CellRecord?> loadKcc20BorrowedReceive(String recipient,
+          String cid, int amount, Kcc20CellRecord first, String templateId,
+          {bool Function()? isCancelled}) =>
+      standardKcc20.borrowedReceive(recipient, cid, amount, first, templateId,
+          isCancelled: isCancelled);
   Future<List<Kcc20CellRecord>> loadStandardKcc20SigningCells(
           String address, String covenantId, int amount,
           {bool allowCompound = false}) =>
