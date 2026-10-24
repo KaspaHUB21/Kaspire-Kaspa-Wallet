@@ -84,6 +84,28 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(status, 429)
         self.assertEqual(headers["Retry-After"], "45")
 
+    def test_history_beyond_first_hundred_uses_actual_backend_pagination(self):
+        rows = [{'transaction_id':str(i),'block_time':1000-i} for i in range(250)]
+        calls = []
+        def request(base, method, path, **kwargs):
+            query = gateway.urllib.parse.parse_qs(gateway.urllib.parse.urlsplit(path).query)
+            limit, offset = int(query['limit'][0]), int(query['offset'][0])
+            self.assertLessEqual(limit, 100)
+            calls.append((base, offset))
+            return response(200, rows[offset:offset+limit])
+        with patch.object(gateway,'_is_history_healthy',return_value=True), patch.object(gateway,'_request',side_effect=request):
+            status, _, body = gateway._merged_history('/addresses/x/full-transactions?limit=51&offset=100')
+        self.assertEqual(status,200)
+        self.assertEqual([r['transaction_id'] for r in json.loads(body)],[str(i) for i in range(100,151)])
+        self.assertIn((gateway.LOCAL,100),calls)
+        self.assertIn((gateway.PUBLIC,100),calls)
+
+    def test_excessive_history_window_is_explicit_not_a_false_end_of_history(self):
+        with patch.object(gateway,'_request') as request:
+            status, _, _ = gateway._merged_history('/addresses/x/full-transactions?limit=50&offset=1000')
+        self.assertEqual(status,416)
+        request.assert_not_called()
+
     def test_local_history_requires_a_synced_database(self):
         errors = []
         handler = SimpleNamespace(path="/local-node/addresses/synthetic/full-transactions", _error=lambda status, text: errors.append(status))

@@ -79,7 +79,10 @@ class _WalletScreenState extends State<WalletScreen> {
   final _activity = ActivityFeed();
   bool _activityStarted = false;
   bool _activityExpanded = false;
-  int _historyLimit = 20;
+  int _historyLimit = 50;
+  Future<List<WalletTransaction>>? _nativeActivity;
+  final _heldOrigins = <String, Set<String>>{};
+  Timer? _originHistoryTimer;
   bool _compounding = false;
 
   NavigatorState get _navigator =>
@@ -150,6 +153,7 @@ class _WalletScreenState extends State<WalletScreen> {
     ActivityStore.changes.removeListener(_reloadLocalActivity);
     NftMarketService.changes.removeListener(_refresh);
     _activity.dispose();
+    _originHistoryTimer?.cancel();
     super.dispose();
   }
 
@@ -198,12 +202,14 @@ class _WalletScreenState extends State<WalletScreen> {
         widget.address,
         transactionLimit: _historyLimit,
         includeNativeTransactions: false,
+        includeAssetHistory: false,
         onProgress: (snapshot) {
           if (mounted && generation == _loadGeneration) {
             setState(() => _progress = snapshot);
             if (_activityStarted) {
-              _activity.seed('Other asset history', snapshot.transactions);
+              _activity.seed('Legacy covenant history', snapshot.transactions);
             }
+            _rememberActivityOrigins(snapshot.kcc20Tokens);
           }
         },
       ),
@@ -218,14 +224,26 @@ class _WalletScreenState extends State<WalletScreen> {
       utxoCount: utxoCount,
       transactions: snapshot.transactions,
     );
-    if (mounted && generation == _loadGeneration && _activityStarted) {
-      // Even if enrichment exceeded Activity's deadline, the eventual
-      // snapshot updates that source without restarting native history.
-      unawaited(_activity.reload({
-        'Other asset history': (_, __) async => combined.transactions,
-      }));
-    }
     return combined;
+  }
+
+  void _rememberActivityOrigins(List<WalletAsset> assets) {
+    var changed = false;
+    for (final asset in assets) {
+      final cid = asset.covenantId;
+      if (cid == null || asset.activityOrigins.isEmpty) continue;
+      final ids = _heldOrigins.putIfAbsent(cid, () => <String>{});
+      final before = ids.length;
+      ids.addAll(asset.activityOrigins);
+      changed |= ids.length != before;
+    }
+    if (!changed) return;
+    _originHistoryTimer?.cancel();
+    _originHistoryTimer = Timer(const Duration(milliseconds: 800), () {
+      if (mounted && _activityStarted) {
+        unawaited(_loadActivity(only: {'Covenant history'}));
+      }
+    });
   }
 
   void _refresh() => setState(() {
@@ -246,23 +264,43 @@ class _WalletScreenState extends State<WalletScreen> {
 
   Future<void> _loadActivity({Set<String>? only}) {
     _activityStarted = true;
-    final account = _account, snapshot = _snapshot, limit = _historyLimit;
+    final account = _account, limit = _historyLimit + 1;
     final Map<String, ActivitySourceLoader> sources = {
-      'KAS history': (publish, warn) async =>
-          _api.loadNativeTransactionsForAddresses(
-            (await account).networkAddresses,
-            limit: limit,
-            onProgress: publish,
-            onWarning: warn,
-          ),
+      'KAS history': (publish, warn) {
+        Future<List<WalletTransaction>> task() async =>
+            _api.loadNativeTransactionsForAddresses(
+                (await account).networkAddresses,
+                limit: limit,
+                onProgress: publish,
+                onWarning: warn);
+        return _nativeActivity = task();
+      },
       'Saved activity': (_, __) => _loadLocalActivity(),
-      'KRC20 history': (_, __) async =>
-          _api.loadKrc20Transactions((await account).primaryAddress),
+      'KRC20 history': (_, __) async => _api
+          .loadKrc20Transactions((await account).primaryAddress, limit: limit),
       'KRON history': (_, __) async => _api
           .loadKronTransactions((await account).primaryAddress, limit: limit),
-      // Existing asset discovery may finish later. It must never gate KAS,
-      // fresh token history or locally saved receipts.
-      'Other asset history': (_, __) async => (await snapshot).transactions,
+      'NFT/name history': (_, __) async =>
+          _api.loadSupplementalAssetTransactions((await account).primaryAddress,
+              limit: limit),
+      'Covenant history': (publish, warn) async {
+        final native =
+            await (_nativeActivity ?? Future.value(<WalletTransaction>[]));
+        final refs = <String, Set<String>>{};
+        for (final tx in native) {
+          for (final entry in tx.covenantTransactions.entries) {
+            refs.putIfAbsent(entry.key, () => <String>{}).addAll(entry.value);
+          }
+        }
+        for (final entry in _heldOrigins.entries) {
+          refs
+              .putIfAbsent(entry.key, () => <String>{})
+              .addAll(entry.value.take(limit));
+        }
+        return _api.standardKcc20.historyForTransactions(
+            (await account).primaryAddress, refs,
+            limit: limit, onProgress: publish, onWarning: warn);
+      },
     };
     return _activity.reload(only == null
         ? sources
@@ -634,19 +672,20 @@ class _WalletScreenState extends State<WalletScreen> {
                               activity.items.isEmpty)
                             const _EmptyActivity(),
                           ...activity.items.map(
-                            (tx) => _TransactionTile(
+                            (tx) => WalletActivityTile(
                               transaction: tx,
                               walletAddress: widget.address,
                               hideAmounts: hideAmounts,
                             ),
                           ),
-                          if (activity.items.length >= _historyLimit)
+                          if (activity.hasMore)
                             OutlinedButton.icon(
                               onPressed:
                                   activity.loading.contains('KAS history')
                                       ? null
                                       : () => setState(() {
-                                            _historyLimit += 20;
+                                            _historyLimit += 50;
+                                            _activity.showMore();
                                             unawaited(_loadActivity());
                                           }),
                               icon: const Icon(Icons.expand_more_rounded),
@@ -708,7 +747,7 @@ class _AssetOverview extends StatelessWidget {
               count: data.krc20Tokens.length,
               children: data.krc20Tokens
                   .map(
-                    (asset) => _AssetRow(
+                    (asset) => WalletAssetRow(
                       asset: asset,
                       hideAmount: hideAmounts,
                       onTap: () => Navigator.of(context).push(
@@ -734,7 +773,7 @@ class _AssetOverview extends StatelessWidget {
               count: data.kcc20Tokens.length,
               children: data.kcc20Tokens
                   .map(
-                    (asset) => _AssetRow(
+                    (asset) => WalletAssetRow(
                       asset: asset,
                       hideAmount: hideAmounts,
                       onTap: asset.standard == 'kasseal-kcc20'
@@ -791,7 +830,7 @@ class _AssetOverview extends StatelessWidget {
               count: data.krc721Collections.length,
               children: data.krc721Collections
                   .map(
-                    (asset) => _AssetRow(
+                    (asset) => WalletAssetRow(
                       asset: asset,
                       hideAmount: hideAmounts,
                       onTap: () => Navigator.of(context).push(
@@ -922,8 +961,9 @@ class _AssetSection extends StatelessWidget {
       );
 }
 
-class _AssetRow extends StatelessWidget {
-  const _AssetRow({
+class WalletAssetRow extends StatelessWidget {
+  const WalletAssetRow({
+    super.key,
     required this.asset,
     required this.hideAmount,
     this.onTap,
@@ -948,6 +988,8 @@ class _AssetRow extends StatelessWidget {
                   children: [
                     Text(
                       asset.symbol,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 3),
@@ -1437,8 +1479,9 @@ class _CompoundRow extends StatelessWidget {
       );
 }
 
-class _TransactionTile extends StatelessWidget {
-  const _TransactionTile({
+class WalletActivityTile extends StatelessWidget {
+  const WalletActivityTile({
+    super.key,
     required this.transaction,
     required this.walletAddress,
     required this.hideAmounts,
@@ -1487,14 +1530,17 @@ class _TransactionTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 5,
                       children: [
                         Text(
                           transaction.operationLabel ??
                               (transaction.incoming ? 'Received' : 'Sent'),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
-                        const SizedBox(width: 7),
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 6,
@@ -1513,7 +1559,6 @@ class _TransactionTile extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 6),
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 6,

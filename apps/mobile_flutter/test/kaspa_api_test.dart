@@ -553,7 +553,7 @@ void main() {
     expect(snapshot.krc20Tokens.single.symbol, 'NACHO');
     expect(
       snapshot.krc20Tokens.single.imageUrl,
-      'https://images.example/nacho.png',
+      'https://kaspire.kaslab.space/api/token-logos/krc20/nacho',
     );
     expect(snapshot.krc721Collections.single.balance, 2);
     expect(snapshot.krc20Tokens.single.decimals, 8);

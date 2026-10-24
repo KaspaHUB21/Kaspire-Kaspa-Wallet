@@ -647,11 +647,13 @@ export default function Home() {
                 file manager. Verify the checksum before installation.
               </p>
               <p>
-                Android 0.11.65 displays Activity progressively: KAS movements,
-                token history and saved receipts appear without waiting for
-                unrelated asset discovery. Failed KAS lookups are shown as
-                incomplete and can be retried, while already loaded entries
-                remain visible. Includes the WalletConnect hotfix from 0.11.64.
+                Android 0.11.66 fixes large KRC20 activity amounts and loads
+                standard KCC20 history from wallet-related transactions instead
+                of scanning global trading history. Activity starts with 50
+                entries and Load more adds another 50. Long asset names stay
+                inside their frames. KRC20 logos now use Kaspire's persistent
+                server cache, retaining saved images during upstream outages.
+                Includes the recent WalletConnect fixes.
               </p>
               <p>
                 Android 0.11.64 fixes WalletConnect request handling: KRC20

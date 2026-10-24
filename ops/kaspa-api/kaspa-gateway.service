@@ -6,6 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 DynamicUser=true
+StateDirectory=kaspire-token-logos
+StateDirectoryMode=0700
 EnvironmentFile=-/etc/kaspire/krc20-fallback.env
 EnvironmentFile=-/etc/kaspire/kasparocket-mainnet.env
 ExecStart=/usr/local/lib/kaspire-kaspa-gateway/gateway.py

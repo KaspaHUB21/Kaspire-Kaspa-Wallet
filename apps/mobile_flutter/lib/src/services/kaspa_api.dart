@@ -428,21 +428,24 @@ class KaspaApi {
       while (pending.moveNext()) {
         final address = pending.current;
         try {
-          final response = await _getReadOnlyWithFallback(
-            "/addresses/${Uri.encodeComponent(address)}/full-transactions?limit=$limit&offset=0&resolve_previous_outpoints=light",
-            validate: (raw) =>
-                parseTransactionsForAddresses(_nativeHistoryRows(raw), unique),
-          );
-          final rows = _nativeHistoryRows(response);
-          // Validate before merging; a malformed address response must not
-          // poison already validated history belonging to another address.
-          parseTransactionsForAddresses(rows, unique);
-          for (final raw in rows.cast<Map>()) {
-            final item = raw.cast<String, Object?>();
-            final id = (item['transaction_id'] ?? item['id'] ?? '').toString();
-            if (id.isNotEmpty) merged[id] = item;
+          for (var offset = 0; offset < limit;) {
+            final size = (limit - offset).clamp(1, 100);
+            final response = await _getReadOnlyWithFallback(
+              "/addresses/${Uri.encodeComponent(address)}/full-transactions?limit=$size&offset=$offset&resolve_previous_outpoints=light",
+              validate: (raw) => parseTransactionsForAddresses(
+                  _nativeHistoryRows(raw), unique),
+            );
+            final rows = _nativeHistoryRows(response);
+            for (final raw in rows.cast<Map>()) {
+              final item = raw.cast<String, Object?>();
+              final id =
+                  (item['transaction_id'] ?? item['id'] ?? '').toString();
+              if (id.isNotEmpty) merged[id] = item;
+            }
+            onProgress?.call(result());
+            offset += rows.length;
+            if (rows.length < size) break;
           }
-          onProgress?.call(result());
         } catch (_) {
           failed.add(address);
         }
@@ -932,12 +935,35 @@ class KaspaApi {
   }
 
   /// Fresh activity, independent of the cached asset/balance snapshot.
-  Future<List<WalletTransaction>> loadKrc20Transactions(String address) async {
+  Future<List<WalletTransaction>> loadSupplementalAssetTransactions(
+      String address,
+      {int limit = 51}) async {
     if (NetworkSettings.isTestnet || NetworkSettings.isEvm) return [];
-    final rows = await _loadKrc20WalletTransactions(kasplexBaseUrl, address)
+    final raw = await _loadTokenWalletFromKaspaToken(address)
+        .timeout(const Duration(seconds: 8));
+    final data = _map(_map(raw)['data']);
+    final rows =
+        (data['transactions'] as List? ?? []).whereType<Map>().where((row) {
+      final kind = (row['asset_kind'] ?? row['kind'] ?? row['type'] ?? '')
+          .toString()
+          .toLowerCase();
+      return kind.contains('721') || kind.contains('kns');
+    }).toList();
+    return _parseTokenTransactions({
+      'data': {'transactions': rows}
+    }, address)
+        .take(limit)
+        .toList();
+  }
+
+  Future<List<WalletTransaction>> loadKrc20Transactions(String address,
+      {int limit = 50}) async {
+    if (NetworkSettings.isTestnet || NetworkSettings.isEvm) return [];
+    final rows = await _loadKrc20WalletTransactions(kasplexBaseUrl, address,
+            limit: limit)
         .timeout(const Duration(seconds: 8))
         .catchError((_) =>
-            _loadKrc20WalletTransactions(kccKrc20BaseUrl, address)
+            _loadKrc20WalletTransactions(kccKrc20BaseUrl, address, limit: limit)
                 .timeout(const Duration(seconds: 8)));
     return _parseTokenTransactions({
       'data': {'transactions': rows}
@@ -945,12 +971,11 @@ class KaspaApi {
   }
 
   Future<List<Map<String, Object?>>> _loadKrc20WalletTransactions(
-    String sourceBaseUrl,
-    String address,
-  ) async {
+      String sourceBaseUrl, String address,
+      {int limit = 50}) async {
     final transactions = <Map<String, Object?>>[];
     String? cursor;
-    for (var page = 0; page < 3; page++) {
+    for (var page = 0; page < 100 && transactions.length < limit; page++) {
       final raw = _map(await _externalGet(
         sourceBaseUrl,
         sourceBaseUrl == kasplexBaseUrl ? '/krc20/oplist' : '/oplist',
@@ -988,7 +1013,7 @@ class KaspaApi {
           'type': 'transfer',
           'token_id': 'krc20-${symbol.toLowerCase()}',
           'token_symbol': symbol,
-          'amount': formatRawTokenAmount(amountInteger, decimals),
+          'amount': rawTokenDecimal(amountInteger, decimals),
           'from_wallet': from,
           'to_wallet': to,
           'timestamp': timestamp.toUtc().toIso8601String(),
@@ -997,7 +1022,7 @@ class KaspaApi {
       cursor = _externalCursor(raw);
       if (cursor == null || items.isEmpty) break;
     }
-    return transactions;
+    return transactions.take(limit).toList();
   }
 
   Future<List<WalletTransaction>> loadKronTransactions(String address,
@@ -1227,6 +1252,7 @@ class KaspaApi {
             kcc20Cells: current.kcc20Cells,
             discoveryComplete: current.discoveryComplete,
             standard: asset.standard,
+            activityOrigins: current.activityOrigins,
           );
         }
       }
@@ -2336,7 +2362,6 @@ class KaspaApi {
               symbol: symbol,
               balance: balance,
               kind: kind,
-              imageUrl: _absoluteImageUrl(map['image_url']?.toString()),
               id: (map['token_id'] ??
                       (kind == 'KRC-20'
                           ? 'krc20-${(map['symbol'] ?? map['ticker'] ?? '').toString().toLowerCase()}'
@@ -2344,6 +2369,11 @@ class KaspaApi {
                   ?.toString(),
               decimals: decimals,
               rawBalance: rawBalance,
+              // A stable, own-hosted image URL works in progressive holdings
+              // before market enrichment finishes, including cached outages.
+              imageUrl: kind == 'KRC-20'
+                  ? '${NetworkSettings.publicKaspaRestUrl}/token-logos/krc20/${symbol.toLowerCase()}'
+                  : _absoluteImageUrl(map['image_url']?.toString()),
             ),
           );
         }
@@ -3009,7 +3039,23 @@ class KaspaApi {
       var totalOutput = 0;
       final from = <TransactionParty>[];
       final to = <TransactionParty>[];
+      final covenantTransactions = <String, Set<String>>{};
+      final transactionId =
+          (map['transaction_id'] ?? map['id'] ?? '').toString();
+      void rememberCovenant(Map row, {String? origin}) {
+        final cid = row['covenant_id']?.toString().toLowerCase() ?? '';
+        if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(cid)) return;
+        final ids = covenantTransactions.putIfAbsent(cid, () => <String>{});
+        if (RegExp(r'^[0-9a-f]{64}$').hasMatch(transactionId)) {
+          ids.add(transactionId);
+        }
+        if (origin != null && RegExp(r'^[0-9a-f]{64}$').hasMatch(origin)) {
+          ids.add(origin);
+        }
+      }
+
       for (final output in outputs) {
+        rememberCovenant(output);
         final amount = _asInt(output["amount"]);
         if (amount < 0) {
           throw KaspaApiException(
@@ -3029,6 +3075,8 @@ class KaspaApi {
         }
       }
       for (final input in inputs) {
+        rememberCovenant(input,
+            origin: input['previous_outpoint_hash']?.toString());
         final previous =
             input["previous_outpoint_resolved"] ?? input["previous_outpoint"];
         String? inputAddress;
@@ -3082,6 +3130,7 @@ class KaspaApi {
         mass: _nullableInt(map["mass"]),
         isCoinbase: map["is_coinbase"] == true,
         status: TransactionStatus.confirmed,
+        covenantTransactions: covenantTransactions,
       );
     }).toList();
   }

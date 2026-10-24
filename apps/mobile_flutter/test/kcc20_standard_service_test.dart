@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -182,6 +183,69 @@ MockClient fragmented(List<int> amounts,
 }
 
 void main() {
+  test('targeted history never scans the catalogue or global token history',
+      () async {
+    final paths = <String>[];
+    final client = MockClient((r) async {
+      paths.add(r.url.path);
+      if (r.url.path.endsWith('/tokens/$cid')) return envelope(token);
+      if (r.url.path.endsWith('/transactions/$txid')) {
+        return envelope({
+          'txid': txid,
+          'token': {'covenant_id': cid},
+          'components_complete': true,
+          'time_ms': DateTime.now().millisecondsSinceEpoch.toString(),
+          'inputs': [state(ownedBy: 'f' * 64)],
+          'outputs': [state()],
+        });
+      }
+      throw StateError('Unexpected global scan: ${r.url}');
+    });
+    final service = Kcc20StandardService(client);
+    final refs = {
+      cid: {txid}
+    };
+    final first = await service.historyForTransactions(address, refs);
+    expect(first.single.incoming, true);
+    expect(first.single.displayAmount, '1,000,000');
+    final cached = await Kcc20StandardService(client)
+        .historyForTransactions(address, refs);
+    expect(cached, hasLength(1));
+    expect(paths, hasLength(2));
+  });
+  test(
+      'sold tokens resolve without a current balance and foreign owners are excluded',
+      () async {
+    final client = MockClient((r) async {
+      if (r.url.path.endsWith('/tokens/$cid')) return envelope(token);
+      return envelope({
+        'txid': txid,
+        'token': {'covenant_id': cid},
+        'components_complete': true,
+        'time_ms': DateTime.now().millisecondsSinceEpoch.toString(),
+        'inputs': [state()],
+        'outputs': [state(ownedBy: 'f' * 64)]
+      });
+    });
+    final rows =
+        await Kcc20StandardService(client).historyForTransactions(address, {
+      cid: {txid}
+    });
+    expect(rows.single.incoming, false);
+    expect(rows.single.assetSymbol, 'WALLET');
+  });
+  test('unknown pool covenants do not produce a false token outage', () async {
+    final client = MockClient((r) async => http.Response('{}', 404));
+    final warnings = <String>[];
+    final rows = await Kcc20StandardService(client).historyForTransactions(
+        address,
+        {
+          cid: {txid}
+        },
+        onWarning: warnings.add);
+    expect(rows, isEmpty);
+    expect(warnings, isEmpty);
+  });
   TestWidgetsFlutterBinding.ensureInitialized();
   test('10/10 program uses ten inputs and compounds only above ten', () async {
     for (final count in [10, 11]) {
@@ -351,6 +415,29 @@ void main() {
         greaterThanOrEqualTo(1400));
     expect(starts[2].difference(starts[1]).inMilliseconds,
         greaterThanOrEqualTo(290));
+  });
+  test('activity reads precede queued discovery without concurrent requests',
+      () async {
+    final gate = Completer<void>();
+    final paths = <String>[];
+    var active = 0, peak = 0;
+    final client = MockClient((request) async {
+      active++;
+      if (active > peak) peak = active;
+      paths.add(request.url.path.split('/').last);
+      if (paths.length == 1) await gate.future;
+      active--;
+      return envelope([]);
+    });
+    final service = Kcc20StandardService(client);
+    final first = service.get('${service.base}/first');
+    final discovery = service.get('${service.base}/discovery');
+    final activity = service.get('${service.base}/activity', priority: true);
+    gate.complete();
+    await Future.wait([first, discovery, activity]);
+    expect(paths, ['first', 'activity', 'discovery']);
+    expect(peak, 1);
+    client.close();
   });
   test('dotted standard symbols remain visible', () async {
     final upstream = source();

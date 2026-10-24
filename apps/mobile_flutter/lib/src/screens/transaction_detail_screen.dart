@@ -168,6 +168,8 @@ class _Header extends StatelessWidget {
                   Text(
                     transaction.operationLabel ??
                         (transaction.incoming ? 'Received' : 'Sent'),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w900,

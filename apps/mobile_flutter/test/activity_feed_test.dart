@@ -27,6 +27,84 @@ Map<String, Object?> nativeRow(String id, String address) => {
 Future<void> flush() => Future<void>.delayed(Duration.zero);
 
 void main() {
+  test('newest 50 merged entries only; load more reveals next 50 and ends',
+      () async {
+    final feed = ActivityFeed();
+    final rows = List.generate(
+        121,
+        (i) => WalletTransaction(
+            id: '$i',
+            timestamp: DateTime.utc(2026, 1, 1).add(Duration(seconds: i)),
+            amountSompi: 1,
+            incoming: true));
+    await feed.reload({'KAS history': (_, __) async => rows});
+    expect(feed.value.items, hasLength(50));
+    expect(feed.value.items.first.id, '120');
+    expect(feed.value.items.last.id, '71');
+    expect(feed.value.hasMore, true);
+    feed.showMore();
+    expect(feed.value.items, hasLength(100));
+    expect(feed.value.items.last.id, '21');
+    expect(feed.value.hasMore, true);
+    feed.showMore();
+    expect(feed.value.items, hasLength(121));
+    expect(feed.value.hasMore, false);
+    feed.dispose();
+  });
+  test('native history fetches bounded backend pages beyond 100 entries',
+      () async {
+    final offsets = <int>[];
+    final api = KaspaApi(
+        baseUrl: 'https://own.invalid',
+        client: MockClient((r) async {
+          final size = int.parse(r.url.queryParameters['limit']!);
+          final offset = int.parse(r.url.queryParameters['offset']!);
+          offsets.add(offset);
+          expect(size, lessThanOrEqualTo(100));
+          return http.Response(
+              jsonEncode(List.generate(
+                  size, (i) => nativeRow('${offset + i}', 'kaspa:qone'))),
+              200);
+        }));
+    final rows = await api
+        .loadNativeTransactionsForAddresses(['kaspa:qone'], limit: 151);
+    expect(offsets, [0, 100]);
+    expect(rows, hasLength(151));
+  });
+  test('large KRC20 transfers parse canonically and stop at requested limit',
+      () async {
+    final queries = <String>[];
+    final wallet =
+        'kaspa:qqnvxvumjvzwmn755v8nrp4jxm2w50dv9mr2u4qrfqpq3h2hzyjx7tgkdtdgs';
+    final api = KaspaApi(client: MockClient((r) async {
+      queries.add(r.url.toString());
+      final next = r.url.queryParameters['next'];
+      return http.Response(
+          jsonEncode({
+            'result': List.generate(
+                50,
+                (i) => {
+                      'tick': 'SOULS',
+                      'amt': '2100000000000',
+                      'dec': 8,
+                      'from': wallet,
+                      'to': wallet,
+                      'mtsAdd':
+                          DateTime.now().millisecondsSinceEpoch.toString(),
+                      'hashRev': '${next ?? "first"}-$i',
+                    }),
+            'next': next == null ? 'page2' : 'page3'
+          }),
+          200);
+    }));
+    final rows = await api.loadKrc20Transactions(wallet, limit: 51);
+    expect(rows, hasLength(51));
+    expect(rows.first.displayAmount, '21000');
+    expect(rows.first.amountLabel, '21,000 SOULS');
+    expect(queries, hasLength(2));
+    expect(
+        queries.every((u) => u.startsWith('https://api.kasplex.org/')), true);
+  });
   test('fresh native history wins over stale snapshot receipts', () async {
     final feed = ActivityFeed();
     final receipt = WalletTransaction(

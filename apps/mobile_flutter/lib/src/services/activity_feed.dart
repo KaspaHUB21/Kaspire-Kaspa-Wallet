@@ -15,19 +15,27 @@ class ActivityFeedState {
     this.items = const [],
     this.loading = const {},
     this.warnings = const {},
+    this.hasMore = false,
   });
   final List<WalletTransaction> items;
   final Set<String> loading;
   final Map<String, String> warnings;
+  final bool hasMore;
 }
 
 /// Read-only history sources publish independently. A failed source never
 /// replaces its previous successful results with a fabricated empty history.
 class ActivityFeed extends ValueNotifier<ActivityFeedState> {
-  ActivityFeed({this.timeout = const Duration(seconds: 30)})
+  ActivityFeed({this.timeout = const Duration(seconds: 30), this.limit = 50})
       : super(const ActivityFeedState());
 
   final Duration timeout;
+  int limit;
+  void showMore() {
+    limit += 50;
+    _emit();
+  }
+
   final _rows = <String, List<WalletTransaction>>{};
   final _loading = <String>{};
   final _warnings = <String, String>{};
@@ -88,18 +96,20 @@ class ActivityFeed extends ValueNotifier<ActivityFeedState> {
 
   void _emit() {
     if (_disposed) return;
+    final merged = mergeWalletActivity(
+      _rows['Saved activity'] ?? const [],
+      [
+        ...?_rows['Other asset history'],
+        ..._rows.entries
+            .where((entry) =>
+                entry.key != 'Saved activity' &&
+                entry.key != 'Other asset history')
+            .expand((entry) => entry.value),
+      ],
+    );
     value = ActivityFeedState(
-      items: List.unmodifiable(mergeWalletActivity(
-        _rows['Saved activity'] ?? const [],
-        [
-          ...?_rows['Other asset history'],
-          ..._rows.entries
-              .where((entry) =>
-                  entry.key != 'Saved activity' &&
-                  entry.key != 'Other asset history')
-              .expand((entry) => entry.value),
-        ],
-      )),
+      items: List.unmodifiable(merged.take(limit)),
+      hasMore: merged.length > limit,
       loading: Set.unmodifiable(_loading),
       warnings: Map.unmodifiable(_warnings),
     );

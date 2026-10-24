@@ -2,6 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kasvault_wallet/src/number_format.dart';
 
 void main() {
+  test('canonical internal token amounts never contain grouping commas', () {
+    expect(rawTokenDecimal(BigInt.parse('2100000000000'), 8), '21000');
+    expect(
+        rawTokenDecimal(BigInt.parse('287000000000000000'), 8), '2870000000');
+    expect(rawTokenDecimal(BigInt.parse('1000000000000000001'), 18),
+        '1.000000000000000001');
+    expect(rawTokenDecimal(BigInt.from(1000), 0), '1000');
+    expect(rawTokenDecimal(BigInt.zero, 8), '0');
+    expect(formatRawTokenAmount(BigInt.parse('2100000000000'), 8), '21,000');
+  });
   test(
       'US grouping preserves large sompi values without floating-point rounding',
       () {

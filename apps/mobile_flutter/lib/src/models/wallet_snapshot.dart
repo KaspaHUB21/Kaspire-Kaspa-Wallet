@@ -109,6 +109,7 @@ class WalletAsset {
     this.kcc20Cells = const [],
     this.discoveryComplete = true,
     this.standard = 'legacy-kcc20',
+    this.activityOrigins = const [],
   });
 
   final String symbol;
@@ -126,6 +127,7 @@ class WalletAsset {
   final List<Kcc20CellRecord> kcc20Cells;
   final bool discoveryComplete;
   final String standard;
+  final List<String> activityOrigins;
 }
 
 class Kcc20CellRecord {
@@ -227,6 +229,7 @@ class WalletTransaction {
     this.mass,
     this.isCoinbase = false,
     this.status = TransactionStatus.confirmed,
+    this.covenantTransactions = const {},
   });
 
   factory WalletTransaction.fromStoredJson(Map<String, Object?> json) =>
@@ -280,6 +283,9 @@ class WalletTransaction {
   final int? mass;
   final bool isCoinbase;
   final TransactionStatus status;
+
+  /// Covenant -> related transaction IDs, including spent token origins.
+  final Map<String, Set<String>> covenantTransactions;
   double get amountKas => amountSompi / 100000000;
 
   String get amountLabel {

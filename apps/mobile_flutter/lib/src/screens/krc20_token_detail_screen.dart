@@ -94,7 +94,9 @@ class _Krc20TokenDetailScreenState extends State<Krc20TokenDetailScreen> {
     final valueFiat =
         valueUsd == null || !usdToFiat.isFinite ? null : valueUsd * usdToFiat;
     return Scaffold(
-      appBar: AppBar(title: Text(asset.symbol)),
+      appBar: AppBar(
+          title:
+              Text(asset.symbol, maxLines: 1, overflow: TextOverflow.ellipsis)),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
@@ -105,6 +107,8 @@ class _Krc20TokenDetailScreenState extends State<Krc20TokenDetailScreen> {
             Hub21Readable(
                 child: Text(
               asset.symbol,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 30,

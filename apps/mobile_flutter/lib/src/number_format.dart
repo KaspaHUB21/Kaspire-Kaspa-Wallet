@@ -28,8 +28,9 @@ String formatEnglishNumber(
     );
 
 String formatSompi(int sompi, {int decimals = 8}) {
-  if (decimals < 0 || decimals > 18)
+  if (decimals < 0 || decimals > 18) {
     throw RangeError.range(decimals, 0, 18, 'decimals');
+  }
   var raw = BigInt.from(sompi).abs();
   if (decimals < 8) {
     final scale = BigInt.from(10).pow(8 - decimals);
@@ -45,11 +46,22 @@ String formatSompi(int sompi, {int decimals = 8}) {
 }
 
 String formatRawTokenAmount(BigInt amount, int decimals) {
-  if (decimals <= 0) return _groupWholeDigits(amount.toString());
+  return formatEnglishDecimal(rawTokenDecimal(amount, decimals),
+      trimTrailingZeros: true);
+}
+
+/// Canonical machine-readable amount. Grouping belongs only in UI rendering.
+String rawTokenDecimal(BigInt amount, int decimals) {
+  if (decimals < 0 || decimals > 18) {
+    throw RangeError.range(decimals, 0, 18, 'decimals');
+  }
+  if (decimals == 0) return amount.toString();
   final negative = amount.isNegative;
   final digits = amount.abs().toString().padLeft(decimals + 1, '0');
   final whole = digits.substring(0, digits.length - decimals);
   final fraction = digits.substring(digits.length - decimals);
   final value = '${negative ? '-' : ''}$whole.$fraction';
-  return formatEnglishDecimal(value, trimTrailingZeros: true);
+  return value
+      .replaceFirst(RegExp(r'0+$'), '')
+      .replaceFirst(RegExp(r'\.$'), '');
 }

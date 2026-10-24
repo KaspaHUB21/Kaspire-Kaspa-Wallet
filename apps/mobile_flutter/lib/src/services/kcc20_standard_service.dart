@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
@@ -10,12 +11,16 @@ import 'kcc20_compound.dart';
 // Shared by discovery and send preparations, including service instances created
 // by KaspaApi getters. Only read requests are queued; signing is never retried.
 class _KasvioReadQueue {
-  Future<void> tail = Future<void>.value();
+  final urgent = <Future<void> Function()>[];
+  final ordinary = <Future<void> Function()>[];
+  bool running = false;
   DateTime next = DateTime.fromMillisecondsSinceEpoch(0);
 
   Future<http.Response> read(
-      http.Client client, Uri uri, bool Function()? isCancelled) {
-    final task = tail.then((_) async {
+      http.Client client, Uri uri, bool Function()? isCancelled,
+      {bool priority = false}) {
+    final result = Completer<http.Response>();
+    Future<http.Response> execute() async {
       for (var attempt = 0;; attempt++) {
         final wait = next.difference(DateTime.now());
         if (wait.isNegative == false) await Future<void>.delayed(wait);
@@ -36,9 +41,25 @@ class _KasvioReadQueue {
             milliseconds:
                 math.max(1500 * (1 << attempt), retryMs).clamp(0, 30000)));
       }
+    }
+
+    (priority ? urgent : ordinary).add(() async {
+      try {
+        result.complete(await execute());
+      } catch (e, stack) {
+        result.completeError(e, stack);
+      }
     });
-    tail = task.then<void>((_) {}, onError: (Object _, StackTrace __) {});
-    return task;
+    if (!running) unawaited(drain());
+    return result.future;
+  }
+
+  Future<void> drain() async {
+    running = true;
+    while (urgent.isNotEmpty || ordinary.isNotEmpty) {
+      await (urgent.isNotEmpty ? urgent : ordinary).removeAt(0)();
+    }
+    running = false;
   }
 }
 
@@ -47,6 +68,11 @@ class StandardKcc20Wallet {
   final List<WalletAsset> assets;
   final List<WalletTransaction> transactions;
   final String warning;
+}
+
+class Kcc20ReadError extends StateError {
+  Kcc20ReadError(this.status) : super('KCC20 data unavailable ($status).');
+  final int status;
 }
 
 /// Read-only discovery. Indexer metadata never supplies executable programs.
@@ -84,20 +110,41 @@ class Kcc20StandardService {
 
   static final _hex64 = RegExp(r'^[0-9a-f]{64}$');
   static final _queues = Expando<_KasvioReadQueue>();
+  static final _historyCaches =
+      Expando<Map<String, Future<Map<String, dynamic>>>>();
+  Future<Map<String, dynamic>> _historyGet(String path) {
+    final cache = _historyCaches[client] ??= {};
+    final key = '$base/$path';
+    if (cache.length > 1024) cache.clear();
+    return cache.putIfAbsent(key, () async {
+      try {
+        final value = map((await get(key, priority: true))['data']);
+        if (path.contains('/transactions/') &&
+            value['components_complete'] != true) {
+          throw StateError('Incomplete KCC20 transaction details.');
+        }
+        return value;
+      } catch (_) {
+        cache.remove(key);
+        rethrow;
+      }
+    });
+  }
+
   static Map<String, dynamic> map(Object? value) =>
       value is Map ? Map<String, dynamic>.from(value) : {};
   Future<Map<String, dynamic>> get(String url,
-      {bool Function()? isCancelled}) async {
+      {bool Function()? isCancelled, bool priority = false}) async {
     final uri = Uri.parse(url);
     final r = url.startsWith('$base/')
         ? await (_queues[client] ??= _KasvioReadQueue())
-            .read(client, uri, isCancelled)
+            .read(client, uri, isCancelled, priority: priority)
         : await client.get(uri).timeout(const Duration(seconds: 8));
     if (isCancelled?.call() == true) {
       throw StateError('KCC20 preparation cancelled.');
     }
     if (r.statusCode != 200) {
-      throw StateError('KCC20 data unavailable (${r.statusCode}).');
+      throw Kcc20ReadError(r.statusCode);
     }
     final value = map(jsonDecode(r.body));
     if (url.startsWith(base)) {
@@ -222,6 +269,18 @@ class Kcc20StandardService {
                 templateHash: tokenProgram,
                 validationStatus: 'observed',
                 discoveryComplete: false,
+                activityOrigins:
+                    ((b['outputs'] as List? ?? []).whereType<Map>().toList()
+                          ..sort((a, b) =>
+                              (BigInt.tryParse(b['acceptance_id'].toString()) ??
+                                      BigInt.zero)
+                                  .compareTo(BigInt.tryParse(
+                                          a['acceptance_id'].toString()) ??
+                                      BigInt.zero)))
+                        .map((row) => row['txid']?.toString() ?? '')
+                        .where(_hex64.hasMatch)
+                        .take(512)
+                        .toList(),
                 imageUrl: metadata['image_bytes_verified'] == true &&
                         _hex64.hasMatch(hash)
                     ? '$base/images/$hash'
@@ -316,6 +375,85 @@ class Kcc20StandardService {
         tokenId: cid,
         displayAmount: formatRawTokenAmount(delta.abs(), decimals),
         status: TransactionStatus.confirmed);
+  }
+
+  /// Resolve only transactions already associated with this wallet. Never
+  /// walk the global token catalogue or every token's public trading history.
+  Future<List<WalletTransaction>> historyForTransactions(
+      String address, Map<String, Set<String>> references,
+      {int limit = 51,
+      void Function(List<WalletTransaction>)? onProgress,
+      void Function(String)? onWarning}) async {
+    final owner = kaspaOwnerIdFromAddress(address);
+    if (owner.isEmpty) return [];
+    final result = <WalletTransaction>[];
+    var failures = 0;
+    final candidates =
+        references.entries.where((e) => _hex64.hasMatch(e.key)).toList();
+    for (var offset = 0; offset < candidates.length; offset += 4) {
+      await Future.wait(candidates.skip(offset).take(4).map((entry) async {
+        try {
+          final token = await _historyGet('tokens/${entry.key}');
+          if (rowId(token) != entry.key ||
+              tokenTemplate(token) == null ||
+              ![
+                'hash_proven_reference_actor_family',
+                'hash_proven_program_artifact'
+              ].contains(token['recognition'])) {
+            return;
+          }
+          final metadata = map(token['metadata']);
+          final decimals = metadata['binding_verified'] == true
+              ? int.tryParse(metadata['decimals'].toString())
+              : 0;
+          final ticker = (metadata['binding_verified'] == true
+                  ? metadata['ticker'] ?? metadata['symbol'] ?? 'KCC20_RAW'
+                  : 'KCC20_RAW')
+              .toString()
+              .toUpperCase();
+          if (decimals == null ||
+              decimals < 0 ||
+              decimals > 18 ||
+              !RegExp(r'^[A-Z0-9_.-]{1,32}$').hasMatch(ticker)) {
+            throw StateError('Invalid KCC20 history units.');
+          }
+          for (final id in entry.value.where(_hex64.hasMatch).take(limit * 2)) {
+            try {
+              final tx =
+                  await _historyGet('tokens/${entry.key}/transactions/$id');
+              if (tx['txid'] != id ||
+                  map(tx['token'])['covenant_id'] != entry.key ||
+                  tx['components_complete'] != true) {
+                throw StateError('Incomplete KCC20 history.');
+              }
+              final item = transaction(tx, entry.key, owner, ticker, decimals);
+              if (item != null) {
+                result.add(item);
+                result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+                onProgress?.call(result.take(limit).toList());
+              }
+            } on Kcc20ReadError {
+              failures++;
+            } catch (_) {
+              failures++;
+            }
+          }
+        } on Kcc20ReadError catch (e) {
+          // Pool, NFT and legacy covenants are not standard KCC20 tokens.
+          if (e.status != 404) failures++;
+        } catch (_) {
+          failures++;
+        }
+      }));
+    }
+    if (failures > 0) {
+      if (onWarning == null && result.isEmpty) {
+        throw StateError('KCC20 history is incomplete.');
+      }
+      onWarning?.call(
+          'Some KCC20 transaction details are temporarily unavailable. Retry to complete the history.');
+    }
+    return result.take(limit).toList();
   }
 
   Future<List<Kcc20CellRecord>> signingCells(

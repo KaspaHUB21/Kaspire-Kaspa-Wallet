@@ -14,6 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from token_logos import cache as token_logo_cache
 
 LOCAL = "http://127.0.0.1:8000"
 PUBLIC = "https://api.kaspa.org"
@@ -26,7 +27,7 @@ KRC20_FALLBACK_BASE = os.environ.get(
 KRC20_FALLBACK_USER = os.environ.get("KRC20_FALLBACK_USER", "")
 KRC20_FALLBACK_PASSWORD = os.environ.get("KRC20_FALLBACK_PASSWORD", "")
 MAX_BODY = 16 * 1024 * 1024
-MAX_HISTORY_FETCH = 100
+MAX_HISTORY_FETCH = 1000
 LOG = logging.getLogger("kaspa-gateway")
 ROCKET_PREFIX = '/kasparocket'
 ROCKET_KEY = os.environ.get('KASPAROCKET_MAINNET_API_KEY', '')
@@ -182,12 +183,14 @@ def _history_path(path: str) -> tuple[str, int, int]:
 
 def _merged_history(path: str) -> tuple[int, dict[str, str], bytes]:
     fetch_path, offset, limit = _history_path(path)
+    if offset + limit > MAX_HISTORY_FETCH:
+        return 416, {"content-type": "application/json"}, b'{"detail":"History window exceeds 1000 transactions"}'
     results: list[tuple[int, dict[str, str], bytes]] = []
     local_synced = _is_history_healthy()
     local_valid = public_valid = False
     for base in (LOCAL, PUBLIC):
         try:
-            response = _request(base, "GET", fetch_path, timeout=15)
+            response = _history_backend(base, fetch_path)
             results.append(response)
             if base == LOCAL:
                 local_valid = _validated_history(response) is not None
@@ -231,6 +234,29 @@ def _merged_history(path: str) -> tuple[int, dict[str, str], bytes]:
     return _history_response(rows[offset : offset + limit])
 
 
+def _history_backend(base: str, path: str) -> tuple[int, dict[str, str], bytes]:
+    """Upstream limits stay <=100; merge windows can span several pages."""
+    parsed = urllib.parse.urlsplit(path)
+    query = urllib.parse.parse_qs(parsed.query)
+    wanted = int(query.get('limit', ['20'])[0])
+    if wanted <= 100:
+        return _request(base, 'GET', path, timeout=15)
+    rows = []
+    while len(rows) < wanted:
+        size = min(100, wanted - len(rows))
+        query['limit'], query['offset'] = [str(size)], [str(len(rows))]
+        page_path = urllib.parse.urlunsplit(('', '', parsed.path,
+            urllib.parse.urlencode(query, doseq=True), ''))
+        response = _request(base, 'GET', page_path, timeout=5)
+        page = _validated_history(response)
+        if page is None:
+            return response
+        rows.extend(page)
+        if len(page) < size:
+            break
+    return _history_response(rows)
+
+
 def _validated_history(response: tuple[int, dict[str, str], bytes]) -> list[dict] | None:
     status, _, body = response
     if status != 200:
@@ -255,6 +281,13 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         request_path = urllib.parse.urlsplit(self.path).path
+        if request_path.startswith('/token-logos/krc20/'):
+            ticker = request_path.removeprefix('/token-logos/krc20/')
+            if urllib.parse.urlsplit(self.path).query:
+                self._error(400, 'Logo requests do not accept URLs or query parameters')
+            else:
+                self._respond(*token_logo_cache.response(ticker))
+            return
         if request_path.startswith(ROCKET_PREFIX + '/'):
             self._proxy_rocket('GET')
             return
@@ -400,7 +433,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("content-type", headers.get("content-type", "application/json"))
         self.send_header("content-length", str(len(body)))
-        self.send_header("cache-control", "no-store")
+        self.send_header("cache-control", "public, max-age=86400"
+                         if status == 200 and getattr(self, 'path', '').startswith('/token-logos/krc20/')
+                         else "no-store")
         self.send_header("x-content-type-options", "nosniff")
         for name, value in headers.items():
             if name.lower() == "retry-after" and status in (429, 503):
