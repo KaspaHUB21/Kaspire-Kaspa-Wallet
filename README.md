@@ -40,12 +40,19 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.59**, build **198**
+- Android app: **0.11.64**, build **207**
 - Android package: `space.kaspire.wallet`
-- Browser extension package: **0.5.14** (submitted to Chrome Web Store review)
+- Browser extension package: **0.5.23** (submitted to Chrome Web Store review)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - Extension networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
+
+Android 0.11.64 fixes WalletConnect request recovery and KRC20 approval delays.
+KRC20 payment review loads only the required holdings instead of scanning all
+assets and markets. Repeated dApp wake links are processed, transient relay
+startup failures can be retried, and pending requests/proposals are recovered
+without duplicate approvals. Origin, permission and native signing checks
+remain unchanged. The extension is unchanged by this Android hotfix.
 
 Android 0.11.58 adds **KaspaRocket Mainnet** under Swap, before KRON, with
 DEX Swaps and My Activity, direct bonding-curve token balances independent

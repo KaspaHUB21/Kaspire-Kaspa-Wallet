@@ -29,7 +29,9 @@ import 'widgets/windows_security_dialog.dart';
 import 'widgets/wallet_unlock_screen.dart';
 
 class KasVaultApp extends StatefulWidget {
-  const KasVaultApp({super.key});
+  const KasVaultApp({super.key, this.dappSessions, this.dappApiFactory});
+  final DappSessionService? dappSessions;
+  final KaspaApi Function()? dappApiFactory;
 
   @override
   State<KasVaultApp> createState() => _KasVaultAppState();
@@ -38,7 +40,7 @@ class KasVaultApp extends StatefulWidget {
 class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   final _preferences = PreferencesService();
   final _security = NativeSecurity();
-  final _dapps = DappSessionService.instance;
+  late final _dapps = widget.dappSessions ?? DappSessionService.instance;
   final _appLinks = AppLinks();
   final _navigatorKey = GlobalKey<NavigatorState>();
   StreamSubscription<Uri>? _linkSubscription;
@@ -53,6 +55,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   DateTime? _backgroundedAt;
   Timer? _inactivityTimer;
   Timer? _dappStateTimer;
+  Timer? _dappRecoveryTimer;
   String? _lastDappAddress;
   KaspaNetwork? _lastDappNetwork;
   final Map<String, int> _lastDappBalances = {};
@@ -80,6 +83,13 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     _linkSubscription = _appLinks.uriLinkStream.listen(_queueAppLink);
     unawaited(_loadInitialAppLink());
     _dapps.initialize();
+    _dappRecoveryTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (mounted &&
+          _dapps.ready &&
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        unawaited(_dapps.refreshPending());
+      }
+    });
     unawaited(UpdateService.instance.checkIfDue());
     _inactivityTimer = Timer.periodic(
       const Duration(seconds: 30),
@@ -98,6 +108,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _inactivityTimer?.cancel();
     _dappStateTimer?.cancel();
+    _dappRecoveryTimer?.cancel();
     _linkSubscription?.cancel();
     _proposalSubscription?.cancel();
     _requestSubscription?.cancel();
@@ -195,6 +206,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       return;
     }
     if (state == AppLifecycleState.resumed) {
+      unawaited(_dapps.refreshPending());
       final since = _backgroundedAt;
       _backgroundedAt = null;
       final minutes = AppSettings.lockMinutes.value;
@@ -250,12 +262,18 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   }
 
   void _queueAppLink(Uri link) {
+    // Every payment uses the same wake URL. It is not a one-time pairing URI
+    // and must not wait behind the approval operation it is meant to wake.
+    if (DappSessionService.isWakeLink(link)) {
+      unawaited(_handleLink(link));
+      return;
+    }
     final key = link.toString();
     if (!_handledAppLinks.add(key)) return;
     if (_handledAppLinks.length > 32) {
       _handledAppLinks.remove(_handledAppLinks.first);
     }
-    _enqueueDapp(() => _handleLink(link));
+    unawaited(_handleLink(link));
   }
 
   Future<void> _loadInitialAppLink() async {
@@ -280,6 +298,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     try {
       await _dapps.handleAppLink(link);
     } catch (error) {
+      _handledAppLinks.remove(link.toString());
       final context = await _contextWhenReady();
       if (context == null || !context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -979,9 +998,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       );
     }
 
-    final api = KaspaApi();
-    final wallet = await api.loadWallet(address);
-    final token = wallet.krc20Tokens
+    final api = widget.dappApiFactory?.call() ?? KaspaApi();
+    // Payment approval must not wait for NFT/KNS/KCC20/DEX discovery, market
+    // enrichment or transaction history belonging to unrelated protocols.
+    final holdings = await api.loadKrc20Holdings(address);
+    final token = holdings
         .where((asset) => asset.symbol.toUpperCase() == ticker)
         .firstOrNull;
     final available = BigInt.tryParse(token?.rawBalance ?? '');

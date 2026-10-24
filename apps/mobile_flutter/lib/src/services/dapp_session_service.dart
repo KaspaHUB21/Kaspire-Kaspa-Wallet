@@ -1,12 +1,19 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:reown_walletkit/reown_walletkit.dart';
 
 import '../kaspa_address.dart';
 
 class DappSessionService {
-  DappSessionService._();
+  DappSessionService._({Future<ReownWalletKit> Function()? walletKitFactory})
+      : _walletKitFactory = walletKitFactory;
+  @visibleForTesting
+  factory DappSessionService.forTesting(
+          Future<ReownWalletKit> Function() walletKitFactory) =>
+      DappSessionService._(walletKitFactory: walletKitFactory);
   static final instance = DappSessionService._();
+  final Future<ReownWalletKit> Function()? _walletKitFactory;
 
   static const chainId = 'kaspa:mainnet';
   static const testnet10ChainId = 'kaspa:testnet-10';
@@ -53,6 +60,8 @@ class DappSessionService {
   final Set<String> _consumedPairingTopics = {};
   final Map<String, Uri> _browserPairingOrigins = {};
   final Set<String> _deliveredRequestIds = {};
+  final Set<int> _deliveredProposalIds = {};
+  final Map<int, SessionProposalEvent> _undeliveredProposals = {};
   ReownWalletKit? _walletKit;
   Future<void>? _initializing;
   String? _lastError;
@@ -64,7 +73,16 @@ class DappSessionService {
   Stream<SessionRequestEvent> get requests => _requests.stream;
   Stream<void> get changes => _changes.stream;
 
-  Future<void> initialize() => _initializing ??= _initialize();
+  Future<void> initialize() {
+    if (_walletKit != null) return Future.value();
+    final running = _initializing;
+    if (running != null) return running;
+    final task = _initialize();
+    _initializing = task;
+    return task.whenComplete(() {
+      if (identical(_initializing, task)) _initializing = null;
+    });
+  }
 
   Future<void> _initialize() async {
     if (!configured) {
@@ -73,24 +91,29 @@ class DappSessionService {
       return;
     }
     try {
-      final walletKit = await ReownWalletKit.createInstance(
-        projectId: projectId,
-        metadata: const PairingMetadata(
-          name: 'Kaspire',
-          description: 'Kaspa Mainnet, Kasplex and Igra wallet',
-          url: 'https://kaspire.kaslab.space',
-          icons: ['https://kaspire.kaslab.space/kaspire-logo.png'],
-          redirect:
-              Redirect(universal: 'https://kaspire.kaslab.space/kaspire/wc'),
-        ),
-      );
+      final walletKit = await (_walletKitFactory?.call() ??
+          Future.value(ReownWalletKit(
+            core: ReownCore(projectId: projectId),
+            metadata: const PairingMetadata(
+              name: 'Kaspire',
+              description: 'Kaspa Mainnet, Kasplex and Igra wallet',
+              url: 'https://kaspire.kaslab.space',
+              icons: ['https://kaspire.kaslab.space/kaspire-logo.png'],
+              redirect: Redirect(
+                  universal: 'https://kaspire.kaslab.space/kaspire/wc'),
+            ),
+          )));
       walletKit.onSessionProposal.subscribe(_onProposal);
       walletKit.onSessionRequest.subscribe(_onRequest);
       walletKit.onSessionConnect.subscribe((_) => _changes.add(null));
       walletKit.onSessionDelete.subscribe((_) => _changes.add(null));
       walletKit.onSessionExpire.subscribe((_) => _changes.add(null));
+      // Listen before relay startup so proposal verification context is not
+      // lost while the SDK restores subscriptions and receives new messages.
+      if (_walletKitFactory == null) await walletKit.init();
       _walletKit = walletKit;
       _lastError = null;
+      _replayPendingProposals();
       _replayPendingRequests();
     } catch (_) {
       _lastError = 'Could not initialize the encrypted dApp relay.';
@@ -99,11 +122,26 @@ class DappSessionService {
   }
 
   void _onProposal(SessionProposalEvent? event) {
-    if (event != null) _proposals.add(event);
+    if (event == null) return;
+    if (_walletKit == null || !_proposals.hasListener) {
+      _undeliveredProposals[event.id] = event;
+      if (_undeliveredProposals.length > 1024) {
+        _undeliveredProposals.remove(_undeliveredProposals.keys.first);
+      }
+      return;
+    }
+    if (!_deliveredProposalIds.add(event.id)) {
+      return;
+    }
+    _undeliveredProposals.remove(event.id);
+    if (_deliveredProposalIds.length > 1024) {
+      _deliveredProposalIds.remove(_deliveredProposalIds.first);
+    }
+    _proposals.add(event);
   }
 
   void _onRequest(SessionRequestEvent? event) {
-    if (event == null) return;
+    if (event == null || _walletKit == null || !_requests.hasListener) return;
     final key = "${event.topic}:${event.id}";
     if (!_deliveredRequestIds.add(key)) return;
     if (_deliveredRequestIds.length > 1024) {
@@ -120,15 +158,44 @@ class DappSessionService {
     }
   }
 
-  Future<void> handleAppLink(Uri link) async {
-    final trustedWakeLink = link.scheme == 'kaspire' &&
-        link.host == 'dapp' &&
-        (link.path.isEmpty || link.path == '/') &&
-        link.query.isEmpty &&
-        link.fragment.isEmpty;
-    if (trustedWakeLink) {
-      await initialize();
+  void _replayPendingProposals() {
+    final walletKit = _walletKit;
+    if (walletKit == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    for (final proposal in walletKit.getPendingSessionProposals().values) {
+      if (proposal.expiry > now) {
+        _onProposal(_undeliveredProposals[proposal.id] ??
+            SessionProposalEvent(proposal.id, proposal));
+      }
+    }
+  }
+
+  /// SDK initialization/reconnection can receive messages before our listeners
+  /// attach. Replay its pending stores, never a second signing operation.
+  Future<void> refreshPending() async {
+    await initialize();
+    try {
+      _replayPendingProposals();
       _replayPendingRequests();
+    } catch (_) {
+      _lastError = 'Could not restore pending dApp requests. Please try again.';
+      _changes.add(null);
+    }
+  }
+
+  static bool isWakeLink(Uri link) =>
+      link.scheme == 'kaspire' &&
+      link.host == 'dapp' &&
+      (link.path.isEmpty || link.path == '/') &&
+      link.query.isEmpty &&
+      link.fragment.isEmpty &&
+      link.userInfo.isEmpty &&
+      !link.hasPort;
+
+  Future<void> handleAppLink(Uri link) async {
+    final trustedWakeLink = isWakeLink(link);
+    if (trustedWakeLink) {
+      await refreshPending();
       return;
     }
     final trustedHttps = link.scheme == 'https' &&

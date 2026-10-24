@@ -647,6 +647,14 @@ export default function Home() {
                 file manager. Verify the checksum before installation.
               </p>
               <p>
+                Android 0.11.64 fixes WalletConnect request handling: KRC20
+                approvals no longer wait for unrelated asset discovery,
+                repeated dApp wake links are processed, and pending requests
+                are restored after app resume. Transient relay initialization
+                failures can be retried without restarting the app. Connection
+                permissions and native signing checks remain unchanged.
+              </p>
+              <p>
                 Mainnet Swap now offers KaspaRocket, Kasseal and KRON, in that
                 order. Kasseal brings launch-proof-verified curve and pool trades,
                 partial-sale token preparation and swap history. KaspaRocket
