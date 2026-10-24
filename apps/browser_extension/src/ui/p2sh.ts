@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import { formatRawTokenAmount } from '../shared/tokenAmount';
+import { formatRawTokenAmount,formatTokenDisplay } from '../shared/tokenAmount';
 import { p2shIntro, p2shSeparate, p2shRecovery, p2shExposure, p2shAccept } from '../shared/p2sh';
 
 type Row = Record<string, any>;
@@ -9,7 +9,7 @@ type Hooks = {
   regular(): void; address(): string; copy(text: string, message: string): void;
 };
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-const kas = (raw: unknown) => formatRawTokenAmount(String(raw ?? 0), 8) + ' KAS';
+const kas = (raw: unknown) => formatTokenDisplay(String(raw ?? 0), 8) + ' KAS';
 const line = (label: string, value: unknown) => `<div class="vault-line"><small>${esc(label)}</small><span>${esc(value)}</span></div>`;
 const panel = (content: string) => `<article class="review-card vault-panel">${content}</article>`;
 export const receiveModeTabs = (p2sh: boolean) => `<div class="p2sh-tabs" role="group" aria-label="Receive account"><button id="receive-regular" class="${p2sh ? 'outline' : ''}" aria-pressed="${!p2sh}">Receive KAS</button><button id="receive-p2sh" class="${p2sh ? '' : 'outline'}" aria-pressed="${p2sh}">P2SH account</button></div>`;

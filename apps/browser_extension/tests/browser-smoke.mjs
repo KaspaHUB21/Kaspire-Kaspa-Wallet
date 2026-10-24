@@ -33,6 +33,13 @@ try{
   // The randomly generated, unfunded wallet is used only for read-only discovery.
   // Its P2SH public metadata must live in the encrypted vault, not plain storage.
   const storedP2sh=await evaluate(reopenedWallet,'chrome.storage.local.get(null).then(value=>JSON.stringify(value))');assert.equal(storedP2sh.includes(p2shReceiving.result.address.address),false);
+  // Public reads only: exercise the actual worker command routing, not a UI mock.
+  const liveKasseal=await evaluate(reopenedWallet,'chrome.runtime.sendMessage({channel:"wallet",command:"kassealTokens",search:"unnachod"})');
+  assert(!liveKasseal.error,JSON.stringify(liveKasseal.error));
+  assert(liveKasseal.result.tokens.some(t=>t.meta.ticker==='UNNACHOD'&&t.verification==='verified'));
+  const liveKassealContext=await evaluate(reopenedWallet,'chrome.runtime.sendMessage({channel:"wallet",command:"kassealContext"})');
+  assert(!liveKassealContext.error,JSON.stringify(liveKassealContext.error));
+  assert.equal(liveKassealContext.result.pending,undefined);
   for (const theme of ["midnight","hub21","glacier","neptune"]) {
     await evaluate(reopenedWallet, `(async()=>{await chrome.runtime.sendMessage({channel:"wallet",command:"setSettings",settings:{theme:"${theme}"}});location.reload();return true})()`);
     await waitFor(reopenedWallet, 'Boolean(document.querySelector("#swap"))');
@@ -44,6 +51,8 @@ try{
     await waitFor(reopenedWallet,'Boolean(document.querySelector("#kron-open"))');
     assert.match(String(await evaluate(reopenedWallet,'document.querySelector(".marketplace-screen").innerText')),/KCC20 DEX Swaps.*Kron DEX/s);
     assert.equal(await evaluate(reopenedWallet,'Boolean(document.querySelector("#rocket-open"))'),true);
+    assert.equal(await evaluate(reopenedWallet,'Boolean(document.querySelector("#kasseal-open"))'),true);
+    assert.deepEqual(await evaluate(reopenedWallet,'[...document.querySelectorAll("#rocket-open,#kasseal-open,#kron-open")].map(b=>b.id)'),['rocket-open','kasseal-open','kron-open']);
     assert.equal(await evaluate(reopenedWallet,'document.querySelector("#rocket-open").getBoundingClientRect().top < document.querySelector("#kron-open").getBoundingClientRect().top'),true);
     assert.equal(await evaluate(reopenedWallet,'Math.abs(document.querySelector("#rocket-open").getBoundingClientRect().width-document.querySelector("#kron-open").getBoundingClientRect().width)<1'),true);
     if (theme === 'midnight') {

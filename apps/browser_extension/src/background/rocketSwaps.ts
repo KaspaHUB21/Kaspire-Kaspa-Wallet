@@ -42,14 +42,23 @@ export function rocketPendingInfo(context: RocketContext) {
   return receipt ? {token: receipt.token, side: receipt.side, transactionIds: receipt.transactionIds, next: receipt.next} : null;
 }
 export async function confirmedRocketConflict(tx: any, savedIds: Set<string>, get: NodeRead = rocketNodeJson, signal?: AbortSignal) {
-  const inputs = [...(tx.inputs ?? [])];
+  if(!Array.isArray(tx?.inputs)||!tx.inputs.length)throw Error('Invalid saved swap input. The signed transaction remains saved.');
+  const inputs = [...tx.inputs];
   if(inputs.length>64)throw new RocketConflictUnknown();
   const groups = new Map<string,Set<string>>(), points=new Set<string>(),origins=new Map<string,any>();
   let incomplete=false,totalPages=0;
   for (const input of inputs) {
     signal?.throwIfAborted();
-    const {transactionId: originId, index} = input.previousOutpoint ?? {};
-    if (!/^[a-f0-9]{64}$/.test(originId) || !Number.isInteger(index)) throw Error('Invalid saved swap input.');
+    // Rocket RPC inputs nest their outpoint. Rust's SDK SafeJSON (Kasseal)
+    // stores the exact same fields directly on the input. Read either shape,
+    // but never rewrite the saved signed bytes or silently choose conflicting
+    // nested/flat identities.
+    const nested=input?.previousOutpoint;
+    const pointData=nested===undefined?input:nested;
+    const originId=pointData?.transactionId,index=pointData?.index;
+    if(typeof originId!=='string'||!/^[a-f0-9]{64}$/.test(originId)||!Number.isInteger(index)||index<0||index>0xffffffff||
+      nested!==undefined&&(Object.hasOwn(input,'transactionId')&&input.transactionId!==originId||Object.hasOwn(input,'index')&&input.index!==index)||
+      points.has(`${originId}:${index}`))throw Error('Invalid saved swap input. The signed transaction remains saved.');
     const point=`${originId}:${index}`;points.add(point);
     let address=input.utxo?.address;
     if(typeof address!=='string'||!/^kaspa:[a-z0-9]+$/.test(address)){

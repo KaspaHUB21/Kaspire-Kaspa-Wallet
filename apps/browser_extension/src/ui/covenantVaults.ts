@@ -1,10 +1,10 @@
-import { formatRawTokenAmount } from '../shared/tokenAmount';
+import { formatTokenDisplay } from '../shared/tokenAmount';
 
 type Row = Record<string, any>;
 type Item = { record: Row; pending?: Row };
 type Hooks = { command(name: string, values?: Record<string, unknown>): Promise<any>; shell(content: string, title?: string, back?: boolean): void; address(): string; network(): string };
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-const kas = (value: unknown) => `${formatRawTokenAmount(String(value ?? 0), 8)} KAS`;
+const kas = (value: unknown) => `${formatTokenDisplay(String(value ?? 0), 8)} KAS`;
 const line = (label: string, value: unknown) => `<div class="vault-line"><small>${esc(label)}</small><span>${esc(value)}</span></div>`;
 const button = (id: string, label: string, extra = '') => `<button id="${id}" ${extra}>${label}</button>`;
 const panel = (content: string, extra = '') => `<article class="review-card vault-panel ${extra}">${content}</article>`;

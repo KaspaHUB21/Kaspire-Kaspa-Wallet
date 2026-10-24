@@ -1,4 +1,5 @@
 import { loadState, saveState } from "./state";
+import {kassealTokens,kassealHoldings,kassealQuote,prepareKasseal,submitKasseal,resumeKasseal,clearKassealReviews,type KassealContext,type KassealState} from './kasseal';
 import { core } from "./core";
 import { exclusiveRocket, rocketPendingInfo, requireFreshRocketSwap, resumeRocketSwap,
   verifyRocketInputs, type RocketContext, type RocketRecoveryState } from './rocketSwaps';
@@ -35,6 +36,8 @@ import {
   rocketSigningRequest,
   rocketTokens,
   rocketWalletAssets,
+  waitForRocketOutput,
+  rocketTransferData,
   submitRocket,
   validateRocketFunds,
   type RocketToken,
@@ -150,6 +153,7 @@ interface VaultWallet {
   secret: string;
   hiddenKas?: P2shState;
   rocketSwaps?: Record<string, RocketRecoveryState>;
+  kassealSwaps?: Record<string, KassealState>;
 }
 interface VaultPayload {
   version: 2;
@@ -549,6 +553,7 @@ async function walletCommand(
   }
   if (message.command === "assetCategory") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
+    if(String(message.category)==='kasseal')return state.network==='mainnet'?kassealHoldings(state.selectedAddress,operationSignal):[];
     if (String(message.category) === "rocket") {
       requireRocketNetwork(state.network);
       return rocketWalletAssets(state.selectedAddress);
@@ -925,6 +930,36 @@ async function walletCommand(
       approve: (title, details, rawJson) => approve({ origin: 'Kaspire Wallet', title, description: 'Verify the covenant transaction rebuilt and simulated by the local Rust security core.', details, rawJson }, operationSignal),
     };
     return covenantVaultCommand(context, message);
+  }
+  if (String(message.command).startsWith('kasseal')) {
+    if(state.network!=='mainnet'||!state.selectedAddress)throw Error('Kasseal is available on Kaspa Mainnet only.');
+    if(message.command==='kassealTokens')return kassealTokens(String(message.search??''),String(message.cursor??''),operationSignal);
+    const base=rocketRecoveryContext(state,operationSignal),key=`mainnet:${base.address}`;
+    const entry=state.addresses.find(item=>item.address===base.address)!;
+    const wallet=sessionVault!.wallets.find(item=>item.id===entry.walletId)!;
+    const context:KassealContext={...base,
+      balance:async()=>String((await walletBalance(base.address,'mainnet')).balanceSompi),
+      load:()=>structuredClone(wallet.kassealSwaps?.[key]??{}),
+      save:async value=>{
+        await base.guard();const previous=wallet.kassealSwaps?.[key];
+        (wallet.kassealSwaps??={})[key]=structuredClone(value);
+        try{await persistVault(base.guard);await base.guard();}
+        catch(e){if(previous)wallet.kassealSwaps[key]=previous;else delete wallet.kassealSwaps[key];throw e;}
+      },
+      prepare:async request=>JSON.parse((await core()).preparePskt(JSON.stringify(request))),
+      sign:async(request,hash)=>{const wasm=await core();await base.guard();return JSON.parse(wasm.signPskt(signingSecret(wallet,entry),JSON.stringify(request),hash));},
+      approve:(title,details,rawJson)=>approve({origin:'Kaspire Wallet',title,description:'Verify the Kasseal transaction rebuilt and simulated by the local Rust security core.',details,rawJson},operationSignal),
+    };
+    if(message.command==='kassealContext'){
+      const [holdings,balance]=await Promise.allSettled([kassealHoldings(base.address,operationSignal),context.balance()]);
+      await context.guard();return {holdings:holdings.status==='fulfilled'?holdings.value:null,
+        balanceSompi:balance.status==='fulfilled'?balance.value:null,...context.load()};
+    }
+    if(message.command==='kassealQuote')return kassealQuote(context,String(message.tokenId??''),String(message.side??''),String(message.amount??''));
+    if(message.command==='kassealPrepare')return prepareKasseal(context,String(message.quoteId??''));
+    if(message.command==='kassealSubmit')return submitKasseal(context,String(message.id??''));
+    if(message.command==='kassealResume')return resumeKasseal(context);
+    throw Error('Unknown Kasseal command.');
   }
   if (String(message.command).startsWith('kronDex')) {
     if (state.network !== 'mainnet' || !state.selectedAddress) throw Error('Kron DEX is available on Kaspa Mainnet only.');
@@ -2565,6 +2600,7 @@ async function lockSession(state: Awaited<ReturnType<typeof loadState>>) {
   preparedEvmTransfers.clear();
   preparedRocketSwaps.clear();
   clearKronDexReviews();
+  clearKassealReviews();
   clearCovenantVaultReviews();
   clearP2shReviews();
   sessionVault = null;
@@ -3653,7 +3689,9 @@ async function prepareWalletAsset(
   const after = input.afterCompound as any;
   if(after) {
     if(!/^[0-9a-f]{64}$/.test(String(after.transactionId??'')))throw Error('Invalid compound transaction ID.');
-    if(after.standard==='kcc20') {
+    if(after.standard==='kasparocket-kcc20'){
+      await waitForRocketOutput(sender,String(input.covenantId),after.transactionId,signal);
+    }else if(after.standard==='kcc20') {
       await waitForStandardKcc20Output(sender,String(input.covenantId),after.transactionId,{signal,progress});
     } else {
     let ready=false;
@@ -3724,9 +3762,9 @@ async function prepareWalletAsset(
       );
     } else {
       progress("Verifying KCC20 cells…");
-      const standard = covenantAsset?.standard === 'kcc20';
+      const standard = ['kcc20','kasparocket-kcc20'].includes(covenantAsset?.standard);
       const verified = standard
-        ? {...await standardKcc20SigningData(sender,covenantId,numericAmount,{signal,progress,fullPlan:true}), ticker:covenantAsset.symbol, decimals:covenantAsset.decimals}
+        ? {...await (covenantAsset.standard==='kasparocket-kcc20'?rocketTransferData:standardKcc20SigningData)(sender,covenantId,numericAmount,{signal,progress,fullPlan:true}), ticker:covenantAsset.symbol, decimals:covenantAsset.decimals}
         : await kcc20TransferData(sender,covenantId,numericAmount);
       const step = standard ? verified as any : planKcc20Step(verified.cells,numericAmount,2);
       const compound = step.compound === true;
@@ -5323,7 +5361,7 @@ function rpc(code: number, message: string) {
 function formatSompi(value: unknown) {
   const sompi = BigInt(String(value));
   const digits = sompi.toString().padStart(9, "0");
-  const whole = digits.slice(0, -8);
+  const whole = digits.slice(0, -8).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   const fraction = digits.slice(-8).replace(/0+$/g, "");
   return fraction ? `${whole}.${fraction}` : whole;
 }

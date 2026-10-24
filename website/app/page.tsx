@@ -76,7 +76,7 @@ const highlights = [
   {
     number: "12",
     title: "Mainnet DEX swaps, inside your wallet.",
-    copy: "On Android, choose KaspaRocket, Kasseal or KRON under Swap to trade supported mainnet covenant tokens. Kasseal supports exact 1,000-token bonding-curve lots and whole-token constant-product pool swaps after graduation, with launch-proof verification, token preparation and a separate swap history. KaspaRocket token details show your balance, price and value with separate Send Asset and Swap buttons. The browser extension supports KaspaRocket and KRON. Review covenant IDs, wallet flows and fees before local signing. Signed swaps are encrypted for recovery; uncertain broadcasts remain saved.",
+    copy: "On Android and in the browser extension, choose KaspaRocket, Kasseal or KRON under Swap to trade supported mainnet covenant tokens. Kasseal supports exact 1,000-token bonding-curve lots and whole-token constant-product pool swaps after graduation, with launch-proof verification, token preparation and a separate swap history. KaspaRocket token details show your balance, price and value with separate Send Asset and Swap buttons. Review covenant IDs, wallet flows and fees before local signing. Signed swaps are encrypted for recovery; uncertain broadcasts remain saved.",
     tags: ["KaspaRocket", "Kasseal", "KRON DEX", "Mainnet swaps"],
   },
   {
@@ -714,12 +714,25 @@ export default function Home() {
                 </a>.
               </p>
               <p>
-                Includes KaspaRocket Mainnet swaps before KRON, direct
-                bonding-curve token balances and safe quote refresh for
-                confirmed obsolete swap plans. Supported pinned KCC20
-                configurations allow up to ten token inputs and outputs,
-                with whole-payment consolidation review and resumable
-                encrypted transaction recovery.
+                Since 0.5.21: Kasseal Mainnet joins KaspaRocket and KRON, with
+                global token search, independent wallet balances, curve and
+                pool trades, reviewed split/merge preparation and swap history.
+                Rocket tokens now have asset details, Send Asset and Swap
+                buttons, live transfer-cell resolution and correct KCC20
+                explorer links. Also includes P2SH history pagination, dot.k
+                newest/length filters, verified token metadata, US-style number
+                formatting and theme-specific form improvements. The 0.5.23
+                hotfix restores saved Kasseal swaps without changing their
+                signed transaction bytes.
+              </p>
+              <p>
+                <a
+                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/extension-v0.5.23"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Full extension release notes: 0.5.21 → 0.5.23
+                </a>
               </p>
               <div className="checksum">
                 <span>Extension ZIP SHA-256</span>

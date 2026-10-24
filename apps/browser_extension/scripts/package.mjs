@@ -2,6 +2,8 @@ import { mkdir, readFile, rm, readdir } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 
 const expected = JSON.parse(await readFile('manifest.json','utf8'));
+const kasseal=await(await fetch('https://kaspire.kaslab.space/dex-test-v1/kasseal-mainnet/health',{signal:AbortSignal.timeout(15000)})).json();
+if(kasseal.network!=='mainnet'||kasseal.unsignedOnly!==true||kasseal.sdk!=='0.1.1')throw Error('Kasseal Mainnet planner is not ready; refusing store package.');
 const protocol = await (await fetch('https://kaspire.kaslab.space/api/kasparocket/pro-api/protocol',
   {signal: AbortSignal.timeout(15000)})).json();
 if (protocol?.network !== 'mainnet' || protocol?.token?.decimals !== 3 ||

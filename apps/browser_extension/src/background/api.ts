@@ -1,6 +1,7 @@
 import type { KaspaNetwork } from "../shared/protocol";
 import {verifiedKascovDeclaration} from '../shared/kcc20Metadata';
-import {rocketWalletAssets, mergeRocketAssets} from './kasparocket';
+import {rocketWalletAssets, mergeRocketAssets,cachedRocketAsset} from './kasparocket';
+import {kassealHoldings,cachedKassealAsset} from './kasseal';
 import {directKronAssets, directKronTransfer} from './kronHoldings';
 import {standardKcc20Assets, standardKcc20TransferData, cachedStandardKcc20Asset, standardKcc20Token, waitForStandardKcc20Cell} from './standardKcc20';
 import {dotkNamesOf, resolveDotkName} from "./dotk";
@@ -523,11 +524,16 @@ async function loadKcc20Assets(address: string) {
 }
 
 export async function selectedKcc20Asset(address:string,covenantId:string) {
+  const venue=cachedRocketAsset(address,covenantId)??cachedKassealAsset(address,covenantId);if(venue)return venue;
   const category=categoryCache.get(`mainnet:${address}:kcc20`);
   const cached=category && Date.now()-category.at<300_000 ? category.value.find(row=>row.covenantId===covenantId) : undefined;
   const known=cached??cachedStandardKcc20Asset(get,ownerId(address),covenantId);
   if(known)return known; // Display metadata only; signing state is always fresh.
   try{return await standardKcc20Token(get,covenantId);}catch(error) {
+    const direct=await Promise.allSettled([rocketWalletAssets(address),kassealHoldings(address)]);
+    for(const source of direct)if(source.status==='fulfilled'){
+      const asset=source.value.find((row:any)=>row.covenantId===covenantId);if(asset)return asset;
+    }
     if((error as any)?.httpStatus===429 || (error as any)?.httpStatus>=500)throw error;
     return (await loadKcc20Assets(address)).find((row:any)=>row.covenantId===covenantId);
   }
@@ -1347,10 +1353,11 @@ export async function walletAssets(
     return { tokens: [], domains: [], krc721: [], kcc20: [], transactions: [] };
   const cached = assetCache.get(address);
   if (cached && Date.now() - cached.at < 30_000) return cached.value;
-  const [rawAssets, kcc20, rocket] = await Promise.all([
+  const [rawAssets, kcc20, rocket, seal] = await Promise.all([
     loadTokenAssets(address).catch(() => null),
     loadKcc20Assets(address).catch(() => []),
     rocketWalletAssets(address).catch(() => []),
+    kassealHoldings(address).catch(()=>[]),
   ]);
   const data =
     rawAssets?.data && typeof rawAssets.data === "object" ? rawAssets.data : {};
@@ -1385,7 +1392,7 @@ export async function walletAssets(
             symbol: String(item.symbol).toUpperCase(),
           }))
       : [],
-    kcc20: mergeRocketAssets(kcc20, rocket).map((item: any) => ({
+    kcc20: mergeRocketAssets(mergeRocketAssets(kcc20, rocket),seal).map((item: any) => ({
       ...item,
       symbol: String(item.symbol).toUpperCase(),
     })),

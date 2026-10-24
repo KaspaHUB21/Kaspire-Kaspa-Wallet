@@ -11,3 +11,12 @@
 .kron-screen .rocket-token code { overflow-wrap:anywhere; }
 .kron-screen .rocket-token span { min-width:0; }
 .kron-screen .token-detail h1 { overflow-wrap:anywhere; }
+.kron-screen .form label { display:flex; flex-direction:column; gap:8px; min-width:0; text-align:left; }
+.kron-screen .form label .available { float:none; clear:both; width:100%; margin:0; overflow-wrap:anywhere; }
+.kron-screen .form .amount { display:grid; grid-template-columns:minmax(0,1fr) minmax(40px,auto); align-items:center; min-width:0; gap:8px; }
+.kron-screen .form .amount input { min-width:0; width:100%; margin:0; }
+.kron-screen .form .amount > span { max-width:100px; padding:8px 0; overflow-wrap:anywhere; }
+.kasseal-screen .segmented { grid-template-columns:repeat(2,minmax(0,1fr)); margin:12px 0; }
+.kasseal-screen .token-detail { padding:12px 0; }
+.kasseal-screen .market-tools { display:block; margin:14px 0; text-align:left; }
+.kasseal-screen .market-tools input { min-width:0; }

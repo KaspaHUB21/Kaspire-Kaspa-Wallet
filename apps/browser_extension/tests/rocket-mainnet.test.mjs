@@ -51,6 +51,18 @@ test('Combining independent indexers never duplicates or sums the same token',as
   const verified={...rocket,rawBalance:'7000',discoveryComplete:true};
   assert.deepEqual(mergeRocketAssets([verified],[rocket]),[verified]);
 });
+test('Rocket transfer uses exact own-node cell proofs and the locally pinned ten-input template',async()=>{
+  const rocket=await api(),cid='d'.repeat(64),address='kaspa:qfixture';
+  const template=JSON.parse(await readFile(new URL('../../../crates/kaspa_secure_core/src/kcc20_reference_10_template.json',import.meta.url),'utf8'));
+  const cell={transactionId:'a'.repeat(64),index:0,valueSompi:'200000000',blockDaaScore:'123',scriptPublicKey:'aa20'+'b'.repeat(64)+'87',tokenAmount:'1000',redeemScript:template.prefix+'00'+template.suffix};
+  let result={network:'mainnet',address,tokenId:cid,requestedAmount:'999',templateId:'argent-kcc20-c8a0871-10x10',inputLimit:10,requiredCells:1,cells:[cell]};
+  globalThis.fetch=async url=>{const u=new URL(url);assert.equal(u.pathname,'/dex-test-v1/kasseal-mainnet/rocket-cells');assert.equal(u.searchParams.get('fullPlan'),'1');return response(result);};
+  const verified=await rocket.rocketTransferData(address,cid,999,{fullPlan:true});
+  assert.equal(verified.inputLimit,10);assert.equal(verified.templateHash,result.templateId);assert.equal(verified.transactionCount,1);assert.equal(verified.cells[0].tokenAmount,1000);
+  for(const change of [{network:'testnet-10'},{address:'other'},{tokenId:'e'.repeat(64)},{requestedAmount:'998'},{templateId:'generic'},{inputLimit:3},{cells:[cell,cell]},{cells:[{...cell,redeemScript:'00'}]},{cells:[{...cell,tokenAmount:'9007199254740993'}]}]){
+    const previous=result;result={...result,...change};await assert.rejects(rocket.rocketTransferData(address,cid,999,{fullPlan:true}));result=previous;
+  }
+});
 test('Mainnet plans bind network, direction and the requested amount',async()=>{
   const rocket=await api();
   let plan={networkId:'testnet-10',summary:{direction:'buy',kasFlowSompi:'99'}};
@@ -129,6 +141,27 @@ test('Repeated pages explicitly preserve an indeterminate swap rather than silen
     {transaction_id:origin,is_accepted:true,outputs:[{index:0,script_public_key_address:'kaspa:qpool'}]};
   await assert.rejects(retireRocketSwap(f.context,(tx,ids)=>confirmedRocketConflict(tx,ids,get)),/Unable to determine/);
   assert.deepEqual(f.state().pending,fixture());
+});
+test('conflict lookup accepts Rust SafeJSON flat inputs without rewriting the signed transaction',async()=>{
+  const flat={id:savedId,inputs:[{transactionId:origin,index:0,signatureScript:'abcd',utxo:{address:'kaspa:qpool'}}]};
+  const bytes=JSON.stringify(flat);
+  const candidate={transaction_id:competing,is_accepted:true,inputs:[{previous_outpoint_hash:origin,previous_outpoint_index:'0'}]};
+  const get=async url=>url.includes('/full-transactions')?[candidate]:candidate;
+  assert.equal(await confirmedRocketConflict(flat,new Set([savedId]),get),competing);
+  assert.equal(JSON.stringify(flat),bytes);
+});
+test('flat and nested inputs locate the same exact confirmed spender, even with missing address hints',async()=>{
+  const input={transactionId:origin,index:1},candidate={transaction_id:competing,is_accepted:true,inputs:[{previous_outpoint_hash:origin,previous_outpoint_index:'1'}]};
+  const get=async url=>url.includes('/full-transactions')?[candidate]:url.endsWith('/'+competing)?candidate:
+    {transaction_id:origin,is_accepted:true,outputs:[{index:1,script_public_key_address:'kaspa:qpool'}]};
+  for(const value of [input,{previousOutpoint:input}])assert.equal(await confirmedRocketConflict({inputs:[value]},new Set([savedId]),get),competing);
+});
+test('malformed, ambiguous or duplicate outpoints never authorize retiring a saved swap',async()=>{
+  const point={transactionId:origin,index:0},bad=[{...point,index:-1},{...point,index:0x100000000},{...point,index:'0'},
+    {previousOutpoint:null,...point},{previousOutpoint:point,transactionId:competing,index:0},{previousOutpoint:point,index:1},{transactionId:7,index:0}];
+  for(const input of bad)await assert.rejects(confirmedRocketConflict({inputs:[input]},new Set(),async()=>{throw Error('Must not query malformed inputs');}),/Invalid saved swap input/);
+  await assert.rejects(confirmedRocketConflict({inputs:[]},new Set()),/Invalid saved swap input/);
+  await assert.rejects(confirmedRocketConflict({inputs:[point,point]},new Set(),async()=>({transaction_id:origin,is_accepted:true,outputs:[{index:0,script_public_key_address:'kaspa:qpool'}]})),/Invalid saved swap input/);
 });
 test('Existing obsolete journals become refreshable without another broadcast',async()=>{
   const f=context();let submits=0;

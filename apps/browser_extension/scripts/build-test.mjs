@@ -9,6 +9,7 @@ const cargoTargetDir = process.env.CARGO_TARGET_DIR
 
 await rm("tests/generated", { recursive: true, force: true });
 await mkdir("tests/generated/wasm", { recursive: true });
+await build({entryPoints:["src/background/kasseal.ts"],outfile:"tests/generated/kasseal.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/shared/kcc20Metadata.ts"],outfile:"tests/generated/kcc20Metadata.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/shared/operationDeadline.ts"],outfile:"tests/generated/operationDeadline.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/shared/kcc20Compound.ts"],outfile:"tests/generated/kcc20Compound.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});

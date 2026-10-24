@@ -2,6 +2,35 @@
 
 Manifest V3 counterpart to Kaspire Android. Websites communicate with an injected `window.kaspire` provider through an origin-bound content bridge. It does not use WalletConnect.
 
+## 0.5.23 — Kasseal recovery
+
+Recovery recognizes both the Rust SDK's flat SafeJSON input outpoints and the
+nested Rocket RPC form. It does not rewrite saved signed bytes, clear uncertain
+payments or create a replacement. Newly verified/signed Kasseal swaps submit
+without a redundant history scan; later recovery/rejection uses independently
+confirmed exact-outpoint conflicts. Existing encrypted pending swaps survive
+the upgrade unchanged.
+
+## 0.5.22 — Kasseal and KCC20
+
+Swap now lists KaspaRocket, Kasseal DEX and KRON, in that order. Kasseal uses the
+same pinned SDK 0.1.1 unsigned planner, native Mainnet contract profiles, live
+own-node UTXO checks and Rust/WASM script execution as Android. No API key or
+remote signing code is bundled. Token discovery is independent; a failed source
+does not erase another source's holdings. Search is global rather than limited
+to the first loaded catalogue page.
+
+Sell preparations are reviewed as self-owned split/merge operations, confirmed
+and indexed before a fresh trade review. They are not recorded as sales. Signed
+transactions are persisted inside the encrypted wallet before submission and
+resumed only as the same bytes. Confirmed trades appear in My activity.
+
+Rocket tokens open their asset detail screen before Send Asset or Swap. Direct
+transfers resolve live reference 10/10 token cells through Kaspire's own-node
+gateway, with local native reconstruction and VM validation. Their explorer links
+use `/kcc20/<covenantId>`. This package also includes the latest P2SH history,
+swap-conflict pagination, verified KCC23 display and dot.k filters.
+
 ## 0.5.21 — KaspaRocket Mainnet
 
 Swap lists KaspaRocket before KRON and preserves the DEX Swaps / My Activity flow.

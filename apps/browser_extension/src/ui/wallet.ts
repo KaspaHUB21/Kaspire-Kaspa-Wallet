@@ -2,6 +2,7 @@ import QRCode from "qrcode";
 import {agoraChooser, openNftMarket, nftImageFallback} from "./nftMarket";
 import {openNexus,mountNexusBell} from './nexus';
 import {openDexSelection} from './kronDex';
+import {openKasseal} from './kasseal';
 import {openCovenantVaults} from './covenantVaults';
 import {openP2sh, receiveModeTabs} from './p2sh';
 import { sortedAssets, assetTicker, sameAsset } from "../shared/assetPresentation";
@@ -78,7 +79,7 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}, s
     const port = chrome.runtime.connect({ name: "wallet-operation" });
     let finished = false;
     const kcc20 = name === 'prepareAsset' && values.kind === 'kcc20';
-    const long = name.startsWith('kronDex') || name.toLowerCase().includes('rocket') || name.startsWith('covenantVault') || name.startsWith('p2sh') || ["resumeInscription", "nftMarketOperation", "confirmPreparedAsset", "resumeKcc20Plan"].includes(name);
+    const long = name.startsWith('kasseal') || name.startsWith('kronDex') || name.toLowerCase().includes('rocket') || name.startsWith('covenantVault') || name.startsWith('p2sh') || ["resumeInscription", "nftMarketOperation", "confirmPreparedAsset", "resumeKcc20Plan"].includes(name);
     const deadline = operationDeadline(() => {
       if(finished)return;
       finished=true; signal?.removeEventListener('abort',abort); port.disconnect();
@@ -1627,7 +1628,7 @@ async function loadHome() {
           " · " + fmt(core.utxoCount, 0) + " UTXOs";
       addCompound(core);
     }).catch(() => undefined);
-    const assets: any = {tokens: [], domains: [], krc721: [], kcc20: [], dotk: [], rocket: []};
+    const assets: any = {tokens: [], domains: [], krc721: [], kcc20: [], dotk: [], rocket: [], kasseal: []};
     const failures: string[] = [];
     let kcc20Warning='';
     await Promise.all(Object.keys(assets).map(async category => {
@@ -1638,7 +1639,7 @@ async function loadHome() {
       }
       catch { failures.push(category === "tokens" ? "KRC20" : category.toUpperCase()); }
       if (!stillHome()) return;
-      const visible = {...assets, kcc20: mergeRocketAssets(assets.kcc20, assets.rocket)};
+      const visible = {...assets, kcc20: mergeRocketAssets(mergeRocketAssets(assets.kcc20, assets.rocket),assets.kasseal)};
       snapshot = { ...snapshot, assets: visible };
       renderAssetGroups(visible);
     }));
@@ -1768,11 +1769,12 @@ function assetDetail(asset: any) {
   if (asset.kind === "krc721") return nftGallery(asset);
   if (asset.kind === "kcc20" && asset.raw?.standard === "kron-native")
     return kronDetail(asset);
+  if(asset.kind==='kcc20'&&asset.raw?.standard==='kasseal-kcc20')return openKasseal({command,shell,address:()=>String(status.selectedAddress)},asset.raw.covenantId);
   if (
     asset.kind === "kcc20" &&
     asset.raw?.standard === "kasparocket-kcc20"
   )
-    return rocketMarketplace(asset.raw.covenantId ?? asset.raw.tokenId);
+    return rocketAssetDetail(asset);
   if (asset.kind !== "krc20") return send(asset);
   shell(
     `<section class="token-detail"><div id="token-image" class="token-logo">${esc(asset.symbol.slice(0, 2))}</div><h1>${esc(asset.symbol)}</h1><p>${esc(asset.balance)} ${esc(asset.symbol)}</p><div class="price-grid"><div><small>Floor price</small><b id="floor-kas">Loading…</b><span id="floor-usd"></span></div><div><small>Balance value</small><b id="value-kas">Loading…</b><span id="value-usd"></span></div></div><button id="send-token">SEND ASSET</button><button id="explorer" class="outline">CHECK ON EXPLORER</button><p id="market-error" class="error"></p></section>`,
@@ -1811,6 +1813,15 @@ function assetDetail(asset: any) {
           error as Error
         ).message;
       });
+}
+function rocketAssetDetail(asset:any){
+  const id=String(asset.raw?.covenantId??asset.raw?.tokenId??'');
+  if(!/^[a-f0-9]{64}$/.test(id))return;
+  const price=asset.raw?.priceKas,balance=Number(String(asset.balance).replaceAll(',',''));
+  shell(`<section class="token-detail"><div class="token-logo">${asset.raw?.image_url?`<img src="${esc(asset.raw.image_url)}" alt="">`:esc(asset.symbol.slice(0,2))}</div><h1 data-preserve-case>${esc(asset.symbol)}</h1><p>${esc(asset.balance)} ${esc(asset.symbol)}</p><div class="price-grid"><div><small>Price per token</small><b>${price==null?'—':`${fmt(price)} KAS`}</b></div><div><small>Balance value</small><b>${price==null?'—':`${fmt(price*balance)} KAS`}</b></div></div><div class="approval-actions"><button id="rocket-send">Send Asset</button><button id="rocket-swap">Swap</button></div><button id="rocket-explorer" class="outline">Check on explorer</button></section>`,'Token details',true);
+  document.querySelector<HTMLButtonElement>('#rocket-send')!.onclick=()=>send(asset);
+  document.querySelector<HTMLButtonElement>('#rocket-swap')!.onclick=()=>void rocketMarketplace(id);
+  document.querySelector<HTMLButtonElement>('#rocket-explorer')!.onclick=()=>void chrome.tabs.create({url:`https://kaspatoken.kaslab.space/kcc20/${id}`});
 }
 function kronDetail(asset: any) {
   const image = asset.raw?.image_url
@@ -2738,12 +2749,14 @@ async function command(name: string, values: Record<string, unknown> = {}, signa
     "kronDexPrepare",
     "kronDexSubmit",
     "kronDexResume",
+    "kassealSubmit",
+    "kassealResume",
     "covenantVaultSubmit",
     "p2shSubmit",
   ].includes(name);
   return guarded
     ? withInAppApprovals(persistentCommand(name, values, signal))
-    : name.startsWith('covenantVault') || name.startsWith('p2sh') ? persistentCommand(name, values, signal) : rawCommand(name, values);
+    : name.startsWith('kasseal') || name.startsWith('covenantVault') || name.startsWith('p2sh') ? persistentCommand(name, values, signal) : rawCommand(name, values);
 }
 async function withInAppApprovals<T>(task: Promise<T>) {
   const completed = new AbortController();

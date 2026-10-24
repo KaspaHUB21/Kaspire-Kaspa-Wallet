@@ -21,7 +21,8 @@ const inFlight = new Set<string>();
 export function clearKronDexReviews() { quotes.clear(); prepared.clear(); }
 export function kronDisplay(raw: any, decimals: number) {
   const value = BigInt(raw ?? 0);
-  return (value < 0n ? '-' : '') + formatRawTokenAmount((value < 0n ? -value : value).toString(), decimals);
+  const [whole,fraction]=formatRawTokenAmount((value < 0n ? -value : value).toString(), decimals).split('.');
+  return (value < 0n ? '-' : '') + whole!.replace(/\B(?=(\d{3})+(?!\d))/g,',')+(fraction?'.'+fraction:'');
 }
 
 export async function kronJson(url: string, body?: any, signal?: AbortSignal): Promise<any> {

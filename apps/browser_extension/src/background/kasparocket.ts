@@ -1,3 +1,5 @@
+import {kcc20TransactionCount} from '../shared/kcc20Compound';
+import {KCC20_PROGRAMS} from '../shared/kcc20Programs';
 const API_ROOT = "https://kaspire.kaslab.space/api/kasparocket/pro-api";
 const CATALOGUE_ROOT = "https://kaspire.kaslab.space/api/kasparocket";
 export type RocketNetwork = 'mainnet' | 'testnet-10';
@@ -24,6 +26,8 @@ export async function verifyRocketNetwork(network: string = 'mainnet') {
   return protocolCheck.task;
 }
 export const ROCKET_TOKEN_DECIMALS = 3;
+const rocketAssetCache=new Map<string,{at:number;assets:any[]}>();
+export function cachedRocketAsset(address:string,cid:string){const v=rocketAssetCache.get(address);return v&&Date.now()-v.at<300000?v.assets.find(a=>a.covenantId===cid):undefined;}
 
 export interface RocketToken {
   tokenId: string;
@@ -91,7 +95,7 @@ export async function rocketWalletAssets(address: string): Promise<any[]> {
     `${API_ROOT}/tokens/${encodeURIComponent(address)}`,
   );
   const rows = Array.isArray(value?.tokens) ? value.tokens : [];
-  return rows
+  const assets=rows
     .map((row: any) => {
       const covenantId = String(row?.kcc20_covenant_id ?? "").toLowerCase();
       const rawBalance = String(row?.balance_tokens ?? "0");
@@ -113,6 +117,7 @@ export async function rocketWalletAssets(address: string): Promise<any[]> {
         standard: "kasparocket-kcc20",
         validationStatus: "kasparocket-indexed",
         discoveryComplete: false,
+        explorerUrl: `https://kaspatoken.kaslab.space/kcc20/${covenantId}`,
       };
     })
     .filter(Boolean)
@@ -121,6 +126,8 @@ export async function rocketWalletAssets(address: string): Promise<any[]> {
         left.symbol.localeCompare(right.symbol, "en") ||
         left.covenantId.localeCompare(right.covenantId),
     );
+  if(rocketAssetCache.size>=100)rocketAssetCache.delete(rocketAssetCache.keys().next().value!);
+  rocketAssetCache.set(address,{at:Date.now(),assets});return assets;
 }
 
 function numeric(value: unknown): number | null {
@@ -205,7 +212,7 @@ export function formatRocketTokenRaw(
     .toString()
     .padStart(decimals, "0")
     .replace(/0+$/, "");
-  return `${whole}${fraction ? `.${fraction}` : ""}`;
+  return `${String(whole).replace(/\B(?=(\d{3})+(?!\d))/g,',')}${fraction ? `.${fraction}` : ""}`;
 }
 
 export function validateRocketFunds(
@@ -452,6 +459,39 @@ export function rocketActivity(address: string) {
   );
 }
 
+export async function rocketTransferData(address:string,tokenId:string,amount:number,options:{signal?:AbortSignal;progress?:(stage:string)=>void;fullPlan?:boolean}={}){
+  requireRocketAddress(address);
+  if(!/^[a-f0-9]{64}$/.test(tokenId)||!Number.isSafeInteger(amount)||amount<=0)throw Error('Invalid Rocket transfer.');
+  options.signal?.throwIfAborted();options.progress?.('Verifying Rocket token cells with the own node…');
+  const query=new URLSearchParams({address,tokenId,amount:String(amount),fullPlan:options.fullPlan?'1':'0'});
+  const result=await request('GET',`https://kaspire.kaslab.space/dex-test-v1/kasseal-mainnet/rocket-cells?${query}`,undefined,false,options.signal);
+  if(result.network!=='mainnet'||result.address!==address||result.tokenId!==tokenId||result.requestedAmount!==String(amount)||
+    result.templateId!=='argent-kcc20-c8a0871-10x10'||result.inputLimit!==10||!Number.isSafeInteger(result.requiredCells)||result.requiredCells<1||
+    !Array.isArray(result.cells)||!result.cells.length||result.cells.length>(options.fullPlan?65:10))throw Error('Rocket verified cell identity differs.');
+  const template=KCC20_PROGRAMS[1]!.template,seen=new Set<string>();
+  const cells=result.cells.map((row:any)=>{
+    const values=['valueSompi','blockDaaScore','tokenAmount'];
+    if(!/^[a-f0-9]{64}$/.test(row.transactionId)||!Number.isInteger(row.index)||row.index<0||
+      values.some(k=>!/^\d+$/.test(String(row[k]))||!Number.isSafeInteger(Number(row[k])))||Number(row.tokenAmount)<=0||Number(row.valueSompi)<=0||
+      !/^aa20[a-f0-9]{64}87$/.test(row.scriptPublicKey)||typeof row.redeemScript!=='string'||
+      !row.redeemScript.startsWith(template.prefix)||!row.redeemScript.endsWith(template.suffix)||seen.has(`${row.transactionId}:${row.index}`))throw Error('Invalid or duplicate Rocket token cell.');
+    seen.add(`${row.transactionId}:${row.index}`);
+    return {...row,valueSompi:Number(row.valueSompi),blockDaaScore:Number(row.blockDaaScore),tokenAmount:Number(row.tokenAmount)};
+  });
+  const total=cells.reduce((n:number,c:any)=>n+c.tokenAmount,0);
+  if(!Number.isSafeInteger(total)||options.fullPlan&&total<amount)throw Error('Rocket cell discovery is incomplete.');
+  return {cells,templateHash:result.templateId,inputLimit:10,requiredCells:result.requiredCells,
+    compound:total<amount,stepAmount:Math.min(total,amount),transactionCount:kcc20TransactionCount(result.requiredCells,10)};
+}
+export async function waitForRocketOutput(address:string,tokenId:string,id:string,signal?:AbortSignal){
+  if(!/^[a-f0-9]{64}$/.test(id))throw Error('Invalid consolidation transaction ID.');
+  for(let i=0;i<30;i++){
+    signal?.throwIfAborted();const data=await rocketHolding(address,tokenId);
+    if(data?.address===address&&data.kcc20_covenant_id===tokenId&&data.utxos?.some((c:any)=>c.transactionId===id))return;
+    await new Promise(r=>setTimeout(r,3000));
+  }
+  throw Error('Rocket consolidation is saved but not indexed yet. Resume the saved transfer later; recipient NOT paid.');
+}
 export function mergeRocketAssets(ordinary: any[], rocket: any[]) {
   const key = (row: any) => String(row.covenantId ?? row.tokenId ?? row.id ?? row.symbol).toLowerCase();
   const rows = new Map(ordinary.map(row => [key(row), row]));
