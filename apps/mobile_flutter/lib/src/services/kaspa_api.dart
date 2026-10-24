@@ -139,13 +139,21 @@ class KaspaApi {
     void publish() {
       if (onProgress == null) return;
       final parsed = _parseAssets(progressiveTokens);
+      List<WalletTransaction> tokenHistory = const [];
+      try {
+        tokenHistory = _parseTokenTransactions(progressiveTokens, address);
+      } on KaspaApiException {
+        // The final snapshot reports integrity errors. Never block another
+        // protocol's already validated history on a malformed token response.
+      }
       onProgress(WalletSnapshot(
         balanceSompi: 0,
         kasUsd: null,
         fiatCode: AppSettings.fiatCurrency.value.code,
         fiatSymbol: AppSettings.fiatCurrency.value.symbol,
         usdToFiat: double.nan,
-        transactions: const [],
+        transactions: mergeWalletActivity(
+            tokenHistory, progressiveCovenants?.transactions ?? const []),
         krc20Tokens: parsed.krc20.toList()
           ..sort((a, b) => a.symbol.compareTo(b.symbol)),
         krc721Collections: parsed.krc721,
@@ -401,29 +409,66 @@ class KaspaApi {
   Future<List<WalletTransaction>> loadNativeTransactionsForAddresses(
     Iterable<String> addresses, {
     int limit = 20,
+    void Function(List<WalletTransaction>)? onProgress,
+    void Function(String)? onWarning,
   }) async {
     final unique = addresses.map((item) => item.toLowerCase()).toSet();
-    final responses = await Future.wait(unique.map(
-      (address) => _getReadOnlyWithFallback(
-        "/addresses/${Uri.encodeComponent(address)}/full-transactions?limit=$limit&offset=0&resolve_previous_outpoints=light",
-      ),
-    ));
     final merged = <String, Map<String, Object?>>{};
-    for (final response in responses) {
-      final rows = response is List
-          ? response
-          : (_map(response)["transactions"] as List? ?? const []);
-      for (final raw in rows.whereType<Map>()) {
-        final item = raw.cast<String, Object?>();
-        final id = (item["transaction_id"] ?? item["id"] ?? "").toString();
-        if (id.isNotEmpty) merged[id] = item;
+    final failed = <String>{};
+    List<WalletTransaction> result() => (parseTransactionsForAddresses(
+          merged.values.toList(),
+          unique,
+        )..sort((left, right) => right.timestamp.compareTo(left.timestamp)))
+            .take(limit)
+            .toList();
+    // Bound address fan-out; do not discard a healthy address because a
+    // different rotated address is unavailable or rate-limited.
+    final pending = unique.iterator;
+    Future<void> worker() async {
+      while (pending.moveNext()) {
+        final address = pending.current;
+        try {
+          final response = await _getReadOnlyWithFallback(
+            "/addresses/${Uri.encodeComponent(address)}/full-transactions?limit=$limit&offset=0&resolve_previous_outpoints=light",
+            validate: (raw) =>
+                parseTransactionsForAddresses(_nativeHistoryRows(raw), unique),
+          );
+          final rows = _nativeHistoryRows(response);
+          // Validate before merging; a malformed address response must not
+          // poison already validated history belonging to another address.
+          parseTransactionsForAddresses(rows, unique);
+          for (final raw in rows.cast<Map>()) {
+            final item = raw.cast<String, Object?>();
+            final id = (item['transaction_id'] ?? item['id'] ?? '').toString();
+            if (id.isNotEmpty) merged[id] = item;
+          }
+          onProgress?.call(result());
+        } catch (_) {
+          failed.add(address);
+        }
       }
     }
-    final transactions = parseTransactionsForAddresses(
-      merged.values.toList(),
-      unique,
-    )..sort((left, right) => right.timestamp.compareTo(left.timestamp));
-    return transactions.take(limit).toList();
+
+    await Future.wait(
+        List.generate(unique.length.clamp(0, 4), (_) => worker()));
+    if (failed.isNotEmpty) {
+      final message = failed.length == unique.length
+          ? 'KAS history is temporarily unavailable. Please retry.'
+          : 'KAS history is incomplete: ${failed.length} account address lookup(s) failed. Please retry.';
+      if (failed.length == unique.length || onWarning == null) {
+        throw KaspaApiException(message);
+      }
+      onWarning(message);
+    }
+    return result();
+  }
+
+  static List _nativeHistoryRows(Object? response) {
+    final rows = response is List ? response : _map(response)['transactions'];
+    if (rows is! List || rows.any((row) => row is! Map)) {
+      throw KaspaApiException('Invalid KAS history response.');
+    }
+    return rows;
   }
 
   Future<List<WalletTransaction>> loadNativeTransactions(
@@ -2908,16 +2953,22 @@ class KaspaApi {
     return jsonDecode(response.body);
   }
 
-  Future<Object?> _getReadOnlyWithFallback(String path) async {
+  Future<Object?> _getReadOnlyWithFallback(String path,
+      {void Function(Object?)? validate}) async {
     try {
-      return await _get(path);
+      final result = await _get(path);
+      validate?.call(result);
+      return result;
     } on TimeoutException {
-      return _getFromPublicFallback(path);
+      /* Retry the independent read-only source. */
     } on http.ClientException {
-      return _getFromPublicFallback(path);
+      /* Retry the independent read-only source. */
     } on KaspaApiException {
-      return _getFromPublicFallback(path);
-    }
+      /* Retry the independent read-only source. */
+    } on FormatException {/* Malformed JSON is not an empty account. */}
+    final result = await _getFromPublicFallback(path);
+    validate?.call(result);
+    return result;
   }
 
   Future<Object?> _getFromPublicFallback(String path) async {

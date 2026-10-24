@@ -647,6 +647,13 @@ export default function Home() {
                 file manager. Verify the checksum before installation.
               </p>
               <p>
+                Android 0.11.65 displays Activity progressively: KAS movements,
+                token history and saved receipts appear without waiting for
+                unrelated asset discovery. Failed KAS lookups are shown as
+                incomplete and can be retried, while already loaded entries
+                remain visible. Includes the WalletConnect hotfix from 0.11.64.
+              </p>
+              <p>
                 Android 0.11.64 fixes WalletConnect request handling: KRC20
                 approvals no longer wait for unrelated asset discovery,
                 repeated dApp wake links are processed, and pending requests

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
 import '../services/kaspa_api.dart';
 import '../services/activity_store.dart';
+import '../services/activity_feed.dart';
 import '../services/nft_market_service.dart';
 import '../services/native_security.dart';
 import "../services/hd_account_service.dart";
@@ -74,7 +76,8 @@ class _WalletScreenState extends State<WalletScreen> {
   late Future<WalletSnapshot> _balance;
   late Future<int> _kasBalance;
   late Future<String> _walletName;
-  Future<List<WalletTransaction>>? _activity;
+  final _activity = ActivityFeed();
+  bool _activityStarted = false;
   bool _activityExpanded = false;
   int _historyLimit = 20;
   bool _compounding = false;
@@ -113,8 +116,9 @@ class _WalletScreenState extends State<WalletScreen> {
     _kasBalance = _loadAccountBalance();
     _balance = _loadAccountBalanceSnapshot();
     _snapshot = _loadSnapshot();
-    _activity = Future<void>.delayed(const Duration(milliseconds: 500))
-        .then<List<WalletTransaction>>((_) => _loadActivity());
+    unawaited(Future<void>.delayed(const Duration(milliseconds: 500), () {
+      if (mounted && !_activityStarted) unawaited(_loadActivity());
+    }));
     _walletName = _loadWalletName();
   }
 
@@ -137,13 +141,15 @@ class _WalletScreenState extends State<WalletScreen> {
 
   void _reloadLocalActivity() {
     if (!mounted) return;
-    setState(() => _activity = _loadActivity());
+    unawaited(
+        _activity.reload({'Saved activity': (_, __) => _loadLocalActivity()}));
   }
 
   @override
   void dispose() {
     ActivityStore.changes.removeListener(_reloadLocalActivity);
     NftMarketService.changes.removeListener(_refresh);
+    _activity.dispose();
     super.dispose();
   }
 
@@ -195,23 +201,31 @@ class _WalletScreenState extends State<WalletScreen> {
         onProgress: (snapshot) {
           if (mounted && generation == _loadGeneration) {
             setState(() => _progress = snapshot);
+            if (_activityStarted) {
+              _activity.seed('Other asset history', snapshot.transactions);
+            }
           }
         },
       ),
-      ActivityStore().load(widget.address),
       _api.loadBalanceSompiForAddresses(account.networkAddresses),
       _api.loadUtxosForAddresses(account.networkAddresses),
     ]);
     final snapshot = results[0] as WalletSnapshot;
-    final local = results[1] as List<WalletTransaction>;
-    final balance = results[2] as int;
-    final utxoCount = (jsonDecode(results[3] as String) as List).length;
-    final transactions = mergeWalletActivity(local, snapshot.transactions);
-    return snapshot.withAccountData(
+    final balance = results[1] as int;
+    final utxoCount = (jsonDecode(results[2] as String) as List).length;
+    final combined = snapshot.withAccountData(
       balanceSompi: balance,
       utxoCount: utxoCount,
-      transactions: transactions,
+      transactions: snapshot.transactions,
     );
+    if (mounted && generation == _loadGeneration && _activityStarted) {
+      // Even if enrichment exceeded Activity's deadline, the eventual
+      // snapshot updates that source without restarting native history.
+      unawaited(_activity.reload({
+        'Other asset history': (_, __) async => combined.transactions,
+      }));
+    }
+    return combined;
   }
 
   void _refresh() => setState(() {
@@ -219,48 +233,49 @@ class _WalletScreenState extends State<WalletScreen> {
         _kasBalance = _loadAccountBalance();
         _balance = _loadAccountBalanceSnapshot();
         _snapshot = _loadSnapshot();
-        if (_activityExpanded) _activity = _loadActivity();
+        if (_activityStarted) unawaited(_loadActivity());
       });
 
-  Future<List<WalletTransaction>> _loadActivity() async {
+  Future<List<WalletTransaction>> _loadLocalActivity() async {
     final account = await _account;
-    final results = await Future.wait([
-      _snapshot
-          .then((value) => value.transactions)
-          .catchError((_) => <WalletTransaction>[]),
-      _api
-          .loadNativeTransactionsForAddresses(
-            account.networkAddresses,
-            limit: _historyLimit,
-          )
-          .catchError((_) => <WalletTransaction>[]),
-      Future.wait(
-        {...account.networkAddresses, widget.address, account.primaryAddress}
-            .map(ActivityStore().load),
-      ).then((lists) => lists.expand((items) => items).toList()),
-      _api
-          .loadKrc20Transactions(account.primaryAddress)
-          .catchError((_) => <WalletTransaction>[]),
-      _api
-          .loadKronTransactions(account.primaryAddress, limit: _historyLimit)
-          .timeout(const Duration(seconds: 20))
-          .catchError((_) => <WalletTransaction>[]),
-    ]);
-    final snapshot = results[0];
-    final native = results[1];
-    final local = results[2];
-    final tokens = results[3];
-    return mergeWalletActivity(
-      local,
-      <WalletTransaction>[...snapshot, ...native, ...tokens, ...results[4]]
-        ..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
-    );
+    return Future.wait(
+      {...account.networkAddresses, widget.address, account.primaryAddress}
+          .map(ActivityStore().load),
+    ).then((lists) => lists.expand((items) => items).toList());
+  }
+
+  Future<void> _loadActivity({Set<String>? only}) {
+    _activityStarted = true;
+    final account = _account, snapshot = _snapshot, limit = _historyLimit;
+    final Map<String, ActivitySourceLoader> sources = {
+      'KAS history': (publish, warn) async =>
+          _api.loadNativeTransactionsForAddresses(
+            (await account).networkAddresses,
+            limit: limit,
+            onProgress: publish,
+            onWarning: warn,
+          ),
+      'Saved activity': (_, __) => _loadLocalActivity(),
+      'KRC20 history': (_, __) async =>
+          _api.loadKrc20Transactions((await account).primaryAddress),
+      'KRON history': (_, __) async => _api
+          .loadKronTransactions((await account).primaryAddress, limit: limit),
+      // Existing asset discovery may finish later. It must never gate KAS,
+      // fresh token history or locally saved receipts.
+      'Other asset history': (_, __) async => (await snapshot).transactions,
+    };
+    return _activity.reload(only == null
+        ? sources
+        : {
+            for (final entry in sources.entries)
+              if (only.contains(entry.key)) entry.key: entry.value,
+          });
   }
 
   void _toggleActivity() {
     setState(() {
       _activityExpanded = !_activityExpanded;
-      if (_activityExpanded) _activity ??= _loadActivity();
+      if (_activityExpanded && !_activityStarted) unawaited(_loadActivity());
     });
   }
 
@@ -572,36 +587,68 @@ class _WalletScreenState extends State<WalletScreen> {
                   ),
                   if (_activityExpanded || isWindowsDesktop) ...[
                     const SizedBox(height: 12),
-                    FutureBuilder<List<WalletTransaction>>(
-                      future: _activity,
-                      builder: (context, activity) => Column(
+                    ValueListenableBuilder<ActivityFeedState>(
+                      valueListenable: _activity,
+                      builder: (context, activity, _) => Column(
                         children: [
-                          if (activity.connectionState ==
-                              ConnectionState.waiting)
+                          if (activity.loading.isNotEmpty &&
+                              activity.items.isEmpty)
                             const Padding(
                               padding: EdgeInsets.all(36),
                               child: CircularProgressIndicator(),
                             ),
-                          if (activity.hasError)
-                            _ErrorCard(
-                                error: activity.error, onRetry: _refresh),
-                          if (activity.hasData && activity.data!.isEmpty)
-                            const _EmptyActivity(),
-                          if (activity.hasData)
-                            ...activity.data!.map(
-                              (tx) => _TransactionTile(
-                                transaction: tx,
-                                walletAddress: widget.address,
-                                hideAmounts: hideAmounts,
-                              ),
+                          if (activity.loading.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Text(
+                                  'Loading: ${activity.loading.join(', ')}',
+                                  style: Theme.of(context).textTheme.bodySmall),
                             ),
-                          if (activity.hasData &&
-                              activity.data!.length >= _historyLimit)
+                          if (activity.warnings.isNotEmpty)
+                            Card(
+                                child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Activity is incomplete'),
+                                  const SizedBox(height: 8),
+                                  ...activity.warnings.values
+                                      .map((message) => Text(message)),
+                                  const SizedBox(height: 8),
+                                  OutlinedButton.icon(
+                                    onPressed: activity.warnings.keys
+                                            .every(activity.loading.contains)
+                                        ? null
+                                        : () => unawaited(_loadActivity(
+                                            only: activity.warnings.keys
+                                                .toSet())),
+                                    icon: const Icon(Icons.refresh_rounded),
+                                    label: const Text('Retry activity'),
+                                  ),
+                                ],
+                              ),
+                            )),
+                          if (activity.loading.isEmpty &&
+                              activity.warnings.isEmpty &&
+                              activity.items.isEmpty)
+                            const _EmptyActivity(),
+                          ...activity.items.map(
+                            (tx) => _TransactionTile(
+                              transaction: tx,
+                              walletAddress: widget.address,
+                              hideAmounts: hideAmounts,
+                            ),
+                          ),
+                          if (activity.items.length >= _historyLimit)
                             OutlinedButton.icon(
-                              onPressed: () => setState(() {
-                                _historyLimit += 20;
-                                _activity = _loadActivity();
-                              }),
+                              onPressed:
+                                  activity.loading.contains('KAS history')
+                                      ? null
+                                      : () => setState(() {
+                                            _historyLimit += 20;
+                                            unawaited(_loadActivity());
+                                          }),
                               icon: const Icon(Icons.expand_more_rounded),
                               label: Text(buttonLabel('LOAD MORE ACTIVITY')),
                             ),

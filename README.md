@@ -40,12 +40,18 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.64**, build **207**
+- Android app: **0.11.65**, build **208**
 - Android package: `space.kaspire.wallet`
 - Browser extension package: **0.5.23** (submitted to Chrome Web Store review)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - Extension networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
+
+Android 0.11.65 displays Activity progressively: KAS, fresh token history and
+saved receipts appear independently of slow asset/market discovery. KAS history
+failures are explicit and retryable, healthy HD addresses remain visible when
+another lookup fails, and existing entries survive refresh errors. Includes
+the 0.11.64 WalletConnect hotfix; transaction signing is unchanged.
 
 Android 0.11.64 fixes WalletConnect request recovery and KRC20 approval delays.
 KRC20 payment review loads only the required holdings instead of scanning all
