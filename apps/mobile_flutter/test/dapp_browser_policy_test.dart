@@ -35,8 +35,8 @@ void main() {
     }
   });
 
-  test('catalog is limited to six approved browser sites', () {
-    expect(browserDapps, hasLength(6));
+  test('catalog is limited to seven approved browser sites', () {
+    expect(browserDapps, hasLength(7));
     expect(browserDapps.map((d) => d.home.host).toSet(),
         DappBrowserPolicy.approvedHosts);
     for (final dapp in browserDapps) {
@@ -51,6 +51,11 @@ void main() {
     }
     for (final value in [
       'https://kasvio.network.evil.example/',
+      'https://app.kasseal.com.evil.example/',
+      'https://kasseal.com/',
+      'http://app.kasseal.com/',
+      'https://app.kasseal.com:444/',
+      'https://user@app.kasseal.com/',
       'http://kasvio.network/',
       'https://www.kasvio.network/',
       'https://devtools.kaslab.space:444/',

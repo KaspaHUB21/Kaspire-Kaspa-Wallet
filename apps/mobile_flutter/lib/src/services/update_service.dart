@@ -160,7 +160,7 @@ class UpdateService {
           .cast<String, Object?>();
       final update = isWindowsDesktop
           ? _parseWindows(data, payloadBase64, signature)
-          : _parse(data);
+          : _parse(data, payloadBase64, signature);
       final installed = int.parse((await _packageInfo()).buildNumber);
       final preferences = await SharedPreferences.getInstance();
       final highestBuild = preferences.getInt(_highestBuildKey);
@@ -320,7 +320,35 @@ class UpdateService {
     }
   }
 
-  KaspireUpdate _parse(Map<String, Object?> data) {
+  Future<Map<String, Object?>> startAndroidUpdate(KaspireUpdate update) async {
+    if (isWindowsDesktop ||
+        update.isDesktop ||
+        update.signedPayload.isEmpty ||
+        update.signature.isEmpty) {
+      throw StateError(
+          'A verified Android update is required. Check for updates again.');
+    }
+    final result = await const SecurityChannel().invokeMethod<Map>(
+        'startAndroidUpdate',
+        {'payload': update.signedPayload, 'signature': update.signature});
+    return result!.cast<String, Object?>();
+  }
+
+  Future<Map<String, Object?>> androidUpdateStatus(String token) async =>
+      (await const SecurityChannel()
+              .invokeMethod<Map>('androidUpdateStatus', {'token': token}))!
+          .cast<String, Object?>();
+
+  Future<String> installAndroidUpdate(String token) async =>
+      (await const SecurityChannel()
+          .invokeMethod<String>('installAndroidUpdate', {'token': token}))!;
+
+  Future<void> cancelAndroidUpdate(String token) async =>
+      const SecurityChannel()
+          .invokeMethod<void>('cancelAndroidUpdate', {'token': token});
+
+  KaspireUpdate _parse(
+      Map<String, Object?> data, String payload, String signature) {
     final version = data['version']?.toString() ?? '';
     final build = data['build'];
     final minimumBuild = data['minimumBuild'];
@@ -334,15 +362,17 @@ class UpdateService {
         build <= 0 ||
         minimumBuild is! int ||
         minimumBuild <= 0 ||
+        minimumBuild > build ||
         apkUrl == null ||
         apkUrl.scheme != 'https' ||
         apkUrl.host != 'kaspire.kaslab.space' ||
-        !apkUrl.path.startsWith('/downloads/Kaspire-Android-mainnet-v') ||
+        apkUrl.toString() !=
+            'https://kaspire.kaslab.space/downloads/Kaspire-Android-mainnet-v$version.apk' ||
         notesUrl == null ||
         notesUrl.scheme != 'https' ||
         notesUrl.host != 'github.com' ||
-        !notesUrl.path
-            .startsWith('/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/') ||
+        notesUrl.toString() !=
+            'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/v$version' ||
         !RegExp(r'^[0-9a-f]{64}$').hasMatch(sha256) ||
         publishedAt == null) {
       throw StateError('The signed update manifest contains invalid fields.');
@@ -356,6 +386,8 @@ class UpdateService {
       apkUrl: apkUrl,
       sha256: sha256,
       releaseNotesUrl: notesUrl,
+      signedPayload: payload,
+      signature: signature,
     );
   }
 }

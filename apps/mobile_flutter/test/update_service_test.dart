@@ -22,6 +22,8 @@ void main() {
 
     expect(update?.version, '0.11.12');
     expect(update?.build, 70);
+    expect(update?.signedPayload, isNotEmpty);
+    expect(update?.signature, 'valid');
     expect(service.state.value.error, isNull);
   });
 
@@ -71,6 +73,24 @@ void main() {
 
     await service.remindLater(update!);
     expect(await service.checkNow(), isNull);
+  });
+
+  test('signed URL must bind the exact release version, not a prefix or query',
+      () async {
+    for (final suffix in ['.evil', '?mirror=evil', '/other.apk']) {
+      final envelope = jsonDecode(_envelope(build: 70)) as Map;
+      final payload =
+          jsonDecode(utf8.decode(base64Decode(envelope['payload']))) as Map;
+      payload['apkUrl'] = '${payload['apkUrl']}$suffix';
+      envelope['payload'] = base64Encode(utf8.encode(jsonEncode(payload)));
+      final service = UpdateService(
+          client:
+              MockClient((_) async => http.Response(jsonEncode(envelope), 200)),
+          verifier: (_, __) async => true,
+          packageInfo: () async => _packageInfo(build: 69));
+      expect(await service.checkNow(), isNull);
+      expect(service.state.value.error, contains('invalid fields'));
+    }
   });
 
   test('automatic check fetches on every cold start despite a recent check',

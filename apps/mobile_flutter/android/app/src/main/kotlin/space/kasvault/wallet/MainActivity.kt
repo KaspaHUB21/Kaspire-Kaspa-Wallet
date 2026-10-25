@@ -267,6 +267,14 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(null)
                     }
                     "isHardwareBacked" -> result.success(isHardwareBacked())
+                    "startAndroidUpdate" -> result.success(appUpdater.start(
+                        call.argument<String>("payload") ?: error("Missing update payload"),
+                        call.argument<String>("signature") ?: error("Missing update signature")))
+                    "androidUpdateStatus" -> result.success(appUpdater.status(call.argument<String>("token") ?: error("Missing update token")))
+                    "cancelAndroidUpdate" -> { appUpdater.cancel(call.argument<String>("token") ?: error("Missing update token")); result.success(null) }
+                    "installAndroidUpdate" -> appUpdater.install(call.argument<String>("token") ?: error("Missing update token")) { stage, error ->
+                        if (error == null) result.success(stage) else result.error("UPDATE_ERROR", "Update verification or installation could not continue. Retry or use the official website.", null)
+                    }
                     "verifyUpdateManifest" -> result.success(verifyUpdateManifest(
                         call.argument<String>("payload") ?: error("Missing update payload"),
                         call.argument<String>("signature") ?: error("Missing update signature"),
@@ -2925,6 +2933,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    private val appUpdater by lazy { AndroidAppUpdater(applicationContext, ::verifyUpdateManifest) }
     private fun hasPin(): Boolean = preferences().contains(pinSaltKey) && preferences().contains(pinHashKey)
 
     private fun verifyUpdateManifest(payloadBase64: String, signatureBase64: String): Boolean {

@@ -45,3 +45,20 @@ No per-release nginx version edit is needed. The latest-only configuration
 is maintained in `nginx-kaspire.conf`. Retired deployment binaries are kept
 outside the public document root in `/var/www/kaspire/retired-apks.*` for
 recovery; source/build archives are not public website downloads.
+
+## Internal Android updates (0.11.68+)
+
+The in-app GitHub option uses the same trusted signed Android manifest, never
+GitHub's mixed-platform Latest release as its authority. It derives the exact
+asset URL `.../releases/download/vVERSION/Kaspire-Android-mainnet-vVERSION.apk`.
+Publish that GitHub release and APK asset **before** advertising the version in
+the public signed update manifest, so a newly offered internal update cannot
+point at a private draft or a missing asset. Preserve the old website route.
+
+Native Android code bounds HTTPS redirects/download size/time, verifies the
+signed terms again, hashes the complete APK and checks package, build/version
+and installed signing identity/rotation history. Only its private updater cache
+is exposed to Android's installer through a non-exported, scoped FileProvider.
+Unknown-source permission and installation confirmation remain Android's job;
+opening the installer is not proof of a successful installation. Test an actual
+upgrade on a physical device after a subsequent newer release becomes available.

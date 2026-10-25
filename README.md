@@ -40,12 +40,23 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.67**, build **210**
+- Android app: **0.11.68**, build **211**
 - Android package: `space.kaspire.wallet`
 - Browser extension package: **0.5.27** (ZIP availability is separate from Chrome Web Store approval)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - Extension networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
+
+Android 0.11.68 adds a themed choice between the classic official-website APK
+download and an internal GitHub-release download. The internal updater verifies
+the signed manifest, complete APK hash, package/version and signing continuity
+before opening Android's installer. Android permissions/confirmation still apply;
+there is no silent install or remote-code hot update. This version itself must
+first be installed through the existing flow; the internal route can then be
+used for the next newer release. Kaspire Browser now lists Kasvio, Kasseal,
+GothDAG, dot.k, Kaspa News, Kaspa Dev Tools and KasCoven Vaults, in that order.
+[Android 0.11.68 release notes](docs/release-v0.11.68.md).
+The extension remains 0.5.27; Windows is unchanged.
 
 Android 0.11.67 and extension 0.5.27 add **Borrowed Receive** for standard KCC20
 and KaspaRocket: reuse an eligible live recipient cell while preserving its

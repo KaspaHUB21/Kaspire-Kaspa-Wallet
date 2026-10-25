@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../widgets/hub21_material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/asset_send_intent.dart';
 import 'receive_screen.dart';
@@ -22,6 +21,7 @@ import '../services/evm_api.dart';
 import '../theme.dart';
 import '../platform.dart';
 import '../widgets/windows_update_dialog.dart';
+import '../widgets/android_update_dialog.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({
@@ -412,11 +412,8 @@ class _HomeShellState extends State<HomeShell> {
                           TextButton(
                             onPressed: () => update.isDesktop
                                 ? showWindowsUpdate(context, update)
-                                : launchUrl(
-                                    update.apkUrl,
-                                    mode: LaunchMode.externalApplication,
-                                  ),
-                            child: Text(buttonLabel('DOWNLOAD')),
+                                : showAndroidUpdate(context, update),
+                            child: Text(buttonLabel('UPDATE')),
                           ),
                           IconButton(
                             tooltip: 'Remind me tomorrow',

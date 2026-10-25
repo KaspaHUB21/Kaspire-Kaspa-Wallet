@@ -18,6 +18,7 @@ import 'tangem_rescue_screen.dart';
 import 'covenant_vault_screen.dart';
 import '../platform.dart';
 import '../widgets/windows_update_dialog.dart';
+import '../widgets/android_update_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -1056,11 +1057,11 @@ class _SettingsOverview extends StatelessWidget {
                           OutlinedButton.icon(
                             onPressed: () => update.isDesktop
                                 ? showWindowsUpdate(context, update)
-                                : _open(update.apkUrl.toString()),
+                                : showAndroidUpdate(context, update),
                             icon: const Icon(Icons.download_rounded),
                             label: Text(buttonLabel(update.isDesktop
                                 ? 'DOWNLOAD & INSTALL'
-                                : 'DOWNLOAD UPDATE')),
+                                : 'UPDATE OPTIONS')),
                           ),
                           TextButton.icon(
                             onPressed: () =>

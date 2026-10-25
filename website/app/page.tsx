@@ -70,7 +70,7 @@ const highlights = [
   {
     number: "11",
     title: "Keep dApps inside your wallet.",
-    copy: "Open approved sites directly in Kaspire Browser on Android. Choose Kasvio, GothDAG, Kaspa Dev Tools, dot.k, Kaspa News or KasCoven Vaults. Supported dApps keep WalletConnect connection and transaction approvals inside Kaspire; Kaspa News is a read-only news entry. Browser navigation is restricted to approved origins.",
+    copy: "Open approved sites directly in Kaspire Browser on Android. Choose Kasvio, Kasseal, GothDAG, dot.k, Kaspa News, Kaspa Dev Tools or KasCoven Vaults, in that order. Supported dApps keep WalletConnect connection and transaction approvals inside Kaspire; Kaspa News is a read-only news entry. Browser navigation is restricted to approved origins.",
     tags: ["In-app browser", "Approved dApps", "WalletConnect"],
   },
   {
@@ -651,6 +651,25 @@ export default function Home() {
               <p>
                 Android may ask you to allow installation from your browser or
                 file manager. Verify the checksum before installation.
+              </p>
+              <p>
+                Android 0.11.68 adds a themed update-choice dialog: keep the
+                classic official-website APK download or download the matching
+                GitHub release directly inside Kaspire. The internal route checks
+                the signed manifest, APK checksum, package, version and signing
+                identity before opening Android&apos;s installer. Android may ask
+                you to allow installs from Kaspire and confirm installation.
+                Kaspire Browser adds Kasseal as its second approved dApp, with
+                its official icon and the refreshed dApp order.
+              </p>
+              <p>
+                <a
+                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/v0.11.68"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Full Android release notes: 0.11.67 → 0.11.68
+                </a>
               </p>
               <p>
                 Android 0.11.67 adds Borrowed Receive for standard KCC20 and

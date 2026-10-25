@@ -4,6 +4,7 @@ class DappBrowserPolicy {
   static const approvedHosts = {
     'gothdag.kaslab.space',
     'kasvio.network',
+    'app.kasseal.com',
     'devtools.kaslab.space',
     'dotk.name',
     'kaspa.news',

@@ -10,14 +10,29 @@ void main() {
     expect(browserDapps.first.name, 'Kasvio');
     expect(browserDapps.first.url, 'https://kasvio.network/');
   });
-  test('Kaspa News uses its local logo directly before KasCoven Vaults', () {
+  test('Kasseal is second and the complete approved order matches the release',
+      () {
+    expect(browserDapps.map((dapp) => dapp.name).toList(), [
+      'Kasvio',
+      'Kasseal',
+      'GothDAG',
+      'dot.k',
+      'Kaspa News',
+      'Kaspa Dev Tools',
+      'KasCoven Vaults',
+    ]);
+    expect(browserDapps[1].url, 'https://app.kasseal.com/');
+    expect(browserDapps[1].walletConnectEnabled, isTrue);
+    expect(browserDapps[1].logo, 'assets/browser/kasseal-browser.png');
+  });
+  test('Kaspa News retains its local logo and read-only role', () {
     final news =
         browserDapps.indexWhere((site) => site.home.host == 'kaspa.news');
     expect(news, greaterThanOrEqualTo(0));
     expect(browserDapps[news].url, 'https://kaspa.news/');
     expect(browserDapps[news].logo, 'assets/browser/kaspa-news.png');
     expect(browserDapps[news].walletConnectEnabled, isFalse);
-    expect(browserDapps[news + 1].name, 'KasCoven Vaults');
+    expect(browserDapps.last.name, 'KasCoven Vaults');
   });
   testWidgets('dApp selection and invitation fit narrow screens in every theme',
       (tester) async {
@@ -35,6 +50,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('GothDAG'), findsOneWidget);
       expect(find.text('Kasvio'), findsOneWidget);
+      expect(find.text('Kasseal'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Kaspa Dev Tools'), 160);
       expect(find.text('Kaspa Dev Tools'), findsOneWidget);
       await tester.scrollUntilVisible(
           find.text('Integrate your dApp into Kaspire Browser'), 160);

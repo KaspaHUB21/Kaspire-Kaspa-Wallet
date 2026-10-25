@@ -10,14 +10,16 @@ class BrowserDapp {
 
 const browserDapps = [
   BrowserDapp('Kasvio', 'https://kasvio.network/', 'assets/browser/kasvio.svg'),
+  BrowserDapp('Kasseal', 'https://app.kasseal.com/',
+      'assets/browser/kasseal-browser.png'),
   BrowserDapp(
       'GothDAG', 'https://gothdag.kaslab.space/', 'assets/browser/gothdag.png'),
-  BrowserDapp('Kaspa Dev Tools', 'https://devtools.kaslab.space/',
-      'assets/browser/devtools.png'),
   BrowserDapp('dot.k', 'https://dotk.name/', 'assets/browser/dotk.png'),
   BrowserDapp(
       'Kaspa News', 'https://kaspa.news/', 'assets/browser/kaspa-news.png',
       walletConnectEnabled: false),
+  BrowserDapp('Kaspa Dev Tools', 'https://devtools.kaslab.space/',
+      'assets/browser/devtools.png'),
   BrowserDapp('KasCoven Vaults', 'https://vaults.kaslab.space/',
       'assets/browser/vaults.png'),
 ];

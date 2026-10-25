@@ -124,6 +124,7 @@ configurations.configureEach {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.biometric:biometric:1.1.0")
     // Fixed official Tangem SDK release. The rescue flow sends only locally
     // verified Kaspa ECDSA sighashes to the card; no private key is exported.
