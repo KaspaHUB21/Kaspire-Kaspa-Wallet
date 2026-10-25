@@ -30,6 +30,7 @@ void main() {
       () async {
     final service = KassealService(client: MockClient((r) async {
       expect(r.url.path, endsWith('/tokens'));
+      expect(r.url.queryParameters['sort'], 'mcap-volume');
       expect(r.url.queryParameters['search'], 'unnachod &limit=100');
       expect(r.url.queryParameters['cursor'], 'query-page-2');
       expect(r.url.queryParameters.containsKey('limit'), false);

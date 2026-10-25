@@ -7,6 +7,7 @@ import '../services/network_settings.dart';
 import 'kasparocket_screen.dart' show rocketListPadding, KaspaRocketScreen;
 import 'kasseal_screen.dart';
 import '../services/kasseal_service.dart';
+import '../widgets/sell_amount_buttons.dart';
 
 class DexSelectionScreen extends StatelessWidget {
   const DexSelectionScreen({super.key, required this.address});
@@ -149,10 +150,14 @@ class KronTradeScreen extends StatefulWidget {
       {super.key,
       required this.address,
       required this.token,
-      required this.service});
+      required this.service,
+      this.api,
+      this.holdings});
   final String address;
   final Map<String, dynamic> token;
   final KronDexService service;
+  final KaspaApi? api;
+  final KronHoldings? holdings;
   @override
   State<KronTradeScreen> createState() => _KronTradeScreenState();
 }
@@ -182,8 +187,9 @@ class _KronTradeScreenState extends State<KronTradeScreen> {
   Future<void> loadBalances() async {
     try {
       final values = await Future.wait<dynamic>([
-        KaspaApi().loadBalanceSompi(widget.address),
-        KronHoldings(widget.service.client).balances(widget.address),
+        (widget.api ?? KaspaApi()).loadBalanceSompi(widget.address),
+        (widget.holdings ?? KronHoldings(widget.service.client))
+            .balances(widget.address),
         widget.service.pending(widget.address)
       ]);
       final rows = values[1] as List;
@@ -445,6 +451,21 @@ class _KronTradeScreenState extends State<KronTradeScreen> {
                       ? 'KAS trade amount (fees added)'
                       : 'Token amount',
                   suffixText: side == 'buy' ? 'KAS' : ticker)),
+          if (side == 'sell') ...[
+            const SizedBox(height: 8),
+            SellAmountButtons(
+                balance: held,
+                decimals: decimals,
+                enabled: !busy && recovery == null,
+                onSelected: (value) => setState(() {
+                      amount.value = TextEditingValue(
+                          text: value,
+                          selection:
+                              TextSelection.collapsed(offset: value.length));
+                      quote = null;
+                      error = '';
+                    })),
+          ],
           const SizedBox(height: 12),
           FilledButton(
               onPressed: busy || recovery != null ? null : () => run(getQuote),

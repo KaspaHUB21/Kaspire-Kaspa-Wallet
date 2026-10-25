@@ -6,6 +6,7 @@ import '../services/kron_dex_service.dart' show KronDexService;
 import '../services/native_security.dart';
 import '../services/network_settings.dart';
 import 'kasparocket_screen.dart' show rocketListPadding;
+import '../widgets/sell_amount_buttons.dart';
 
 class KassealScreen extends StatefulWidget {
   const KassealScreen(
@@ -24,6 +25,7 @@ class _KassealScreenState extends State<KassealScreen>
   final rows = <Map<String, dynamic>>[];
   String? cursor;
   String error = '';
+  String rankingWarning = '';
   bool loading = false;
   Timer? _searchDebounce;
   int _generation = 0;
@@ -55,6 +57,7 @@ class _KassealScreenState extends State<KassealScreen>
     setState(() {
       loading = true;
       error = '';
+      rankingWarning = '';
       if (!more) history = service.history(address);
       if (!more) {
         rows.clear();
@@ -82,6 +85,7 @@ class _KassealScreenState extends State<KassealScreen>
                 !ids.contains(t['meta']['covenantId']))
             .map((t) => Map<String, dynamic>.from(t)));
         cursor = data['nextCursor'] as String?;
+        rankingWarning = data['warning']?.toString() ?? '';
       });
       if (widget.tokenId != null &&
           !_initialTokenRequested &&
@@ -220,6 +224,10 @@ class _KassealScreenState extends State<KassealScreen>
                 prefixIcon: const Icon(Icons.search))),
         if (error.isNotEmpty)
           Padding(padding: const EdgeInsets.all(16), child: Text(error)),
+        const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Text('Market cap: High to Low · 24h volume breaks ties')),
+        if (rankingWarning.isNotEmpty) Text(rankingWarning),
         ...rows.map((t) {
           final m = t['meta'] as Map, image = service.image(m);
           return Card(
@@ -232,7 +240,9 @@ class _KassealScreenState extends State<KassealScreen>
                           errorBuilder: (_, e, s) => const Icon(Icons.token)),
                   title: Text('${m['ticker'] ?? m['name'] ?? 'Token'}'),
                   subtitle: Text(
-                      '${t['phase'] == 'bonding' ? 'Launchpad' : 'Pool'} · ${m['covenantId']}'),
+                      '${t['phase'] == 'bonding' ? 'Launchpad' : 'Pool'} · ${m['covenantId']}'
+                      '${t['marketCapSompi'] == null ? '' : '\nMarket cap: ${KronDexService.display(t['marketCapSompi'], 8)} KAS'}'
+                      '${!t.containsKey('volume24hSompi') ? '' : '\n24h volume: ${t['volume24hSompi'] == null ? 'Unavailable' : '${KronDexService.display(t['volume24hSompi'], 8)} KAS'}'}'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => open(t)));
         }),
@@ -592,6 +602,38 @@ class _KassealTradeScreenState extends State<KassealTradeScreen> {
                           ? 'KAS trade amount (deposit and network fee added)'
                           : 'Token amount (whole tokens)',
                       suffixText: side == 'buy' ? 'KAS' : ticker)),
+              if (side == 'sell') ...[
+                const SizedBox(height: 8),
+                SellAmountButtons(
+                    balance: held,
+                    decimals: 0,
+                    step: widget.token['phase'] == 'bonding'
+                        ? BigInt.tryParse(
+                                '${(widget.token['curve'] as Map?)?['lotSize']}') ??
+                            BigInt.one
+                        : BigInt.one,
+                    enabled: !busy &&
+                        recovery == null &&
+                        (widget.token['phase'] != 'bonding' ||
+                            (BigInt.tryParse(
+                                        '${(widget.token['curve'] as Map?)?['lotSize']}') ??
+                                    BigInt.zero) >
+                                BigInt.zero),
+                    onSelected: (value) => setState(() {
+                          amount.value = TextEditingValue(
+                              text: value,
+                              selection: TextSelection.collapsed(
+                                  offset: value.length));
+                          quote = null;
+                          error = '';
+                        })),
+                if (widget.token['phase'] == 'bonding')
+                  Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                          'Curve presets round down to whole lots of ${KronDexService.display((widget.token['curve'] as Map?)?['lotSize'], 0)} tokens.',
+                          style: Theme.of(context).textTheme.bodySmall)),
+              ],
               const SizedBox(height: 12),
               OutlinedButton(
                   onPressed: busy ? null : () => run(getQuote),

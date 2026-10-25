@@ -5,6 +5,7 @@ import '../services/kaspa_api.dart';
 import '../services/native_security.dart';
 import '../services/network_settings.dart';
 import '../number_format.dart';
+import '../widgets/sell_amount_buttons.dart';
 
 class KaspaRocketScreen extends StatefulWidget {
   const KaspaRocketScreen(
@@ -199,17 +200,19 @@ class KaspaRocketTradeScreen extends StatefulWidget {
       {super.key,
       required this.address,
       required this.token,
-      required this.service});
+      required this.service,
+      this.api});
   final String address;
   final KaspaRocketToken token;
   final KaspaRocketService service;
+  final KaspaApi? api;
   @override
   State<KaspaRocketTradeScreen> createState() => _KaspaRocketTradeScreenState();
 }
 
 class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
   final amount = TextEditingController(), security = NativeSecurity();
-  final kaspaApi = KaspaApi();
+  late final kaspaApi = widget.api ?? KaspaApi();
   String side = 'buy';
   String? pool, errorText;
   Map<String, Object?>? quote, holding;
@@ -604,6 +607,21 @@ class _KaspaRocketTradeScreenState extends State<KaspaRocketTradeScreen> {
                       ? 'KAS trade amount (DEX fees added)'
                       : 'Token amount',
                   suffixText: side == 'buy' ? 'KAS' : widget.token.ticker)),
+          if (side == 'sell') ...[
+            const SizedBox(height: 8),
+            SellAmountButtons(
+                balance: holding == null ? null : holdingRaw,
+                decimals: KaspaRocketService.tokenDecimals,
+                enabled: !busy && pendingSwap == null,
+                onSelected: (value) => setState(() {
+                      amount.value = TextEditingValue(
+                          text: value,
+                          selection:
+                              TextSelection.collapsed(offset: value.length));
+                      quote = null;
+                      errorText = null;
+                    })),
+          ],
           const SizedBox(height: 10),
           OutlinedButton(
               onPressed: busy || pool == null ? null : getQuote,

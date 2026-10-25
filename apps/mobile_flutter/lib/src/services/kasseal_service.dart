@@ -70,6 +70,7 @@ class KassealService {
     if (search.length > 64 || (cursor?.length ?? 0) > 1024)
       throw StateError('Invalid Kasseal search or page cursor.');
     final uri = Uri.parse('$planner/tokens').replace(queryParameters: {
+      'sort': 'mcap-volume',
       if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
       if (search.isNotEmpty) 'search': search,
     });

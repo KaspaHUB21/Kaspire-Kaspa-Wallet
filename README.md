@@ -40,12 +40,20 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.68**, build **211**
+- Android app: **0.11.69**, build **212**
 - Android package: `space.kaspire.wallet`
 - Browser extension package: **0.5.27** (ZIP availability is separate from Chrome Web Store approval)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - Extension networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
+
+Android 0.11.69 adds themed **25% / 50% / 75% / MAX** sell presets for KaspaRocket,
+Kasseal and KRON, with exact integer-unit calculations, decimal-aware inputs and
+curve-lot rounding. Kasseal browsing is ranked across the complete catalogue by
+market cap descending, then rolling 24h volume for ties, with shared cached
+snapshots and stable 20-item pagination. This release can be installed using
+0.11.68's new in-app GitHub update route.
+[Android 0.11.69 release notes](docs/release-v0.11.69.md).
 
 Android 0.11.68 adds a themed choice between the classic official-website APK
 download and an internal GitHub-release download. The internal updater verifies

@@ -1,6 +1,7 @@
 // Public, unsigned TN10 plans only. Never accept a private key, seed or signed transaction.
 import * as sdk from '@kassealhq/sdk/node';
 import {NETWORK, API, PREFIX, profile} from './network.mjs';
+import {RankedCatalogue} from './ranked-catalogue.mjs';
 export {NETWORK, API};
 const encode = value => JSON.parse(JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v));
 export async function get(path) {
@@ -33,7 +34,10 @@ export function cataloguePath(cursor = '', search = '') {
   if(/^[a-f0-9]{64}$/i.test(query))return `/tokens/${query.toLowerCase()}`;
   return `/tokens?${new URLSearchParams({sort:'active',limit:'20',...(cursor?{cursor}:{}),...(query?{search:query}:{})})}`;
 }
-export async function catalogue(cursor = '', search = '') {
+const rankedCatalogue=new RankedCatalogue(get);
+export async function catalogue(cursor = '', search = '', sort = 'active') {
+  if(sort==='mcap-volume'&&!/^[a-f0-9]{64}$/i.test(search.trim()))return rankedCatalogue.page(cursor,search);
+  if(!['active','mcap-volume'].includes(sort))throw Error('Unsupported catalogue order');
   const path=cataloguePath(cursor,search);
   if(path.startsWith('/tokens/')) {
     const token=await get(path);return {tokens:[token],nextCursor:null};

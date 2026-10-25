@@ -653,6 +653,24 @@ export default function Home() {
                 file manager. Verify the checksum before installation.
               </p>
               <p>
+                Android 0.11.69 adds 25%, 50%, 75% and MAX sell buttons to
+                KaspaRocket, Kasseal and KRON. Amounts use exact token units;
+                Kasseal curves round down to complete tradeable lots. Kasseal
+                tokens are now ranked across the full catalogue by market cap,
+                then 24h volume for ties, with stable Load more pages.
+                Users on 0.11.68 can choose the internal GitHub update route
+                to install this version.
+              </p>
+              <p>
+                <a
+                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/v0.11.69"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Full Android release notes: 0.11.68 → 0.11.69
+                </a>
+              </p>
+              <p>
                 Android 0.11.68 adds a themed update-choice dialog: keep the
                 classic official-website APK download or download the matching
                 GitHub release directly inside Kaspire. The internal route checks
