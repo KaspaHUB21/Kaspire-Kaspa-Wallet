@@ -1,1 +1,1 @@
-{"name":"kaspire-kasseal-test","private":true,"type":"module","scripts":{"start":"node server.mjs","test":"node --test *.test.mjs"},"dependencies":{"@kassealhq/sdk":"0.1.1"}}
+{"name":"kaspire-kasseal-test","private":true,"type":"module","scripts":{"start":"node server.mjs","test":"node --test *.test.mjs"},"dependencies":{"@kassealhq/sdk":"0.3.0"}}

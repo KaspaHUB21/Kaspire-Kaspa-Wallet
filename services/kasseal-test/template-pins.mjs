@@ -11,11 +11,11 @@ function pin(t,creator=false,token=false){
  if(creator){
    const key=Buffer.from(t.params.creatorSpk);
    for(let start=stateOffset+stateLength;;){const i=bytes.indexOf(key,start);if(i<0)break;creatorOffsets.push(i);start=i+key.length;}
-   if(creatorOffsets.length!==4)throw Error('Unexpected creator layout');
+   if(creatorOffsets.length!==(sdk.hasCreatorWindow(t)?5:4))throw Error('Unexpected creator layout');
    for(const i of creatorOffsets)bytes.fill(0,i,i+36);
  }
  bytes.fill(0,stateOffset,stateOffset+stateLength);
- return {length:bytes.length,stateOffset,stateLength,creatorOffsets,sha256:createHash('sha256').update(bytes).digest('hex')};
+ return {length:bytes.length,stateOffset,stateLength,creatorOffsets,...(creator?{creatorWindow:sdk.hasCreatorWindow(t)}:{}),sha256:createHash('sha256').update(bytes).digest('hex')};
 }
-console.log(JSON.stringify({source:'Sealkaspa/kasseal-sdk@71d25563a594d47a5d421646a8a4b02df2eec848',sdk:'0.1.1',network,
+console.log(JSON.stringify({source:'@kassealhq/sdk@0.3.0',sdk:'0.3.0',network,
  curves:bases.map(b=>pin(b.curve,true)),pool:pin(bases[0].pool),token:pin(bases[0].token,false,true)},null,2));

@@ -17,6 +17,7 @@ mod kcc20_standard;
 mod kcc20_plan;
 mod kron;
 mod kasseal;
+mod braid;
 mod policy_transaction;
 mod pskt;
 mod tangem_rescue;

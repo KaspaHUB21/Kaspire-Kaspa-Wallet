@@ -140,7 +140,7 @@ export function preparationRequest(body,ctx,built,operation) {
   return encode({request:{sender:body.address,profile:profile('prepare'),tokenId:body.tokenId,lpCovenantId:ctx.quote.marketId,
     ticker:ctx.token.meta?.ticker||ctx.token.meta?.name||body.tokenId.slice(0,8),side:'sell',txJsonString:prepared.txJson,
     signInputs:prepared.signInputs.map(i=>({...i,expectedSighash:sdk.sighashOfTxJson(prepared.txJson,i.index,1)})),scripts:prepared.prebuilt,tradeSummary:summary},
-    proofStatus:'bound',sdkVersion:'0.1.1'});
+    proofStatus:'bound',sdkVersion:'0.3.0'});
 }
 export async function preparationReady(address,tokenId,transactionId) {
   checkOrder({network:NETWORK,address,tokenId,side:'sell',rawAmount:'1'});
@@ -172,5 +172,5 @@ export function signingRequest(body,ctx,built) {
   return encode({request:{sender:body.address,profile:profile('swap'),tokenId:body.tokenId,lpCovenantId:q.marketId,
     ticker:ctx.token.meta?.ticker || ctx.token.meta?.name || body.tokenId.slice(0,8),side:body.side,
     txJsonString:prepared.txJson,signInputs:prepared.signInputs.map(i=>({...i,expectedSighash:sdk.sighashOfTxJson(prepared.txJson,i.index,1)})),
-    scripts:prepared.prebuilt,tradeSummary:summary},proofStatus:'bound',sdkVersion:'0.1.1'});
+    scripts:prepared.prebuilt,tradeSummary:summary},proofStatus:'bound',sdkVersion:'0.3.0'});
 }

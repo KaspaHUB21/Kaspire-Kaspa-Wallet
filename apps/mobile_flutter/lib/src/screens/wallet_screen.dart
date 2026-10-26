@@ -32,6 +32,7 @@ import 'dotk_name_screen.dart';
 import 'k_agora_screen.dart';
 import 'kasparocket_screen.dart';
 import 'kasseal_screen.dart';
+import 'kasforge_screen.dart';
 import '../services/kasseal_service.dart';
 import '../widgets/kaspire_brand.dart';
 import '../widgets/nexus_bell.dart';
@@ -776,31 +777,41 @@ class _AssetOverview extends StatelessWidget {
                     (asset) => WalletAssetRow(
                       asset: asset,
                       hideAmount: hideAmounts,
-                      onTap: asset.standard == 'kasseal-kcc20'
+                      onTap: asset.standard == 'kasforge-kcc20'
                           ? () => Navigator.of(context).push(
                               MaterialPageRoute<void>(
-                                  builder: (_) => KassealScreen(
-                                      address: address,
-                                      tokenId: asset.covenantId ?? asset.id)))
-                          : asset.standard == 'kasparocket-kcc20'
+                                  builder: (_) => KasForgeScreen(
+                                      address:
+                                          NetworkSettings.addressForNetwork(
+                                              address),
+                                      initialTokenId:
+                                          asset.covenantId ?? asset.id)))
+                          : asset.standard == 'kasseal-kcc20'
                               ? () => Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (detailContext) =>
-                                          Krc20TokenDetailScreen(
-                                        asset: asset,
-                                        usdToFiat: data.usdToFiat,
-                                        fiatCode: data.fiatCode,
-                                        fiatSymbol: data.fiatSymbol,
-                                        onSend: () => onSendAsset(
-                                            AssetSendIntent.kcc20(
-                                                asset.symbol,
-                                                asset.covenantId ??
-                                                    asset.id ??
-                                                    '',
-                                                wallet: data)),
-                                        onSwap: () =>
-                                            Navigator.of(detailContext).push(
-                                                MaterialPageRoute<void>(
+                                  MaterialPageRoute<void>(
+                                      builder: (_) => KassealScreen(
+                                          address: address,
+                                          tokenId:
+                                              asset.covenantId ?? asset.id)))
+                              : asset.standard == 'kasparocket-kcc20'
+                                  ? () => Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (detailContext) =>
+                                              Krc20TokenDetailScreen(
+                                            asset: asset,
+                                            usdToFiat: data.usdToFiat,
+                                            fiatCode: data.fiatCode,
+                                            fiatSymbol: data.fiatSymbol,
+                                            onSend: () => onSendAsset(
+                                                AssetSendIntent.kcc20(
+                                                    asset.symbol,
+                                                    asset.covenantId ??
+                                                        asset.id ??
+                                                        '',
+                                                    wallet: data)),
+                                            onSwap: () => Navigator.of(
+                                                    detailContext)
+                                                .push(MaterialPageRoute<void>(
                                                     builder: (_) =>
                                                         KaspaRocketScreen(
                                                           address: NetworkSettings
@@ -810,16 +821,16 @@ class _AssetOverview extends StatelessWidget {
                                                                   .covenantId ??
                                                               asset.id,
                                                         ))),
+                                          ),
+                                        ),
+                                      )
+                                  : () => onSendAsset(
+                                        AssetSendIntent.kcc20(
+                                          asset.symbol,
+                                          asset.covenantId ?? asset.id ?? '',
+                                          wallet: data,
+                                        ),
                                       ),
-                                    ),
-                                  )
-                              : () => onSendAsset(
-                                    AssetSendIntent.kcc20(
-                                      asset.symbol,
-                                      asset.covenantId ?? asset.id ?? '',
-                                      wallet: data,
-                                    ),
-                                  ),
                     ),
                   )
                   .toList(),

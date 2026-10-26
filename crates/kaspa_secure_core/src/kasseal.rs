@@ -12,7 +12,7 @@ use std::{collections::{HashMap, HashSet}, str::FromStr, sync::OnceLock};
 fn bad(s: &str) -> CoreError { CoreError::InvalidRequest(format!("Kasseal: {s}")) }
 #[derive(Deserialize)]
 #[serde(rename_all="camelCase")]
-struct Pin { length: usize, state_offset: usize, state_length: usize, creator_offsets: Vec<usize>, sha256: String }
+struct Pin { length: usize, state_offset: usize, state_length: usize, creator_offsets: Vec<usize>, #[serde(default)] creator_window: bool, sha256: String }
 #[derive(Deserialize)]
 struct Pins { curves: Vec<Pin>, pool: Pin, token: Pin }
 fn pins(mainnet: bool) -> &'static Pins {
@@ -69,6 +69,13 @@ fn token(program:&[u8]) -> Result<(u64, [u8;32], u8)> {
 fn number(value:&Value,key:&str)->Result<u64>{
     value.get(key).and_then(Value::as_str).and_then(|s|s.parse().ok()).ok_or_else(||bad("missing decimal trade limit"))
 }
+fn curve_buy_sequence(pin:&Pin,program:&[u8],wallet:&[u8],buy:bool)->Result<u64> {
+    if !buy || !pin.creator_window {return Ok(0);}
+    let sold=program.get(35..43).ok_or_else(||bad("truncated creator-window state"))?;
+    let fees=program.get(44..52).ok_or_else(||bad("truncated creator-window state"))?;
+    let creator=pin.creator_offsets.first().and_then(|at|program.get(*at..*at+36)).ok_or_else(||bad("missing pinned creator"))?;
+    Ok(if sold.iter().all(|b|*b==0) && fees.iter().all(|b|*b==0) && creator!=wallet {200}else{0})
+}
 pub(crate) fn validate(request:&PsktRequest, tx:&Transaction, entries:&[UtxoEntry], signatures:&[(usize,SigHashType)], scripts:&HashMap<usize,PsktScriptInput>) -> Result<()> {
     let (network,prefix,pins)=network(request,"swap")?;
     let sender=Address::try_from(request.sender.as_str()).map_err(|_|bad("invalid wallet address"))?;
@@ -81,11 +88,13 @@ pub(crate) fn validate(request:&PsktRequest, tx:&Transaction, entries:&[UtxoEntr
     if tid==mid || summary["network"]!=network || summary["tokenId"]!=tid.to_string() || summary["marketId"]!=mid.to_string() || summary["side"].as_str()!=request.side.as_deref() {return Err(bad("trade identity or network mismatch"));}
     let buy=match request.side.as_deref(){Some("buy")=>true,Some("sell")=>false,_=>return Err(bad("invalid direction"))};
     let owner:&[u8]=sender.payload.as_slice();let wallet=pay_to_address_script(&sender);
+    let mut wallet_packed=vec![0,0];wallet_packed.extend(wallet.script());
     let selected=signatures.iter().map(|(i,_)|*i).collect::<HashSet<_>>();
     let mut token_in=0u64;let mut token_out=0u64;let mut locked_in=0u64;let mut locked_out=0u64;
     let mut plain_in=0u64;let mut plain_out=0u64;let mut market_in=None;let mut market_out=None;
     for (i,entry) in entries.iter().enumerate() {
         if entry.covenant_id.is_none() {
+            if tx.inputs[i].sequence!=0 {return Err(bad("unexpected funding sequence"));}
             if entry.script_public_key!=wallet || !selected.contains(&i) {return Err(bad("funding must be controlled by the selected wallet"));}
             plain_in=plain_in.checked_add(entry.amount).ok_or_else(||bad("amount overflow"))?;continue;
         }
@@ -93,6 +102,7 @@ pub(crate) fn validate(request:&PsktRequest, tx:&Transaction, entries:&[UtxoEntr
         let program=redeem(&script)?;
         if pay_to_script_hash_script(&program)!=entry.script_public_key {return Err(bad("input program differs from live script"));}
         if entry.covenant_id==Some(tid) {
+            if tx.inputs[i].sequence!=0 {return Err(bad("unexpected token sequence"));}
             let(amount,key,scheme)=token(&program)?;
             if scheme==0 && key.as_slice()==owner {
                 if !selected.contains(&i) {return Err(bad("owned token input is not selected"));}
@@ -101,6 +111,11 @@ pub(crate) fn validate(request:&PsktRequest, tx:&Transaction, entries:&[UtxoEntr
         } else if entry.covenant_id==Some(mid) && !selected.contains(&i) && market_in.is_none() {
             let pinned=if summary["venue"]=="pool" {matches(&program,&pins.pool)} else if summary["venue"]=="curve" {pins.curves.iter().any(|p|matches(&program,p))} else {false};
             if !pinned || program.get(1)!=Some(&32) || program.get(2..34)!=Some(tid.as_bytes().as_slice()) {return Err(bad("venue is not a pinned TN10 program for this token"));}
+            let sequence=if summary["venue"]=="curve" {
+                let pin=pins.curves.iter().find(|p|matches(&program,p)).ok_or_else(||bad("unrecognized curve"))?;
+                curve_buy_sequence(pin,&program,&wallet_packed,buy)?
+            } else {0};
+            if tx.inputs[i].sequence!=sequence {return Err(bad("curve creator-window sequence differs from the pinned program and funding owner"));}
             market_in=Some(entry.amount);
         } else {return Err(bad("unexpected covenant input"));}
     }
@@ -192,6 +207,29 @@ pub(crate) fn validate_preparation(request:&PsktRequest,tx:&Transaction,entries:
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sdk030_creator_window_deposits_execute_on_both_networks_and_wrong_sequences_fail() {
+        for raw in [include_str!("fixtures/kasseal-mainnet-creator-window-buy.json"), include_str!("fixtures/kasseal-tn10-creator-window-buy.json")] {
+            let r:PsktRequest=serde_json::from_str(raw).unwrap();
+            let review=crate::prepare_pskt(&r).unwrap();
+            crate::sign_pskt(&format!("private:{:064x}",1),&r,&review.review_hash).unwrap();
+            for seq in [0,199,201] {
+                let mut bad=r.clone();let mut tx:Value=serde_json::from_str(&bad.tx_json_string).unwrap();tx["inputs"][0]["sequence"]=Value::String(seq.to_string());bad.tx_json_string=tx.to_string();
+                assert!(crate::prepare_pskt(&bad).is_err());
+            }
+        }
+    }
+    #[test]
+    fn creator_window_requires_exact_relative_sequence_only_for_the_first_non_creator_buy() {
+        let pin=Pin {length:100,state_offset:1,state_length:53,creator_offsets:vec![60],creator_window:true,sha256:String::new()};
+        let mut program=vec![0u8;100];let creator=vec![1u8;36];program[60..96].copy_from_slice(&creator);
+        assert_eq!(curve_buy_sequence(&pin,&program,&creator,true).unwrap(),0);
+        assert_eq!(curve_buy_sequence(&pin,&program,&[2;36],true).unwrap(),200);
+        assert_eq!(curve_buy_sequence(&pin,&program,&[2;36],false).unwrap(),0);
+        program[35]=1;assert_eq!(curve_buy_sequence(&pin,&program,&[2;36],true).unwrap(),0);
+        program[35]=0;program[44]=1;assert_eq!(curve_buy_sequence(&pin,&program,&[2;36],true).unwrap(),0);
+        for main in [false,true] {assert!(pins(main).curves.iter().any(|p|p.creator_window));assert!(pins(main).curves.iter().any(|p|!p.creator_window));}
+    }
     #[test]
     fn kasseal_mainnet_curve_pool_and_preparation_execute_and_reject_cross_network() {
         for raw in [include_str!("fixtures/kasseal-mainnet-curve-buy.json"),include_str!("fixtures/kasseal-mainnet-pool-buy.json"),include_str!("fixtures/kasseal-mainnet-pool-sell.json"),include_str!("fixtures/kasseal-mainnet-split.json"),include_str!("fixtures/kasseal-mainnet-merge.json")] {

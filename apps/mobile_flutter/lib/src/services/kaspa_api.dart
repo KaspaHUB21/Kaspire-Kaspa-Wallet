@@ -4,6 +4,7 @@ import 'kns_holdings_loader.dart';
 import 'dotk_service.dart';
 import 'kasparocket_service.dart';
 import 'kasseal_service.dart';
+import 'kasforge_service.dart';
 import 'krc721_reads.dart';
 import 'kron_holdings.dart';
 import 'kcc20_standard_service.dart';
@@ -192,23 +193,10 @@ class KaspaApi {
               publish();
             }).catchError((_) => null),
       testnet
-          ? Future.wait([
-              KassealService(client: _client)
-                  .walletAssets(address)
-                  .catchError((_) => <WalletAsset>[]),
-              KaspaRocketService(client: _client)
-                  .walletAssets(address)
-                  .catchError((_) => <WalletAsset>[]),
-            ])
-              .then((groups) => groups.expand((a) => a).toList())
-              .then<Object?>((assets) => _Kcc20Wallet(
-                    assets: assets,
-                    transactions: const [],
-                    warning: assets.any((asset) => !asset.discoveryComplete)
-                        ? 'TN10 DEX balances are visible. Open the token to trade; generic transfers require independently verified signing cells.'
-                        : '',
-                  ))
-              .catchError((_) => null)
+          ? _loadTestnetDexWallet(address, onProgress: (value) {
+              progressiveCovenants = value;
+              publish();
+            }).then<Object?>((value) => value)
           : _loadMainnetKcc20Wallet(address,
               historyLimit: includeAssetHistory ? transactionLimit : 0,
               onProgress: (value) {
@@ -325,6 +313,42 @@ class KaspaApi {
           nativeTransactions.length >= transactionLimit,
       utxoCount: utxoCount,
     );
+  }
+
+  Future<_Kcc20Wallet> _loadTestnetDexWallet(String address,
+      {required void Function(_Kcc20Wallet) onProgress}) async {
+    final groups = <String, List<WalletAsset>>{};
+    final warnings = <String, String>{};
+    _Kcc20Wallet snapshot() => _Kcc20Wallet(
+          assets: groups.values.expand((rows) => rows).toList(),
+          transactions: const [],
+          warning: [
+            ...warnings.values,
+            if (groups.values
+                .expand((rows) => rows)
+                .any((a) => !a.discoveryComplete))
+              'TN10 DEX balances are indexer-reported. Generic transfers require independently verified signing cells.',
+          ].join(' '),
+        );
+    Future<void> load(String source, Future<List<WalletAsset>> task) async {
+      try {
+        groups[source] = await task;
+      } catch (_) {
+        warnings[source] =
+            '$source token balances are temporarily unavailable; this does not mean zero.';
+      }
+      onProgress(snapshot());
+    }
+
+    await Future.wait([
+      load('Kasseal', KassealService(client: _client).walletAssets(address)),
+      load('KaspaRocket',
+          KaspaRocketService(client: _client).walletAssets(address)),
+      if (KasForgeService.enabled)
+        load(
+            'KasForge', KasForgeService(client: _client).walletAssets(address)),
+    ]);
+    return snapshot();
   }
 
   /// Loads only the information required by the balance card. This deliberately

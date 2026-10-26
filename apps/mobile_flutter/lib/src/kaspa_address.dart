@@ -29,9 +29,17 @@ String kaspaOwnerIdFromAddress(String address) {
 }
 
 String kaspaAddressFromOwnerId(String ownerId, {String prefix = 'kaspa'}) {
+  return _kaspaAddressFromHash(ownerId, prefix: prefix, version: 0);
+}
+
+String kaspaScriptHashAddress(String hash, {String prefix = 'kaspa'}) =>
+    _kaspaAddressFromHash(hash, prefix: prefix, version: 8);
+
+String _kaspaAddressFromHash(String ownerId,
+    {required String prefix, required int version}) {
   final normalized = ownerId.trim().toLowerCase();
   if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(normalized)) return '';
-  final payload = <int>[0];
+  final payload = <int>[version];
   for (var index = 0; index < normalized.length; index += 2) {
     payload.add(int.parse(normalized.substring(index, index + 2), radix: 16));
   }

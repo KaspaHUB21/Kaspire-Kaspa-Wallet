@@ -653,21 +653,21 @@ export default function Home() {
                 file manager. Verify the checksum before installation.
               </p>
               <p>
-                Android 0.11.69 adds 25%, 50%, 75% and MAX sell buttons to
-                KaspaRocket, Kasseal and KRON. Amounts use exact token units;
-                Kasseal curves round down to complete tradeable lots. Kasseal
-                tokens are now ranked across the full catalogue by market cap,
-                then 24h volume for ties, with stable Load more pages.
-                Users on 0.11.68 can choose the internal GitHub update route
-                to install this version.
+                Android 0.11.70 supports Kasseal SDK 0.3.0 and the new
+                creator-window contracts while retaining older tokens. Testnet 10
+                adds Braid covenant swaps with selectable activity details and
+                a read-only KasForge token and quote preview. Forge trading stays
+                disabled pending complete independent order verification.
+                Update through the official website or directly from the matching
+                GitHub release inside Kaspire.
               </p>
               <p>
                 <a
-                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/v0.11.69"
+                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/v0.11.70"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Full Android release notes: 0.11.68 → 0.11.69
+                  Full Android release notes: 0.11.69 → 0.11.70
                 </a>
               </p>
               <p>

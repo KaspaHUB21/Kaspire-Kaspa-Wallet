@@ -6,6 +6,10 @@ import '../services/native_security.dart';
 import '../services/network_settings.dart';
 import 'kasparocket_screen.dart' show rocketListPadding, KaspaRocketScreen;
 import 'kasseal_screen.dart';
+import 'kasforge_screen.dart';
+import 'braid_screen.dart';
+import '../services/braid_service.dart';
+import '../services/kasforge_service.dart';
 import '../services/kasseal_service.dart';
 import '../widgets/sell_amount_buttons.dart';
 
@@ -16,6 +20,33 @@ class DexSelectionScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: const Text('KCC20 DEX Swaps')),
       body: ListView(padding: rocketListPadding(context), children: [
+        if (BraidService.enabled && NetworkSettings.isTestnet)
+          Card(
+              child: ListTile(
+            contentPadding: const EdgeInsets.all(18),
+            leading: const Icon(Icons.route_rounded, size: 40),
+            title: const Text('Braid Aggregator'),
+            subtitle: const Text('Testnet 10 · Best-route swaps'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                    builder: (_) => BraidScreen(address: address))),
+          )),
+        if (KasForgeService.enabled && NetworkSettings.isTestnet)
+          Card(
+              child: ListTile(
+            contentPadding: const EdgeInsets.all(18),
+            leading: Image.asset('assets/browser/kasforge.png',
+                width: 44, height: 44),
+            title: const Text('KasForge'),
+            subtitle: const Text('Testnet 10 · Tokens and quote preview'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                    builder: (_) => KasForgeScreen(address: address))),
+          )),
         Card(
             child: ListTile(
                 contentPadding: const EdgeInsets.all(18),

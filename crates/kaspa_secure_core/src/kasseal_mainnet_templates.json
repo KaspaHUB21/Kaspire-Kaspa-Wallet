@@ -1,6 +1,6 @@
 {
-  "source": "Sealkaspa/kasseal-sdk@71d25563a594d47a5d421646a8a4b02df2eec848",
-  "sdk": "0.1.1",
+  "source": "@kassealhq/sdk@0.3.0",
+  "sdk": "0.3.0",
   "network": "mainnet",
   "curves": [
     {
@@ -13,6 +13,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "3f2e99521fcbc1e3b37f17615f1da2d0cc2ebd0c0ae6efc88e26c68cadc0e7e0"
     },
     {
@@ -25,6 +26,7 @@
         7313,
         7548
       ],
+      "creatorWindow": false,
       "sha256": "bfe030abce9a705e9c96ff4487a9e170a702b8a08f20772b3b36a83acdbb501d"
     },
     {
@@ -37,6 +39,7 @@
         7326,
         7561
       ],
+      "creatorWindow": false,
       "sha256": "76a0d1a4e98f29deb4d3b7338c15c4e843b4cbc3d30f3e70695c58f9bf7054ec"
     },
     {
@@ -49,6 +52,7 @@
         7326,
         7561
       ],
+      "creatorWindow": false,
       "sha256": "069a936949ccd7ebab2fd28d1c3b14ccd4a37a0ea2433bc757b4c0c984fdebf7"
     },
     {
@@ -61,6 +65,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "9c29ecf3e836a2a6be8fbad4d47e83efc0aa46f5aacd9c023597692b7e2bcab3"
     },
     {
@@ -73,6 +78,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "70d749c2017b466621f83fa4589e4c0cba84112741dca4b4dfae33db55317164"
     },
     {
@@ -85,6 +91,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "58fcabdd2d91d29791bcdb708c88a6b141a8fdce118c9dfb6c956f1f352fadcc"
     },
     {
@@ -97,6 +104,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "a5d29e3082d316b1ef91c60b259caefa514754d2424f9bf7b414a54baaa67bfd"
     },
     {
@@ -109,6 +117,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "ea2a6bca7d48d5dc1b1bb006fb255c411e838ef31012d7e57bbf9d6ee244d006"
     },
     {
@@ -121,6 +130,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "d587903f50f902ef494cfb6ad4012c195d617dbcff6085358cf073b2aa204907"
     },
     {
@@ -133,6 +143,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "aa5a30915059ae684296014bb7b40a2e43bbd7f78b244aeffc9389364752d743"
     },
     {
@@ -145,6 +156,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "894c04800d98ef56433dc2ca2f7e2c1e22c169ef3f6bd2d1105e499d3211ec68"
     },
     {
@@ -157,6 +169,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "a719d7bc48ff35d07fcd5e03239d6dd2fd6822aeb160b93a0e3e317b8a289a6d"
     },
     {
@@ -169,6 +182,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "000425032ad48fd08824479b1dd169398a1738bed57950930dd69ed3874c083d"
     },
     {
@@ -181,6 +195,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "cf4777c48d47140bdb4e6e269e9c2e9d9f2cf01569621def9d3be0c193101fc8"
     },
     {
@@ -193,6 +208,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "034febfaf58c4165eba211cbf6162456d414dd650ab3ac9335e05edd6bf35816"
     },
     {
@@ -205,6 +221,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "07461a351ed83794a1e9917b20c7cfd2633762643b07f4b1ee68fa13c34246f8"
     },
     {
@@ -217,6 +234,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "3ba57f646bda6ac5a9bb3fb1f308dded1cb70a54c477686dadfa29f74d73eaa3"
     },
     {
@@ -229,6 +247,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "e0d46fb792bcc48405b7fe44ccec4762f086a569fdb9a2a6defe6c2bfbd13eba"
     },
     {
@@ -241,6 +260,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "70da927826d28212ecab00427febb422846dfbd6c1c7fd749eddedcb22337d5b"
     },
     {
@@ -253,6 +273,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "80ba4845b86f35563727b631c2e6239547da8d11b09a3fad15e6018647b6ad8e"
     },
     {
@@ -265,6 +286,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "ab2cc384d0c3190295b58cf6d9472449fda45361e65ea574cfa2ce4acb4de11c"
     },
     {
@@ -277,6 +299,7 @@
         7313,
         7548
       ],
+      "creatorWindow": false,
       "sha256": "a8f282338f5de782123ec694c8e54a1254a0f129cd293ba1f889fd86f0398667"
     },
     {
@@ -289,6 +312,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "b0f43f7b9dcb17aa96b4345ed3b2f9731037c49da52aafe7fa191a7d3cb3c40f"
     },
     {
@@ -301,6 +325,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "c5539211ece60aa22673e804a3a38df1a05c992b79302ae583f1c2f78a84997e"
     },
     {
@@ -313,6 +338,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "eb0e65115bff889d4e3ecef4e32cee6b39dc4a15a6c5107e26f6647997f85a06"
     },
     {
@@ -325,6 +351,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "9cb7f8db1ea9bff6af60ca771bcc6753e0b70ef9fbe7410734ae75a3d5c5b9cf"
     },
     {
@@ -337,6 +364,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "a980ff8f5fdaeb5d0a53e54a6034f3001212b41d3963e59b4ca8073ca63b3c67"
     },
     {
@@ -349,6 +377,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "a007219a2a7f043c9705e933e43b998ff0c39f62184d8a8be2ad8953e7b7be17"
     },
     {
@@ -361,6 +390,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "4a4f8f1d897b704e302cf9702b8235334c6e6574c48539efa22a940217542b8b"
     },
     {
@@ -373,6 +403,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "7bceffe6463ac2eb40ca6c4b7a907172697b47ee112ca7cab22908a08a65bc20"
     },
     {
@@ -385,6 +416,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "627aa7ec21438bf63a48fa6512caa417388efef5fdf95df2ba3c784ff754a830"
     },
     {
@@ -397,6 +429,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "ebef5538933edc59fdb4a8834ac1513217bc314a17110e83a390924efd580384"
     },
     {
@@ -409,6 +442,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "4aef047e05fb51e3a47b985aff407e5c9a5804313a514aa9883e7975ae46013d"
     },
     {
@@ -421,6 +455,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "27045f1b5fd40fd574c1116e3e1f4fcb6709c1b823c3bf7fbb963f76e43fea14"
     },
     {
@@ -433,6 +468,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "7a7afe42cc1b7a172f09e75773aaf7eff30f71ce759ceee5ab3d992e219169e2"
     },
     {
@@ -445,6 +481,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "374f1962ced2e7fe61e0827b5b9af0d358665041a24cc9970bf17fbf0ac73756"
     },
     {
@@ -457,6 +494,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "11aba5c9085de84d6609f033a342c54623d8b5e2ab5c855af677b1140600b136"
     },
     {
@@ -469,6 +507,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "0cfa26e448c146356cc4f6e49570bdbfc2df31df21b7bc89681915b12c444690"
     },
     {
@@ -481,6 +520,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "0d70d5fdbd7ac32979b2bdd9b5ee68ca8f5039e3dc8013231eaa8c530ad12054"
     },
     {
@@ -493,6 +533,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "40554cfea001ae7d11395302237b2bbb68eecc70889c4daea0215ca69d70ae9b"
     },
     {
@@ -505,6 +546,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "a6c4c63359e14645e1e5a48e213b19f17cd4a10cd310eb6d009b750c73b19c8a"
     },
     {
@@ -517,6 +559,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "9277964a26c3a99bf69f5a3116affa844bd91b92bfa0e3c371c26787a6ada93d"
     },
     {
@@ -529,6 +572,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "665dc621b92084b28b858528247808b2e4805b7342b19528d634cc3a95a99e12"
     },
     {
@@ -541,6 +585,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "d6ddbb86866f6d491751a13f2f5da7783f888a2d6da61833de1d89a0bc49334c"
     },
     {
@@ -553,6 +598,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "3ab23860298e575ddbf364c67c4aadf027e4427c49990b66040b257da5ac2663"
     },
     {
@@ -565,6 +611,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "d97a1aa10231a85c92a35da00ef3851a8bf7ea920ae05c4be1ae18f54f13989a"
     },
     {
@@ -577,6 +624,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "6ec02d7dc8ee3c2b8a31a78f048a5fc1aad037758340eba1fdec29605a77723a"
     },
     {
@@ -589,6 +637,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "c34d19350e459ca805364d891fe2139519644e61217fb0666dc7c452762cf109"
     },
     {
@@ -601,6 +650,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "eb577d46ca3b57dd7374989ad3b2bf86f6cb71548a657fa792d997e9e78b989f"
     },
     {
@@ -613,6 +663,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "df49b0f720a18d320ce402471fe1792383443481d9cdcfda7ede90a4a5290fad"
     },
     {
@@ -625,6 +676,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "9352c77198bc588311fb9ffe4689e579ac896a2ffdfff6e388a6506785288dc3"
     },
     {
@@ -637,6 +689,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "1684259c6f8c7e0d50ff52010af802d0ef8a086ace7655076a54d23c92ec9367"
     },
     {
@@ -649,6 +702,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "525b39bfab492a3dac4e3703dd0856d42c8370ee98549afebecf50fa2c4970c8"
     },
     {
@@ -661,6 +715,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "f7f5a5de942004e5b4a0806653a01b69019f48f7efe9b62671c30b2a1d6f6cb6"
     },
     {
@@ -673,6 +728,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "5a601504aba352cdb08222d8f5b75a3f53bf96a4077a47e5411e341cf57dea7f"
     },
     {
@@ -685,6 +741,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "f7502fa046c2b6888d68115f682cf00f77608c9974082db290b3d21de25badfa"
     },
     {
@@ -697,6 +754,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "cdb69fd1155193e54525a5622819cb5d31eff1087cc5875f4377180265624a65"
     },
     {
@@ -709,6 +767,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "adde4b1ed3102d7c592851b532db457d34200cc779b815484bdbbd60158c7b89"
     },
     {
@@ -721,6 +780,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "72e2c8b754bb78761bc85e4c63c292e80d17a315c939b0b1631e24fe7d2342dd"
     },
     {
@@ -733,6 +793,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "2559363b00aa7a27aa93d29325087c31d2c9d9489a4801eaf6928a6cb1119ec1"
     },
     {
@@ -745,6 +806,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "450fa8e2be4cd3edb701572d80b0ab9363dd27ee25a9edec7fd2c04ee842ee7c"
     },
     {
@@ -757,6 +819,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "120cf9303486c4de1457ee03c9bc1c629d2ecc471c33e71bf8d30b0e8ad55558"
     },
     {
@@ -769,6 +832,7 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "931237eb70f263ec582ef93c3d7c3f3e2a1ff29b90cee802729ba212aae46810"
     },
     {
@@ -781,6 +845,7 @@
         7344,
         7579
       ],
+      "creatorWindow": false,
       "sha256": "f4f1d9427dd0c1c5052151819877a38a6ca8d0c5ecf0e4b595ff697175465fcc"
     },
     {
@@ -793,7 +858,932 @@
         7331,
         7566
       ],
+      "creatorWindow": false,
       "sha256": "235060cd61444a085385e9afa3be900748f84f42a5d9dbcd6b0f7e42e6741330"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "75e3ffeac6eef988eb87895e475e55e72716c7ac2620d5febf83b8f2bad8bfde"
+    },
+    {
+      "length": 8049,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        249,
+        1550,
+        5345,
+        7385,
+        7620
+      ],
+      "creatorWindow": true,
+      "sha256": "a7349336c344b814476d3c09242f00fee787c92ab01764c13376039940663bc8"
+    },
+    {
+      "length": 8062,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        251,
+        1555,
+        5356,
+        7398,
+        7633
+      ],
+      "creatorWindow": true,
+      "sha256": "4d6514340673b400667c5f9445ea8b66b5696f116e8aa2fb9d4c358a29e64afa"
+    },
+    {
+      "length": 8062,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        251,
+        1555,
+        5356,
+        7398,
+        7633
+      ],
+      "creatorWindow": true,
+      "sha256": "d6b37693ae1c973bff5d48e0ccbdd2f1a50cae761f9df376da97db70089507cd"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "e98453c354b3de702c02f6601e1523fa859f8360a7b79759b218ec45de87ece3"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "ee07a4224e33ad6722aeff0fdeda7dba30258dd882ee9b5a868ab6c0d15eec8a"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "f9a6009848ee3a7ed320b3698fcf637199b7db733fe3047ccb657f51281aefd4"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "8d46f56dab5f56e5a7a98a46385a7c13edcc43894142b7a3e64a24ed6e889789"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "16587ef4b45624145f372ba300f72b88ad054fa9c4d1bdcbd8df44778ff77de3"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "730a0789c2501e982631d0b7271218c5a9e12b7fd1f78e5080a7df1eb54e60e3"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "17576a387f5d2b2c7528180b866fc7a3e37e301139a55be136babc49b8f96d80"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "c3c3da886c717d249896ecce2f3e57fc157db5feaadfdcb9066e3f108ad501f5"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "7284eaccd6b2dd1d3d5753a6087a30f4c12d0525ad199ca50bb78face7ecff46"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "d0a1c062ec4e064a75b2efb92edd03b36f6c0318d101433ebebe5dba3c082a27"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "26ea46046396d56257b51e4421aa91f3a491dbf7aa41ed80130ac2c28c87769c"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "203c2acbff7121594bec648c7ec19ba0b13185b76a8235bc4c806b1d42fedbf5"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "6b7b215ed0170124b0bb2a73aa3bcc46f988bacd81f152dc307a4756268cfb52"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "2af8b3ad0ee66a2bd13338f52386c545df0c062d553a1aec109b3da814b50e87"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "5f673973884e45ef289b654044616d2636f90c45e2458fe3016dde0ae4d8fbbc"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "c630e165658ae0308693c5a163cf0464575880b440ca1eae186fb3558519716c"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "cbaa7205da377fbf4d47a5dd86bd73010af27b75cf1b153038ace265a0b0bb71"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "2c1c75991aef6e8991fe05450dc23188051c3266d1fc07472f9e1f73a69a40bc"
+    },
+    {
+      "length": 8049,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        249,
+        1550,
+        5345,
+        7385,
+        7620
+      ],
+      "creatorWindow": true,
+      "sha256": "5c42f3949a125b48dd0fb97d318c5a4d5a263766fca029f86099c2ead3984eb5"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "14d91168eb1ab434cc49654036be810000edc9f46123ec54303d06a03ead4a8b"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "51e5a2804694872c0d1fef9120d2e9f722ab285325ad7c61b737ec03a9b7f3f8"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "571854d60257d28bdeb0d7af11242ce4732469879ce0467ef337d20d72169969"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "673c2cf1584282e34bbca42ce0379989e2366512908b3f1112b3772e2d309ffd"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "dc9b9cda6907ba4d22b9e74d23baf18039da3fd1acbcd3ad6faad7cec05e9126"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "b12686601e9633d2f827cdab48f3897c6073070dcde72c6463af97eac3a60492"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "b5e8bdb21b776165c5b49b51fad434709d6a6b1d4bf91c833a92b92cd29f07bd"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "63e80b0c367ed51af9a5a19f300a629bc227d6b79fe9204794d8e02bdc0c9dc6"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "d2ddd714ef28b6a9a5864250dc1a5c2269f81ff2e9318a3415ea04219b88a761"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "bd8aa9af6d0f73f1688733adcdd27770c203dd5278abe0e386fe6940fd99814b"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "4eb9165c6306ef605e6bff03fe4b4d2105c05742a5f64d7d7399a32fc809215d"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "6457b5432c7119d5371d0a3d352629a0700e921e8c640108cb89721ab6460531"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "fc41a4d095eedc08e78c796d6222ba8972f89d3588e3d6610b7ae05bb02a81b2"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "f06ca524d48d6c96c0d3374b3ae007bd4f696f24fae6fd01a23bc599ebfd03c5"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "4e0f39b38d6fba3062650025142e28df2a0d3753a3ee1838f7608f0bb4584d79"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "bf1db9e59b548b540ff008fcb4ce4e0000a036cbca3dc7eeb2168e6ccac3fc1d"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "7d53be45f74951f2d96f2459d3306180228480cc7ff40751d2b0cfc9d25c15f9"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "ec38059c70cec9e188b0ff00e8ccd5f7df20f34b96cdf4820b0890734da589dc"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "c22d30072fe465ede198f84a9f87f76ba282555abb0435035cd5959d69dba7dd"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "5e3f927e13ce128cac3c4022cc559d4400f03311bc7f4a50f5931b47c62edcf0"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "dec87f92700ffcb2e19f056e384aecb695ef7e9563332634cb4ef52035e3731c"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "5ea6789a4213074ed69637c4be50f0e0c6d33877986fa814e75d34ca05a2d1b6"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "fdf396ef1e8180ccc3fa63c979515dccc763d6eb905315b63221ce3a537d8102"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "d5de092c345496584317a14aeb9c5693b0c5a054b1b9e1fcd7171989cb2b2a64"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "51ce4125e2aa0f3ab288b9da6728a6358e5a00081f30216404013f7cf984b190"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "3e0dd03b4fdac80fb7e5dc863ab670bb05c166b31272d1415263753e770bce5f"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "598e8cd2be428ce0f6439de42c0153e4e47b152db4024562e29d74ff5948b970"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "3785ea5b5c268ba44a474c763a27bf8c0ece48dda7e7d4f12c85a1978d55aa38"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "f4e6fe647dfb02fad4d034233abff0a172b6adfdfe71a4d1c4e3d667e78680a0"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "91237e20552df83b448a75e646dbf9069b2aeeb89836e8a81f80162603bd1444"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "76f50fa01b14e34262c891982ca853287f4e0dca431fdbf3fb8dc675651d92eb"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "75b560ace9ccf2afd2a9eb740f28ae7b9341175a55ac97ceea4575356989a729"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "c81c72a82a6d2e95e646d6b91b6c936094b4f6b54f33b2996ff1e300cb35134a"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "10355c6c0bb59994438c7f65dcd8eab6e44e596b5365e335254b03254d231341"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "fe5697580928b90419420747598d3a11c030f12e7c6f01073a23daccc465afee"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "13032a9412ee28ad0980c61c665f39105fce6638d5962dff0fd3e79ce5012f55"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "73db50275d04cefd09a60470e00012d27f6f9d66b22892cd03dc2c4f8a4c0e99"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "6949daf2f53565aa4192043f750dcc235bc093428d0fb9a645d77f89c1245e5a"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "8dcacc3e4d08895128043097d014acd01f59ca3af37b12171931185cc04badee"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "4c6c9ceceaa9afa09beacc7f69c6f9c1b7bdb82797dc53105d605703ac286a2a"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "ff552bd43733eddc4628fe8a105008d87893d8f0039f68c103ae68f5a65f4665"
+    },
+    {
+      "length": 8080,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        254,
+        1562,
+        5371,
+        7416,
+        7651
+      ],
+      "creatorWindow": true,
+      "sha256": "505a038d229f9377414b93c48acdbfbf59969aeccd74c56edfb1cce260a6206e"
+    },
+    {
+      "length": 8067,
+      "stateOffset": 1,
+      "stateLength": 53,
+      "creatorOffsets": [
+        252,
+        1557,
+        5360,
+        7403,
+        7638
+      ],
+      "creatorWindow": true,
+      "sha256": "85426ed91ba9ca03d33cfb55ff1fa544f8f2f38702727e1e7c950b2c6ed133bb"
     }
   ],
   "pool": {
