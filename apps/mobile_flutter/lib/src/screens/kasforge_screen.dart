@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
 import '../services/kasforge_service.dart';
+import '../services/kasforge_trading.dart';
+import 'kasforge_order_screen.dart';
 import '../widgets/sell_amount_buttons.dart';
 import 'kasparocket_screen.dart' show rocketListPadding;
 
@@ -23,6 +25,8 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
   final search = TextEditingController();
   var visible = 20;
   var openedInitial = false;
+  final trading = KasForgeTrading();
+  late Future<List<Map<String, dynamic>>> savedOrders;
 
   @override
   void initState() {
@@ -37,6 +41,8 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
       // The activity tab may not mount until selected; still handle a failing
       // request immediately, while preserving its error for FutureBuilder.
       portfolio.ignore();
+      savedOrders = trading.saved(widget.address);
+      savedOrders.ignore();
       visible = 20;
     });
   }
@@ -72,13 +78,40 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
             ],
             bottom: const TabBar(
                 tabs: [Tab(text: 'DEX swaps'), Tab(text: 'My activity')])),
-        body: TabBarView(children: [browse(), history()]),
+        body: TabBarView(children: [
+          browse(),
+          ListView(padding: rocketListPadding(context), children: [
+            FutureBuilder<List<Map<String, dynamic>>>(
+                future: savedOrders,
+                builder: (context, snapshot) => Column(children: [
+                      for (final r in (snapshot.data ?? []).reversed)
+                        ListTile(
+                            title: Text('${r['symbol']} · ${r['state']}'),
+                            subtitle:
+                                const Text('Saved Forge order / recovery'),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () async {
+                              await Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                      builder: (_) => KasForgeOrderScreen(
+                                          address: widget.address,
+                                          receipt: r,
+                                          trading: trading)));
+                              if (mounted) reload();
+                            }),
+                    ])),
+            history(),
+          ])
+        ]),
       ));
 
-  void open(KasForgeToken token) =>
-      Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) => KasForgeTradeScreen(
-              address: widget.address, token: token, service: service)));
+  Future<void> open(KasForgeToken token) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => KasForgeTradeScreen(
+            address: widget.address, token: token, service: service)));
+    if (mounted) reload();
+  }
 
   Widget browse() => FutureBuilder<List<KasForgeToken>>(
       future: tokens,
@@ -167,53 +200,55 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
         final data = snapshot.data!;
         final orders = (data['orders'] as List).whereType<Map>().toList();
         final activity = (data['activity'] as List).whereType<Map>().toList();
-        return ListView(padding: rocketListPadding(context), children: [
-          const Text('Open orders',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const Text(
-              'An open order is not a completed swap. Unfilled orders may wait until cancellation or expiry.'),
-          if (orders.isEmpty)
-            const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('No open KasForge orders.')),
-          for (final order in orders)
-            Card(
-                child: ListTile(
-              title: Text(
-                  '${order['side'] ?? order['type'] ?? 'Order'} · ${order['tick'] ?? order['name'] ?? ''}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis),
-              subtitle: Text(
-                  '${order['status'] ?? 'Open'} · ${order['id'] ?? order['txid'] ?? ''}',
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis),
-            )),
-          const SizedBox(height: 20),
-          const Text('Activity',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          if (activity.isEmpty)
-            const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('No KasForge activity.')),
-          for (final row in activity.take(50))
-            Card(
-                child: ExpansionTile(
-              title: Text(
-                  '${row['side'] ?? row['type'] ?? 'Activity'} · ${row['tick'] ?? row['name'] ?? ''}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis),
-              subtitle: Text(
-                  '${row['kind'] ?? ''} · ${KasForgeService.nonnegativeNumber(row['kas']) == null ? 'KAS amount unavailable' : '${formatEnglishNumber(KasForgeService.nonnegativeNumber(row['kas'])!, decimals: 8, trimTrailingZeros: true)} KAS'}'),
-              children: [
-                Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: SelectableText(
-                        '${row['txid'] ?? 'Transaction ID unavailable'}'))
-              ],
-            )),
-          if (activity.length > 50)
-            const Text('Showing the latest 50 KasForge activity entries.'),
-        ]);
+        return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Open orders',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              const Text(
+                  'An open order is not a completed swap. Unfilled orders may wait until cancellation or expiry.'),
+              if (orders.isEmpty)
+                const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('No open KasForge orders.')),
+              for (final order in orders)
+                Card(
+                    child: ListTile(
+                  title: Text(
+                      '${order['side'] ?? order['type'] ?? 'Order'} · ${order['tick'] ?? order['name'] ?? ''}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis),
+                  subtitle: Text(
+                      '${order['status'] ?? 'Open'} · ${order['id'] ?? order['txid'] ?? ''}',
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis),
+                )),
+              const SizedBox(height: 20),
+              const Text('Activity',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              if (activity.isEmpty)
+                const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('No KasForge activity.')),
+              for (final row in activity.take(50))
+                Card(
+                    child: ExpansionTile(
+                  title: Text(
+                      '${row['side'] ?? row['type'] ?? 'Activity'} · ${row['tick'] ?? row['name'] ?? ''}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis),
+                  subtitle: Text(
+                      '${row['kind'] ?? ''} · ${KasForgeService.nonnegativeNumber(row['kas']) == null ? 'KAS amount unavailable' : '${formatEnglishNumber(KasForgeService.nonnegativeNumber(row['kas'])!, decimals: 8, trimTrailingZeros: true)} KAS'}'),
+                  children: [
+                    Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: SelectableText(
+                            '${row['txid'] ?? 'Transaction ID unavailable'}'))
+                  ],
+                )),
+              if (activity.length > 50)
+                const Text('Showing the latest 50 KasForge activity entries.'),
+            ]);
       });
 }
 
@@ -244,6 +279,7 @@ class KasForgeTradeScreen extends StatefulWidget {
 }
 
 class _KasForgeTradeScreenState extends State<KasForgeTradeScreen> {
+  final trading = KasForgeTrading();
   final amount = TextEditingController();
   late Future<List<WalletAsset>> holdings;
   String side = 'buy';
@@ -286,6 +322,34 @@ class _KasForgeTradeScreenState extends State<KasForgeTradeScreen> {
       if (mounted && current == generation) setState(() => error = '$e');
     } finally {
       if (mounted && current == generation) setState(() => busy = false);
+    }
+  }
+
+  Future<void> reviewOrder() async {
+    final q = quoted;
+    if (q == null) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final receipt = await trading.exclusive(
+          widget.address,
+          () => trading.build(
+              widget.address, widget.token, side, amount.text.trim(), q));
+      if (!mounted) return;
+      await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+              builder: (_) => KasForgeOrderScreen(
+                  address: widget.address,
+                  receipt: receipt,
+                  trading: trading)));
+      if (mounted) reload();
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -427,12 +491,9 @@ class _KasForgeTradeScreenState extends State<KasForgeTradeScreen> {
                                   '${field.value}: ${formatEnglishNumber(quoted![field.key] as num, trimTrailingZeros: true)} KAS'),
                         ]))),
           const SizedBox(height: 16),
-          const Card(
-              child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(KasForgeService.tradingBlockReason))),
-          const FilledButton(
-              onPressed: null, child: Text('Trading not enabled')),
+          FilledButton(
+              onPressed: busy || quoted == null ? null : reviewOrder,
+              child: const Text('Review Forge order')),
         ]),
       );
 }

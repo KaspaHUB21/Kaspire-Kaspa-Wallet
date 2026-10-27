@@ -62,7 +62,7 @@ void main() {
     KaspireTheme.neptune
   ]) {
     testWidgets(
-        'KasForge balance, long labels, sell presets and blocked signing in $theme',
+        'KasForge balance, long labels, sell presets and quote-gated signing in $theme',
         (tester) async {
       tester.view.physicalSize = const Size(320, 1100);
       tester.view.devicePixelRatio = 1;
@@ -91,12 +91,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(field.controller!.text, value);
       }
-      await tester.scrollUntilVisible(find.text('Trading not enabled'), 200,
+      await tester.scrollUntilVisible(find.text('Review Forge order'), 200,
           scrollable: find.byType(Scrollable).first);
       expect(
           tester
               .widget<FilledButton>(
-                  find.widgetWithText(FilledButton, 'Trading not enabled'))
+                  find.widgetWithText(FilledButton, 'Review Forge order'))
               .onPressed,
           isNull);
       expect(tester.takeException(), isNull);

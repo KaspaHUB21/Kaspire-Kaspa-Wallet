@@ -13,12 +13,8 @@ class KasForgeService {
 
   static const enabled =
       bool.fromEnvironment('KASPIRE_KASFORGE_TN10', defaultValue: true);
-  static const tradingEnabled = false;
+  static const tradingEnabled = true;
   static const origin = 'https://kaspa.pumpforge.tech';
-  static const tradingBlockReason =
-      'KasForge trading is not enabled yet. The confidential contract artifacts '
-      'are available, but builds must also supply independently verifiable '
-      'order scripts and recovery data before deposits can be signed safely.';
   final http.Client client;
 
   void guard([String? address]) {
@@ -196,7 +192,13 @@ class KasForgeService {
     } else if (nonnegativeNumber(result['receiveKas']) == null) {
       throw StateError('KasForge sale quote is incomplete.');
     }
-    return {...result, 'marketId': current.activeMarket, 'tokenId': token.id};
+    return {
+      ...result,
+      'marketId': current.activeMarket,
+      'tokenId': token.id,
+      'localAmount': amount,
+      'localAt': DateTime.now().millisecondsSinceEpoch
+    };
   }
 
   static BigInt exactUnsigned(Object? value) {

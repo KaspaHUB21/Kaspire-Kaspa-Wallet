@@ -40,12 +40,19 @@ permissioned `window.kaspire` provider directly to websites.
 
 ## Current releases
 
-- Android app: **0.11.69**, build **212**
+- Android app: **0.11.71**, build **216**
 - Android package: `space.kaspire.wallet`
 - Browser extension package: **0.5.27** (ZIP availability is separate from Chrome Web Store approval)
 - App networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - Extension networks: **Kaspa Layer 1 (Mainnet), TN10, Kasplex L2 and Igra L2**
 - License: [Apache-2.0](LICENSE)
+
+Android 0.11.71 enables independently verified KasForge 3.3 order swaps on
+**Testnet 10 only**, with saved same-byte recovery and locally built cancellation.
+It handles empty/identically repeated Rocket cell hints without counting or
+signing them twice, and adds Braid token search and copyable covenant IDs.
+Both Android update routes remain supported. Extension 0.5.27, Windows and iOS
+packages are unchanged. See [Android 0.11.71 notes](docs/release-v0.11.71.md).
 
 Android 0.11.69 adds themed **25% / 50% / 75% / MAX** sell presets for KaspaRocket,
 Kasseal and KRON, with exact integer-unit calculations, decimal-aware inputs and

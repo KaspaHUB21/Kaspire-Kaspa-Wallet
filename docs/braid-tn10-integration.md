@@ -1,5 +1,10 @@
 # Braid TN10 Android preview
 
+Android 0.11.71/build 216 adds a searchable selector for each side and selected
+token covenant IDs with copy buttons. These UI changes do not enable partner
+fees: the pinned native profile remains 0%, pending independent Token→Token
+valuation for the requested full 1% integration.
+
 Release 0.11.70/build 215 includes this TN10 integration and fixes activity
 selection. It is enabled by default on TN10 (build-time opt-out remains possible).
 See [release notes](release-v0.11.70.md). Mainnet Braid and extension remain disabled.

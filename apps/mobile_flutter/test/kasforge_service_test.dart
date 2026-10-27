@@ -254,9 +254,11 @@ void main() {
     }));
     await check;
   });
-  test('trading cannot be enabled through a token list or server flag', () {
-    expect(KasForgeService.tradingEnabled, false);
-    expect(KasForgeService.tradingBlockReason, contains('contract artifacts'));
+  test('native trading is TN10 only, never enabled by a server Mainnet flag',
+      () {
+    expect(KasForgeService.tradingEnabled, true);
+    NetworkSettings.network.value = KaspaNetwork.mainnet;
+    expect(() => KasForgeService().guard(), throwsStateError);
   });
   test(
       'positive KasForge balance publishes before another TN10 source finishes',

@@ -101,6 +101,119 @@ class _BraidScreenState extends State<BraidScreen> {
     unawaited(reload());
   }
 
+  Future<void> selectToken(bool input) async {
+    var query = '';
+    final selected = await showDialog<BraidToken>(
+        context: context,
+        builder: (dialogContext) =>
+            StatefulBuilder(builder: (context, refresh) {
+              final matches = BraidService.tokens
+                  .where((token) =>
+                      token.symbol.toLowerCase().contains(query) ||
+                      (!token.isKas && token.id.contains(query)))
+                  .toList();
+              return AlertDialog(
+                  title:
+                      Text(input ? 'From · Select token' : 'To · Select token'),
+                  content: SizedBox(
+                      width: 480,
+                      height: MediaQuery.sizeOf(context).height * 0.55,
+                      child: Column(children: [
+                        TextField(
+                            key: const Key('braid-token-search'),
+                            autofocus: true,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            onChanged: (text) => refresh(
+                                () => query = text.trim().toLowerCase()),
+                            decoration: const InputDecoration(
+                                hintText: 'Search ticker or covenant ID',
+                                prefixIcon: Icon(Icons.search))),
+                        const SizedBox(height: 12),
+                        Expanded(
+                            child: matches.isEmpty
+                                ? const Center(
+                                    child: Text('No matching tokens.'))
+                                : ListView.builder(
+                                    itemCount: matches.length,
+                                    itemBuilder: (context, index) {
+                                      final token = matches[index];
+                                      return ListTile(
+                                          key: Key('braid-token-${token.id}'),
+                                          title: Text(token.symbol,
+                                              overflow: TextOverflow.ellipsis),
+                                          subtitle: Text(
+                                              token.isKas
+                                                  ? 'Kaspa · native KAS'
+                                                  : token.id,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis),
+                                          onTap: () => Navigator.pop(
+                                              dialogContext, token));
+                                    }))
+                      ])),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Cancel'))
+                  ]);
+            }));
+    if (!mounted || selected == null || busy) return;
+    if (input) {
+      if (from.id == selected.id) return;
+      from = selected;
+      amount.clear();
+    } else {
+      if (to.id == selected.id) return;
+      to = selected;
+    }
+    changed();
+  }
+
+  Widget tokenSelector(String label, BraidToken token, bool input) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        OutlinedButton(
+            key: Key('braid-select-${input ? 'from' : 'to'}'),
+            onPressed: busy ? null : () => selectToken(input),
+            child: Row(children: [
+              Text(label),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: Text(token.symbol,
+                      textAlign: TextAlign.end,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis)),
+              const Icon(Icons.expand_more)
+            ])),
+        if (!token.isKas)
+          Padding(
+              padding: const EdgeInsets.only(left: 8, top: 4),
+              child:
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text('Covenant ID',
+                          style: Theme.of(context).textTheme.labelSmall),
+                      SelectableText(token.id,
+                          style: Theme.of(context).textTheme.bodySmall)
+                    ])),
+                IconButton(
+                    key: Key('braid-copy-${input ? 'from' : 'to'}'),
+                    tooltip: 'Copy covenant ID',
+                    icon: const Icon(Icons.copy, size: 20),
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: token.id));
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Covenant ID copied')));
+                      }
+                    })
+              ]))
+      ]);
+
   String rawInput() {
     final s = amount.text.trim();
     if (!from.isKas) return BraidService.integer(s).toString();
@@ -474,44 +587,9 @@ class _BraidScreenState extends State<BraidScreen> {
                               child: const Text('Return to swaps')),
                       ]))),
         if (receipt == null) ...[
-          DropdownButtonFormField<BraidToken>(
-              initialValue: from,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'From'),
-              items: [
-                for (final t in BraidService.tokens)
-                  DropdownMenuItem(
-                      value: t,
-                      child: Text(t.symbol,
-                          maxLines: 1, overflow: TextOverflow.ellipsis))
-              ],
-              onChanged: busy
-                  ? null
-                  : (v) {
-                      if (v == null) return;
-                      from = v;
-                      amount.clear();
-                      changed();
-                    }),
+          tokenSelector('From', from, true),
           const SizedBox(height: 12),
-          DropdownButtonFormField<BraidToken>(
-              initialValue: to,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'To'),
-              items: [
-                for (final t in BraidService.tokens)
-                  DropdownMenuItem(
-                      value: t,
-                      child: Text(t.symbol,
-                          maxLines: 1, overflow: TextOverflow.ellipsis))
-              ],
-              onChanged: busy
-                  ? null
-                  : (v) {
-                      if (v == null) return;
-                      to = v;
-                      changed();
-                    }),
+          tokenSelector('To', to, false),
           const SizedBox(height: 12),
           if (!from.isKas) ...[
             Text(balance == null

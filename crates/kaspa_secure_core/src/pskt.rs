@@ -248,7 +248,7 @@ pub fn sign_pskt(
             Value::String(hex::encode(signature_script));
     }
     built.tx.finalize();
-    if (matches!(request.profile.as_deref(), Some("braid-tn10-deposit-v1" | "braid-tn10-reclaim-v1" | "krc721-market-v1" | "kron-transfer-v1" | "kcc20-standard-transfer-v1" | "kron-swap-v1" | "kasparocket-mainnet-v1" | "kasseal-tn10-swap-v1" | "kasseal-tn10-prepare-v1" | "kasseal-mainnet-swap-v1" | "kasseal-mainnet-prepare-v1")) || (request.profile.as_deref()==Some("kaspacom-market-v1") && request.side.as_deref()==Some("cancel"))) && built.review.funding_deficit_sompi == 0 {
+    if (matches!(request.profile.as_deref(), Some("kasforge-tn10-order-v1" | "braid-tn10-deposit-v1" | "braid-tn10-reclaim-v1" | "krc721-market-v1" | "kron-transfer-v1" | "kcc20-standard-transfer-v1" | "kron-swap-v1" | "kasparocket-mainnet-v1" | "kasseal-tn10-swap-v1" | "kasseal-tn10-prepare-v1" | "kasseal-mainnet-swap-v1" | "kasseal-mainnet-prepare-v1")) || (request.profile.as_deref()==Some("kaspacom-market-v1") && request.side.as_deref()==Some("cancel"))) && built.review.funding_deficit_sompi == 0 {
         crate::kcc20::simulate_all(&built.tx, &built.entries)
             .map_err(|e|CoreError::Transaction(format!("Local contract script validation failed: {e}")))?;
     }
@@ -665,6 +665,8 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         crate::kasseal::validate_preparation(request, &tx, &entries, &sighashes, &scripts)?;
     } else if matches!(request.profile.as_deref(),Some("braid-tn10-deposit-v1"|"braid-tn10-reclaim-v1")) {
         crate::braid::validate(request, &tx, &entries, &sighashes, &scripts)?;
+    } else if request.profile.as_deref() == Some("kasforge-tn10-order-v1") {
+        crate::kasforge::validate(request, &tx, &entries, &sighashes)?;
     } else if request.profile.as_deref() == Some("krc721-market-v1") {
         crate::nft_market::validate(request)?;
     } else if request.profile.as_deref() == Some("kaspacom-market-v1") {

@@ -652,94 +652,6 @@ export default function Home() {
                 Android may ask you to allow installation from your browser or
                 file manager. Verify the checksum before installation.
               </p>
-              <p>
-                Android 0.11.70 supports Kasseal SDK 0.3.0 and the new
-                creator-window contracts while retaining older tokens. Testnet 10
-                adds Braid covenant swaps with selectable activity details and
-                a read-only KasForge token and quote preview. Forge trading stays
-                disabled pending complete independent order verification.
-                Update through the official website or directly from the matching
-                GitHub release inside Kaspire.
-              </p>
-              <p>
-                <a
-                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/v0.11.70"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Full Android release notes: 0.11.69 → 0.11.70
-                </a>
-              </p>
-              <p>
-                Android 0.11.68 adds a themed update-choice dialog: keep the
-                classic official-website APK download or download the matching
-                GitHub release directly inside Kaspire. The internal route checks
-                the signed manifest, APK checksum, package, version and signing
-                identity before opening Android&apos;s installer. Android may ask
-                you to allow installs from Kaspire and confirm installation.
-                Kaspire Browser adds Kasseal as its second approved dApp, with
-                its official icon and the refreshed dApp order.
-              </p>
-              <p>
-                <a
-                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/v0.11.68"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Full Android release notes: 0.11.67 → 0.11.68
-                </a>
-              </p>
-              <p>
-                Android 0.11.67 adds Borrowed Receive for standard KCC20 and
-                KaspaRocket transfers: reuse an eligible live recipient cell
-                instead of creating another, while preserving its tokens,
-                receiving policy and KAS deposit. The review explains whether
-                a cell is reused or a new one is needed. Activity now uses
-                verified KCC20 units and keeps verified receipts ahead of older
-                indexer fallbacks. Kasseal and legacy KRON paths are unchanged.
-              </p>
-              <p>
-                <a
-                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/v0.11.67"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Full Android release notes: 0.11.66 → 0.11.67
-                </a>
-              </p>
-              <p>
-                Android 0.11.66 fixes large KRC20 activity amounts and loads
-                standard KCC20 history from wallet-related transactions instead
-                of scanning global trading history. Activity starts with 50
-                entries and Load more adds another 50. Long asset names stay
-                inside their frames. KRC20 logos now use Kaspire's persistent
-                server cache, retaining saved images during upstream outages.
-                Includes the recent WalletConnect fixes.
-              </p>
-              <p>
-                Android 0.11.64 fixes WalletConnect request handling: KRC20
-                approvals no longer wait for unrelated asset discovery,
-                repeated dApp wake links are processed, and pending requests
-                are restored after app resume. Transient relay initialization
-                failures can be retried without restarting the app. Connection
-                permissions and native signing checks remain unchanged.
-              </p>
-              <p>
-                Mainnet Swap now offers KaspaRocket, Kasseal and KRON, in that
-                order. Kasseal brings launch-proof-verified curve and pool trades,
-                partial-sale token preparation and swap history. KaspaRocket
-                tokens open a balance and price detail page with separate Send
-                Asset and Swap buttons. The latest hotfix resolves live Rocket
-                transfer cells independently of Kasvio, while Kasseal holdings
-                load directly into your wallet. The newest hotfix also corrects
-                Check on Explorer links for KaspaRocket/KCC20 tokens. Kasseal
-                search now covers the full catalogue, with query-specific
-                pagination and direct covenant-ID lookup. This update also improves P2SH history
-                pagination, saved-swap conflict recovery, dot.k newest/length
-                filters, verified token metadata and US-style number formatting.
-                Signed with the existing Android release certificate and
-                signing lineage.
-              </p>
             </div>
             <div className="release-card extension-release-card">
               <div className="release-icon">
@@ -790,29 +702,6 @@ export default function Home() {
                 <a href={extensionRelease.downloadUrl}>
                   Download extension {extensionRelease.version} ZIP
                 </a>.
-              </p>
-              <p>
-                Since 0.5.23: Activity loads independent sources progressively,
-                starts with 50 entries and adds 50 with Load more. KRC20 logos
-                use Kaspire&apos;s persistent cache and long asset names fit their
-                frames. The optional Chrome Side Panel keeps the wallet beside
-                your dApp and presents approvals inside the matching panel.
-                Standard KCC20 and KaspaRocket transfers support eligible
-                Borrowed Receive cells. Verified KCC20 units correct Activity
-                amounts, and standard token balances now appear as soon as each
-                positive result arrives, without waiting for the full catalogue.
-                Reopening shares the active scan; late results no longer fall
-                outside the ordinary 30-second review timeout. Kasseal and
-                legacy KRON paths are unchanged.
-              </p>
-              <p>
-                <a
-                  href="https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/extension-v0.5.27"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Full extension release notes: 0.5.23 → 0.5.27
-                </a>
               </p>
               <div className="checksum">
                 <span>Extension ZIP SHA-256</span>

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kasvault_wallet/src/screens/braid_screen.dart';
 import 'package:kasvault_wallet/src/services/app_settings.dart';
@@ -33,6 +34,16 @@ class Source extends BraidService {
   Future<Map<String, dynamic>> quote(String address, BraidToken from,
           BraidToken to, String amount, int slippage) async =>
       {'amountOut': '2105645645', 'localFloor': '2084589198', 'txs': []};
+}
+
+Future<void> selectFrom(WidgetTester tester, BraidToken token) async {
+  await tester.tap(find.byKey(const Key('braid-select-from')));
+  await tester.pumpAndSettle();
+  await tester.enterText(
+      find.byKey(const Key('braid-token-search')), token.symbol);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(Key('braid-token-${token.id}')));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -80,10 +91,7 @@ void main() {
           theme: KasVaultTheme.forTheme(theme),
           home: BraidScreen(address: 'fixture', service: Source())));
       await tester.pumpAndSettle();
-      final dropdown = tester.widget<DropdownButtonFormField<BraidToken>>(
-          find.byType(DropdownButtonFormField<BraidToken>).first);
-      dropdown.onChanged!(BraidService.tokens[2]);
-      await tester.pumpAndSettle();
+      await selectFrom(tester, BraidService.tokens[2]);
       expect(find.textContaining('12,345 FIRE'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('MAX'), 150,
           scrollable: find.byType(Scrollable).first);
@@ -116,11 +124,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
         home: BraidScreen(address: 'fixture', service: Source(failure: true))));
     await tester.pumpAndSettle();
-    tester
-        .widget<DropdownButtonFormField<BraidToken>>(
-            find.byType(DropdownButtonFormField<BraidToken>).first)
-        .onChanged!(BraidService.tokens[2]);
-    await tester.pumpAndSettle();
+    await selectFrom(tester, BraidService.tokens[2]);
     expect(find.text('Token balance unavailable / loading'), findsOneWidget);
     expect(find.textContaining('Token balance: 0'), findsNothing);
     expect(find.text('Token source unavailable'), findsOneWidget);
@@ -132,12 +136,8 @@ void main() {
     await tester.pumpWidget(MaterialApp(
         home: BraidScreen(address: 'fixture', service: Source(slow: slow))));
     await tester.pumpAndSettle();
-    final dropdown = tester.widget<DropdownButtonFormField<BraidToken>>(
-        find.byType(DropdownButtonFormField<BraidToken>).first);
-    dropdown.onChanged!(BraidService.tokens[2]);
-    await tester.pump();
-    dropdown.onChanged!(BraidService.tokens.first);
-    await tester.pumpAndSettle();
+    await selectFrom(tester, BraidService.tokens[2]);
+    await selectFrom(tester, BraidService.tokens.first);
     slow.complete({
       'notes': [
         {'amount': '99999999'}
@@ -145,6 +145,43 @@ void main() {
     });
     await tester.pumpAndSettle();
     expect(find.textContaining('99,999,999'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('both selectors search ticker or covenant and copy the full ID',
+      (tester) async {
+    String? copied;
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String;
+      }
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    await tester.pumpWidget(
+        MaterialApp(home: BraidScreen(address: 'fixture', service: Source())));
+    await tester.pumpAndSettle();
+    for (final side in ['from', 'to']) {
+      final token = BraidService.tokens[2];
+      await tester.tap(find.byKey(Key('braid-select-$side')));
+      await tester.pumpAndSettle();
+      final search = find.byKey(const Key('braid-token-search'));
+      await tester.enterText(search, 'not-a-token');
+      await tester.pump();
+      expect(find.text('No matching tokens.'), findsOneWidget);
+      await tester.enterText(search, token.id.toUpperCase());
+      await tester.pump();
+      expect(find.byKey(Key('braid-token-${token.id}')), findsOneWidget);
+      expect(find.byKey(Key('braid-token-${BraidService.tokens[1].id}')),
+          findsNothing);
+      await tester.tap(find.byKey(Key('braid-token-${token.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('braid-copy-$side')));
+      await tester.pump();
+      expect(copied, token.id);
+    }
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

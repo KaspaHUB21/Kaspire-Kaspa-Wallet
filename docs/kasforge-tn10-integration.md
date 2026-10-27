@@ -1,5 +1,33 @@
 # KasForge TN10 integration
 
+## Android 0.11.71 / build 216
+
+TN10 order trading now uses a dedicated native `kasforge-tn10-order-v1` profile.
+Public SDK 0.4.0 template data is pinned locally; no provider JavaScript or
+provider verification verdict is executed or trusted by the wallet. Mainnet,
+browser-extension and iOS packages remain unchanged.
+
+The wallet rebuilds buy and sell contracts, checks the exact token/market,
+owner, minimum, fees, expiry (two independent clocks), order/token outpoints,
+token conservation and wallet change. Input state is checked against an
+independent TN10 node. Actual witness mass and network fees are checked, and
+every fully signed transaction executes locally before returning from Rust.
+
+Orders and multi-step plans are encrypted and read-back-verified before
+submission. An expired build ID cannot erase signed bytes: a same-byte public
+node fallback is available. Owner cancellation is constructed from saved data
+and independent live UTXOs without the Forge API. Its displayed network fee is
+0.1 KAS (separate from the contract's automatic-refund fee). Completed status
+requires an accepted independent transaction spending the exact saved order
+and satisfying its guaranteed KAS/token payout. Missing data never means final.
+
+Synthetic buy/sell and both cancellation branches execute locally. Live unsigned
+curve buy/sell and pool buy builds pass native review. The public pool fixture
+has no funded holder, so no live pool sell was manufactured by signing a real
+trade. No physical-device or funded end-to-end settlement is claimed.
+
+## Before 0.11.71 (historical read-only integration)
+
 Android 0.11.70/build 215 includes the read-only TN10 integration first tried in
 private build 213. It is enabled by default only on Testnet 10; builds may opt out
 with KASPIRE_KASFORGE_TN10=false. Mainnet and extension are not enabled.
