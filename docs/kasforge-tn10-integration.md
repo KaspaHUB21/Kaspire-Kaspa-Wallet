@@ -1,5 +1,21 @@
 # KasForge TN10 integration
 
+## Android 0.11.72 / build 217 — submission correction
+
+Order deposits must go through Forge `/submit`: a direct node broadcast does
+not register an order with its sequencer. The 0.11.71 error fallback has been
+removed. Rejections and timeouts preserve the original error and signed bytes
+without broadcasting. Existing affected orders can be identified from accepted
+deposits and their exact unspent order outputs; a missing index entry alone
+never means failure, refund or completion. This does not establish the original
+reason why Forge failed to confirm submission; that error was previously hidden.
+
+45 focused service/widget tests pass, including rejection, timeout, malformed
+responses, same-byte API retry, independent unspent/mismatching/spent/unknown
+states and narrow layouts in all four themes. No funded submission or
+cancellation was performed during this investigation. Full release evidence
+and limitations are recorded in [0.11.72](release-v0.11.72.md).
+
 ## Android 0.11.71 / build 216
 
 TN10 order trading now uses a dedicated native `kasforge-tn10-order-v1` profile.
@@ -14,8 +30,9 @@ independent TN10 node. Actual witness mass and network fees are checked, and
 every fully signed transaction executes locally before returning from Rust.
 
 Orders and multi-step plans are encrypted and read-back-verified before
-submission. An expired build ID cannot erase signed bytes: a same-byte public
-node fallback is available. Owner cancellation is constructed from saved data
+submission. This release included a direct-node submission fallback on API
+errors; that fallback is withdrawn by the 0.11.72 correction above because
+it can deposit funds without registering the swap. Owner cancellation is constructed from saved data
 and independent live UTXOs without the Forge API. Its displayed network fee is
 0.1 KAS (separate from the contract's automatic-refund fee). Completed status
 requires an accepted independent transaction spending the exact saved order

@@ -77,9 +77,11 @@ class _KasForgeOrderScreenState extends State<KasForgeOrderScreen> {
                         Text(
                             done
                                 ? 'Order ${r['state']}'
-                                : submitted
-                                    ? 'Order awaiting settlement'
-                                    : 'Review Forge order',
+                                : r['state'] == 'deposited-untracked'
+                                    ? 'Deposit confirmed · swap not registered'
+                                    : submitted
+                                        ? 'Order awaiting settlement'
+                                        : 'Review Forge order',
                             style: Theme.of(context).textTheme.headlineSmall),
                         const Text(
                             'Testnet 10 · covenant order. A deposit is not a completed swap. The owner can cancel an unfilled order at any time.'),
@@ -107,8 +109,15 @@ class _KasForgeOrderScreenState extends State<KasForgeOrderScreen> {
                                 icon: const Icon(Icons.copy),
                                 label: const Text('Copy transaction ID')),
                           ],
-                        if (r['status'] != null)
-                          row('Latest status', '${r['status']}'),
+                        if (r['status'] is Map) ...[
+                          row('Latest status',
+                              '${r['status']['order'] is Map ? r['status']['order']['status'] : r['status']['status']}'),
+                          if (r['status']['message'] is String)
+                            Text('${r['status']['message']}'),
+                        ],
+                        if (!done && r['submissionError'] is String)
+                          row('Last Forge submission error',
+                              '${r['submissionError']}'),
                       ]))),
           if (error != null)
             Padding(

@@ -94,4 +94,44 @@ void main() {
     expect(find.textContaining('Node unavailable'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  for (final theme in [
+    KaspireTheme.midnight,
+    KaspireTheme.hub21,
+    KaspireTheme.glacier,
+    KaspireTheme.neptune
+  ]) {
+    testWidgets(
+        'unregistered deposit and saved API error remain visible in $theme',
+        (tester) async {
+      tester.view.physicalSize = const Size(320, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final r = receipt()
+        ..['signed'] = ['same saved bytes']
+        ..['state'] = 'deposited-untracked'
+        ..['submissionError'] = 'KasForge: build expired'
+        ..['status'] = {
+          'status': 'deposited-untracked',
+          'message': 'Deposit remains unspent. This is not a completed trade.'
+        };
+      await tester.pumpWidget(MaterialApp(
+          theme: KasVaultTheme.forTheme(theme),
+          home: KasForgeOrderScreen(
+              address: 'fixture', receipt: r, trading: Trading())));
+      await tester.pumpAndSettle();
+      expect(
+          find.text('Deposit confirmed · swap not registered'), findsOneWidget);
+      await tester.scrollUntilVisible(
+          find.text('Last Forge submission error'), 180,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('KasForge: build expired'), findsOneWidget);
+      expect(find.text('Return to marketplace'), findsNothing);
+      await tester.scrollUntilVisible(
+          find.text('Cancel / recover unfilled order'), 180,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('Cancel / recover unfilled order'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

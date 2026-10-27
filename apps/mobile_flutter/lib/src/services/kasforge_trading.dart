@@ -8,6 +8,12 @@ import 'encrypted_store.dart';
 import 'kasforge_service.dart';
 import 'native_security.dart';
 
+class KasForgeApiError extends StateError {
+  KasForgeApiError(this.statusCode, this.detail) : super('KasForge: $detail');
+  final int statusCode;
+  final String detail;
+}
+
 /// TN10 orders only. API responses never grant permission to sign a generic PSKT.
 class KasForgeTrading {
   KasForgeTrading(
@@ -52,8 +58,8 @@ class KasForgeTrading {
         d is! Map ||
         d['ok'] == false ||
         d['error'] != null) {
-      throw StateError(
-          'KasForge: ${d is Map ? d['error'] ?? 'HTTP ${r.statusCode}' : 'invalid response'}');
+      throw KasForgeApiError(r.statusCode,
+          '${d is Map ? d['error'] ?? 'HTTP ${r.statusCode}' : 'invalid response'}');
     }
     return Map<String, dynamic>.from(d);
   }
@@ -473,29 +479,25 @@ class KasForgeTrading {
     try {
       r = await call(address, 'submit',
           body: {'buildId': receipt['buildId'], 'signed': receipt['signed']});
-    } catch (_) {
-      // A build-ID timeout cannot strand a signed payment. Broadcast exactly
-      // the saved bytes through independent TN10 nodes, never rebuild/re-sign.
-      final raw = receipt['signedWrpc'] as List?;
-      if (raw == null ||
-          raw.length != (receipt['transactionIds'] as List).length) {
-        rethrow;
-      }
-      for (var i = 0; i < raw.length; i++) {
-        final id = '${receipt['transactionIds'][i]}';
-        if (!await accepted(id)) {
-          await BraidClock(client)
-              .broadcast(jsonDecode('${raw[i]}') as Map, id);
-        }
-      }
-      receipt['state'] = 'deposited-untracked';
+    } catch (e) {
+      // Only Forge /submit registers an order with its sequencer. A node
+      // broadcast can lock the deposit on-chain without scheduling a swap.
+      // Preserve the original error and exact signed plan, but never bypass
+      // registration, including on timeouts (which have an unknown outcome).
+      final detail = e.toString().replaceFirst('Bad state: ', '');
+      receipt['submissionError'] =
+          detail.substring(0, detail.length.clamp(0, 500));
       await retain(address, receipt);
-      return;
+      rethrow;
     }
     if (r['txid'] != (receipt['transactionIds'] as List).last) {
+      receipt['submissionError'] =
+          'Forge submission returned a different transaction ID.';
+      await retain(address, receipt);
       throw StateError(
           'Forge submission returned a different ID. Recovery data retained.');
     }
+    receipt.remove('submissionError');
     receipt['state'] = 'deposited';
     await retain(address, receipt);
   }
@@ -525,8 +527,48 @@ class KasForgeTrading {
         return {'status': 'cancelled', 'txid': receipt['cancelId']};
       } catch (_) {/* Missing acceptance never clears the saved order. */}
     }
-    final d = await call(
-        address, 'order/${(receipt['transactionIds'] as List).last}');
+    final id = '${(receipt['transactionIds'] as List).last}';
+    Map<String, dynamic> d;
+    try {
+      d = await call(address,
+          'order/$id?market=${Uri.encodeQueryComponent('${receipt['tokenId'] ?? receipt['order']['state']['kcc20']}')}');
+    } on KasForgeApiError catch (e) {
+      if (![400, 404].contains(e.statusCode) || e.detail != 'no such order') {
+        rethrow;
+      }
+      // Recover the old direct-broadcast case without relying on the Forge
+      // index. Missing registration never proves failure, refund or zero.
+      if (!await accepted(id)) {
+        throw StateError(
+            'Forge has no registered order and the deposit is not independently confirmed. The signed order remains saved; do not create another order.');
+      }
+      final order = receipt['order'] as Map;
+      final out = order['output'] as Map;
+      final entries = await live('${order['address']}');
+      final exact = entries.whereType<Map>().where((entry) {
+        final point = entry['outpoint'] as Map;
+        final u = entry['utxoEntry'] as Map;
+        return '${point['transactionId']}:${point['index']}' ==
+                out['outpoint'] &&
+            '${u['amount']}' == '${out['sompi']}' &&
+            u['covenantId'] == null &&
+            u['isCoinbase'] == false &&
+            u['scriptPublicKey']['version'] == 0 &&
+            '0000${u['scriptPublicKey']['script']}' ==
+                _packed('${order['redeemScript']}');
+      });
+      if (exact.length != 1) {
+        throw StateError(
+            'Forge has no registered order. The deposit was confirmed, but its current outcome could not be verified. Recovery data remains saved; do not create another order.');
+      }
+      d = {
+        'status': 'deposited-untracked',
+        'txid': id,
+        'message':
+            'Your deposit is confirmed and remains unspent in the order contract, but Forge has not registered the swap. It is not a completed trade. Use Cancel / recover unfilled order to return the deposit, or retry submitting the same saved order to Forge. Do not create another order.'
+      };
+      receipt['state'] = 'deposited-untracked';
+    }
     receipt['status'] = d;
     final state =
         d['order'] is Map ? Map<String, dynamic>.from(d['order'] as Map) : d;
