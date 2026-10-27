@@ -10,10 +10,15 @@ import 'kasparocket_screen.dart' show rocketListPadding;
 
 class KasForgeScreen extends StatefulWidget {
   const KasForgeScreen(
-      {super.key, required this.address, this.initialTokenId, this.service});
+      {super.key,
+      required this.address,
+      this.initialTokenId,
+      this.service,
+      this.trading});
   final String address;
   final String? initialTokenId;
   final KasForgeService? service;
+  final KasForgeTrading? trading;
   @override
   State<KasForgeScreen> createState() => _KasForgeScreenState();
 }
@@ -25,7 +30,7 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
   final search = TextEditingController();
   var visible = 20;
   var openedInitial = false;
-  final trading = KasForgeTrading();
+  late final trading = widget.trading ?? KasForgeTrading();
   late Future<List<Map<String, dynamic>>> savedOrders;
 
   @override
@@ -81,26 +86,11 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
         body: TabBarView(children: [
           browse(),
           ListView(padding: rocketListPadding(context), children: [
-            FutureBuilder<List<Map<String, dynamic>>>(
+            _SavedForgeOrders(
+                address: widget.address,
                 future: savedOrders,
-                builder: (context, snapshot) => Column(children: [
-                      for (final r in (snapshot.data ?? []).reversed)
-                        ListTile(
-                            title: Text('${r['symbol']} · ${r['state']}'),
-                            subtitle:
-                                const Text('Saved Forge order / recovery'),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () async {
-                              await Navigator.push(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                      builder: (_) => KasForgeOrderScreen(
-                                          address: widget.address,
-                                          receipt: r,
-                                          trading: trading)));
-                              if (mounted) reload();
-                            }),
-                    ])),
+                trading: trading,
+                reload: reload),
             history(),
           ])
         ]),
@@ -109,7 +99,10 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
   Future<void> open(KasForgeToken token) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
         builder: (_) => KasForgeTradeScreen(
-            address: widget.address, token: token, service: service)));
+            address: widget.address,
+            token: token,
+            service: service,
+            trading: trading)));
     if (mounted) reload();
   }
 
@@ -136,6 +129,12 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
                 .any((s) => s.toLowerCase().contains(q)))
             .toList();
         return ListView(padding: rocketListPadding(context), children: [
+          _SavedForgeOrders(
+              address: widget.address,
+              future: savedOrders,
+              trading: trading,
+              reload: reload,
+              pendingOnly: true),
           const Card(
               child: Padding(
                   padding: EdgeInsets.all(16),
@@ -148,7 +147,7 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
                         Text('Testnet 10 · Bonding curves and graduated pools'),
                         SizedBox(height: 8),
                         Text(
-                            'Token balances and quote preview. Trading awaits independent order-contract verification.'),
+                            'Testnet trades use locally verified covenant orders. A deposit is not a completed swap.'),
                       ]))),
           const SizedBox(height: 12),
           TextField(
@@ -210,7 +209,8 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
               if (orders.isEmpty)
                 const Padding(
                     padding: EdgeInsets.all(16),
-                    child: Text('No open KasForge orders.')),
+                    child: Text(
+                        'No open orders reported by Forge. Local recovery orders are shown separately above.')),
               for (final order in orders)
                 Card(
                     child: ListTile(
@@ -265,23 +265,118 @@ Widget kasForgeImage(String? url) => ClipRRect(
                 const SizedBox(width: 44, height: 44, child: Icon(Icons.token)),
           ));
 
+class _SavedForgeOrders extends StatelessWidget {
+  const _SavedForgeOrders(
+      {required this.address,
+      required this.future,
+      required this.trading,
+      required this.reload,
+      this.pendingOnly = false});
+  final String address;
+  final Future<List<Map<String, dynamic>>> future;
+  final KasForgeTrading trading;
+  final VoidCallback reload;
+  final bool pendingOnly;
+
+  @override
+  Widget build(BuildContext context) =>
+      FutureBuilder<List<Map<String, dynamic>>>(
+          future: future,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Card(
+                  child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                                'Saved Forge orders could not be loaded. Recovery data must not be treated as empty.'),
+                            Text('${snapshot.error}'),
+                            OutlinedButton(
+                                onPressed: reload,
+                                child: const Text('Retry saved orders')),
+                          ])));
+            }
+            if (!snapshot.hasData) {
+              return const Card(
+                  child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Row(children: [
+                        SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator()),
+                        SizedBox(width: 12),
+                        Expanded(child: Text('Loading saved Forge orders…'))
+                      ])));
+            }
+            final rows = snapshot.data!.reversed
+                .where((r) =>
+                    !pendingOnly ||
+                    (r['signed'] is List && r['finalVerified'] != true))
+                .toList();
+            if (pendingOnly && rows.isEmpty) return const SizedBox.shrink();
+            return Card(
+                child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                              pendingOnly
+                                  ? 'Saved Forge order needs attention'
+                                  : 'Saved orders on this device',
+                              style: Theme.of(context).textTheme.titleMedium),
+                          if (rows.isEmpty)
+                            const Text(
+                                'No saved orders for this wallet on this device.'),
+                          for (final r in rows)
+                            ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(r['finalVerified'] == true
+                                    ? Icons.check_circle_outline
+                                    : Icons.warning_amber_rounded),
+                                title: Text('${r['symbol']} · ${r['state']}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis),
+                                subtitle:
+                                    const Text('Open saved order / recovery'),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () async {
+                                  await Navigator.push(
+                                      context,
+                                      MaterialPageRoute<void>(
+                                          builder: (_) => KasForgeOrderScreen(
+                                              address: address,
+                                              receipt: r,
+                                              trading: trading)));
+                                  if (context.mounted) reload();
+                                }),
+                        ])));
+          });
+}
+
 class KasForgeTradeScreen extends StatefulWidget {
   const KasForgeTradeScreen(
       {super.key,
       required this.address,
       required this.token,
-      required this.service});
+      required this.service,
+      this.trading});
   final String address;
   final KasForgeToken token;
   final KasForgeService service;
+  final KasForgeTrading? trading;
   @override
   State<KasForgeTradeScreen> createState() => _KasForgeTradeScreenState();
 }
 
 class _KasForgeTradeScreenState extends State<KasForgeTradeScreen> {
-  final trading = KasForgeTrading();
+  late final trading = widget.trading ?? KasForgeTrading();
   final amount = TextEditingController();
   late Future<List<WalletAsset>> holdings;
+  late Future<List<Map<String, dynamic>>> savedOrders;
   String side = 'buy';
   bool busy = false;
   int generation = 0;
@@ -305,6 +400,9 @@ class _KasForgeTradeScreenState extends State<KasForgeTradeScreen> {
         quoted = null;
         error = null;
         holdings = widget.service.walletAssets(widget.address);
+        holdings.ignore();
+        savedOrders = trading.saved(widget.address);
+        savedOrders.ignore();
       });
 
   Future<void> quote() async {
@@ -335,8 +433,10 @@ class _KasForgeTradeScreenState extends State<KasForgeTradeScreen> {
     try {
       final receipt = await trading.exclusive(
           widget.address,
-          () => trading.build(
-              widget.address, widget.token, side, amount.text.trim(), q));
+          () async =>
+              await trading.pending(widget.address) ??
+              await trading.build(
+                  widget.address, widget.token, side, amount.text.trim(), q));
       if (!mounted) return;
       await Navigator.push(
           context,
@@ -363,6 +463,12 @@ class _KasForgeTradeScreenState extends State<KasForgeTradeScreen> {
                   icon: const Icon(Icons.refresh))
             ]),
         body: ListView(padding: rocketListPadding(context), children: [
+          _SavedForgeOrders(
+              address: widget.address,
+              future: savedOrders,
+              trading: trading,
+              reload: reload,
+              pendingOnly: true),
           Card(
               child: Padding(
                   padding: const EdgeInsets.all(16),

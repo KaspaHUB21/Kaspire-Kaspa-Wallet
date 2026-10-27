@@ -41,9 +41,9 @@ class _KasForgeOrderScreenState extends State<KasForgeOrderScreen> {
       await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-                  title: const Text('Cancel this Forge order?'),
+                  title: const Text('Recover this saved Forge order?'),
                   content: const Text(
-                      'Return the unfilled order to your wallet using the saved contract data and an independent node. Network fee: 0.1 KAS. No new swap is created.'),
+                      'If the deposit is confirmed, return the unfilled order through its contract. For an unconfirmed single-step KAS buy, spend the exact saved funding inputs back to your own wallet instead, making the old deposit unusable. Network fee: 0.1 KAS. Unsupported token or split plans remain saved. No new swap is created.'),
                   actions: [
                     TextButton(
                         onPressed: () => Navigator.pop(context, false),
@@ -140,7 +140,7 @@ class _KasForgeOrderScreenState extends State<KasForgeOrderScreen> {
                       : signed == null
                           ? 'Authorize and place order'
                           : 'Resume saved order')),
-            if (submitted)
+            if (signed != null)
               OutlinedButton(
                   onPressed: busy
                       ? null

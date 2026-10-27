@@ -1,5 +1,34 @@
 # KasForge TN10 integration
 
+## Android 0.11.73 / build 218 — required JSON identity and reachable recovery
+
+The reported Forge parser rejection identifies the missing top-level `id`:
+the native signer returns it separately, and the adapter must restore that
+required SafeJSON metadata before `/submit`. The adapter now re-prepares the
+original plan in Rust, matches its saved review and computed ID, and verifies
+all signed fields against the original except the selected witnesses. It adds
+only the verified ID, retaining the exact witness bytes and reviewed terms.
+Old signed receipts use the same repair without another signature.
+
+Saved local orders now have explicit loading/error states and prominent access
+in both the catalogue and token trade screen, independently of Forge's empty
+server list. Review reopens the exact pending receipt instead of requesting a
+second build. No journal entries are cleared simply because a server has none.
+
+An explicitly confirmed unsubmitted single-step KAS buy can invalidate its
+saved deposit by returning its exact independently verified P2PK funding inputs
+to the same wallet, with a disclosed 0.1 KAS fee. This uses the existing ordinary
+P2PK signer, not a new contract policy. Token/split plans are excluded. Deposited
+orders keep the existing contract cancellation. The journal stays blocking
+until the exact cancellation/invalidation and return are independently accepted.
+
+69 targeted tests and the opt-in live unsigned curve buy/sell and pool buy
+adapter test pass. That test reproduces the missing-ID exception with actual
+Rusty-Kaspa 2.1.0 deserialization, verifies the repaired ID and unchanged dummy
+witnesses, and natively reviews the self-return plan. Its submit handler is
+intercepted: no funded transaction or actual Forge submission is performed.
+See [0.11.73](release-v0.11.73.md) for release evidence and limitations.
+
 ## Android 0.11.72 / build 217 — submission correction
 
 Order deposits must go through Forge `/submit`: a direct node broadcast does

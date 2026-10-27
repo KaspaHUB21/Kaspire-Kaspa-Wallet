@@ -7,6 +7,7 @@ import 'package:kasvault_wallet/src/services/encrypted_store.dart';
 import 'package:kasvault_wallet/src/services/network_settings.dart';
 import 'package:kasvault_wallet/src/services/braid_service.dart';
 import 'package:kasvault_wallet/src/kaspa_address.dart';
+import 'package:kasvault_wallet/src/services/native_security.dart';
 
 const address =
     'kaspatest:qp2srppaehqgjxxw4fyf2ckdzha9nz573eapxw0acg4ntc27cy2w23jck27ql';
@@ -27,12 +28,58 @@ class Memory implements EncryptedStore {
   }
 }
 
+Map<String, dynamic> unsignedTx() => {
+      'version': 1,
+      'inputs': [
+        {
+          'transactionId': 'd' * 64,
+          'index': 0,
+          'signatureScript': '',
+          'utxo': {'amount': '200000000'}
+        }
+      ],
+      'outputs': [
+        {'value': '100000000', 'scriptPublicKey': '00'}
+      ],
+    };
+
+class ReviewSecurity extends NativeSecurity {
+  ReviewSecurity({this.id, this.hash});
+  final String? id, hash;
+  @override
+  Future<Map<String, Object?>> preparePskt(Map<String, Object?> request,
+          {bool kaspacomReview = false}) async =>
+      {'transactionId': id ?? 'a' * 64, 'reviewHash': hash ?? 'review'};
+}
+
 Map<String, dynamic> receipt() => {
       'buildId': 'fixture',
       'address': address,
       'network': 'testnet-10',
-      'signed': ['saved signatures'],
-      'requests': [{}],
+      'signed': [
+        jsonEncode({
+          ...unsignedTx(),
+          'inputs': [
+            {
+              ...(unsignedTx()['inputs'] as List).first as Map,
+              'signatureScript': '410001',
+            }
+          ]
+        })
+      ],
+      'requests': [
+        {
+          'sender': address,
+          'profile': 'kasforge-tn10-order-v1',
+          'txJsonString': jsonEncode(unsignedTx()),
+          'signInputs': [
+            {'index': 0, 'sighashType': 1}
+          ]
+        }
+      ],
+      'reviews': [
+        {'reviewHash': 'review'}
+      ],
       'transactionIds': ['a' * 64],
       'side': 'sell',
       'state': 'signed',
@@ -41,6 +88,41 @@ Map<String, dynamic> receipt() => {
         'state': {'unitsIn': null, 'minSompi': 100000000, 'kcc20': 'b' * 64}
       }
     };
+Map<String, dynamic> fundingReceipt() {
+  final r = receipt()..['side'] = 'buy';
+  final tx = jsonDecode('${r['requests'][0]['txJsonString']}') as Map;
+  tx['inputs'][0]['utxo']['scriptPublicKey'] =
+      '000020${kaspaOwnerIdFromAddress(address)}ac';
+  tx['inputs'][0]['utxo']['covenantId'] = null;
+  tx['inputs'][0]['utxo']['isCoinbase'] = false;
+  r['requests'][0]['txJsonString'] = jsonEncode(tx);
+  return r;
+}
+
+class FundingTrading extends KasForgeTrading {
+  FundingTrading() : super(store: Memory());
+  int reads = 0;
+  @override
+  Future<List> live(String address) async {
+    reads++;
+    return [
+      {
+        'outpoint': {'transactionId': 'd' * 64, 'index': 0},
+        'utxoEntry': {
+          'amount': '200000000',
+          'isCoinbase': false,
+          'covenantId': null,
+          'blockDaaScore': '100',
+          'scriptPublicKey': {
+            'version': 0,
+            'script': '20${kaspaOwnerIdFromAddress(address)}ac'
+          }
+        }
+      }
+    ];
+  }
+}
+
 void main() {
   setUp(() => NetworkSettings.network.value = KaspaNetwork.tn10);
   test('Forge amounts never pass through floating point or scientific notation',
@@ -64,6 +146,7 @@ void main() {
   test('saved journals survive failed submit and reopening', () async {
     final store = Memory();
     final trading = KasForgeTrading(
+        security: ReviewSecurity(),
         store: store,
         client: MockClient((_) async =>
             http.Response(jsonEncode({'error': 'build expired'}), 409)));
@@ -79,6 +162,7 @@ void main() {
       final store = Memory(), calls = <Uri>[];
       final r = receipt()..['signedWrpc'] = ['{"saved":"exact bytes"}'];
       final trading = KasForgeTrading(
+          security: ReviewSecurity(),
           store: store,
           client: MockClient((request) async {
             calls.add(request.url);
@@ -105,13 +189,15 @@ void main() {
       () async {
     final r = receipt()..['submissionError'] = 'earlier failure';
     final trading = KasForgeTrading(
+        security: ReviewSecurity(),
         store: Memory(),
         client: MockClient((request) async {
           expect(request.url.path, '/api/v1/submit');
-          expect(jsonDecode(request.body), {
-            'buildId': r['buildId'],
-            'signed': r['signed'],
-          });
+          final body = jsonDecode(request.body) as Map;
+          expect(body['buildId'], r['buildId']);
+          final tx = jsonDecode(body['signed'][0] as String) as Map;
+          expect(tx['id'], 'a' * 64);
+          expect(tx['inputs'][0]['signatureScript'], '410001');
           return http.Response(jsonEncode({'ok': true, 'txid': 'a' * 64}), 200);
         }));
     await trading.submit(address, r);
@@ -119,6 +205,43 @@ void main() {
     expect(r['state'], 'deposited');
     expect(r['finalVerified'], isNot(true));
   });
+  for (final change in [
+    'wrong-id',
+    'output',
+    'input',
+    'missing-signature',
+    'native-id',
+    'review'
+  ]) {
+    test('submission metadata repair rejects $change before any HTTP',
+        () async {
+      final r = receipt(), store = Memory();
+      final tx = jsonDecode(r['signed'][0] as String) as Map;
+      if (change == 'wrong-id') tx['id'] = 'f' * 64;
+      if (change == 'output') tx['outputs'][0]['value'] = '99999999';
+      if (change == 'input') tx['inputs'][0]['utxo']['amount'] = '200000001';
+      if (change == 'missing-signature') {
+        tx['inputs'][0]['signatureScript'] = '';
+      }
+      r['signed'] = [jsonEncode(tx)];
+      final before = jsonEncode(r);
+      var calls = 0;
+      final trading = KasForgeTrading(
+          store: store,
+          security: ReviewSecurity(
+              id: change == 'native-id' ? 'f' * 64 : null,
+              hash: change == 'review' ? 'different' : null),
+          client: MockClient((_) async {
+            calls++;
+            return http.Response('{}', 200);
+          }));
+      await trading.retain(address, r);
+      await expectLater(trading.submit(address, r), throwsStateError);
+      expect(calls, 0);
+      expect(jsonEncode(r), before);
+      expect(await trading.pending(address), isNotNull);
+    });
+  }
   for (final outcome in [
     'unspent',
     'spent',
@@ -197,6 +320,7 @@ void main() {
     var calls = 0;
     final store = Memory()..fail = true;
     final trading = KasForgeTrading(
+        security: ReviewSecurity(),
         store: store,
         client: MockClient((_) async {
           calls++;
@@ -236,5 +360,130 @@ void main() {
         trading.exclusive(address, () async => throw StateError('cancelled')),
         throwsStateError);
     expect(await trading.exclusive(address, () async => 42), 42);
+  });
+  test('unconfirmed buy recovery returns exact verified funding to self only',
+      () async {
+    final r = fundingReceipt(), trading = FundingTrading();
+    final before = jsonEncode(r);
+    final request = await trading.fundingReturn(address, r);
+    final tx = jsonDecode('${request['txJsonString']}') as Map;
+    expect(
+        request['profile'], isNull); // existing P2PK path, no new token profile
+    expect(tx['inputs'][0]['transactionId'], 'd' * 64);
+    expect(tx['inputs'][0]['signatureScript'], '');
+    expect(tx['outputs'], [
+      {
+        'value': '190000000',
+        'scriptPublicKey': '000020${kaspaOwnerIdFromAddress(address)}ac'
+      }
+    ]);
+    expect(request['signInputs'], [
+      {'index': 0, 'sighashType': 1}
+    ]);
+    expect(trading.reads, 1);
+    expect(jsonEncode(r), before);
+  });
+  for (final unsupported in [
+    'sell',
+    'multi-step',
+    'token-input',
+    'foreign-owner'
+  ]) {
+    test('funding recovery does not broaden $unsupported support', () async {
+      final r = fundingReceipt(), trading = FundingTrading();
+      if (unsupported == 'sell') r['side'] = 'sell';
+      if (unsupported == 'multi-step') r['requests'].add(r['requests'][0]);
+      final tx = jsonDecode('${r['requests'][0]['txJsonString']}') as Map;
+      if (unsupported == 'token-input') {
+        tx['inputs'][0]['utxo']['covenantId'] = 'f' * 64;
+      }
+      if (unsupported == 'foreign-owner') {
+        tx['inputs'][0]['utxo']['scriptPublicKey'] = '000020${'f' * 64}ac';
+      }
+      r['requests'][0]['txJsonString'] = jsonEncode(tx);
+      await expectLater(trading.fundingReturn(address, r), throwsStateError);
+      expect(trading.reads, 0);
+    });
+  }
+  for (final outcome in [
+    'accepted',
+    'missing',
+    'wrong-input',
+    'wrong-output',
+    'wrong-amount'
+  ]) {
+    test(
+        'funding invalidation $outcome clears blocking journal only with exact accepted proof',
+        () async {
+      final r = fundingReceipt()
+        ..['cancelId'] = 'c' * 64
+        ..['cancelKind'] = 'invalidate-funding';
+      final store = Memory();
+      final trading = KasForgeTrading(
+          store: store,
+          client: MockClient((request) async {
+            expect(request.url.host, 'api-tn10.kaspa.org');
+            expect(request.method, 'GET');
+            return http.Response(
+                jsonEncode({
+                  'transaction_id': 'c' * 64,
+                  'is_accepted': outcome != 'missing',
+                  'inputs': [
+                    {
+                      'previous_outpoint_hash':
+                          (outcome == 'wrong-input' ? 'e' : 'd') * 64,
+                      'previous_outpoint_index': 0
+                    }
+                  ],
+                  'outputs': [
+                    {
+                      'amount':
+                          outcome == 'wrong-amount' ? '189999999' : '190000000',
+                      'script_public_key':
+                          '20${outcome == 'wrong-output' ? 'f' * 64 : kaspaOwnerIdFromAddress(address)}ac'
+                    }
+                  ],
+                }),
+                200);
+          }));
+      await trading.retain(address, r);
+      final result = await trading.status(address, r);
+      expect(result['status'],
+          outcome == 'accepted' ? 'cancelled' : 'cancellation-pending');
+      expect(await trading.pending(address),
+          outcome == 'accepted' ? isNull : isNotNull);
+      expect(
+          (await trading.saved(address)), hasLength(1)); // never erase recovery
+      expect(r['finalVerified'] == true, outcome == 'accepted');
+    });
+  }
+  test(
+      'deposit winning the invalidation race reopens contract recovery without losing signed attempts',
+      () async {
+    final r = fundingReceipt()
+      ..['cancelId'] = 'c' * 64
+      ..['cancelSigned'] = 'saved-self-return'
+      ..['cancelKind'] = 'invalidate-funding';
+    final trading = KasForgeTrading(
+        store: Memory(),
+        client: MockClient((request) async {
+          if (request.url.host == 'kaspa.pumpforge.tech') {
+            return http.Response('{"ok":true,"status":"open"}', 200);
+          }
+          final deposit = request.url.path.endsWith('a' * 64);
+          return http.Response(
+              jsonEncode({
+                'transaction_id': (deposit ? 'a' : 'c') * 64,
+                'is_accepted': deposit
+              }),
+              200);
+        }));
+    await trading.status(address, r);
+    expect(r['cancelId'], isNull);
+    expect(r['cancelSigned'], isNull);
+    expect(r['fundingInvalidationAttempt']['signed'], 'saved-self-return');
+    expect(r['state'], 'deposited');
+    expect(r['finalVerified'], isNot(true));
+    expect(await trading.pending(address), isNotNull);
   });
 }

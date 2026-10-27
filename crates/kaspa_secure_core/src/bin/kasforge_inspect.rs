@@ -9,7 +9,10 @@ fn main() {
     let result = (|| -> Result<String, String> {
         let r: kaspa_secure_core::PsktRequest =
             serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        if r.profile.as_deref() != Some("kasforge-tn10-order-v1") {
+        let self_return = std::env::args().any(|a| a == "--self-return")
+            && r.profile.is_none()
+            && r.sender.starts_with("kaspatest:");
+        if r.profile.as_deref() != Some("kasforge-tn10-order-v1") && !self_return {
             return Err("Forge profile required".into());
         }
         serde_json::to_string(&kaspa_secure_core::prepare_pskt(&r).map_err(|e| e.to_string())?)
