@@ -1,5 +1,20 @@
 # KasForge TN10 integration
 
+## Android 0.11.76 / build 221
+
+The Forge submission adapter now sends the SDK's single owner-signature
+envelope while retaining the complete locally verified signed witness in its
+encrypted receipt. Expired and partially prepared plans gain dependency-aware
+recovery of their exact wallet-owned KAS funding; token inputs are not signed
+by that funding-return path. Missing index entries never unblock a signed order.
+
+Foreground status checks use backoff and wait for independently verified
+settlement/refund instead of presenting ordinary confirmation delay as a
+rejection. Verified completed orders leave the attention list and appear in
+merged activity with token quantities, KAS values and copyable transaction IDs.
+Forge remains TN10-only. See the cumulative
+[0.11.76 release notes](release-v0.11.76.md).
+
 ## Android 0.11.73 / build 218 — required JSON identity and reachable recovery
 
 The reported Forge parser rejection identifies the missing top-level `id`:

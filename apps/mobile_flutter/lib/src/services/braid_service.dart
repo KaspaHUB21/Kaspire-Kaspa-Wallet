@@ -9,12 +9,15 @@ import '../kaspa_address.dart';
 import 'braid_clock.dart';
 import 'encrypted_store.dart';
 import 'network_settings.dart';
+import 'braid_pool_reader.dart';
 
 class BraidToken {
   const BraidToken(this.symbol, this.id, this.kind, this.template, this.prefix,
-      this.suffixLength, this.codeHash);
+      this.suffixLength, this.codeHash,
+      {this.decimals});
   final String symbol, id, template, prefix, codeHash;
   final int kind, suffixLength;
+  final int? decimals;
   // These are the pinned TN10 test coins, not the similarly named Mainnet
   // coins. UI deliberately labels token amounts as raw units until KCC-23
   // unit declarations have been independently checked for each deployment.
@@ -25,8 +28,25 @@ class BraidService {
   BraidService({http.Client? client, EncryptedStore? store, BraidClock? clock})
       : client = client ?? http.Client(),
         store = store ?? const KeystoreEncryptedStore() {
-    this.clock = clock ?? BraidClock(this.client);
+    this.clock = clock ?? BraidClock(this.client, mainnet: mainnet);
   }
+  final bool mainnet = !NetworkSettings.isTestnet;
+  String get network => mainnet ? 'mainnet' : 'testnet-10';
+  String get net => mainnet ? 'mainnet' : 'tn10';
+  String get addressPrefix => mainnet ? 'kaspa' : 'kaspatest';
+  String get readNode => mainnet
+      ? 'https://kaspire.kaslab.space/api/local-node'
+      : 'https://api-tn10.kaspa.org';
+  String get currentApi =>
+      mainnet ? 'https://app.braidswap.com/api/mainnet/router' : api;
+  String get currentPin => mainnet ? mainnetPin : pin;
+  static const mainnetPin =
+      'f994470f9bd84d2ca2578a5d8294cc403bb699f19f7e73922c51d04cbb17027d';
+  static const feeOwner =
+      '079ab96f3b42f1b3667010e6d855172bb8e905e3369fe5ad57b662c4bc365449';
+  String get feeAddress =>
+      kaspaAddressFromOwnerId(feeOwner, prefix: addressPrefix);
+  int get feeBps => 100;
   static const enabled =
       bool.fromEnvironment('KASPIRE_BRAID_TN10', defaultValue: true);
   static const origin = 'https://tn10-aggregator.braidswap.com';
@@ -34,7 +54,48 @@ class BraidService {
   static const pin =
       '905df466072298313e1cc9e86132ba61f26e2a359f7a7dbd5028fa1963872646';
   static final zero = '0' * 64;
-  static final tokens = [
+  static List<BraidToken> get tokens =>
+      NetworkSettings.isTestnet ? testnetTokens : mainnetTokens;
+  static final mainnetTokens = [
+    BraidToken('KAS', zero, 0, zero, '', 0, '', decimals: 8),
+    for (final entry in const {
+      'THEN':
+          'd8c4356d20712463bbf2da82a5411c3aea18fec024a2b9c014bba1b4524cc8c2',
+      'GUZA':
+          '3cb7bd371ea2014af95f3471d2995ede8ffbde454d3a37e3b566880daf011c5a',
+    }.entries)
+      BraidToken(
+          entry.key,
+          entry.value,
+          1,
+          '3d689d6273b7631e69f672d5ca744cb266ae997b04974196439858675cc04fe1',
+          '6b20ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b',
+          11312,
+          'b361e9dec692209f6ad5e086f09041cc06476c2642d3c0a3e2321c9341ce81a7',
+          decimals: 3),
+    for (final entry in const {
+      'KRON':
+          '7a98370c0d6b037c28089d7b77cd8229120804cb416ef592ddb99e23820544e4',
+      'PEPE':
+          'a73cdef004099b191759d320de970451be0e10423a7eb15b07d5e51d050b47cd',
+      'IFWEN':
+          'b4301f4177a3c33b85855c0415dcbe3ccfc4f36a4cd5afc105f1177cda97a8af',
+      'ANSEM':
+          '3cb4d9625e8ce0c54c928cce7f380cecb9ae7bb957a559be017b78218696f79d',
+      'KASCOV':
+          'c58c826d0aa9cee62f93208718c674883f5c89a8aca4933dc41fb0391539abe2',
+    }.entries)
+      BraidToken(
+          entry.key,
+          entry.value,
+          2,
+          '2ed46a7edf5b168e67dba56998c58255235bebac436940a85115ca31d5c559f2',
+          '',
+          2387,
+          '7dc133ff0889fd856c8c92d671a06f8851093097ee4b132f86f7d1f6bccc9642',
+          decimals: 0),
+  ];
+  static final testnetTokens = [
     BraidToken('KAS', zero, 0, zero, '', 0, ''),
     const BraidToken(
         'ICE',
@@ -96,27 +157,30 @@ class BraidService {
   late final BraidClock clock;
   static final _busy = <String>{};
   void guard(String address) {
-    if (!NetworkSettings.isTestnet ||
-        !address.startsWith('kaspatest:') ||
+    if (!NetworkSettings.isKaspa ||
+        NetworkSettings.isTestnet == mainnet ||
+        !address.startsWith('$addressPrefix:') ||
         kaspaOwnerIdFromAddress(address).isEmpty) {
-      throw StateError('Braid is enabled only for Testnet 10 Schnorr wallets.');
+      throw StateError('Braid network or Schnorr wallet differs.');
     }
   }
 
-  String key(String address) => 'braid_tn10_receipts_v1_$address';
+  String key(String address) => mainnet
+      ? 'braid_mainnet_receipts_v1_$address'
+      : 'braid_tn10_receipts_v1_$address';
   Future<Map<String, dynamic>> call(String path,
       {Map<String, Object?>? body, Map<String, String>? query}) async {
-    if (!NetworkSettings.isTestnet) {
-      throw StateError('Braid requires Testnet 10.');
+    if (!NetworkSettings.isKaspa || NetworkSettings.isTestnet == mainnet) {
+      throw StateError('Braid network changed.');
     }
-    final uri = Uri.parse('$api/$path').replace(queryParameters: query);
+    final uri = Uri.parse('$currentApi/$path').replace(queryParameters: query);
     final response = await (body == null
             ? client.get(uri)
             : client.post(uri,
                 headers: {'content-type': 'application/json'},
                 body: jsonEncode(body)))
         .timeout(const Duration(seconds: 35));
-    if (!NetworkSettings.isTestnet) {
+    if (!NetworkSettings.isKaspa || NetworkSettings.isTestnet == mainnet) {
       throw StateError('Network changed. The Braid result was discarded.');
     }
     if (response.bodyBytes.length > 2 * 1024 * 1024) {
@@ -132,11 +196,12 @@ class BraidService {
 
   Future<Map<String, dynamic>> info() async {
     final d = await call('info');
-    if (d['net'] != 'tn10' ||
-        d['pin'] != pin ||
-        d['expectedPin'] != pin ||
+    if (d['net'] != net ||
+        d['pin'] != currentPin ||
+        d['expectedPin'] != currentPin ||
         d['pinOk'] != true ||
         d['enabled'] != true ||
+        d['canary'] == true ||
         (d['executorStatus'] as Map?)?['healthy'] != true) {
       throw StateError(
           'Braid router is unavailable or differs from the pinned release.');
@@ -241,6 +306,10 @@ class BraidService {
   Future<Map<String, dynamic>> quote(String address, BraidToken from,
       BraidToken to, String raw, int slippage) async {
     guard(address);
+    if (kaspaOwnerIdFromAddress(address) == feeOwner) {
+      throw StateError(
+          'Braid does not allow the fee-receiving wallet to trade with its own fee address. Use a different trading wallet.');
+    }
     if (from.id == to.id ||
         integer(raw) == BigInt.zero ||
         slippage < 1 ||
@@ -253,24 +322,42 @@ class BraidService {
           'Two-stage KRON routes are not enabled in this first integration.');
     }
     await info();
-    final q = await call('quote', query: {
+    final query = <String, String>{
       'from': from.symbol,
       'to': to.symbol,
       from.isKas ? 'payTotal' : 'amountIn': raw,
       'slippageBps': '$slippage',
-      'userPk': kaspaOwnerIdFromAddress(address)
+      'userPk': kaspaOwnerIdFromAddress(address),
+    };
+    Map<String, dynamic>? valuation;
+    if (!from.isKas && !to.isKas) {
+      final hint = await call('quote', query: query);
+      final tip = (hint['poolTips'] as Map?)?[from.id];
+      if (tip is! Map) {
+        throw StateError('No independently verifiable input pool hint.');
+      }
+      valuation = await BraidPoolReader(client, mainnet: mainnet)
+          .value(from.id, integer(raw), slippage, tip);
+      query['tkFloorMax'] = '${valuation['floor']}';
+    }
+    final q = await call('quote', query: {
+      ...query,
+      'walletFeeAddress': feeAddress,
+      'walletFeeBps': '$feeBps',
     });
-    if (q['net'] != 'tn10' ||
+    if (q['net'] != net ||
         q['from'] != from.symbol ||
         q['to'] != to.symbol ||
-        q['pin'] != pin ||
+        q['pin'] != currentPin ||
         q['staged'] != false ||
-        integer((q['walletFee'] as Map?)?['amount']) != BigInt.zero ||
         q[from.isKas ? 'payTotal' : 'amountIn'] != raw) {
       throw StateError('Braid quote differs from the selected swap.');
     }
+    validateFee(q, from, to, raw, slippage, valuation);
     final output = integer(q['amountOut']);
-    final back = !from.isKas && to.isKas ? BigInt.from(150000000) : BigInt.zero;
+    final back = !from.isKas && to.isKas
+        ? integer(q['kasBack'] ?? '150000000')
+        : BigInt.zero;
     if (output <= back) {
       throw StateError('Quote does not return a positive trade amount.');
     }
@@ -285,8 +372,77 @@ class BraidService {
       'localAmount': raw,
       'localFloor': '$floor',
       'localSlippage': slippage,
+      'localValuation': valuation,
       'localAt': DateTime.now().millisecondsSinceEpoch
     };
+  }
+
+  void validateFee(Map q, BraidToken from, BraidToken to, String amount,
+      int slippage, Map? valuation) {
+    final w = q['walletFee'];
+    if (w is! Map ||
+        w['mode'] != 'bps' ||
+        w['bps'] != feeBps ||
+        w['address'] != feeAddress ||
+        w['pk'] != feeOwner) {
+      throw StateError('Braid fee identity/rate differs from the approved 1%.');
+    }
+    final fee = integer(w['amount']);
+    if (!from.isKas && !to.isKas) {
+      if (valuation == null) {
+        throw StateError('Independent token trade valuation missing.');
+      }
+      final local = integer(valuation['floor']);
+      final floor = integer(w['tkFloor'] ?? '0');
+      // A lower server floor does not justify a higher fee, but must be
+      // requoted rather than silently switching reviewed valuation terms.
+      if (fee == BigInt.zero) {
+        if (w['reason'] is! String || '${w['reason']}'.isEmpty) {
+          throw StateError('Missing zero-fee reason.');
+        }
+        return;
+      }
+      if (w['unit'] != 'token' ||
+          w['basisKind'] != 'inAmount' ||
+          integer(w['basis']) != integer(amount) ||
+          floor != local ||
+          w['carrierPaidBy'] != 'integrator') {
+        throw StateError('Token fee valuation differs. Refresh the quote.');
+      }
+      final carrier = integer(w['carrier']);
+      if (carrier < BigInt.from(10000000) || carrier > BigInt.from(50000000)) {
+        throw StateError('Fee carrier out of bounds.');
+      }
+      final take = floor * BigInt.from(feeBps) ~/ BigInt.from(10000);
+      if (take <= carrier) throw StateError('Fee exceeds the trade share.');
+      var maximum = integer(amount) * (take - carrier) ~/ floor;
+      final covenantMax =
+          integer(amount) * (floor ~/ BigInt.from(50) - carrier) ~/ floor;
+      if (covenantMax < maximum) maximum = covenantMax;
+      if (fee != maximum || fee <= BigInt.zero) {
+        throw StateError('Token fee exceeds/changes the verified 1% share.');
+      }
+    } else {
+      final basis = from.isKas
+          ? integer(amount)
+          : integer(q['amountOut']) - integer(q['kasBack'] ?? '150000000');
+      if (w['unit'] != 'KAS' ||
+          w['basisKind'] != (from.isKas ? 'payTotal' : 'kasOut') ||
+          integer(w['basis']) != basis ||
+          basis <= BigInt.zero) {
+        throw StateError('Fee basis differs from the actual trade.');
+      }
+      final maximum = basis * BigInt.from(feeBps) ~/ BigInt.from(10000);
+      if (fee == BigInt.zero) {
+        if (maximum >= BigInt.from(10000000) && w['reason'] is! String) {
+          throw StateError('Unexpected fee waiver.');
+        }
+      } else if (fee < BigInt.from(10000000) ||
+          fee > maximum ||
+          (w['capped'] != true && fee != maximum)) {
+        throw StateError('KAS fee differs from the approved 1%.');
+      }
+    }
   }
 
   Future<Map<String, dynamic>> notes(String address, BraidToken token) async {
@@ -417,26 +573,27 @@ class BraidService {
         packed.startsWith('000020') &&
         packed.endsWith('ac')) {
       return kaspaAddressFromOwnerId(packed.substring(6, 70),
-          prefix: 'kaspatest');
+          prefix: addressPrefix);
     }
     if (h.length == 37 &&
         packed.startsWith('0000aa20') &&
         packed.endsWith('87')) {
       return kaspaScriptHashAddress(packed.substring(8, 72),
-          prefix: 'kaspatest');
+          prefix: addressPrefix);
     }
     throw StateError('Unsupported deposit input script.');
   }
 
   Future<List> _liveUtxos(String address) async {
     final r = await client
-        .get(Uri.parse('https://kaspire.kaslab.space/dex-test-v1/kasseal/utxos')
+        .get(Uri.parse(
+                'https://kaspire.kaslab.space/dex-test-v1/${mainnet ? 'kasseal-mainnet' : 'kasseal'}/utxos')
             .replace(queryParameters: {'address': address}))
         .timeout(const Duration(seconds: 15));
     final d = jsonDecode(r.body);
     if (r.statusCode != 200 ||
         d is! Map ||
-        d['network'] != 'testnet-10' ||
+        d['network'] != network ||
         d['covenantIdsIncluded'] != true ||
         d['entries'] is! List) {
       throw StateError(
@@ -465,10 +622,14 @@ class BraidService {
       'minOut': q['localFloor'],
       'slippageBps': q['localSlippage'],
       'deadlineSec': 600,
-      'nonce': nonce
+      'nonce': nonce,
+      'walletFeeAddress': feeAddress,
+      'walletFeeBps': feeBps,
+      if (q['localValuation'] is Map)
+        'tkFloorMax': q['localValuation']['floor'],
     });
     guard(address);
-    if (b['net'] != 'tn10' ||
+    if (b['net'] != net ||
         b['pskt'] is! Map ||
         b['terms'] is! Map ||
         b['router'] is! Map ||
@@ -483,6 +644,20 @@ class BraidService {
     }
     final tx = await verifyInputs(Map<String, dynamic>.from(b['pskt'] as Map));
     final from = tokens.singleWhere((t) => t.id == q['localFromId']);
+    final to = tokens.singleWhere((t) => t.id == q['localToId']);
+    if (b['quote'] is! Map) throw StateError('Build fee quote missing.');
+    validateFee(b['quote'] as Map, from, to, '${q['localAmount']}',
+        q['localSlippage'] as int, q['localValuation'] as Map?);
+    final quotedFee = (q['walletFee'] as Map);
+    final builtFee = (b['quote']['walletFee'] as Map);
+    if (builtFee['amount'] != quotedFee['amount'] ||
+        builtFee['carrier'] != quotedFee['carrier'] ||
+        b['terms']['wfee'] != quotedFee['amount'] ||
+        b['terms']['wfeePk'] !=
+            (integer(quotedFee['amount']) == BigInt.zero ? zero : feeOwner)) {
+      throw StateError(
+          'Build changed the approved integrator fee. Refresh the quote.');
+    }
     final redeems = <String, String>{};
     final scripts = <Map<String, Object?>>[];
     final selected = (b['userSignInputs'] as List).cast<int>();
@@ -638,7 +813,7 @@ class BraidService {
       }
     }
     final context = <String, dynamic>{
-      'network': 'testnet-10',
+      'network': network,
       'ref': b['ref'],
       'terms': b['terms'],
       'router': b['router'],
@@ -649,6 +824,15 @@ class BraidService {
       'minimumOut': q['localFloor'],
       'feeCap': q['braidFee'],
       'midMin': '0',
+      'feeBps': '$feeBps',
+      'walletFee': '${quotedFee['amount']}',
+      'feeCarrier': '${quotedFee['carrier'] ?? '0'}',
+      'feeBasis': '${quotedFee['basis']}',
+      'slippageBps': '${q['localSlippage']}',
+      'quotedAmountOut': '${q['amountOut']}',
+      'kasBack':
+          '${q['kasBack'] ?? (to.isKas && !from.isKas ? '150000000' : '0')}',
+      'valuation': q['localValuation'],
       'nonce': nonce,
       'coinIndex': '${b['coinIdx']}',
       'noteIndex': '${b['noteIdx']}',
@@ -658,7 +842,7 @@ class BraidService {
     };
     final request = <String, Object?>{
       'sender': address,
-      'profile': 'braid-tn10-deposit-v1',
+      'profile': mainnet ? 'braid-mainnet-deposit-v1' : 'braid-tn10-deposit-v1',
       'txJsonString': jsonEncode(tx),
       'signInputs': [
         for (final i in selected) {'index': i, 'sighashType': 1}
@@ -669,7 +853,7 @@ class BraidService {
     return {
       'ref': b['ref'],
       'address': address,
-      'network': 'testnet-10',
+      'network': network,
       'from': q['from'],
       'to': q['to'],
       'quote': q,
@@ -691,6 +875,12 @@ class BraidService {
     if (deadline < now + 1800 || deadline > now + 12000) {
       throw StateError(
           'Deposit deadline changed or is too close. Refresh the quote.');
+    }
+    final valuation = receipt['context']['valuation'];
+    if (valuation is Map &&
+        !await BraidPoolReader(client, mainnet: mainnet).unspent(valuation)) {
+      throw StateError(
+          'The independently valued pool changed. Refresh the quote; nothing was signed.');
     }
     await verifyInputs(Map<String, dynamic>.from(
         jsonDecode('${(receipt['request'] as Map)['txJsonString']}') as Map)
@@ -767,7 +957,7 @@ class BraidService {
       throw StateError('Final transaction is not independently confirmed yet.');
     }
     final r = await client
-        .get(Uri.parse('https://api-tn10.kaspa.org/transactions/$id'))
+        .get(Uri.parse('$readNode/transactions/$id'))
         .timeout(const Duration(seconds: 15));
     final tx = jsonDecode(r.body);
     if (r.statusCode != 200 ||
@@ -974,7 +1164,7 @@ class BraidService {
     });
     return {
       'sender': address,
-      'profile': 'braid-tn10-reclaim-v1',
+      'profile': mainnet ? 'braid-mainnet-reclaim-v1' : 'braid-tn10-reclaim-v1',
       'txJsonString': jsonEncode({
         'version': 1,
         'inputs': inputs,

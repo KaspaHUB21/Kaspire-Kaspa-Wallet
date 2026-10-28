@@ -11,6 +11,7 @@ import 'package:kasvault_wallet/src/services/native_security.dart';
 
 const address =
     'kaspatest:qp2srppaehqgjxxw4fyf2ckdzha9nz573eapxw0acg4ntc27cy2w23jck27ql';
+final ownerSignature = '${'11' * 64}01';
 
 class Memory implements EncryptedStore {
   final data = <String, String>{};
@@ -62,7 +63,7 @@ Map<String, dynamic> receipt() => {
           'inputs': [
             {
               ...(unsignedTx()['inputs'] as List).first as Map,
-              'signatureScript': '410001',
+              'signatureScript': '41$ownerSignature',
             }
           ]
         })
@@ -197,7 +198,7 @@ void main() {
           expect(body['buildId'], r['buildId']);
           final tx = jsonDecode(body['signed'][0] as String) as Map;
           expect(tx['id'], 'a' * 64);
-          expect(tx['inputs'][0]['signatureScript'], '410001');
+          expect(tx['inputs'][0]['signatureScript'], '41$ownerSignature');
           return http.Response(jsonEncode({'ok': true, 'txid': 'a' * 64}), 200);
         }));
     await trading.submit(address, r);
@@ -383,16 +384,9 @@ void main() {
     expect(trading.reads, 1);
     expect(jsonEncode(r), before);
   });
-  for (final unsupported in [
-    'sell',
-    'multi-step',
-    'token-input',
-    'foreign-owner'
-  ]) {
+  for (final unsupported in ['token-input', 'foreign-owner']) {
     test('funding recovery does not broaden $unsupported support', () async {
       final r = fundingReceipt(), trading = FundingTrading();
-      if (unsupported == 'sell') r['side'] = 'sell';
-      if (unsupported == 'multi-step') r['requests'].add(r['requests'][0]);
       final tx = jsonDecode('${r['requests'][0]['txJsonString']}') as Map;
       if (unsupported == 'token-input') {
         tx['inputs'][0]['utxo']['covenantId'] = 'f' * 64;

@@ -1,8 +1,8 @@
-//! Braid r2c, TN10 only. Router identity and economic intent are checked here,
-//! never delegated to the quote/build server. No integrator fees in this profile.
+//! Braid r2c. Network, router identity and economic intent are rebuilt locally.
+//! Partner fees include carrier value and use independently proven pool state.
 use crate::{
-    CoreError, Result,
     pskt::{PsktRequest, PsktScriptInput},
+    CoreError, Result,
 };
 use kaspa_addresses::{Address, Prefix, Version};
 use kaspa_consensus_core::{
@@ -16,6 +16,10 @@ use std::collections::{HashMap, HashSet};
 pub(crate) const PIN: &str = "905df466072298313e1cc9e86132ba61f26e2a359f7a7dbd5028fa1963872646";
 const EXECUTOR: &str = "fc863156f9ccc914773e1c6d2d0b432e053d265fac52eb456bb7aa749b6eb663";
 const FEE_KEY: &str = "aeacb552a8a5f9092ffc4c66c2b5fa794eb81451ab8d1bf6c5b3d845a4622177";
+const MAINNET_PIN: &str = "f994470f9bd84d2ca2578a5d8294cc403bb699f19f7e73922c51d04cbb17027d";
+const MAINNET_EXECUTOR: &str = "4f6eb864ff5eaf2ab9358d24b425cc41306b3913b061d4cfd54a47ee75f2c4b4";
+const MAINNET_FEE_KEY: &str = "0de066137de17b4b8c13761fdbc821c34f9c55579af57c8a9186fee0daed0400";
+const PARTNER_KEY: &str = "079ab96f3b42f1b3667010e6d855172bb8e905e3369fe5ad57b662c4bc365449";
 const Z: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 const FIELDS: [(&str, bool); 21] = [
     ("recipient", true),
@@ -142,7 +146,16 @@ const KRON: Template = Template {
     length: 2387,
     code_hash: "7dc133ff0889fd856c8c92d671a06f8851093097ee4b132f86f7d1f6bccc9642",
 };
-fn template(cid: &str) -> Result<Template> {
+fn template(cid: &str, mainnet: bool) -> Result<Template> {
+    if mainnet {
+        let pools: Value =
+            serde_json::from_str(include_str!("braid_pools.json")).map_err(|_| bad("pool pins"))?;
+        return match pools["mainnet"][cid]["venue"].as_str() {
+            Some("kr") => Ok(KR),
+            Some("kron") => Ok(KRON),
+            _ => Err(bad("token is not in the pinned Mainnet integration set")),
+        };
+    }
     match cid {
         "0282cf6d53023ec08e241919c150d742f54b6f61bac2f1b8f81b7e6343845b9f"
         | "7a1568354b2c70e5919e400856e72f45e3621b674465739c33f0f7ed53fbd9d6"
@@ -155,7 +168,7 @@ fn template(cid: &str) -> Result<Template> {
         _ => Err(bad("token is not in the pinned TN10 integration set")),
     }
 }
-fn side(t: &Value, which: &str, cid: &str) -> Result<Option<Template>> {
+fn side(t: &Value, which: &str, cid: &str, mainnet: bool) -> Result<Option<Template>> {
     let get = |suffix: &str| format!("{which}{suffix}");
     if cid == Z {
         if number(t, &get("Kind"))? != 0
@@ -168,7 +181,7 @@ fn side(t: &Value, which: &str, cid: &str) -> Result<Option<Template>> {
         }
         return Ok(None);
     }
-    let p = template(cid)?;
+    let p = template(cid, mainnet)?;
     if text(t, &get("Covid"))? != cid
         || number(t, &get("Kind"))? != p.kind
         || text(t, &get("Tpl"))? != p.id
@@ -221,6 +234,190 @@ fn parse_note(p: Template, r: &[u8], owner: &[u8], p2sh: bool) -> Result<(u64, V
     }
     Ok((amount, code))
 }
+
+// Values derive from the independently read, hash-checked unspent pool output.
+// The application rechecks that exact outpoint immediately before authorization.
+fn pool_floor(s: &Value, token: &str, mainnet: bool) -> Result<u64> {
+    let proof = &s["valuation"];
+    let net = if mainnet { "mainnet" } else { "tn10" };
+    let pins: Value =
+        serde_json::from_str(include_str!("braid_pools.json")).map_err(|_| bad("pool pins"))?;
+    let pin = &pins[net][token];
+    if pin.is_null()
+        || proof["network"] != net
+        || proof["tokenId"] != token
+        || proof["poolCovenantId"] != pin["pool"]
+        || h32(proof, "transactionId")?.len() != 32
+        || proof["index"]
+            .as_u64()
+            .filter(|n| *n <= u32::MAX as u64)
+            .is_none()
+    {
+        return Err(bad("independent valuation has wrong pool identity"));
+    }
+    let redeem = bytes(text(proof, "redeem")?)?;
+    let kr = pin["venue"] == "kr";
+    let start = if kr { 143 } else { 94 };
+    if redeem.len()
+        != start
+            + pin["codeLength"]
+                .as_u64()
+                .ok_or_else(|| bad("pool length"))? as usize
+        || redeem.first() != Some(&107)
+        || hex::encode(hash(&redeem[start..])) != pin["codeHash"].as_str().unwrap_or("")
+        || text(proof, "scriptPublicKey")? != format!("aa20{}87", hex::encode(hash(&redeem)))
+    {
+        return Err(bad("independent pool code/script fingerprint differs"));
+    }
+    let at = |offset: usize| -> Result<u128> {
+        let v = u64::from_le_bytes(
+            redeem[offset..offset + 8]
+                .try_into()
+                .map_err(|_| bad("pool integer"))?,
+        );
+        if v > i64::MAX as u64 {
+            return Err(bad("pool integer range"));
+        }
+        Ok(v as u128)
+    };
+    let amount = number(s, "amountIn")? as u128;
+    let slip = number(s, "slippageBps")? as u128;
+    if amount == 0 || !(1..=500).contains(&slip) {
+        return Err(bad("invalid valuation quantity/slippage"));
+    }
+    let value = if kr {
+        if (0..8).any(|i| redeem[1 + i * 9] != 8)
+            || redeem[73] != 32
+            || redeem[106] != 36
+            || at(2)? != 1
+            || hex::encode(&redeem[74..106]) != token
+        {
+            return Err(bad("valuation is not this token's graduated pool"));
+        }
+        let (kas, tok) = (at(65)?, at(56)?);
+        if kas == 0 || tok == 0 {
+            return Err(bad("empty pool"));
+        }
+        let gross = kas * amount / (tok + amount);
+        let fee = (gross * if mainnet { 100 } else { 30 } / 10000).max(10_000_000);
+        gross
+            .checked_sub(fee)
+            .ok_or_else(|| bad("pool fees exceed sale"))?
+    } else {
+        if redeem[1] != 8
+            || redeem[10] != 8
+            || redeem[19] != 32
+            || redeem[52] != 8
+            || redeem[61] != 32
+            || hex::encode(&redeem[20..52]) != token
+        {
+            return Err(bad("wrong KRON pool layout/token"));
+        }
+        let (kas, tok, shares) = (at(2)?, at(11)?, at(53)?);
+        // Scaled KAS and all computed values stay within the contract range.
+        if kas <= 1 || kas > i64::MAX as u128 / 1_000_000 || tok == 0 || shares < 1_000_000 {
+            return Err(bad("invalid KRON pool reserves"));
+        }
+        let retain = |u: u128| {
+            if shares == 1_000_000 {
+                0
+            } else {
+                (u * 20 * (shares - 1_000_000) - 1) / (10000 * shares) + 1
+            }
+        };
+        let (mut lo, mut hi) = (0, kas - 1);
+        while lo < hi {
+            let m = (lo + hi + 1) / 2;
+            if kas
+                .checked_sub(m + retain(m))
+                .is_some_and(|r| r * (tok + amount) >= kas * tok)
+            {
+                lo = m;
+            } else {
+                hi = m - 1;
+            }
+        }
+        let gross = lo * 1_000_000;
+        let lp = gross * 20 / 10000;
+        let fee = (gross / 1000 + lp * 1_000_000 / shares).max(20_000_000)
+            + (gross * 70 / 10000).max(20_000_000);
+        gross
+            .checked_sub(fee)
+            .ok_or_else(|| bad("KRON fees exceed sale"))?
+    };
+    let floor = value * (10000 - slip) / 10000;
+    if floor == 0
+        || floor > i64::MAX as u128
+        || number(proof, "tradeKas")? as u128 != value
+        || number(proof, "floor")? as u128 != floor
+    {
+        return Err(bad("pool valuation differs from local integer math"));
+    }
+    Ok(floor as u64)
+}
+
+fn validate_partner_fee(s: &Value, t: &Value, from: &str, to: &str, mainnet: bool) -> Result<u64> {
+    let fee = number(t, "wfee")?;
+    if s["feeBps"].is_null() && !mainnet {
+        if fee == 0 && text(t, "wfeePk")? == Z && number(t, "tkFloor")? == 0 {
+            return Ok(0);
+        }
+        return Err(bad("legacy fee-free receipt has unexpected fees"));
+    }
+    if number(s, "feeBps")? != 100
+        || fee != number(s, "walletFee")?
+        || text(t, "wfeePk")? != if fee == 0 { Z } else { PARTNER_KEY }
+    {
+        return Err(bad("partner fee rate, amount or beneficiary differs"));
+    }
+    if fee == 0 {
+        if number(t, "tkFloor")? != 0 {
+            return Err(bad("floor set without a token fee"));
+        }
+        return Ok(0);
+    }
+    if from != Z && to != Z {
+        let floor = pool_floor(s, from, mainnet)? as u128;
+        let carrier = number(s, "feeCarrier")? as u128;
+        let amount = number(s, "amountIn")? as u128;
+        if !(10_000_000..=50_000_000).contains(&carrier)
+            || number(t, "tkFloor")? as u128 != floor
+            || floor / 100 <= carrier
+        {
+            return Err(bad("token fee carrier/floor differs"));
+        }
+        let maximum = amount * (floor / 100 - carrier) / floor;
+        if fee as u128 != maximum || fee as u128 > amount / 50 {
+            return Err(bad(
+                "tokens plus carrier differ from independently verified 1% share",
+            ));
+        }
+        return Ok(carrier as u64);
+    }
+    if number(t, "tkFloor")? != 0 || fee < 10_000_000 {
+        return Err(bad("invalid KAS fee/floor"));
+    }
+    let basis = if from == Z {
+        number(s, "payTotal")?
+    } else {
+        let output = number(s, "quotedAmountOut")?;
+        let back = number(s, "kasBack")?;
+        let basis = output.checked_sub(back).ok_or_else(|| bad("sale basis"))?;
+        let slip = number(s, "slippageBps")?;
+        if !(1..=500).contains(&slip)
+            || number(t, "minOut")?
+                < output.saturating_sub(((basis as u128 * slip as u128 + 9999) / 10000) as u64)
+        {
+            return Err(bad("sale fee basis not bound to guaranteed payout"));
+        }
+        basis
+    };
+    if fee > basis / 100 {
+        return Err(bad("partner fee exceeds approved 1%"));
+    }
+    Ok(0)
+}
+
 pub(crate) fn validate(
     r: &PsktRequest,
     tx: &Transaction,
@@ -233,13 +430,35 @@ pub(crate) fn validate(
         .trade_summary
         .as_ref()
         .ok_or_else(|| bad("missing locally approved terms"))?;
-    let reclaim = r.profile.as_deref() == Some("braid-tn10-reclaim-v1");
+    let mainnet = matches!(
+        r.profile.as_deref(),
+        Some("braid-mainnet-deposit-v1" | "braid-mainnet-reclaim-v1")
+    );
+    let reclaim = matches!(
+        r.profile.as_deref(),
+        Some("braid-tn10-reclaim-v1" | "braid-mainnet-reclaim-v1")
+    );
+    let (pin, executor, fee_key) = if mainnet {
+        (MAINNET_PIN, MAINNET_EXECUTOR, MAINNET_FEE_KEY)
+    } else {
+        (PIN, EXECUTOR, FEE_KEY)
+    };
     if !matches!(
         r.profile.as_deref(),
-        Some("braid-tn10-deposit-v1" | "braid-tn10-reclaim-v1")
-    ) || sender.prefix != Prefix::Testnet
+        Some(
+            "braid-tn10-deposit-v1"
+                | "braid-tn10-reclaim-v1"
+                | "braid-mainnet-deposit-v1"
+                | "braid-mainnet-reclaim-v1"
+        )
+    ) || sender.prefix
+        != if mainnet {
+            Prefix::Mainnet
+        } else {
+            Prefix::Testnet
+        }
         || sender.version != Version::PubKey
-        || s["network"] != "testnet-10"
+        || s["network"] != if mainnet { "mainnet" } else { "testnet-10" }
         || tx.version != 1
         || signatures.iter().any(|(_, h)| h.to_u8() != 1)
         || entries.len() != tx.inputs.len()
@@ -311,9 +530,6 @@ pub(crate) fn validate(
     if h32(t, "recipient")? != upk || h32(t, "refund")? != upk {
         return Err(bad("payout or refund belongs to another wallet"));
     }
-    if number(t, "wfee")? != 0 || text(t, "wfeePk")? != Z || number(t, "tkFloor")? != 0 {
-        return Err(bad("integrator fees have not been authorized"));
-    }
     // No staged KRON→KRON execution in this initial profile. A refund must
     // return the original asset; silently returning intermediate KAS is not parity.
     if number(t, "midMin")? != 0 || number(s, "midMin")? != 0 {
@@ -324,8 +540,9 @@ pub(crate) fn validate(
     if from == to {
         return Err(bad("identical input/output asset"));
     }
-    let inp = side(t, "in", from)?;
-    side(t, "out", to)?;
+    let inp = side(t, "in", from, mainnet)?;
+    side(t, "out", to, mainnet)?;
+    let carrier = validate_partner_fee(s, t, from, to, mainnet)?;
     let minimum = number(s, "minimumOut")?;
     if minimum == 0 || number(t, "minOut")? < minimum || number(t, "feeCap")? > number(s, "feeCap")?
     {
@@ -349,10 +566,10 @@ pub(crate) fn validate(
     let suffix = bytes(text(router, "suffix")?)?;
     if prefix != [0x6b]
         || suffix.len() != 6348
-        || hex::encode(hash(&[prefix.clone(), suffix.clone()].concat())) != PIN
-        || text(router, "pin")? != PIN
-        || text(router, "executor")? != EXECUTOR
-        || text(router, "feePk")? != FEE_KEY
+        || hex::encode(hash(&[prefix.clone(), suffix.clone()].concat())) != pin
+        || text(router, "pin")? != pin
+        || text(router, "executor")? != executor
+        || text(router, "feePk")? != fee_key
     {
         return Err(bad(
             "router program or keys differ from the pinned r2c release",
@@ -465,10 +682,10 @@ pub(crate) fn validate(
         return Err(bad("deposit cannot be timelocked"));
     }
     let mut payload = b"BRT1".to_vec();
-    payload.extend([4, 1]);
-    payload.extend(bytes(PIN)?);
-    payload.extend(bytes(EXECUTOR)?);
-    payload.extend(bytes(FEE_KEY)?);
+    payload.extend([4, if mainnet { 0 } else { 1 }]);
+    payload.extend(bytes(pin)?);
+    payload.extend(bytes(executor)?);
+    payload.extend(bytes(fee_key)?);
     payload.extend(&state);
     let check = hash(&payload);
     payload.extend(&check[..4]);
@@ -480,11 +697,20 @@ pub(crate) fn validate(
         .outputs
         .get(ci)
         .ok_or_else(|| bad("missing router output"))?;
-    let base = if inp.is_some() {
-        100_000_000
+    let wfee = number(t, "wfee")?;
+    let token_fee = inp.is_some() && to != Z && wfee > 0;
+    let base = if token_fee {
+        100_000_000u64
+            .checked_add(carrier)
+            .ok_or_else(|| bad("carrier overflow"))?
+    } else if inp.is_some() {
+        100_000_000u64
+            .checked_add(wfee)
+            .ok_or_else(|| bad("fee overflow"))?
     } else {
         amount
             .checked_add(if to == Z { 10_000_000 } else { 60_000_000 })
+            .and_then(|n| n.checked_add(wfee))
             .ok_or_else(|| bad("deposit overflow"))?
     };
     if out.script_public_key != coin
@@ -630,6 +856,143 @@ pub(crate) fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn independent_mainnet_pool_fee_bound_rejects_forged_values_and_beneficiaries() {
+        let proof: Value =
+            serde_json::from_str(include_str!("fixtures/braid-mainnet-then-pool.json")).unwrap();
+        let from = proof["tokenId"].as_str().unwrap();
+        let mut s = serde_json::json!({"amountIn":"10000000","slippageBps":"100","feeBps":"100","valuation":proof,
+            "feeCarrier":"20000000"});
+        let floor = pool_floor(&s, from, true).unwrap();
+        assert_eq!(floor, 297604432362);
+        let maximum = 10_000_000u128 * ((floor as u128) / 100 - 20_000_000) / (floor as u128);
+        s["walletFee"] = serde_json::json!(maximum.to_string());
+        let terms = serde_json::json!({"wfee":maximum.to_string(),"wfeePk":PARTNER_KEY,"tkFloor":floor.to_string()});
+        assert_eq!(
+            validate_partner_fee(&s, &terms, from, "token-out", true).unwrap(),
+            20_000_000
+        );
+        for field in ["wfee", "wfeePk", "tkFloor"] {
+            let mut bad_terms = terms.clone();
+            bad_terms[field] = serde_json::json!(if field == "wfeePk" {
+                Z.to_string()
+            } else {
+                "999999999999".to_string()
+            });
+            assert!(
+                validate_partner_fee(&s, &bad_terms, from, "token-out", true).is_err(),
+                "{field}"
+            );
+        }
+        for field in [
+            "floor",
+            "tradeKas",
+            "tokenId",
+            "poolCovenantId",
+            "scriptPublicKey",
+            "redeem",
+        ] {
+            let mut bad_s = s.clone();
+            bad_s["valuation"][field] = serde_json::json!("0");
+            assert!(pool_floor(&bad_s, from, true).is_err(), "{field}");
+        }
+        let mut excessive = terms.clone();
+        excessive["wfee"] = serde_json::json!((maximum + 1).to_string());
+        s["walletFee"] = excessive["wfee"].clone();
+        assert!(validate_partner_fee(&s, &excessive, from, "token-out", true).is_err());
+    }
+    #[test]
+    fn mainnet_fee_deposit_and_reclaim_execute_locally() {
+        let secret = format!("private:{}", "01".repeat(32));
+        let mut address = crate::derive_address(&secret).unwrap();
+        address.prefix = Prefix::Mainnet;
+        let mut r = fixture();
+        r.profile = Some("braid-mainnet-deposit-v1".into());
+        r.sender = address.to_string();
+        let s = r.trade_summary.as_mut().unwrap();
+        s["network"] = serde_json::json!("mainnet");
+        s["amountIn"] =
+            serde_json::json!((number(s, "amountIn").unwrap() - 30_000_000).to_string());
+        s["toId"] =
+            serde_json::json!("d8c4356d20712463bbf2da82a5411c3aea18fec024a2b9c014bba1b4524cc8c2");
+        s["terms"]["outCovid"] = s["toId"].clone();
+        s["terms"]["outTpl"] = serde_json::json!(KR.id);
+        s["terms"]["outPfl"] = serde_json::json!("34");
+        s["terms"]["outSfl"] = serde_json::json!("11312");
+        s["terms"]["wfee"] = serde_json::json!("30000000");
+        s["terms"]["wfeePk"] = serde_json::json!(PARTNER_KEY);
+        s["feeBps"] = serde_json::json!("100");
+        s["walletFee"] = serde_json::json!("30000000");
+        let suffix = s["router"]["suffix"]
+            .as_str()
+            .unwrap()
+            .replace(EXECUTOR, MAINNET_EXECUTOR)
+            .replace(FEE_KEY, MAINNET_FEE_KEY);
+        assert_eq!(
+            hex::encode(hash(&[vec![0x6b], bytes(&suffix).unwrap()].concat())),
+            MAINNET_PIN
+        );
+        s["router"]["suffix"] = serde_json::json!(suffix);
+        s["router"]["pin"] = serde_json::json!(MAINNET_PIN);
+        s["router"]["executor"] = serde_json::json!(MAINNET_EXECUTOR);
+        s["router"]["feePk"] = serde_json::json!(MAINNET_FEE_KEY);
+
+        s["terms"]["recipient"] = serde_json::json!(hex::encode(&address.payload));
+        s["terms"]["refund"] = s["terms"]["recipient"].clone();
+        let st = state(&s["terms"]).unwrap();
+        let redeem = [
+            vec![0x6b],
+            st.clone(),
+            bytes(s["router"]["suffix"].as_str().unwrap()).unwrap(),
+        ]
+        .concat();
+        let mut payload = b"BRT1".to_vec();
+        payload.extend([4, 0]);
+        payload.extend(bytes(MAINNET_PIN).unwrap());
+        payload.extend(bytes(MAINNET_EXECUTOR).unwrap());
+        payload.extend(bytes(MAINNET_FEE_KEY).unwrap());
+        payload.extend(st);
+        let check = hash(&payload);
+        payload.extend(&check[..4]);
+        let mut tx: Value = serde_json::from_str(&r.tx_json_string).unwrap();
+        tx["inputs"][0]["transactionId"] = serde_json::json!("11".repeat(32));
+        tx["inputs"][0]["utxo"]["address"] = serde_json::json!(r.sender);
+        let spk = format!(
+            "0000{}",
+            hex::encode(pay_to_address_script(&address).script())
+        );
+        tx["inputs"][0]["utxo"]["scriptPublicKey"] = serde_json::json!(spk);
+        tx["outputs"][1]["scriptPublicKey"] = tx["inputs"][0]["utxo"]["scriptPublicKey"].clone();
+        tx["outputs"][0]["scriptPublicKey"] = serde_json::json!(format!(
+            "0000{}",
+            hex::encode(pay_to_script_hash_script(&redeem).script())
+        ));
+        tx["payload"] = serde_json::json!(hex::encode(payload));
+        r.tx_json_string = tx.to_string();
+        let review = crate::prepare_pskt(&r).unwrap();
+        let signed = crate::sign_pskt(&secret, &r, &review.review_hash).unwrap();
+        assert!(signed.wrpc_json.is_some());
+        assert_eq!(signed.signed_input_indexes, vec![0]);
+        assert!(crate::sign_pskt(&secret, &r, &"00".repeat(32)).is_err());
+        let deposited = tx["outputs"][0].clone();
+        let mut recovery = r.clone();
+        recovery.profile = Some("braid-mainnet-reclaim-v1".into());
+        let context = recovery.trade_summary.as_mut().unwrap();
+        let deadline = number(&context["terms"], "deadline").unwrap();
+        context["chainDaa"] = serde_json::json!((deadline + 1).to_string());
+        context["secondChainDaa"] = context["chainDaa"].clone();
+        context["depositTransactionId"] = serde_json::json!(signed.transaction_id);
+        context["depositCoinIndex"] = serde_json::json!("0");
+        context["depositCoinValue"] = deposited["value"].clone();
+        let value = deposited["value"].as_str().unwrap().parse::<u64>().unwrap();
+        recovery.tx_json_string=serde_json::json!({"version":1,"inputs":[{"transactionId":signed.transaction_id,"index":0,"sequence":"0","sigOpCount":0,"computeBudget":30,"signatureScript":"","utxo":{"amount":value.to_string(),"scriptPublicKey":deposited["scriptPublicKey"],"blockDaaScore":"123","isCoinbase":false,"covenantId":null}}],"outputs":[{"value":(value-5_000_000).to_string(),"scriptPublicKey":spk}],"lockTime":deadline.to_string(),"subnetworkId":"0000000000000000000000000000000000000000","gas":"0","storageMass":"0","payload":""}).to_string();
+        recovery.scripts=vec![serde_json::from_value(serde_json::json!({"inputIndex":0,"scriptHex":hex::encode(&redeem),"signType":1,"signatureScript":{"mode":"ordered-args","args":[{"type":"signature","prefixHex":""},{"type":"data","hex":"35eecca6"}]}})).unwrap()];
+        let review = crate::prepare_pskt(&recovery).unwrap();
+        let recovered = crate::sign_pskt(&secret, &recovery, &review.review_hash).unwrap();
+        assert!(recovered.wrpc_json.is_some());
+        recovery.trade_summary.as_mut().unwrap()["depositCoinIndex"] = serde_json::json!("1");
+        assert!(crate::prepare_pskt(&recovery).is_err());
+    }
     fn push(data: &[u8]) -> Vec<u8> {
         use kaspa_txscript::script_builder::ScriptBuilder;
         ScriptBuilder::new().add_data(data).unwrap().drain()
@@ -709,9 +1072,10 @@ mod tests {
             ],"outputs":[{"value":"50000000","scriptPublicKey":packed(&back),"covenant":{"authorizingInput":0,"covenantId":cid}},
                 {"value":"95000000","scriptPublicKey":format!("0000{}",hex::encode(pay_to_address_script(&address).script()))}],
                 "lockTime":deadline.to_string(),"subnetworkId":"0000000000000000000000000000000000000000","gas":"0","storageMass":"0","payload":""}).to_string();
-            r.sign_inputs = vec![
-                serde_json::from_value(serde_json::json!({"index":1,"sighashType":1})).unwrap(),
-            ];
+            r.sign_inputs =
+                vec![
+                    serde_json::from_value(serde_json::json!({"index":1,"sighashType":1})).unwrap(),
+                ];
             r.scripts = vec![serde_json::from_value(serde_json::json!({"inputIndex":1,"scriptHex":hex::encode(&router),"signType":1,"signatureScript":{"mode":"ordered-args","args":[{"type":"signature","prefixHex":""},{"type":"data","hex":"35eecca6"}]}})).unwrap()];
             let review = crate::prepare_pskt(&r).unwrap();
             let result = crate::sign_pskt(&secret, &r, &review.review_hash);
@@ -721,7 +1085,7 @@ mod tests {
             // router note and independent token/KAS change. No chain writes.
             use kaspa_consensus_core::{
                 hashing::{
-                    sighash::{SigHashReusedValuesUnsync, calc_schnorr_signature_hash},
+                    sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
                     sighash_type::SIG_HASH_ALL,
                 },
                 subnets::SUBNETWORK_ID_NATIVE,

@@ -3,14 +3,20 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'kaspa_api.dart';
 
 /// One fresh public REST reading and one independent, synced wRPC reading.
 /// No Braid-provided clock, resolver URL or cached chain reading is trusted.
 class BraidClock {
-  BraidClock(this.client, {this.socketRead});
+  BraidClock(this.client, {this.socketRead, this.mainnet = false});
   final http.Client client;
+  final bool mainnet;
   final Future<int> Function()? socketRead;
   Future<String> broadcast(Map tx, String expectedId) async {
+    if (mainnet) {
+      return KaspaApi(client: client)
+          .broadcastKcc20(jsonEncode(tx), expectedTransactionId: expectedId);
+    }
     final encoded = encodeBraidSubmit(tx);
     for (final host in ['muon-10.kaspa.blue', 'vega-10.kaspa.green']) {
       final url = 'wss://$host/kaspa/testnet-10/wrpc/borsh';
@@ -71,18 +77,32 @@ class BraidClock {
 
   Future<int> _rest() async {
     final r = await client
-        .get(Uri.parse('https://api-tn10.kaspa.org/info/blockdag'))
+        .get(Uri.parse(mainnet
+            ? 'https://kaspire.kaslab.space/api/local-node/info/blockdag'
+            : 'https://api-tn10.kaspa.org/info/blockdag'))
         .timeout(const Duration(seconds: 10));
     final d = jsonDecode(r.body);
     if (r.statusCode != 200 ||
         d is! Map ||
-        d['networkName'] != 'kaspa-testnet-10') {
-      throw StateError('Independent Testnet 10 clock is unavailable.');
+        d['networkName'] != (mainnet ? 'kaspa-mainnet' : 'kaspa-testnet-10')) {
+      throw StateError('Independent chain clock is unavailable.');
     }
     return int.parse('${d['virtualDaaScore']}');
   }
 
   Future<int> _publicNode() async {
+    if (mainnet) {
+      final response = await client
+          .get(Uri.parse('https://api.kaspa.org/info/blockdag'))
+          .timeout(const Duration(seconds: 10));
+      final data = jsonDecode(response.body);
+      if (response.statusCode != 200 ||
+          data is! Map ||
+          data['networkName'] != 'kaspa-mainnet') {
+        throw StateError('Independent public Mainnet clock is unavailable.');
+      }
+      return int.parse('${data['virtualDaaScore']}');
+    }
     for (final host in ['muon-10.kaspa.blue', 'vega-10.kaspa.green']) {
       try {
         final socket =

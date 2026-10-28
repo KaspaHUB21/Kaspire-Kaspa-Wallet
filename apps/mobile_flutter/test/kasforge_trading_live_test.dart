@@ -8,6 +8,7 @@ import 'package:kasvault_wallet/src/services/kasforge_trading.dart';
 import 'package:kasvault_wallet/src/services/native_security.dart';
 import 'package:kasvault_wallet/src/services/network_settings.dart';
 import 'package:kasvault_wallet/src/services/encrypted_store.dart';
+import 'package:kasvault_wallet/src/services/braid_service.dart';
 
 class Memory implements EncryptedStore {
   final data = <String, String>{};
@@ -72,7 +73,14 @@ void main() {
           final request = raw as Map;
           final tx = jsonDecode('${request['txJsonString']}') as Map;
           for (final selection in (request['signInputs'] as List).cast<Map>()) {
-            tx['inputs'][selection['index']]['signatureScript'] = '00';
+            final descriptors = (request['scripts'] as List? ?? []).cast<Map>();
+            final script = descriptors
+                .where((s) => s['inputIndex'] == selection['index'])
+                .firstOrNull;
+            final sig = '${'11' * 64}01';
+            tx['inputs'][selection['index']]['signatureScript'] = script == null
+                ? '41$sig'
+                : '${(script['signatureScript']['args'] as List).map((arg) => BraidService.push(arg['type'] == 'signature' ? '${arg['prefixHex'] ?? ''}$sig' : '${arg['hex']}')).join()}${BraidService.push('${script['scriptHex']}')}';
           }
           signed.add(jsonEncode(tx));
         }
@@ -91,6 +99,7 @@ let text = ''; process.stdin.on('data', b => text += b);
 process.stdin.on('end', () => {
   for (const raw of JSON.parse(text).signed) {
     const data = JSON.parse(raw);
+    assert.ok(data.inputs.every(i => /^41[0-9a-f]{128}01$/.test(i.signatureScript)));
     const old = {...data}; delete old.id;
     assert.throws(() => sdk.Transaction.deserializeFromSafeJSON(JSON.stringify(old)),
       e => String(e).includes('missing field `id`'));

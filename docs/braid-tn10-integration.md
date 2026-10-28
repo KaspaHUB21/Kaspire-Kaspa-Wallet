@@ -1,5 +1,12 @@
 # Braid TN10 Android preview
 
+This document records the original TN10 preview. Android 0.11.76/build 221
+supersedes its Mainnet and fee restrictions with the pinned Mainnet router
+and a disclosed 1% partner fee, including independently valued atomic
+token-to-token routes. See [the current release](release-v0.11.76.md).
+Historical evidence and the deliberate exclusion of staged KRON-to-KRON
+routes remain documented below. The browser extension is unchanged.
+
 Android 0.11.71/build 216 adds a searchable selector for each side and selected
 token covenant IDs with copy buttons. These UI changes do not enable partner
 fees: the pinned native profile remains 0%, pending independent Token→Token

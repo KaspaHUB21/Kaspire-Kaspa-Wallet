@@ -18,6 +18,7 @@ void main() {
           theme: KasVaultTheme.forTheme(theme),
           home: const DexSelectionScreen(address: 'kaspa:qfixture')));
       await tester.pumpAndSettle();
+      expect(find.text('Braid Aggregator'), findsOneWidget);
       expect(find.text('Kasseal DEX'), findsOneWidget);
       expect(tester.getTopLeft(find.text('KaspaRocket')).dy,
           lessThan(tester.getTopLeft(find.text('Kasseal DEX')).dy));
@@ -29,7 +30,7 @@ void main() {
     });
   }
   for (final theme in KaspireTheme.values) {
-    testWidgets('TN10 exposes Kasseal without affecting Mainnet: $theme',
+    testWidgets('TN10 retains Braid/Forge and retires the other DEX cards: $theme',
         (tester) async {
       NetworkSettings.network.value = KaspaNetwork.tn10;
       tester.view.physicalSize = const Size(320, 800);
@@ -40,7 +41,11 @@ void main() {
           theme: KasVaultTheme.forTheme(theme),
           home: const DexSelectionScreen(address: 'kaspatest:qfixture')));
       await tester.pumpAndSettle();
-      expect(find.text('Kasseal DEX'), findsOneWidget);
+      expect(find.text('Braid Aggregator'), findsOneWidget);
+      expect(find.text('KasForge'), findsOneWidget);
+      expect(find.text('Kasseal DEX'), findsNothing);
+      expect(find.text('KaspaRocket'), findsNothing);
+      expect(find.text('Kron DEX'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }

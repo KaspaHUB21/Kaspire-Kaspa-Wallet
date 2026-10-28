@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -7,11 +8,17 @@ import 'braid_service.dart';
 import 'encrypted_store.dart';
 import 'kasforge_service.dart';
 import 'native_security.dart';
+import 'swap_conflict_lookup.dart';
 
 class KasForgeApiError extends StateError {
   KasForgeApiError(this.statusCode, this.detail) : super('KasForge: $detail');
   final int statusCode;
   final String detail;
+}
+
+class KasForgeConfirmationPending extends StateError {
+  KasForgeConfirmationPending()
+      : super('Waiting for independent transaction confirmation.');
 }
 
 /// TN10 orders only. API responses never grant permission to sign a generic PSKT.
@@ -451,8 +458,10 @@ class KasForgeTrading {
         final clocks = await BraidClock(client).read();
         final expiry = int.parse('${receipt['order']['state']['expiryDaa']}');
         if (clocks.reduce((a, b) => a > b ? a : b) + 1800 > expiry) {
+          receipt['requestExpired'] = true;
+          await retain(address, receipt);
           throw StateError(
-              'The saved order is too close to expiry. Nothing new was signed.');
+              'The saved request expired. Use recovery to cancel it safely; nothing new was signed.');
         }
         await verify(address, tx, parents);
         final result =
@@ -478,11 +487,30 @@ class KasForgeTrading {
     // signer returns the computed ID separately; never trust a provider hint
     // or change/re-sign a saved transaction just to add this metadata.
     await _completeSubmissionIds(address, receipt);
+    final apiSigned = <String>[];
+    for (var i = 0; i < (receipt['signed'] as List).length; i++) {
+      final request = receipt['requests'][i] as Map;
+      final tx = jsonDecode('${receipt['signed'][i]}') as Map;
+      final scripts =
+          (request['scripts'] as List? ?? []).whereType<Map>().toList();
+      for (final selection in (request['signInputs'] as List).cast<Map>()) {
+        final index = selection['index'] as int;
+        final script = scripts.where((s) => s['inputIndex'] == index).toList();
+        if (script.length > 1) {
+          throw StateError('Duplicate Forge signing descriptor.');
+        }
+        tx['inputs'][index]['signatureScript'] = forgeSignatureEnvelope(
+            '${tx['inputs'][index]['signatureScript']}',
+            script.isEmpty ? null : script.single);
+      }
+      apiSigned.add(jsonEncode(tx));
+    }
+    receipt['apiSigned'] = apiSigned;
     await retain(address, receipt);
     Map<String, dynamic> r;
     try {
       r = await call(address, 'submit',
-          body: {'buildId': receipt['buildId'], 'signed': receipt['signed']});
+          body: {'buildId': receipt['buildId'], 'signed': apiSigned});
     } catch (e) {
       // Only Forge /submit registers an order with its sequencer. A node
       // broadcast can lock the deposit on-chain without scheduling a swap.
@@ -491,6 +519,9 @@ class KasForgeTrading {
       final detail = e.toString().replaceFirst('Bad state: ', '');
       receipt['submissionError'] =
           detail.substring(0, detail.length.clamp(0, 500));
+      if (detail.toLowerCase().contains('expired')) {
+        receipt['requestExpired'] = true;
+      }
       await retain(address, receipt);
       rethrow;
     }
@@ -502,19 +533,104 @@ class KasForgeTrading {
           'Forge submission returned a different ID. Recovery data retained.');
     }
     receipt.remove('submissionError');
+    receipt.remove('requestExpired');
     receipt['state'] = 'deposited';
     await retain(address, receipt);
   }
 
+  /// Forge /submit takes the SDK's one 65-byte owner signature push and builds
+  /// the covenant witness itself. Keep the complete locally executed witness
+  /// in `signed`/`signedWrpc`; adapt only a separate API envelope.
+  static String forgeSignatureEnvelope(String witness, Map? script) {
+    final bytes = BraidService.bytes(witness);
+    final pushes = <String>[];
+    var offset = 0;
+    while (offset < bytes.length) {
+      final op = bytes[offset++];
+      if (op == 0) {
+        pushes.add('');
+        continue;
+      }
+      if (op == 79) {
+        pushes.add('81');
+        continue;
+      }
+      if (op >= 81 && op <= 96) {
+        pushes.add((op - 80).toRadixString(16).padLeft(2, '0'));
+        continue;
+      }
+      var length = op;
+      if (op >= 76 && op <= 78) {
+        final size = op == 76
+            ? 1
+            : op == 77
+                ? 2
+                : 4;
+        if (offset + size > bytes.length) {
+          throw StateError('Truncated Forge witness.');
+        }
+        length = 0;
+        for (var i = 0; i < size; i++) {
+          length |= bytes[offset++] << (8 * i);
+        }
+      } else if (op > 75) {
+        throw StateError('Unexpected Forge witness opcode.');
+      }
+      if (offset + length > bytes.length) {
+        throw StateError('Truncated Forge witness.');
+      }
+      pushes.add(BraidService.hex(bytes.sublist(offset, offset + length)));
+      offset += length;
+    }
+    String? signature;
+    if (script == null) {
+      if (pushes.length != 1) {
+        throw StateError('Unexpected Forge owner signature.');
+      }
+      signature = pushes.single;
+    } else {
+      final template = script['signatureScript'] as Map;
+      final args = (template['args'] as List).cast<Map>();
+      if (template['mode'] != 'ordered-args' ||
+          pushes.length != args.length + 1 ||
+          pushes.last != script['scriptHex']) {
+        throw StateError('Forge witness differs from its reviewed descriptor.');
+      }
+      for (var i = 0; i < args.length; i++) {
+        if (args[i]['type'] == 'data') {
+          if (pushes[i] != args[i]['hex']) {
+            throw StateError('Forge witness arguments changed.');
+          }
+        } else if (args[i]['type'] == 'signature' && signature == null) {
+          final prefix = '${args[i]['prefixHex'] ?? ''}';
+          if (!pushes[i].startsWith(prefix)) {
+            throw StateError('Forge signature prefix changed.');
+          }
+          signature = pushes[i].substring(prefix.length);
+        } else {
+          throw StateError('Unsupported Forge signature descriptor.');
+        }
+      }
+    }
+    if (signature == null ||
+        !RegExp(r'^[a-f0-9]{128}01$').hasMatch(signature)) {
+      throw StateError(
+          'Forge requires a complete SIGHASH_ALL owner signature.');
+    }
+    return '41$signature';
+  }
+
   Future<void> _completeSubmissionIds(
-      String address, Map<String, dynamic> receipt) async {
+      String address, Map<String, dynamic> receipt,
+      {bool partial = false}) async {
     final signed = receipt['signed'] as List;
     final requests = receipt['requests'] as List;
     final ids = receipt['transactionIds'] as List;
     final reviews = receipt['reviews'] as List?;
     if (signed.isEmpty ||
-        ids.length != signed.length ||
-        reviews?.length != signed.length) {
+        (partial ? ids.length < signed.length : ids.length != signed.length) ||
+        reviews == null ||
+        reviews.length < signed.length) {
       throw StateError(
           'Saved Forge signing plan is incomplete. Recovery retained.');
     }
@@ -530,7 +646,7 @@ class KasForgeTrading {
       }
       final checked = await security.preparePskt(request);
       if (checked['transactionId'] != expected ||
-          checked['reviewHash'] != (reviews![i] as Map)['reviewHash']) {
+          checked['reviewHash'] != (reviews[i] as Map)['reviewHash']) {
         throw StateError(
             'Saved Forge transaction differs from its review. Recovery retained.');
       }
@@ -596,6 +712,26 @@ class KasForgeTrading {
 
   Future<Map<String, dynamic>> status(
       String address, Map<String, dynamic> receipt) async {
+    guard(address);
+    if (receipt['finalVerified'] == true) {
+      return receipt['status'] is Map
+          ? Map<String, dynamic>.from(receipt['status'] as Map)
+          : {'status': receipt['state']};
+    }
+    if (receipt['recoveryPreparationId'] is String &&
+        receipt['cancelId'] == null) {
+      final ready = await accepted('${receipt['recoveryPreparationId']}');
+      receipt['state'] =
+          ready ? 'recovery-ready' : 'recovery-preparation-pending';
+      receipt['status'] = {
+        'status': receipt['state'],
+        'message': ready
+            ? 'Preparation confirmed. Continue recovery to authorize returning the KAS funding to your own wallet.'
+            : 'Previously authorized wallet-only preparation is awaiting confirmation. Recovery will not create a swap deposit.'
+      };
+      await retain(address, receipt);
+      return Map<String, dynamic>.from(receipt['status'] as Map);
+    }
     if (receipt['cancelId'] is String) {
       try {
         if (receipt['cancelKind'] == 'invalidate-funding') {
@@ -636,6 +772,7 @@ class KasForgeTrading {
       }
       receipt['state'] = 'cancelled';
       receipt['finalVerified'] = true;
+      receipt['completedAt'] = DateTime.now().toUtc().toIso8601String();
       receipt['status'] = {'status': 'cancelled', 'txid': receipt['cancelId']};
       await retain(address, receipt);
       return Map<String, dynamic>.from(receipt['status'] as Map);
@@ -688,9 +825,24 @@ class KasForgeTrading {
     if (['filled', 'refunded', 'cancelled'].contains(state['status'])) {
       final id = state['txid'] ?? receipt['cancelId'];
       if (id is String) {
-        await verifyFinal(address, receipt, id, state['status'] == 'filled');
+        try {
+          await verifyFinal(address, receipt, id, state['status'] == 'filled');
+        } on KasForgeConfirmationPending {
+          final waiting = {
+            'status': 'verification-pending',
+            'reportedStatus': state['status'],
+            'txid': id,
+            'message':
+                'Forge reports completion. Waiting for independent confirmation; this is not a failed trade.'
+          };
+          receipt['status'] = waiting;
+          await retain(address, receipt);
+          return waiting;
+        }
         receipt['state'] = state['status'];
         receipt['finalVerified'] = true;
+        receipt['settlementId'] = id;
+        receipt['completedAt'] = DateTime.now().toUtc().toIso8601String();
       }
     }
     await retain(address, receipt);
@@ -802,12 +954,28 @@ class KasForgeTrading {
 
   Future<void> cancelAndSubmit(
       String address, Map<String, dynamic> receipt) async {
+    guard(address);
     if (receipt['cancelSigned'] == null) {
-      final deposited =
+      var deposited =
           await accepted('${(receipt['transactionIds'] as List).last}');
-      final request = deposited
-          ? await cancel(address, receipt)
-          : await fundingReturn(address, receipt);
+      if (!deposited && !await _prepareFundingRecovery(address, receipt)) {
+        return;
+      }
+      if (!deposited) {
+        deposited =
+            await accepted('${(receipt['transactionIds'] as List).last}');
+      }
+      Map<String, Object?> request;
+      try {
+        request = deposited
+            ? await cancel(address, receipt)
+            : await fundingReturn(address, receipt);
+      } catch (_) {
+        if (!deposited && await _retireConflictedFunding(address, receipt)) {
+          return;
+        }
+        rethrow;
+      }
       final review = await security.preparePskt(request);
       if (review['feeSompi'].toString() != '10000000') {
         throw StateError(
@@ -819,40 +987,161 @@ class KasForgeTrading {
       receipt['cancelId'] = result['transactionId'];
       receipt['cancelKind'] =
           deposited ? 'order-contract' : 'invalidate-funding';
+      if (!deposited) receipt['fundingReturnTerms'] = request['tradeSummary'];
+      receipt.remove('recoveryPreparationId');
       await retain(address, receipt);
     }
     final tx = receipt['cancelSigned'] is String
         ? jsonDecode(receipt['cancelSigned'] as String)
         : receipt['cancelSigned'];
     if (!await accepted('${receipt['cancelId']}')) {
-      await BraidClock(client).broadcast(tx as Map, '${receipt['cancelId']}');
+      await broadcastSaved(tx as Map, '${receipt['cancelId']}');
     }
     receipt['state'] = 'cancel-submitted';
     await retain(address, receipt);
   }
 
-  /// Explicit owner-confirmed self-payment for an unconfirmed single-step buy.
-  /// Consuming the exact original inputs invalidates the saved deposit. A 404
-  /// by itself never clears the journal. Token/split plans are not broadened.
+  Future<void> broadcastSaved(Map tx, String id) =>
+      BraidClock(client).broadcast(tx, id).then((_) {});
+
+  Future<bool> _prepareFundingRecovery(
+      String address, Map<String, dynamic> receipt) async {
+    final signed = receipt['signed'] as List? ?? [];
+    final requests = receipt['requests'] as List;
+    final ids = (receipt['transactionIds'] as List).cast<String>();
+    if (receipt['address'] != address ||
+        receipt['network'] != 'testnet-10' ||
+        requests.isEmpty ||
+        ids.length != requests.length ||
+        signed.length > requests.length) {
+      throw StateError(
+          'Saved recovery plan is inconsistent. Nothing was discarded.');
+    }
+    if (signed.isEmpty) {
+      if ((receipt['signedWrpc'] as List? ?? []).isNotEmpty ||
+          !['prepared', 'signed'].contains(receipt['state'])) {
+        throw StateError(
+            'Cannot prove this saved plan was unsigned. Recovery retained.');
+      }
+      await _finishRecovery(address, receipt, 'unsigned-plan-cancelled');
+      return false;
+    }
+    await _completeSubmissionIds(address, receipt, partial: true);
+    final target = signed.length - 1;
+    final raw = receipt['signedWrpc'] as List? ?? [];
+    for (var i = 0; i <= target; i++) {
+      if (await accepted(ids[i])) continue;
+      // Only finish already-signed, locally-reviewed owner-preserving merge
+      // preparations. Never broadcast a swap deposit outside Forge /submit.
+      final request = requests[i] as Map;
+      if (i == target && i == requests.length - 1) break;
+      if ((request['tradeSummary'] as Map?)?['action'] != 'merge' ||
+          raw.length <= i) {
+        throw StateError(
+            'Saved preparation cannot be recovered without its verified signed bytes.');
+      }
+      final tx = jsonDecode('${request['txJsonString']}') as Map;
+      final needsCash = !(tx['inputs'] as List).whereType<Map>().any((input) =>
+          input['utxo']['covenantId'] == null &&
+          input['utxo']['scriptPublicKey'] ==
+              '000020${kaspaOwnerIdFromAddress(address)}ac');
+      if (i == target && !needsCash) {
+        break; // invalidate this step's KAS funding
+      }
+      await verify(address, tx, {});
+      await broadcastSaved(jsonDecode('${raw[i]}') as Map, ids[i]);
+      var confirmed = false;
+      for (var attempt = 0; attempt < 4; attempt++) {
+        if (await accepted(ids[i])) {
+          confirmed = true;
+          break;
+        }
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+      if (!confirmed) {
+        receipt['state'] = 'recovery-preparation-pending';
+        receipt['recoveryPreparationId'] = ids[i];
+        await retain(address, receipt);
+        return false;
+      }
+    }
+    if (target < requests.length - 1 && await accepted(ids[target])) {
+      // Every authorized preparation is accepted, but no order deposit was
+      // signed. Keep the preparations and archive only the unsigned tail.
+      await _finishRecovery(address, receipt, 'unsigned-order-tail-cancelled');
+      return false;
+    }
+    receipt['recoveryStep'] = target;
+    return true;
+  }
+
+  Future<void> _finishRecovery(
+      String address, Map<String, dynamic> receipt, String reason) async {
+    receipt['state'] = 'cancelled';
+    receipt['retiredReason'] = reason;
+    receipt['finalVerified'] = true;
+    receipt['completedAt'] = DateTime.now().toUtc().toIso8601String();
+    receipt['status'] = {
+      'status': 'cancelled',
+      'message':
+          'Unsubmitted order cancelled. Saved recovery history is retained.'
+    };
+    await retain(address, receipt);
+  }
+
+  Future<bool> _retireConflictedFunding(
+      String address, Map<String, dynamic> receipt) async {
+    final index = receipt['recoveryStep'] as int?;
+    if (index == null) return false;
+    final ids = (receipt['transactionIds'] as List).cast<String>();
+    if (await accepted(ids.last)) return false;
+    final request = receipt['requests'][index] as Map;
+    final conflict = await findConfirmedSwapConflict(
+        tx: jsonDecode('${request['txJsonString']}') as Map,
+        savedIds: ids.toSet(),
+        node: 'https://api-tn10.kaspa.org',
+        prefix: 'kaspatest:',
+        read: (url) async {
+          final response = await client
+              .get(Uri.parse(url))
+              .timeout(const Duration(seconds: 12));
+          if (response.statusCode == 404) return null;
+          if (response.statusCode != 200) {
+            throw StateError(
+                'Recovery conflict lookup unavailable. Saved order retained.');
+          }
+          return jsonDecode(response.body);
+        });
+    if (conflict == null || await accepted(ids.last)) return false;
+    receipt['conflictingTransactionId'] = conflict;
+    await _finishRecovery(address, receipt, 'confirmed-conflicting-spend');
+    return true;
+  }
+
+  /// Explicit owner-confirmed self-payment of a saved step's own KAS funding.
+  /// Spending these exact inputs invalidates that step and dependent deposit.
+  /// Token inputs are never signed here; a 404 never clears the journal.
   Future<Map<String, Object?>> fundingReturn(
       String address, Map<String, dynamic> receipt) async {
     guard(address);
     final requests = receipt['requests'] as List;
-    if (receipt['side'] != 'buy' ||
-        requests.length != 1 ||
-        receipt['address'] != address ||
-        receipt['network'] != 'testnet-10') {
+    if (receipt['address'] != address || receipt['network'] != 'testnet-10') {
       throw StateError(
           'This saved plan requires its existing contract recovery. No payment was signed.');
     }
-    final source = jsonDecode('${requests.single['txJsonString']}') as Map;
+    final index = receipt['recoveryStep'] as int? ?? requests.length - 1;
+    if (index < 0 || index >= requests.length) {
+      throw StateError('Invalid recovery step.');
+    }
+    final source = jsonDecode('${requests[index]['txJsonString']}') as Map;
     final ownerScript = '000020${kaspaOwnerIdFromAddress(address)}ac';
-    final inputs = (source['inputs'] as List).cast<Map>();
-    if (inputs.isEmpty ||
-        inputs.length > 64 ||
-        inputs.any((i) =>
-            i['utxo']['covenantId'] != null ||
-            i['utxo']['scriptPublicKey'] != ownerScript)) {
+    final inputs = (source['inputs'] as List)
+        .cast<Map>()
+        .where((i) =>
+            i['utxo']['covenantId'] == null &&
+            i['utxo']['scriptPublicKey'] == ownerScript)
+        .toList();
+    if (inputs.isEmpty || inputs.length > 64) {
       throw StateError(
           'Saved funding is not a simple wallet-owned KAS payment. No payment was signed.');
     }
@@ -890,7 +1179,14 @@ class KasForgeTrading {
       'signInputs': [
         for (var i = 0; i < inputs.length; i++) {'index': i, 'sighashType': 1}
       ],
-      'scripts': <Map>[]
+      'scripts': <Map>[],
+      'tradeSummary': {
+        'kind': 'forge-funding-return',
+        'sourceIndex': index,
+        'points': [
+          for (final i in inputs) '${i['transactionId']}:${i['index']}'
+        ]
+      }
     };
   }
 
@@ -909,11 +1205,36 @@ class KasForgeTrading {
       throw StateError('Funding return is not independently accepted yet.');
     }
     final requests = receipt['requests'] as List;
-    if (receipt['side'] != 'buy' || requests.length != 1) {
+    final terms = receipt['fundingReturnTerms'] as Map?;
+    final sourceIndex = terms?['sourceIndex'] as int? ?? 0;
+    if (sourceIndex < 0 ||
+        sourceIndex >= requests.length ||
+        (terms == null && (receipt['side'] != 'buy' || requests.length != 1))) {
       throw StateError('Unsupported funding-return receipt.');
     }
-    final original = jsonDecode('${requests.single['txJsonString']}') as Map;
-    final expected = (original['inputs'] as List).cast<Map>();
+    final original =
+        jsonDecode('${requests[sourceIndex]['txJsonString']}') as Map;
+    final ownerScript = '000020${kaspaOwnerIdFromAddress(address)}ac';
+    final expected = (original['inputs'] as List)
+        .cast<Map>()
+        .where((i) =>
+            terms == null ||
+            (i['utxo']['covenantId'] == null &&
+                i['utxo']['scriptPublicKey'] == ownerScript &&
+                (terms['points'] as List)
+                    .contains('${i['transactionId']}:${i['index']}')))
+        .toList();
+    if (expected.isEmpty ||
+        (terms != null &&
+            expected.length != (terms['points'] as List).length)) {
+      throw StateError('Funding return does not invalidate the saved plan.');
+    }
+    for (var i = 0; i < sourceIndex; i++) {
+      if (!await accepted('${receipt['transactionIds'][i]}')) {
+        throw StateError(
+            'Earlier signed preparation is not independently accepted.');
+      }
+    }
     final points =
         expected.map((i) => '${i['transactionId']}:${i['index']}').toSet();
     final actual = (tx['inputs'] as List).cast<Map>();
@@ -949,12 +1270,20 @@ class KasForgeTrading {
     final r = await client
         .get(Uri.parse('https://api-tn10.kaspa.org/transactions/$id'))
         .timeout(const Duration(seconds: 15));
+    if (r.statusCode == 404) throw KasForgeConfirmationPending();
+    if (r.statusCode != 200) {
+      throw StateError(
+          'Independent Forge completion lookup is unavailable. Saved order retained.');
+    }
     final tx = jsonDecode(r.body);
-    if (r.statusCode != 200 ||
-        tx is! Map ||
-        tx['transaction_id'] != id ||
-        tx['is_accepted'] != true) {
-      throw StateError('Forge completion is not independently accepted yet.');
+    if (tx is! Map || tx['transaction_id'] != id || tx['is_accepted'] != true) {
+      if (tx is Map &&
+          tx['transaction_id'] == id &&
+          tx['is_accepted'] != true) {
+        throw KasForgeConfirmationPending();
+      }
+      throw StateError(
+          'Independent Forge completion lookup is unavailable. Saved order retained.');
     }
     final order = receipt['order'] as Map, st = order['state'] as Map;
     final point = '${order['output']['outpoint']}'.split(':');
@@ -967,6 +1296,7 @@ class KasForgeTrading {
     }
     final owner = kaspaOwnerIdFromAddress(address);
     final sell = st['unitsIn'] == null;
+    BigInt? verifiedTokenAmount, verifiedKasAmount;
     if ((filled && sell) || (!filled && !sell)) {
       final returned = outputs
           .where((o) => o['script_public_key'] == '20${owner}ac')
@@ -978,6 +1308,10 @@ class KasForgeTrading {
               BigInt.from(id == receipt['cancelId'] ? 10000000 : 1000000);
       if (returned < minimum) {
         throw StateError('Forge KAS payout is below the saved guarantee.');
+      }
+      verifiedKasAmount = returned;
+      if (filled && sell) {
+        verifiedTokenAmount = KasForgeService.exactUnsigned(st['amount']);
       }
     } else {
       final template = await _template();
@@ -1043,6 +1377,7 @@ class KasForgeTrading {
         throw StateError(
             'Forge token payout is not independently verified yet.');
       }
+      verifiedTokenAmount = incoming - outgoing;
       if (!filled) {
         final returned = outputs
             .where((o) => o['script_public_key'] == '20${owner}ac')
@@ -1057,5 +1392,9 @@ class KasForgeTrading {
       }
     }
     guard(address);
+    receipt['verifiedDetails'] = {
+      if (verifiedTokenAmount != null) 'tokenAmountRaw': '$verifiedTokenAmount',
+      if (verifiedKasAmount != null) 'kasAmountSompi': '$verifiedKasAmount',
+    };
   }
 }

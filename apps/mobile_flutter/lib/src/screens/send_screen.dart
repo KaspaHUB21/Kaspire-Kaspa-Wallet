@@ -19,7 +19,7 @@ import '../services/network_settings.dart';
 import 'asset_send_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'address_book_screen.dart';
-import 'kasparocket_screen.dart';
+import 'kron_dex_screen.dart';
 
 class SendScreen extends StatefulWidget {
   const SendScreen({
@@ -466,14 +466,14 @@ class _TestnetAssetsUnavailable extends StatelessWidget {
           padding: const EdgeInsets.all(28),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Text(
-              'TN10 KCC20 covenant tokens are available through KaspaRocket in K-Agora. Mainnet assets remain unchanged.',
+              'New TN10 swaps are available in K-Agora. Existing Mainnet assets remain unchanged.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 14),
             FilledButton.icon(
                 onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                          builder: (_) => KaspaRocketScreen(
+                          builder: (_) => DexSelectionScreen(
                               address:
                                   NetworkSettings.addressForNetwork(address))),
                     ),

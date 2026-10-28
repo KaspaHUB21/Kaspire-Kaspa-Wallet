@@ -47,7 +47,17 @@ Map<String, dynamic> quote() => {
       'amountOut': '884487',
       'minOut': '875642',
       'braidFee': '0',
-      'walletFee': {'amount': '0'}
+      'walletFee': {
+        'mode': 'bps',
+        'unit': 'KAS',
+        'amount': '30000000',
+        'address':
+            'kaspatest:qqre4wt08dp0rvmxwqgwdkz4zu4m36g9uvmfledd27mx939uxe2yjqaak7qny',
+        'pk': BraidService.feeOwner,
+        'bps': 100,
+        'basis': '3000000000',
+        'basisKind': 'payTotal'
+      }
     };
 http.Response reply(Object d, [int status = 200]) =>
     http.Response(jsonEncode(d), status);
@@ -76,7 +86,7 @@ void main() {
     final svc = BraidService(client: MockClient((r) async {
       if (r.url.path.endsWith('/info')) return reply(info());
       expect(r.url.queryParameters['payTotal'], '3000000000');
-      expect(r.url.queryParameters.containsKey('walletFeeBps'), false);
+      expect(r.url.queryParameters['walletFeeBps'], '100');
       return reply(quote());
     }));
     final q = await svc.quote(address, BraidService.tokens[0],

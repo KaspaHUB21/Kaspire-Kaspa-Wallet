@@ -9,6 +9,31 @@ import '../services/native_security.dart';
 import '../widgets/sell_amount_buttons.dart';
 import 'kasparocket_screen.dart' show rocketListPadding;
 
+/// Router legs use venue/tick/side; older receipts may have from/to instead.
+String braidRouteLabel(Map leg) {
+  String? label(dynamic value) {
+    if (value is! String) return null;
+    final text = value.trim();
+    return text.isEmpty || text.toLowerCase() == 'null' ? null : text;
+  }
+
+  final venue = label(leg['venue']);
+  final name = switch (venue?.toLowerCase()) {
+    'kr' => 'KaspaRocket',
+    'kron' => 'KRON',
+    'braid' => 'Braid',
+    _ => venue ?? 'Swap route',
+  };
+  final from = label(leg['from']), to = label(leg['to']);
+  if (from != null && to != null) return '$name: $from → $to';
+  final token = label(leg['tick']) ?? 'Token';
+  return switch (label(leg['side'])?.toLowerCase()) {
+    'buy' => '$name: KAS → $token',
+    'sell' => '$name: $token → KAS',
+    _ => '$name: Route details unavailable',
+  };
+}
+
 class BraidScreen extends StatefulWidget {
   const BraidScreen(
       {super.key, required this.address, this.service, this.security});
@@ -216,14 +241,21 @@ class _BraidScreenState extends State<BraidScreen> {
 
   String rawInput() {
     final s = amount.text.trim();
-    if (!from.isKas) return BraidService.integer(s).toString();
-    if (!RegExp(r'^(0|[1-9][0-9]{0,9})(\.[0-9]{1,8})?$').hasMatch(s)) {
-      throw StateError('Enter a KAS amount with at most 8 decimal places.');
+    if (!from.isKas && from.decimals == null) {
+      return BraidService.integer(s).toString();
+    }
+    final decimals = from.isKas ? 8 : from.decimals!;
+    final pattern = decimals == 0
+        ? r'^(0|[1-9][0-9]{0,15})$'
+        : '^(0|[1-9][0-9]{0,15})(\\.[0-9]{1,$decimals})?\$';
+    if (!RegExp(pattern).hasMatch(s)) {
+      throw StateError(
+          'Enter ${from.symbol} with at most $decimals decimal places.');
     }
     final parts = s.split('.');
-    return (BigInt.parse(parts[0]) * BigInt.from(100000000) +
+    return (BigInt.parse(parts[0]) * BigInt.from(10).pow(decimals) +
             (parts.length == 2
-                ? BigInt.parse(parts[1].padRight(8, '0'))
+                ? BigInt.parse(parts[1].padRight(decimals, '0'))
                 : BigInt.zero))
         .toString();
   }
@@ -274,7 +306,24 @@ class _BraidScreenState extends State<BraidScreen> {
       ]));
   String quantity(Object? n, BraidToken token) => token.isKas
       ? '${formatRawTokenAmount(BraidService.integer(n), 8)} KAS'
-      : '${formatEnglishDecimal('$n')} ${token.symbol} base units';
+      : token.decimals != null
+          ? '${formatRawTokenAmount(BraidService.integer(n), token.decimals!)} ${token.symbol}'
+          : '${formatEnglishDecimal('$n')} ${token.symbol} base units';
+  String feeDescription(Map q) {
+    final fee = q['walletFee'] as Map;
+    final amount = BraidService.integer(fee['amount']);
+    if (amount == BigInt.zero) {
+      return 'Kaspire fee: 0 · ${fee['reason'] ?? 'below the executable fee minimum'}';
+    }
+    final description = fee['unit'] == 'token'
+        ? quantity(fee['amount'], from)
+        : quantity(fee['amount'], BraidService.tokens.first);
+    final carrier = fee['unit'] == 'token'
+        ? ' + ${formatRawTokenAmount(BraidService.integer(fee['carrier']), 8)} KAS token-cell reserve, included within the 1% share'
+        : '';
+    return 'Kaspire fee (1%): $description$carrier. Braid and network fees are separate.';
+  }
+
   Future<void> trade() async {
     final q = quoted;
     if (q == null) return;
@@ -295,14 +344,16 @@ class _BraidScreenState extends State<BraidScreen> {
         }
         if (!mounted) return;
         if (!await confirm('Review Braid deposit', [
-          const Text(
-              'Testnet 10 · one signed deposit. Completion is separate and is checked on chain. Tokens use raw base units in this preview.'),
+          Text(
+              '${service.mainnet ? 'Mainnet' : 'Testnet 10'} · one signed deposit. Completion is separate and is checked on chain.'),
           line('You pay', quantity(q['localAmount'], from)),
           line('Guaranteed minimum', quantity(q['localFloor'], to)),
           line('Deposit network fee',
               quantity('${review['feeSompi']}', BraidService.tokens.first)),
+          Text(feeDescription(q)),
+          line('Kaspire fee address', service.feeAddress),
           const Text(
-              'Integrator fee: 0% during this TN10 preview. Unfilled deposits can be recovered after their on-chain deadline. Recovery may cost up to 0.05 KAS.'),
+              'Unfilled deposits can be recovered after their on-chain deadline. Recovery may cost up to 0.05 KAS.'),
           for (final output in (review['outputs'] as List).whereType<Map>())
             line('Output ${output['index']}',
                 '${formatRawTokenAmount(BraidService.integer('${output['amountSompi']}'), 8)} KAS\n${output['address'] ?? output['scriptPublicKey']}'),
@@ -476,7 +527,7 @@ class _BraidScreenState extends State<BraidScreen> {
         mimeType: 'application/json', name: 'kaspire-braid-${r['ref']}.json');
     await Share.shareXFiles([file],
         text:
-            'Braid TN10 recovery receipt. Contains public swap data and signed transactions, not wallet private keys.');
+            'Braid recovery receipt. Contains public swap data and signed transactions, not wallet private keys.');
   }
 
   @override
@@ -486,7 +537,8 @@ class _BraidScreenState extends State<BraidScreen> {
           length: 2,
           child: Scaffold(
             appBar: AppBar(
-                title: const Text('Braid · Testnet 10'),
+                title: Text(
+                    'Braid · ${service.mainnet ? 'Mainnet' : 'Testnet 10'}'),
                 actions: [
                   IconButton(
                       onPressed: busy ? null : reload,
@@ -499,7 +551,7 @@ class _BraidScreenState extends State<BraidScreen> {
                     TabBarView(children: [swap(), activity(tabContext)])),
           )));
   Widget swap() => ListView(padding: rocketListPadding(context), children: [
-        const Card(
+        Card(
             child: Padding(
                 padding: EdgeInsets.all(16),
                 child: Column(
@@ -509,10 +561,10 @@ class _BraidScreenState extends State<BraidScreen> {
                           style: TextStyle(
                               fontSize: 22, fontWeight: FontWeight.bold)),
                       Text(
-                          'Testnet 10 · Best-route quotes across available venues'),
+                          '${service.mainnet ? 'Kaspa Mainnet' : 'Testnet 10'} · Best-route quotes across available venues'),
                       SizedBox(height: 8),
-                      Text(
-                          'One covenant deposit, then execution or refund. This preview uses pinned TN10 tokens and displays token quantities in base units. No Mainnet funds or integrator fees.')
+                      const Text(
+                          'One covenant deposit, then independently checked execution or refund. Kaspire partner fee: 1%, waived when the minimum executable fee cannot be covered. Two-stage KRON→KRON swaps are not yet enabled.')
                     ]))),
         if (error != null)
           Padding(padding: const EdgeInsets.all(12), child: Text(error!)),
@@ -551,8 +603,8 @@ class _BraidScreenState extends State<BraidScreen> {
                                   .whereType<Map>())
                             for (final leg
                                 in (tx['legs'] as List? ?? []).whereType<Map>())
-                              Text(
-                                  '${leg['venue']}: ${leg['from']} → ${leg['to']}'),
+                              Text(braidRouteLabel(leg),
+                                  maxLines: 3, overflow: TextOverflow.ellipsis),
                         ],
                         line('Deposit transaction',
                             '${receipt!['transactionId']}'),
@@ -594,10 +646,10 @@ class _BraidScreenState extends State<BraidScreen> {
           if (!from.isKas) ...[
             Text(balance == null
                 ? 'Token balance unavailable / loading'
-                : 'Token balance: ${formatEnglishDecimal('$balance')} ${from.symbol} base units'),
+                : 'Token balance: ${quantity('$balance', from)}'),
             SellAmountButtons(
                 balance: balance,
-                decimals: 0,
+                decimals: from.decimals ?? 0,
                 enabled: !busy,
                 onSelected: (v) {
                   setState(() {
@@ -615,7 +667,9 @@ class _BraidScreenState extends State<BraidScreen> {
               decoration: InputDecoration(
                   labelText: from.isKas
                       ? 'Total KAS to pay (all-in)'
-                      : 'Token amount in base units')),
+                      : from.decimals != null
+                          ? 'Token amount'
+                          : 'Token amount in base units')),
           const SizedBox(height: 12),
           OutlinedButton(
               onPressed: busy ? null : quote,
@@ -634,14 +688,13 @@ class _BraidScreenState extends State<BraidScreen> {
                           if (!from.isKas && to.isKas)
                             const Text(
                                 'KAS output includes the returned router coin/token-note carrier. This is not all trading profit.'),
-                          const Text(
-                              'Integrator fee: 0%. Braid fee cap is verified separately. Deposit network fee is shown before signing.'),
+                          Text(feeDescription(quoted!)),
                           for (final tx in (quoted!['txs'] as List? ?? [])
                               .whereType<Map>())
                             for (final leg
                                 in (tx['legs'] as List? ?? []).whereType<Map>())
-                              Text(
-                                  '${leg['venue']}: ${leg['from']} → ${leg['to']}'),
+                              Text(braidRouteLabel(leg),
+                                  maxLines: 3, overflow: TextOverflow.ellipsis),
                         ]))),
           FilledButton(
               onPressed: busy || quoted == null ? null : trade,

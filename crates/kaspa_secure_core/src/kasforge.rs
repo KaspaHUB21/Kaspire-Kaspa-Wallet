@@ -690,6 +690,19 @@ mod tests {
             let review = crate::prepare_pskt(&r).unwrap();
             let signed = crate::sign_pskt(&secret, &r, &review.review_hash);
             assert!(signed.is_ok(), "{sell}: {signed:?}");
+            if let Ok(directory) = std::env::var("KASPIRE_FORGE_SYNTHETIC_OUT") {
+                // Explicit opt-in test artifact: synthetic outpoints and
+                // public signed transactions only. Never export the secret.
+                let output = serde_json::json!({
+                    "request": r, "review": review, "signed": signed.unwrap()
+                });
+                std::fs::write(
+                    std::path::Path::new(&directory)
+                        .join(if sell { "sell.json" } else { "buy.json" }),
+                    serde_json::to_vec(&output).unwrap(),
+                )
+                .unwrap();
+            }
         }
     }
     #[test]

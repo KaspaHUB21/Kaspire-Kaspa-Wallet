@@ -213,6 +213,54 @@ class KasForgeService {
     final parsed = double.tryParse('$value');
     return parsed != null && parsed.isFinite && parsed >= 0 ? parsed : null;
   }
+
+  static List<Map<String, dynamic>> activityRows(
+      List<Map> indexed, List<Map> saved) {
+    final byId = <String, Map<String, dynamic>>{};
+    for (final r in saved.where((r) => r['finalVerified'] == true)) {
+      final details = r['verifiedDetails'] as Map? ?? {};
+      final status = r['status'] as Map? ?? {};
+      final id = r['settlementId'] ?? r['cancelId'] ?? status['txid'];
+      final filled = r['state'] == 'filled';
+      final row = <String, dynamic>{
+        'side': r['side'],
+        'state': r['state'],
+        'tick': r['symbol'],
+        'token': r['tokenId'],
+        'txid': id,
+        'orderTxid': (r['transactionIds'] is List &&
+                (r['transactionIds'] as List).isNotEmpty)
+            ? (r['transactionIds'] as List).last
+            : null,
+        'tokens': details['tokenAmountRaw'] ??
+            (filled && r['side'] == 'sell' ? r['amount'] : null),
+        'kasSompi': details['kasAmountSompi'],
+        'orderAmount': r['amount'],
+        'orderAsset': r['side'] == 'buy' ? 'KAS' : r['symbol'],
+        'ts': (DateTime.tryParse('${r['completedAt'] ?? r['createdAt']}')
+                    ?.millisecondsSinceEpoch ??
+                0) ~/
+            1000,
+        'localVerified': true,
+        'receipt': r,
+      };
+      byId[id is String ? id : 'local:${r['buildId']}'] = row;
+    }
+    for (final r in indexed) {
+      final id = '${r['txid']}';
+      final old = byId[id] ?? {};
+      byId[id] = {
+        ...old,
+        ...Map<String, dynamic>.from(r),
+        'state': old['state'] ?? 'filled',
+        'indexedTrade': true,
+        if (old['receipt'] != null) 'receipt': old['receipt']
+      };
+    }
+    return byId.values.toList()
+      ..sort((a, b) => (nonnegativeNumber(b['ts']) ?? 0)
+          .compareTo(nonnegativeNumber(a['ts']) ?? 0));
+  }
 }
 
 class KasForgeToken {

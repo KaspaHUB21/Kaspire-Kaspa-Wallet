@@ -70,6 +70,29 @@ Map<String, dynamic> savedOrder() => {
       },
     };
 
+class ActivitySource extends Source {
+  ActivitySource({this.unavailable = false});
+  final bool unavailable;
+  @override
+  Future<Map<String, dynamic>> portfolio(String address) async {
+    if (unavailable) throw StateError('History unavailable');
+    return {
+      'orders': [],
+      'activity': [
+        {
+          'txid': 'c' * 64,
+          'tokens': 1234567,
+          'kas': 985.17,
+          'tick': 'KASCAT',
+          'side': 'buy',
+          'kind': 'pool',
+          'ts': 100
+        }
+      ]
+    };
+  }
+}
+
 class Journal extends KasForgeTrading {
   Journal({this.rows = const [], this.failure = false, this.gate});
   final List<Map<String, dynamic>> rows;
@@ -92,6 +115,61 @@ class Journal extends KasForgeTrading {
 
 void main() {
   setUp(() => NetworkSettings.network.value = KaspaNetwork.tn10);
+  for (final theme in KaspireTheme.values) {
+    testWidgets(
+        'completed orders leave recovery and show trade amounts in $theme',
+        (tester) async {
+      tester.view.physicalSize = const Size(320, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final completed = savedOrder()
+        ..['finalVerified'] = true
+        ..['state'] = 'filled'
+        ..['symbol'] = 'KASCAT'
+        ..['settlementId'] = 'c' * 64;
+      final cancelled = savedOrder()
+        ..['buildId'] = 'cancelled'
+        ..['finalVerified'] = true
+        ..['state'] = 'cancelled';
+      await tester.pumpWidget(MaterialApp(
+          theme: KasVaultTheme.forTheme(theme),
+          home: KasForgeScreen(
+              address: 'fixture',
+              service: ActivitySource(),
+              trading: Journal(rows: [completed, cancelled]))));
+      await tester.pumpAndSettle();
+      expect(find.text('Saved Forge order needs attention'), findsNothing);
+      await tester.tap(find.text('My activity'));
+      await tester.pumpAndSettle();
+      expect(find.text('Saved orders on this device'), findsNothing);
+      await tester.scrollUntilVisible(
+          find.text('Tokens: 1,234,567 KASCAT'), 160,
+          scrollable: find.byType(Scrollable).last);
+      expect(find.text('Trade value: 985.17 KAS'), findsOneWidget);
+      expect(find.textContaining('cancelled ·'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+  testWidgets('local completed history survives unavailable remote history',
+      (tester) async {
+    final local = savedOrder()
+      ..['finalVerified'] = true
+      ..['state'] = 'cancelled';
+    await tester.pumpWidget(MaterialApp(
+        home: KasForgeScreen(
+            address: 'fixture',
+            service: ActivitySource(unavailable: true),
+            trading: Journal(rows: [local]))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('My activity'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Local completed orders are retained.'),
+        findsOneWidget);
+    expect(find.textContaining('cancelled ·'), findsOneWidget);
+    expect(find.textContaining('No open orders reported'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
   for (final theme in [
     KaspireTheme.midnight,
     KaspireTheme.hub21,
@@ -205,6 +283,7 @@ void main() {
       expect(find.text('Cancel / recover unfilled order'), findsOneWidget);
       expect(journal.builds, 0);
       expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
     });
   }
   testWidgets('local journal error is visible and retry restores recovery',
@@ -265,6 +344,7 @@ void main() {
     expect(
         find.text('Deposit confirmed · swap not registered'), findsOneWidget);
     expect(journal.builds, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
   testWidgets('KasForge is absent from mainnet Swap selection', (tester) async {
     NetworkSettings.network.value = KaspaNetwork.mainnet;

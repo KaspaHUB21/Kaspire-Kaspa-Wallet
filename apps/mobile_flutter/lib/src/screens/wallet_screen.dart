@@ -33,7 +33,6 @@ import 'k_agora_screen.dart';
 import 'kasparocket_screen.dart';
 import 'kasseal_screen.dart';
 import 'kasforge_screen.dart';
-import '../services/kasseal_service.dart';
 import '../widgets/kaspire_brand.dart';
 import '../widgets/nexus_bell.dart';
 import 'dapp_browser_selection_screen.dart';
@@ -130,12 +129,7 @@ class _WalletScreenState extends State<WalletScreen> {
     if (NetworkSettings.network.value == KaspaNetwork.mainnet) {
       await _openFeature<void>(KAgoraScreen(address: widget.address));
     } else if (NetworkSettings.network.value == KaspaNetwork.tn10) {
-      if (KassealService.enabled) {
-        await _openFeature<void>(DexSelectionScreen(address: widget.address));
-      } else {
-        await _openFeature<bool>(KaspaRocketScreen(
-            address: NetworkSettings.addressForNetwork(widget.address)));
-      }
+      await _openFeature<void>(DexSelectionScreen(address: widget.address));
       if (mounted) _refresh();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(

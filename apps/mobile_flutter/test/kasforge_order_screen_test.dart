@@ -30,6 +30,25 @@ class Trading extends KasForgeTrading {
   }
 }
 
+class PollingTrading extends Trading {
+  int checks = 0;
+  @override
+  Future<Map<String, dynamic>> status(
+      String address, Map<String, dynamic> receipt) async {
+    checks++;
+    if (checks < 3) {
+      receipt['status'] = {
+        'status': 'verification-pending',
+        'message': 'Waiting for independent confirmation.'
+      };
+      return Map<String, dynamic>.from(receipt['status'] as Map);
+    }
+    receipt['finalVerified'] = true;
+    receipt['state'] = 'filled';
+    return {'status': 'filled'};
+  }
+}
+
 Map<String, dynamic> receipt() => {
       'buildId': 'fixture',
       'side': 'buy',
@@ -48,6 +67,79 @@ Map<String, dynamic> receipt() => {
       'state': 'prepared'
     };
 void main() {
+  testWidgets(
+      'signed order verifies automatically through delayed acceptance without resubmitting',
+      (tester) async {
+    final r = receipt()
+      ..['signed'] = ['saved bytes']
+      ..['state'] = 'deposited';
+    final trading = PollingTrading();
+    await tester.pumpWidget(MaterialApp(
+        home: KasForgeOrderScreen(
+            address: 'fixture', receipt: r, trading: trading)));
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump();
+    expect(trading.checks, 1);
+    expect(r['finalVerified'], isNot(true));
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+    }
+    expect(r['finalVerified'], isTrue);
+    expect(trading.submits, 0);
+    expect(trading.signs, 0);
+    await tester.scrollUntilVisible(find.text('Return to marketplace'), 180,
+        scrollable: find.byType(Scrollable).first);
+    expect(
+        find.textContaining(
+            'Forge completion is not independently accepted yet'),
+        findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+  testWidgets(
+      'automatic order checks pause with app and resume without a new signature',
+      (tester) async {
+    final r = receipt()
+      ..['signed'] = ['saved bytes']
+      ..['state'] = 'deposited';
+    final trading = PollingTrading();
+    await tester.pumpWidget(MaterialApp(
+        home: KasForgeOrderScreen(
+            address: 'fixture', receipt: r, trading: trading)));
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump(const Duration(seconds: 30));
+    expect(trading.checks, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump();
+    expect(trading.checks, 2);
+    expect(trading.signs, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+  testWidgets('expired request offers recovery rather than an endless resume',
+      (tester) async {
+    final r = receipt()
+      ..['signed'] = ['saved']
+      ..['submissionError'] = 'This request expired, start again';
+    await tester.pumpWidget(MaterialApp(
+        home: KasForgeOrderScreen(
+            address: 'fixture',
+            receipt: r,
+            trading: Trading(),
+            autoCheck: false)));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Recover expired request'), 180,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('Resume saved order'), findsNothing);
+    expect(find.text('Resubmit same saved order'), findsNothing);
+    expect(find.text('Recover expired request'), findsOneWidget);
+  });
   for (final theme in [
     KaspireTheme.midnight,
     KaspireTheme.hub21,
@@ -65,7 +157,10 @@ void main() {
       await tester.pumpWidget(MaterialApp(
           theme: KasVaultTheme.forTheme(theme),
           home: KasForgeOrderScreen(
-              address: 'fixture', receipt: r, trading: trading)));
+              address: 'fixture',
+              receipt: r,
+              trading: trading,
+              autoCheck: false)));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
           find.text('Authorize and place order'), 180,
@@ -83,13 +178,18 @@ void main() {
     final trading = Trading()..failure = true, r = receipt();
     await tester.pumpWidget(MaterialApp(
         home: KasForgeOrderScreen(
-            address: 'fixture', receipt: r, trading: trading)));
+            address: 'fixture',
+            receipt: r,
+            trading: trading,
+            autoCheck: false)));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('Authorize and place order'), 180,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('Authorize and place order'));
     await tester.pumpAndSettle();
     expect(r['signed'], ['same bytes']);
+    await tester.scrollUntilVisible(find.text('Resume saved order'), 180,
+        scrollable: find.byType(Scrollable).first);
     expect(find.text('Resume saved order'), findsOneWidget);
     expect(find.textContaining('Node unavailable'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -118,7 +218,10 @@ void main() {
       await tester.pumpWidget(MaterialApp(
           theme: KasVaultTheme.forTheme(theme),
           home: KasForgeOrderScreen(
-              address: 'fixture', receipt: r, trading: Trading())));
+              address: 'fixture',
+              receipt: r,
+              trading: Trading(),
+              autoCheck: false)));
       await tester.pumpAndSettle();
       expect(
           find.text('Deposit confirmed · swap not registered'), findsOneWidget);

@@ -76,8 +76,8 @@ const highlights = [
   {
     number: "12",
     title: "Mainnet DEX swaps, inside your wallet.",
-    copy: "On Android and in the browser extension, choose KaspaRocket, Kasseal or KRON under Swap to trade supported mainnet covenant tokens. Kasseal supports exact 1,000-token bonding-curve lots and whole-token constant-product pool swaps after graduation, with launch-proof verification, token preparation and a separate swap history. KaspaRocket token details show your balance, price and value with separate Send Asset and Swap buttons. Review covenant IDs, wallet flows and fees before local signing. Signed swaps are encrypted for recovery; uncertain broadcasts remain saved.",
-    tags: ["KaspaRocket", "Kasseal", "KRON DEX", "Mainnet swaps"],
+    copy: "On Android and in the browser extension, choose KaspaRocket, Kasseal or KRON under Swap to trade supported mainnet covenant tokens. Android also offers Braid Aggregator for supported KAS and atomic token-to-token routes, with a disclosed 1% Kaspire partner fee. Token-to-token fees are paid in the input token plus a KAS cell reserve, together within the independently checked 1% limit; fees below the executable minimum are waived. Multi-stage KRON-to-KRON routes remain unavailable. Kasseal supports exact 1,000-token bonding-curve lots and whole-token constant-product pool swaps after graduation, with launch-proof verification, token preparation and a separate swap history. KaspaRocket token details show your balance, price and value with separate Send Asset and Swap buttons. Review covenant IDs, wallet flows and fees before local signing. Signed swaps are encrypted for recovery; uncertain broadcasts remain saved.",
+    tags: ["KaspaRocket", "Kasseal", "KRON DEX", "Braid on Android"],
   },
   {
     number: "13",

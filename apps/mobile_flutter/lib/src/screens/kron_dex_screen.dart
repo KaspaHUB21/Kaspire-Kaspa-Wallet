@@ -20,13 +20,14 @@ class DexSelectionScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: const Text('KCC20 DEX Swaps')),
       body: ListView(padding: rocketListPadding(context), children: [
-        if (BraidService.enabled && NetworkSettings.isTestnet)
+        if (BraidService.enabled)
           Card(
               child: ListTile(
             contentPadding: const EdgeInsets.all(18),
             leading: const Icon(Icons.route_rounded, size: 40),
             title: const Text('Braid Aggregator'),
-            subtitle: const Text('Testnet 10 · Best-route swaps'),
+            subtitle: Text(
+                '${NetworkSettings.isTestnet ? 'Testnet 10' : 'Kaspa Mainnet'} · Best-route swaps'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push(
                 context,
@@ -47,24 +48,26 @@ class DexSelectionScreen extends StatelessWidget {
                 MaterialPageRoute<void>(
                     builder: (_) => KasForgeScreen(address: address))),
           )),
-        Card(
-            child: ListTile(
-                contentPadding: const EdgeInsets.all(18),
-                leading: Image.network('https://kasparocket.fun/icon.jpeg',
-                    width: 48,
-                    height: 48,
-                    errorBuilder: (_, e, s) =>
-                        const Icon(Icons.rocket_launch_rounded, size: 40)),
-                title: const Text('KaspaRocket'),
-                subtitle: Text(NetworkSettings.isTestnet
-                    ? 'Kaspa Testnet 10 · DEX & Launchpad'
-                    : 'Kaspa Mainnet · DEX & Launchpad'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                        builder: (_) => KaspaRocketScreen(address: address))))),
-        if (KassealService.enabled)
+        if (!NetworkSettings.isTestnet)
+          Card(
+              child: ListTile(
+                  contentPadding: const EdgeInsets.all(18),
+                  leading: Image.network('https://kasparocket.fun/icon.jpeg',
+                      width: 48,
+                      height: 48,
+                      errorBuilder: (_, e, s) =>
+                          const Icon(Icons.rocket_launch_rounded, size: 40)),
+                  title: const Text('KaspaRocket'),
+                  subtitle: Text(NetworkSettings.isTestnet
+                      ? 'Kaspa Testnet 10 · DEX & Launchpad'
+                      : 'Kaspa Mainnet · DEX & Launchpad'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                          builder: (_) =>
+                              KaspaRocketScreen(address: address))))),
+        if (KassealService.enabled && !NetworkSettings.isTestnet)
           Card(
               child: ListTile(
             contentPadding: const EdgeInsets.all(18),
@@ -80,23 +83,25 @@ class DexSelectionScreen extends StatelessWidget {
                 MaterialPageRoute<void>(
                     builder: (_) => KassealScreen(address: address))),
           )),
-        Card(
-            child: ListTile(
-                contentPadding: const EdgeInsets.all(18),
-                leading: Image.network('https://kron.technology/icon-512.png',
-                    width: 48,
-                    height: 48,
-                    errorBuilder: (_, e, s) =>
-                        const Icon(Icons.swap_horiz, size: 40)),
-                title: const Text('Kron DEX'),
-                subtitle: const Text('Kaspa Mainnet · DEX & Launchpad'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: NetworkSettings.isTestnet
-                    ? null
-                    : () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                            builder: (_) => KronDexScreen(address: address))))),
+        if (!NetworkSettings.isTestnet)
+          Card(
+              child: ListTile(
+                  contentPadding: const EdgeInsets.all(18),
+                  leading: Image.network('https://kron.technology/icon-512.png',
+                      width: 48,
+                      height: 48,
+                      errorBuilder: (_, e, s) =>
+                          const Icon(Icons.swap_horiz, size: 40)),
+                  title: const Text('Kron DEX'),
+                  subtitle: const Text('Kaspa Mainnet · DEX & Launchpad'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: NetworkSettings.isTestnet
+                      ? null
+                      : () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  KronDexScreen(address: address))))),
         const SizedBox(height: 16),
         const Text('More KCC20 DEXes are coming soon.',
             textAlign: TextAlign.center)

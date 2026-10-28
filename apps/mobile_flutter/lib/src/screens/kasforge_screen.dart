@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
@@ -189,67 +190,141 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
         ]);
       });
 
-  Widget history() => FutureBuilder<Map<String, dynamic>>(
-      future: portfolio,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData && !snapshot.hasError) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) return error(snapshot.error);
-        final data = snapshot.data!;
-        final orders = (data['orders'] as List).whereType<Map>().toList();
-        final activity = (data['activity'] as List).whereType<Map>().toList();
-        return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Open orders',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const Text(
-                  'An open order is not a completed swap. Unfilled orders may wait until cancellation or expiry.'),
-              if (orders.isEmpty)
-                const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                        'No open orders reported by Forge. Local recovery orders are shown separately above.')),
-              for (final order in orders)
-                Card(
-                    child: ListTile(
-                  title: Text(
-                      '${order['side'] ?? order['type'] ?? 'Order'} · ${order['tick'] ?? order['name'] ?? ''}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis),
-                  subtitle: Text(
-                      '${order['status'] ?? 'Open'} · ${order['id'] ?? order['txid'] ?? ''}',
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis),
-                )),
-              const SizedBox(height: 20),
-              const Text('Activity',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              if (activity.isEmpty)
-                const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('No KasForge activity.')),
-              for (final row in activity.take(50))
-                Card(
-                    child: ExpansionTile(
-                  title: Text(
-                      '${row['side'] ?? row['type'] ?? 'Activity'} · ${row['tick'] ?? row['name'] ?? ''}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis),
-                  subtitle: Text(
-                      '${row['kind'] ?? ''} · ${KasForgeService.nonnegativeNumber(row['kas']) == null ? 'KAS amount unavailable' : '${formatEnglishNumber(KasForgeService.nonnegativeNumber(row['kas'])!, decimals: 8, trimTrailingZeros: true)} KAS'}'),
-                  children: [
-                    Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: SelectableText(
-                            '${row['txid'] ?? 'Transaction ID unavailable'}'))
-                  ],
-                )),
-              if (activity.length > 50)
-                const Text('Showing the latest 50 KasForge activity entries.'),
-            ]);
-      });
+  Widget history() => FutureBuilder<List<Map<String, dynamic>>>(
+      future: savedOrders,
+      builder: (context, local) => FutureBuilder<Map<String, dynamic>>(
+          future: portfolio,
+          builder: (context, snapshot) {
+            final data =
+                snapshot.data ?? {'orders': <Map>[], 'activity': <Map>[]};
+            final orders = (data['orders'] as List).whereType<Map>().toList();
+            final activity = KasForgeService.activityRows(
+                (data['activity'] as List).whereType<Map>().toList(),
+                local.data ?? []);
+            return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (snapshot.hasError)
+                    Text(
+                        'Forge history temporarily unavailable. Local completed orders are retained. ${snapshot.error}'),
+                  if (!snapshot.hasData && !snapshot.hasError)
+                    const Text('Loading Forge history…'),
+                  const Text('Open orders',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const Text(
+                      'An open order is not a completed swap. Unfilled orders may wait until cancellation or expiry.'),
+                  if (orders.isEmpty && snapshot.hasData)
+                    const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text(
+                            'No open orders reported by Forge. Local recovery orders are shown separately above.')),
+                  for (final order in orders)
+                    Card(
+                        child: ListTile(
+                      title: Text(
+                          '${order['side'] ?? order['type'] ?? 'Order'} · ${order['tick'] ?? order['name'] ?? ''}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis),
+                      subtitle: Text(
+                          '${order['status'] ?? 'Open'} · ${order['id'] ?? order['txid'] ?? ''}',
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis),
+                    )),
+                  const SizedBox(height: 20),
+                  const Text('Activity',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  if (activity.isEmpty && snapshot.hasData)
+                    const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('No KasForge activity.')),
+                  for (final row in activity.take(50))
+                    Card(
+                        child: ExpansionTile(
+                      title: Text(
+                          '${row['state'] == 'filled' ? row['side'] ?? row['type'] ?? 'Trade' : row['state']} · ${row['tick'] ?? row['name'] ?? ''}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis),
+                      subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (row['tokens'] != null)
+                              Text(
+                                  'Tokens: ${forgeTokenQuantity(row['tokens'])} ${row['tick'] ?? ''}'),
+                            if (KasForgeService.nonnegativeNumber(row['kas']) !=
+                                null)
+                              Text(
+                                  'Trade value: ${formatEnglishNumber(KasForgeService.nonnegativeNumber(row['kas'])!, decimals: 8, trimTrailingZeros: true)} KAS')
+                            else if (row['kasSompi'] != null)
+                              Text(
+                                  'Wallet KAS returned: ${formatRawTokenAmount(BigInt.parse('${row['kasSompi']}'), 8)} KAS'),
+                            if (row['orderAmount'] != null)
+                              Text(
+                                  'Order amount: ${row['orderAmount']} ${row['orderAsset']}'),
+                            if (row['kind'] != null)
+                              Text('Market: ${row['kind']}'),
+                          ]),
+                      children: [
+                        Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (row['tokens'] == null)
+                                    const Text(
+                                        'Executed token amount unavailable.'),
+                                  if (KasForgeService.nonnegativeNumber(
+                                          row['priceKas']) !=
+                                      null)
+                                    Text(
+                                        'Price per token: ${formatEnglishNumber(KasForgeService.nonnegativeNumber(row['priceKas'])!, decimals: 8, trimTrailingZeros: true)} KAS'),
+                                  if ((KasForgeService.nonnegativeNumber(
+                                              row['ts']) ??
+                                          0) >
+                                      0)
+                                    Text(
+                                        'Date: ${DateTime.fromMillisecondsSinceEpoch((KasForgeService.nonnegativeNumber(row['ts'])! * 1000).toInt()).toLocal()}'),
+                                  if (row['token'] != null)
+                                    SelectableText(
+                                        'Token covenant ID: ${row['token']}'),
+                                  SelectableText(
+                                      '${row['txid'] ?? 'No confirmed settlement transaction'}'),
+                                  if (row['txid'] is String)
+                                    OutlinedButton.icon(
+                                        onPressed: () => Clipboard.setData(
+                                            ClipboardData(
+                                                text: '${row['txid']}')),
+                                        icon: const Icon(Icons.copy),
+                                        label:
+                                            const Text('Copy transaction ID')),
+                                  if (row['receipt'] is Map)
+                                    OutlinedButton(
+                                        onPressed: () async {
+                                          await Navigator.push(
+                                              context,
+                                              MaterialPageRoute<void>(
+                                                  builder: (_) =>
+                                                      KasForgeOrderScreen(
+                                                          address:
+                                                              widget.address,
+                                                          receipt: Map<String,
+                                                                  dynamic>.from(
+                                                              row['receipt']
+                                                                  as Map),
+                                                          trading: trading)));
+                                          if (mounted) reload();
+                                        },
+                                        child:
+                                            const Text('View completed order')),
+                                ]))
+                      ],
+                    )),
+                  if (activity.length > 50)
+                    const Text(
+                        'Showing the latest 50 KasForge activity entries.'),
+                ]);
+          }));
 }
 
 Widget kasForgeImage(String? url) => ClipRRect(
@@ -264,6 +339,14 @@ Widget kasForgeImage(String? url) => ClipRRect(
             errorBuilder: (_, __, ___) =>
                 const SizedBox(width: 44, height: 44, child: Icon(Icons.token)),
           ));
+
+String forgeTokenQuantity(Object? value) {
+  try {
+    return formatRawTokenAmount(KasForgeService.exactUnsigned(value), 0);
+  } catch (_) {
+    return 'unavailable';
+  }
+}
 
 class _SavedForgeOrders extends StatelessWidget {
   const _SavedForgeOrders(
@@ -313,10 +396,10 @@ class _SavedForgeOrders extends StatelessWidget {
             }
             final rows = snapshot.data!.reversed
                 .where((r) =>
-                    !pendingOnly ||
-                    (r['signed'] is List && r['finalVerified'] != true))
+                    r['finalVerified'] != true &&
+                    (!pendingOnly || r['signed'] is List))
                 .toList();
-            if (pendingOnly && rows.isEmpty) return const SizedBox.shrink();
+            if (rows.isEmpty) return const SizedBox.shrink();
             return Card(
                 child: Padding(
                     padding: const EdgeInsets.all(12),

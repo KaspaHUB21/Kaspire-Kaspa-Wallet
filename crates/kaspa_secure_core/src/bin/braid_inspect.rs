@@ -11,7 +11,12 @@ fn main() {
             serde_json::from_str(&raw).map_err(|e| e.to_string())?;
         if !matches!(
             r.profile.as_deref(),
-            Some("braid-tn10-deposit-v1" | "braid-tn10-reclaim-v1")
+            Some(
+                "braid-tn10-deposit-v1"
+                    | "braid-tn10-reclaim-v1"
+                    | "braid-mainnet-deposit-v1"
+                    | "braid-mainnet-reclaim-v1"
+            )
         ) {
             return Err("Braid profile required".into());
         }
