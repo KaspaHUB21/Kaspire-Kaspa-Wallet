@@ -238,6 +238,12 @@ fn parse_note(p: Template, r: &[u8], owner: &[u8], p2sh: bool) -> Result<(u64, V
 // Values derive from the independently read, hash-checked unspent pool output.
 // The application rechecks that exact outpoint immediately before authorization.
 fn pool_floor(s: &Value, token: &str, mainnet: bool) -> Result<u64> {
+    Ok(pool_values(s, token, mainnet)?.0)
+}
+
+/// (net slippage floor, gross sale notional), both from pinned integer math.
+/// Braid's staged fee basis uses gross, not the net tradeKas in our receipt.
+fn pool_values(s: &Value, token: &str, mainnet: bool) -> Result<(u64, u64)> {
     let proof = &s["valuation"];
     let net = if mainnet { "mainnet" } else { "tn10" };
     let pins: Value =
@@ -285,7 +291,7 @@ fn pool_floor(s: &Value, token: &str, mainnet: bool) -> Result<u64> {
     if amount == 0 || !(1..=500).contains(&slip) {
         return Err(bad("invalid valuation quantity/slippage"));
     }
-    let value = if kr {
+    let (value, gross) = if kr {
         if (0..8).any(|i| redeem[1 + i * 9] != 8)
             || redeem[73] != 32
             || redeem[106] != 36
@@ -300,9 +306,10 @@ fn pool_floor(s: &Value, token: &str, mainnet: bool) -> Result<u64> {
         }
         let gross = kas * amount / (tok + amount);
         let fee = (gross * if mainnet { 100 } else { 30 } / 10000).max(10_000_000);
-        gross
+        let net = gross
             .checked_sub(fee)
-            .ok_or_else(|| bad("pool fees exceed sale"))?
+            .ok_or_else(|| bad("pool fees exceed sale"))?;
+        (net, gross)
     } else {
         if redeem[1] != 8
             || redeem[10] != 8
@@ -341,19 +348,21 @@ fn pool_floor(s: &Value, token: &str, mainnet: bool) -> Result<u64> {
         let lp = gross * 20 / 10000;
         let fee = (gross / 1000 + lp * 1_000_000 / shares).max(20_000_000)
             + (gross * 70 / 10000).max(20_000_000);
-        gross
+        let net = gross
             .checked_sub(fee)
-            .ok_or_else(|| bad("KRON fees exceed sale"))?
+            .ok_or_else(|| bad("KRON fees exceed sale"))?;
+        (net, gross)
     };
     let floor = value * (10000 - slip) / 10000;
     if floor == 0
         || floor > i64::MAX as u128
+        || gross > i64::MAX as u128
         || number(proof, "tradeKas")? as u128 != value
         || number(proof, "floor")? as u128 != floor
     {
         return Err(bad("pool valuation differs from local integer math"));
     }
-    Ok(floor as u64)
+    Ok((floor as u64, gross as u64))
 }
 
 fn validate_partner_fee(s: &Value, t: &Value, from: &str, to: &str, mainnet: bool) -> Result<u64> {
@@ -377,12 +386,12 @@ fn validate_partner_fee(s: &Value, t: &Value, from: &str, to: &str, mainnet: boo
         return Ok(0);
     }
     if !t["midMin"].is_null() && number(t, "midMin")? > 0 {
-        let floor = pool_floor(s, from, mainnet)?;
-        let value = number(&s["valuation"], "tradeKas")?;
+        let (_, gross) = pool_values(s, from, mainnet)?;
+        let floor = (gross as u128 * (10000 - number(s, "slippageBps")?) as u128 / 10000) as u64;
         let basis = number(s, "feeBasis")?;
         if number(t, "tkFloor")? != 0
             || number(s, "feeCarrier")? != 0
-            || !(floor..=value).contains(&basis)
+            || !(floor..=gross).contains(&basis)
             || fee < 10_000_000
             || fee > basis / 100
         {
@@ -903,6 +912,34 @@ pub(crate) fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn captured_guza_staged_fee_uses_pinned_gross_not_net_sale_value() {
+        let quote: Value = serde_json::from_str(include_str!(
+            "fixtures/braid-mainnet-guza-then-staged-quote.json"
+        ))
+        .unwrap();
+        let proof: Value =
+            serde_json::from_str(include_str!("fixtures/braid-mainnet-guza-pool.json")).unwrap();
+        let from = proof["tokenId"].as_str().unwrap();
+        let mut s = serde_json::json!({"amountIn":"100000","slippageBps":"100","feeBps":"100",
+            "valuation":proof,"feeBasis":quote["walletFee"]["basis"],"walletFee":quote["walletFee"]["amount"],"feeCarrier":"0"});
+        let (floor, gross) = pool_values(&s, from, true).unwrap();
+        assert_eq!(gross, 6_980_051_422);
+        assert_eq!(number(&s["valuation"], "tradeKas").unwrap(), 6_910_250_908);
+        assert_eq!(floor, 6_841_148_398);
+        let terms = serde_json::json!({"midMin":quote["midMin"],"wfee":quote["walletFee"]["amount"],"wfeePk":PARTNER_KEY,"tkFloor":"0"});
+        assert_eq!(
+            validate_partner_fee(&s, &terms, from, "token-out", true).unwrap(),
+            0
+        );
+        s["feeBasis"] = serde_json::json!((gross + 1).to_string());
+        assert!(validate_partner_fee(&s, &terms, from, "token-out", true).is_err());
+        s["feeBasis"] = quote["walletFee"]["basis"].clone();
+        let mut excess = terms.clone();
+        excess["wfee"] = serde_json::json!("69800515");
+        s["walletFee"] = excess["wfee"].clone();
+        assert!(validate_partner_fee(&s, &excess, from, "token-out", true).is_err());
+    }
     fn staged_reclaim_request(stage2: bool, with_fee: bool) -> PsktRequest {
         let secret = format!("private:{}", "01".repeat(32));
         let mut address = crate::derive_address(&secret).unwrap();
@@ -922,7 +959,8 @@ mod tests {
         s["slippageBps"] = serde_json::json!("100");
         s["feeBps"] = serde_json::json!("100");
         s["feeCarrier"] = serde_json::json!("0");
-        s["feeBasis"] = s["valuation"]["tradeKas"].clone();
+        let (_, gross) = pool_values(&s, s["fromId"].as_str().unwrap(), true).unwrap();
+        s["feeBasis"] = serde_json::json!(gross.to_string());
         let fee = if with_fee {
             number(s, "feeBasis").unwrap() / 100
         } else {
@@ -1066,10 +1104,10 @@ mod tests {
                 "transactionId":"22".repeat(32),"index":0,"redeem":program["redeem"],
                 "scriptPublicKey":hex::encode(pay_to_script_hash_script(&pool).script()),
                 "tradeKas":"79685507303","floor":"78888652229"});
-            let floor = pool_floor(s, cid, true).unwrap();
+            let (floor, gross) = pool_values(s, cid, true).unwrap();
             s["midMin"] = serde_json::json!((floor + 50_000_000).to_string());
-            s["feeBasis"] = serde_json::json!("79685507303");
-            let fee = if with_fee { 796855073u64 } else { 0 };
+            s["feeBasis"] = serde_json::json!(gross.to_string());
+            let fee = if with_fee { gross / 100 } else { 0 };
             s["walletFee"] = serde_json::json!(fee.to_string());
             let t = &mut s["terms"];
             t["inCovid"] = serde_json::json!(cid);

@@ -23,8 +23,11 @@ class _ReadOnlyClient extends http.BaseClient {
 
 void main() {
   for (final pair in [
-    ('THEN', 'KRON', '1000000'),
-    ('KRON', 'THEN', '100000')
+    ('THEN', 'KRON', '1000000', false),
+    ('KRON', 'THEN', '100000', false),
+    ('GUZA', 'THEN', '100000', true),
+    ('THEN', 'GUZA', '100000', true),
+    ('KRON', 'PEPE', '100000', true),
   ]) {
     test(
         'live read-only Mainnet ${pair.$1} to ${pair.$2} quote verifies pool and 1% fee',
@@ -41,13 +44,18 @@ void main() {
             BraidService.tokens.singleWhere((t) => t.symbol == pair.$1);
         final to = BraidService.tokens.singleWhere((t) => t.symbol == pair.$2);
         final q = await service.quote(address, from, to, pair.$3, 100);
-        expect(q['staged'], false);
+        expect(q['staged'], pair.$4);
         expect(q['localFromId'], from.id);
         expect(q['localToId'], to.id);
         expect(BraidService.integer(q['localFloor']) > BigInt.zero, true);
         expect(q['localValuation'], isA<Map>());
         expect((q['walletFee'] as Map)['bps'], 100);
         expect((q['walletFee'] as Map)['address'], service.feeAddress);
+        if (pair.$4) {
+          expect(q['walletFee']['unit'], 'KAS');
+          expect(q['walletFee']['basisKind'], 'tradeKas');
+          expect(BraidService.integer(q['localMidMin']) > BigInt.zero, true);
+        }
         print(
             '${pair.$1} → ${pair.$2}: independently verified pool, quote and fee; ${client.reads} GETs, no build/sign/submit');
       } finally {

@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kasvault_wallet/src/screens/nexus_screen.dart';
 import 'package:kasvault_wallet/src/services/nexus_service.dart';
+import 'package:kasvault_wallet/src/services/app_settings.dart';
+import 'package:kasvault_wallet/src/theme.dart';
 
 class FakeNexus extends NexusService {
   FakeNexus() : super('kaspa:test');
@@ -76,7 +79,153 @@ class FakeKaspaComNexus extends FakeNexus {
   }
 }
 
+class LoginNexus extends FakeNexus {
+  bool loggedIn = false;
+  Object? failure;
+  bool allow = true;
+  Completer<bool>? pending;
+  int attempts = 0;
+  @override
+  bool get connected => loggedIn;
+  @override
+  Future<bool> connect([BuildContext? context]) async {
+    attempts++;
+    if (failure != null) throw failure!;
+    loggedIn = pending == null ? allow : await pending!.future;
+    return loggedIn;
+  }
+}
+
+Future<void> openOffer(WidgetTester tester, NexusService service) async {
+  await tester.pumpWidget(MaterialApp(
+      home: NexusScreen(
+          address: 'kaspa:test',
+          initialView: 'nft',
+          collectionId: 'hash',
+          tokenId: '12',
+          service: service)));
+  await tester.pumpAndSettle();
+  await tester.scrollUntilVisible(find.text('Make private offer'), 300);
+  await tester.ensureVisible(find.text('Make private offer'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Make private offer'));
+}
+
 void main() {
+  for (final theme in KaspireTheme.values) {
+    testWidgets('Nexus offer dialog fits a narrow display with $theme',
+        (tester) async {
+      tester.view.physicalSize = const Size(320, 740);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(MaterialApp(
+          theme: KasVaultTheme.forTheme(theme),
+          home: NexusScreen(
+              address: 'kaspa:test',
+              initialView: 'nft',
+              collectionId: 'hash',
+              tokenId: '12',
+              service: FakeNexus())));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Make private offer'), 200);
+      await tester.ensureVisible(find.text('Make private offer'));
+      await tester.tap(find.text('Make private offer'));
+      await tester.pumpAndSettle();
+      expect(find.text('30 days'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Submit'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+  testWidgets('offer login failure is visible at the button and retry works',
+      (tester) async {
+    final fake = LoginNexus()
+      ..failure =
+          StateError('Nexus login temporarily unavailable. Please try again.');
+    await openOffer(tester, fake);
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(find.textContaining('Nexus login temporarily unavailable.'),
+        findsWidgets);
+    expect(fake.calls.where((c) => c['body'] != null), isEmpty);
+    expect(tester.takeException(), isNull);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    fake.failure = null;
+    await tester.ensureVisible(find.text('Make private offer'));
+    await tester.tap(find.text('Make private offer'));
+    await tester.pumpAndSettle();
+    expect(find.text('30 days'), findsOneWidget);
+    expect(fake.attempts, 2);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Make private offer'))
+            .onPressed,
+        isNotNull);
+  });
+  testWidgets('locked offer login does not silently abandon the action',
+      (tester) async {
+    final fake = LoginNexus()..allow = false;
+    await openOffer(tester, fake);
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(find.textContaining('Unlock Kaspire to connect'), findsWidgets);
+    expect(find.text('Submit'), findsNothing);
+    expect(fake.calls.where((c) => c['body'] != null), isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+      'slow authentication shows progress and prevents duplicate offers',
+      (tester) async {
+    final fake = LoginNexus()..pending = Completer<bool>();
+    await openOffer(tester, fake);
+    await tester.pump();
+    expect(find.text('Connecting to Nexus Offers…'), findsOneWidget);
+    expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(
+                FilledButton, 'Connecting to Nexus Offers…'))
+            .onPressed,
+        isNull);
+    expect(
+        tester
+            .widget<IconButton>(find.byWidgetPredicate(
+                (w) => w is IconButton && w.tooltip == 'My offers'))
+            .onPressed,
+        isNull);
+    expect(fake.attempts, 1);
+    fake.pending!.complete(true);
+    await tester.pumpAndSettle();
+    expect(find.text('30 days'), findsOneWidget);
+    expect(fake.calls.where((c) => c['body'] != null), isEmpty);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+      'My offers reports login failure without showing a false empty list',
+      (tester) async {
+    final fake = LoginNexus()
+      ..failure = StateError('Kaspire login unavailable. Try again.');
+    await tester.pumpWidget(MaterialApp(
+        home: NexusScreen(
+            address: 'kaspa:test', initialView: 'dashboard', service: fake)));
+    await tester.pumpAndSettle();
+    expect(find.text('Kaspire login unavailable. Try again.'), findsOneWidget);
+    expect(find.text('No results found.'), findsNothing);
+    fake.failure = null;
+    await tester.tap(find.byTooltip('Reload'));
+    await tester.pumpAndSettle();
+    expect(fake.calls.any((c) => c['path'] == 'dashboard/received'), isTrue);
+    expect(fake.attempts, 2);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
       'verified KaspaCom listing has its own price and marketplace action',
       (tester) async {

@@ -411,19 +411,24 @@ class BraidService {
     if (q['staged'] == true) {
       stagedMinimum(q, from, to, valuation);
       final basis = integer(w['basis']);
-      // Staged routes pay a KAS fee from the second coin, not an input-token
-      // fee. Value only the sale, excluding both returned KAS reserves.
+      // Braid's tradeKas fee basis is GROSS sale notional, before the venue's
+      // protocol fee. The independent valuation's tradeKas is NET proceeds.
+      // Recompute gross from the verified pinned pool; never widen net by an
+      // arbitrary percentage or include returned KAS reserves in this basis.
+      final sale = BraidPoolReader.saleAmounts(
+          net, from.id, '${valuation!['redeem']}', integer(amount));
+      final grossFloor =
+          sale.gross * BigInt.from(10000 - slippage) ~/ BigInt.from(10000);
       if (w['unit'] != 'KAS' ||
-          w['basisKind'] is! String ||
-          '${w['basisKind']}'.isEmpty ||
-          w['basisKind'] == 'inAmount' ||
-          w['basisKind'] == 'payTotal' ||
-          basis < integer(valuation!['floor']) ||
-          basis > integer(valuation['tradeKas']) ||
+          w['basisKind'] != 'tradeKas' ||
           integer(w['carrier'] ?? '0') != BigInt.zero ||
           integer(w['tkFloor'] ?? '0') != BigInt.zero) {
         throw StateError(
-            'Staged KAS fee differs from the independent sale valuation.');
+            'Unexpected staged KAS fee format. Nothing was signed.');
+      }
+      if (basis < grossFloor || basis > sale.gross) {
+        throw StateError(
+            'The quoted gross sale value differs from the live pool. Refresh the quote; nothing was signed.');
       }
       final maximum = basis * BigInt.from(feeBps) ~/ BigInt.from(10000);
       if (fee == BigInt.zero

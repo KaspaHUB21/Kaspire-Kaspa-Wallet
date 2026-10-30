@@ -350,7 +350,9 @@ class _BraidScreenState extends State<BraidScreen> {
     final carrier = fee['unit'] == 'token'
         ? ' + ${formatRawTokenAmount(BraidService.integer(fee['carrier']), 8)} KAS token-cell reserve, included within the 1% share'
         : '';
-    return 'Kaspire fee (1%): $description$carrier. Braid and network fees are separate.';
+    final basis =
+        q['staged'] == true ? ' of gross sale value before the DEX fee' : '';
+    return 'Kaspire fee (1%$basis): $description$carrier. Braid and network fees are separate.';
   }
 
   Future<void> trade() async {

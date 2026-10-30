@@ -1,3 +1,5 @@
+import * as kaspa from 'kaspa-wasm';
+
 export async function verifyWalletSignature(input: {
   walletAddress: string;
   message: string;
@@ -15,35 +17,44 @@ export async function verifyWalletSignatureDetailed(input: {
   publicKey?: string;
 }) {
   if (!input.publicKey) {
-    return { valid: false, reason: "Kasware did not provide a public key." };
+    return { valid: false, reason: "Kaspire did not provide a public key. Unlock the wallet and try again." };
   }
 
-  const kaspa = await import("kaspa-wasm").catch(() => null);
-  if (!kaspa) {
-    return { valid: false, reason: "Kaspa signature verifier could not be loaded." };
+  // Resolve the verifier at service startup, not through a lazy CJS/ESM import
+  // in the request path. A broken runtime must not masquerade as a bad user key.
+  if (typeof kaspa.PublicKey !== 'function' || typeof kaspa.verifyMessage !== 'function') {
+    return { valid: false, reason: "Kaspire login verification is temporarily unavailable. Please try again." };
   }
 
   const normalizedPublicKey = normalizeHex(input.publicKey);
+  if (!/^(?:[0-9a-f]{64}|0[23][0-9a-f]{64}|04[0-9a-f]{128})$/i.test(normalizedPublicKey)) {
+    return { valid: false, reason: "Invalid wallet public key. Unlock the selected wallet and try again." };
+  }
   const publicKey = safeValue(() => new kaspa.PublicKey(normalizedPublicKey));
   if (!publicKey) {
-    return { valid: false, reason: "Kasware returned an invalid public key." };
+    return { valid: false, reason: "Invalid wallet public key. Unlock the selected wallet and try again." };
   }
 
-  const derivedAddresses = [
-    safeAddress(() => publicKey.toAddress("mainnet").toString()),
-    safeAddress(() => publicKey.toAddressECDSA("mainnet").toString())
-  ].filter((address): address is string => Boolean(address));
+  // Kaspire signs the challenge with Schnorr. Do not try the legacy ECDSA
+  // conversion: an x-only key does not contain its parity, and this WASM
+  // version traps on toAddressECDSA rather than yielding a usable address.
+  const derivedAddress = safeValue(() => {
+    const address = publicKey.toAddress("mainnet");
+    try { return address.toString().toLowerCase(); }
+    finally { address.free(); }
+  });
+  publicKey.free();
   const walletAddress = input.walletAddress.toLowerCase();
 
-  if (!derivedAddresses.map((address) => address.toLowerCase()).includes(walletAddress)) {
-    return { valid: false, reason: "Kasware public key does not match the selected wallet address." };
+  if (derivedAddress !== walletAddress) {
+    return { valid: false, reason: "The public key does not match the selected Kaspire wallet. Reopen Nexus Offers and try again." };
   }
 
   const signatures = signatureCandidates(input.signature);
   const messages = messageCandidates(input.message);
 
   if (signatures.length === 0) {
-    return { valid: false, reason: "Kasware returned an unsupported signature format." };
+    return { valid: false, reason: "The wallet returned an unsupported login signature format." };
   }
 
   const valid = signatures.some((signature) => messages.some((message) => {
@@ -60,19 +71,11 @@ export async function verifyWalletSignatureDetailed(input: {
 
   return valid
     ? { valid: true }
-    : { valid: false, reason: "Kasware signature could not be verified for this login challenge." };
+    : { valid: false, reason: "The Kaspire login signature could not be verified. Please try again." };
 }
 
 function normalizeHex(value: string) {
   return value.trim().replace(/^0x/i, "");
-}
-
-function safeAddress(createAddress: () => string) {
-  try {
-    return createAddress();
-  } catch {
-    return null;
-  }
 }
 
 function safeValue<T>(createValue: () => T) {

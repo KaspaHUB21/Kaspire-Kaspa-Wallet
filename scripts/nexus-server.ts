@@ -112,7 +112,9 @@ async function handler(req:http.IncomingMessage,res:http.ServerResponse) {
       const address=mainnet(body.walletAddress);
       if(!rateLimit('native-challenge:'+address,10,60000).ok)return send(429,{error:'Too many login challenges. Try again in a minute.'});
       const now=new Date(),expiresAt=new Date(now.getTime()+300000),nonce=randomBytes(32).toString('base64url');
-      await prisma.walletAccount.upsert({where:{walletAddress:address},update:{},create:{walletAddress:address}});
+      // Polling and a foreground login may race on a wallet's first visit.
+      // ON CONFLICT DO NOTHING avoids a spurious unique-key login failure.
+      await prisma.walletAccount.createMany({data:[{walletAddress:address}],skipDuplicates:true});
       return send(200,await prisma.authChallenge.create({data:{walletAddress:address,nonce,expiresAt,message:buildInternalNexusChallenge(address,nonce,now.toISOString(),expiresAt.toISOString())}}));
     }
     if(method==='POST'&&path.join('/')==='auth/internal-verify') {

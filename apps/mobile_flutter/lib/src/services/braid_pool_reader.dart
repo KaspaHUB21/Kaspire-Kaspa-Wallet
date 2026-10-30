@@ -126,7 +126,13 @@ class BraidPoolReader {
   }
 
   /// Price only a verified current redeem; same integer math as the kit.
-  static BigInt sale(String net, String token, String redeem, BigInt amount) {
+  static BigInt sale(String net, String token, String redeem, BigInt amount) =>
+      saleAmounts(net, token, redeem, amount).net;
+
+  /// Keep venue fees separate: staged partner fees use gross trade notional,
+  /// whereas the intermediate payout and atomic token-fee floor use net KAS.
+  static ({BigInt gross, BigInt net}) saleAmounts(
+      String net, String token, String redeem, BigInt amount) {
     final pin = (pins[net] as Map?)?[token] as Map?;
     if (pin == null) {
       throw StateError('No independently pinned pool for this token.');
@@ -164,7 +170,7 @@ class BraidPoolReader {
       if (result <= BigInt.zero) {
         throw StateError('Sale does not cover venue fees.');
       }
-      return result;
+      return (gross: gross, net: result);
     }
     if (b[1] != 8 ||
         b[10] != 8 ||
@@ -205,7 +211,7 @@ class BraidPoolReader {
     if (result <= BigInt.zero) {
       throw StateError('Sale does not cover venue fees.');
     }
-    return result;
+    return (gross: gross, net: result);
   }
 
   Future<dynamic> read(String path) async {
@@ -252,11 +258,15 @@ class BraidPoolReader {
     }
     var id = '${tip['transactionId']}', index = tip['index'];
     for (var step = 0; step < 8; step++) {
-      if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(id) || index is! int || index < 0) {
+      if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(id) ||
+          index is! int ||
+          index < 0) {
         throw StateError('Invalid pool hint.');
       }
       final tx = await read('/transactions/$id?resolve_previous_outpoints=no');
-      if (tx is! Map || tx['transaction_id'] != id || tx['is_accepted'] != true) {
+      if (tx is! Map ||
+          tx['transaction_id'] != id ||
+          tx['is_accepted'] != true) {
         throw StateError('Pool transaction not independently accepted.');
       }
       final output = (tx['outputs'] as List)

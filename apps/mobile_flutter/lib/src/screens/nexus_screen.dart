@@ -112,6 +112,8 @@ class _NexusScreenState extends State<NexusScreen> {
   Map<String, List<String>> traits = {};
   int? next;
   bool loading = false;
+  bool offerBusy = false;
+  bool authenticating = false;
   int epoch = 0;
   String loadedView = '';
   String? error;
@@ -148,8 +150,8 @@ class _NexusScreenState extends State<NexusScreen> {
       if (['home', 'dashboard', 'notifications'].contains(view) &&
           !service.connected) {
         if (!await service.connect(context)) {
-          if (mounted) setState(() => view = 'home');
-          return;
+          throw StateError(
+              'Unlock Kaspire to connect to Nexus Offers, then try again.');
         }
       }
       Object? result;
@@ -265,24 +267,51 @@ class _NexusScreenState extends State<NexusScreen> {
       : rank == -1
           ? 'Legendary'
           : 'Rarity rank #$rank';
-  Future<void> _offer({Map<String, Object?>? existing}) async {
-    if (!service.connected && !await service.connect(context)) return;
+  void _showActionError(Object failure) {
     if (!mounted) return;
-    final body = await showDialog<Map<String, Object?>>(
-        context: context,
-        builder: (_) => _NexusOfferDialog(counter: existing != null));
-    if (body == null) return;
-    setState(() => loading = true);
+    final message = failure.toString().replaceFirst('Bad state: ', '');
+    setState(() => error = message);
+    // The offer button may be far below the error card. Report the failure
+    // where the user is looking too, rather than silently abandoning the tap.
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _offer({Map<String, Object?>? existing}) async {
+    if (loading || offerBusy) return;
+    final collection = ticker, token = id;
+    setState(() {
+      offerBusy = true;
+      loading = true;
+      error = null;
+      authenticating = !service.connected;
+    });
     try {
+      if (!service.connected && !await service.connect(context)) {
+        throw StateError(
+            'Unlock Kaspire to connect to Nexus Offers, then try again.');
+      }
+      if (!mounted) return;
+      setState(() {
+        authenticating = false;
+        loading = false;
+      });
+      final body = await showDialog<Map<String, Object?>>(
+          context: context,
+          builder: (_) => _NexusOfferDialog(counter: existing != null));
+      if (body == null || !mounted) return;
+      setState(() => loading = true);
       await service.request(
           existing == null ? 'offers' : 'offers/${existing['id']}/counter',
           private: true,
           body: {
             ...body,
-            if (existing == null) 'collectionId': ticker,
-            if (existing == null) 'tokenId': id
+            if (existing == null) 'collectionId': collection,
+            if (existing == null) 'tokenId': token
           });
       if (!mounted) return;
+      setState(() => loading = false);
       await showDialog<void>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -298,15 +327,20 @@ class _NexusScreenState extends State<NexusScreen> {
                   ]));
       await _load();
     } catch (e) {
-      if (mounted) {
-        setState(() => error = e.toString().replaceFirst('Bad state: ', ''));
-      }
+      _showActionError(e);
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted) {
+        setState(() {
+          loading = false;
+          offerBusy = false;
+          authenticating = false;
+        });
+      }
     }
   }
 
   Future<void> _action(Map<String, Object?> offer, String action) async {
+    if (loading || offerBusy) return;
     final yes = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -328,11 +362,16 @@ class _NexusScreenState extends State<NexusScreen> {
     if (yes != true) return;
     setState(() => loading = true);
     try {
+      if (!service.connected && !await service.connect(context)) {
+        throw StateError(
+            'Unlock Kaspire to connect to Nexus Offers, then try again.');
+      }
+      if (!mounted) return;
       await service
           .request('offers/${offer['id']}/$action', private: true, body: {});
       await _load();
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+      _showActionError(e);
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -532,16 +571,20 @@ class _NexusScreenState extends State<NexusScreen> {
           const Text('No active offers yet.'),
         if (data['currentOwnerWallet'] != widget.address)
           FilledButton(
-              onPressed: loading ? null : () => _offer(),
-              child: const Text('Make private offer')),
+              onPressed: loading || offerBusy ? null : () => _offer(),
+              child: Text(authenticating
+                  ? 'Connecting to Nexus Offers…'
+                  : 'Make private offer')),
         OutlinedButton(
-            onPressed: () => setState(() {
-                  view = 'dashboard';
-                  offerTab = data['currentOwnerWallet'] == widget.address
-                      ? 'received'
-                      : 'sent';
-                  _load();
-                }),
+            onPressed: loading || offerBusy
+                ? null
+                : () => setState(() {
+                      view = 'dashboard';
+                      offerTab = data['currentOwnerWallet'] == widget.address
+                          ? 'received'
+                          : 'sent';
+                      _load();
+                    }),
             child: const Text('My offers')),
       ];
   @override
@@ -549,21 +592,25 @@ class _NexusScreenState extends State<NexusScreen> {
       appBar: AppBar(title: const Text('Nexus Offers'), actions: [
         IconButton(
             tooltip: 'My offers',
-            onPressed: () {
-              view = 'dashboard';
-              _load();
-            },
+            onPressed: loading || offerBusy
+                ? null
+                : () {
+                    view = 'dashboard';
+                    _load();
+                  },
             icon: const Icon(Icons.forum_outlined)),
         IconButton(
             tooltip: 'Notifications',
-            onPressed: () {
-              view = 'notifications';
-              _load();
-            },
+            onPressed: loading || offerBusy
+                ? null
+                : () {
+                    view = 'notifications';
+                    _load();
+                  },
             icon: const Icon(Icons.notifications_outlined)),
         IconButton(
             tooltip: 'Reload',
-            onPressed: loading ? null : () => _load(),
+            onPressed: loading || offerBusy ? null : () => _load(),
             icon: const Icon(Icons.refresh))
       ]),
       body: SafeArea(
@@ -573,16 +620,18 @@ class _NexusScreenState extends State<NexusScreen> {
               children: [
             if (view != 'home')
               TextButton.icon(
-                  onPressed: () {
-                    ++epoch;
-                    setState(() {
-                      view = 'home';
-                      rows = [];
-                      data = {};
-                      error = null;
-                      loading = false;
-                    });
-                  },
+                  onPressed: loading || offerBusy
+                      ? null
+                      : () {
+                          ++epoch;
+                          setState(() {
+                            view = 'home';
+                            rows = [];
+                            data = {};
+                            error = null;
+                            loading = false;
+                          });
+                        },
                   icon: const Icon(Icons.arrow_back),
                   label: const Text('Nexus home')),
             if (view == 'home') ...[
@@ -602,16 +651,20 @@ class _NexusScreenState extends State<NexusScreen> {
                   label: const Text('Search')),
               const SizedBox(height: 20),
               FilledButton(
-                  onPressed: () {
-                    view = 'active';
-                    _load();
-                  },
+                  onPressed: loading
+                      ? null
+                      : () {
+                          view = 'active';
+                          _load();
+                        },
                   child: const Text('Browse active offers')),
               OutlinedButton(
-                  onPressed: () {
-                    view = 'dashboard';
-                    _load();
-                  },
+                  onPressed: loading
+                      ? null
+                      : () {
+                          view = 'dashboard';
+                          _load();
+                        },
                   child: const Text('My offers'))
             ],
             if (error != null)
@@ -726,6 +779,7 @@ class _NexusScreenState extends State<NexusScreen> {
                   padding: EdgeInsets.all(20),
                   child: Center(child: CircularProgressIndicator())),
             if (!loading &&
+                error == null &&
                 rows.isEmpty &&
                 ['active', 'collection', 'wallet', 'dashboard', 'notifications']
                     .contains(view))

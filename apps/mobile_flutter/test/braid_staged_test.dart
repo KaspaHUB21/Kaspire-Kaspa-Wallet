@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:kasvault_wallet/src/kaspa_address.dart';
 import 'package:kasvault_wallet/src/services/braid_service.dart';
+import 'package:kasvault_wallet/src/services/braid_pool_reader.dart';
 import 'package:kasvault_wallet/src/services/network_settings.dart';
 import 'braid_service_test.dart' show Memory;
 import 'braid_mainnet_handoff_test.dart' show SnapshotClock;
@@ -90,32 +91,41 @@ void main() {
       'staged KAS fee uses independently verified sale, not token units or returned reserves',
       () {
     final s = BraidService();
-    final valuation = {'tradeKas': '1000000000', 'floor': '990000000'};
-    final fee = {
-      'mode': 'bps',
-      'bps': 100,
-      'address': s.feeAddress,
-      'pk': BraidService.feeOwner,
-      'unit': 'KAS',
-      'basisKind': 'stageKas',
-      'basis': '1000000000',
-      'amount': '10000000'
-    };
-    final q = {'staged': true, 'midMin': '1040000000', 'walletFee': fee};
+    final valuation = jsonDecode(File(
+            '../../crates/kaspa_secure_core/src/fixtures/braid-mainnet-guza-pool.json')
+        .readAsStringSync()) as Map;
+    final q = jsonDecode(File(
+            '../../crates/kaspa_secure_core/src/fixtures/braid-mainnet-guza-then-staged-quote.json')
+        .readAsStringSync()) as Map;
+    final fee = q['walletFee'] as Map;
+    expect(fee['basis'], '6980051422');
+    expect(valuation['tradeKas'], '6910250908');
+    expect(
+        BigInt.parse('${fee['basis']}') >
+            BigInt.parse('${valuation['tradeKas']}'),
+        true);
     void check(Map quote) => s.validateFee(quote, BraidService.tokens[2],
         BraidService.tokens[1], '100000', 100, valuation);
     check(q);
     for (final mutation in [
       {...fee, 'unit': 'token'},
-      {...fee, 'basis': '1150000000'},
-      {...fee, 'amount': '10000001'},
+      {...fee, 'basis': '6980051423'},
+      {...fee, 'amount': '69800515'},
+      {...fee, 'basisKind': 'stageKas'},
       {...fee, 'carrier': '10000000'},
       {...fee, 'tkFloor': '990000000'},
       {...fee, 'pk': owner},
     ]) {
       expect(() => check({...q, 'walletFee': mutation}), throwsStateError);
     }
-    expect(() => check({...q, 'midMin': '1030099999'}), throwsStateError);
+    final floor = BigInt.parse('${valuation['floor']}');
+    expect(
+        () => check({
+              ...q,
+              'midMin':
+                  '${floor - floor ~/ BigInt.from(100) + BigInt.from(50000000) - BigInt.one}'
+            }),
+        throwsStateError);
   });
   test(
       'stage coin and KAS refund follow exact original inputs and deterministic stage2 script',
@@ -389,7 +399,9 @@ void main() {
             '../../crates/kaspa_secure_core/src/fixtures/braid-mainnet-then-transaction.json')
         .readAsStringSync()) as Map;
     final floor = BigInt.parse('${proof['floor']}'),
-        value = BigInt.parse('${proof['tradeKas']}');
+        value = BraidPoolReader.saleAmounts('mainnet', '${proof['tokenId']}',
+                '${proof['redeem']}', BigInt.from(10000000))
+            .gross;
     final seen = <String>[];
     late final BraidService s;
     s = BraidService(client: MockClient((req) async {
@@ -429,7 +441,7 @@ void main() {
                 'address': s.feeAddress,
                 'pk': BraidService.feeOwner,
                 'unit': 'KAS',
-                'basisKind': 'stageKas',
+                'basisKind': 'tradeKas',
                 'basis': '$value',
                 'amount': '${value ~/ BigInt.from(100)}'
               }
