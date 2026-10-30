@@ -16,6 +16,7 @@ void main() {
       'Kasvio',
       'Kasseal',
       'GothDAG',
+      'Braid',
       'dot.k',
       'Kaspa News',
       'Kaspa Dev Tools',

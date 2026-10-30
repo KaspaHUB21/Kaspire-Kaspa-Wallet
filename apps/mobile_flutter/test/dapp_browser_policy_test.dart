@@ -35,8 +35,10 @@ void main() {
     }
   });
 
-  test('catalog is limited to seven approved browser sites', () {
-    expect(browserDapps, hasLength(7));
+  test('catalog is limited to eight approved browser sites, Braid fourth', () {
+    expect(browserDapps, hasLength(8));
+    expect(browserDapps[3].name, 'Braid');
+    expect(browserDapps[3].url, 'https://app.braidswap.com/');
     expect(browserDapps.map((d) => d.home.host).toSet(),
         DappBrowserPolicy.approvedHosts);
     for (final dapp in browserDapps) {
@@ -56,6 +58,11 @@ void main() {
       'http://app.kasseal.com/',
       'https://app.kasseal.com:444/',
       'https://user@app.kasseal.com/',
+      'https://app.braidswap.com.evil.example/',
+      'https://braidswap.com/',
+      'http://app.braidswap.com/',
+      'https://app.braidswap.com:444/',
+      'https://user@app.braidswap.com/',
       'http://kasvio.network/',
       'https://www.kasvio.network/',
       'https://devtools.kaslab.space:444/',

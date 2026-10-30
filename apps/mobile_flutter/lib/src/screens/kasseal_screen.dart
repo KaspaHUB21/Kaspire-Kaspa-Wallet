@@ -7,13 +7,20 @@ import '../services/native_security.dart';
 import '../services/network_settings.dart';
 import 'kasparocket_screen.dart' show rocketListPadding;
 import '../widgets/sell_amount_buttons.dart';
+import '../services/dex_display_price.dart';
+import '../widgets/dex_token_metrics.dart';
 
 class KassealScreen extends StatefulWidget {
   const KassealScreen(
-      {super.key, required this.address, this.tokenId, this.service});
+      {super.key,
+      required this.address,
+      this.tokenId,
+      this.service,
+      this.displayPrice});
   final String address;
   final String? tokenId;
   final KassealService? service;
+  final DexDisplayPrice? displayPrice;
   @override
   State<KassealScreen> createState() => _KassealScreenState();
 }
@@ -21,6 +28,7 @@ class KassealScreen extends StatefulWidget {
 class _KassealScreenState extends State<KassealScreen>
     with SingleTickerProviderStateMixin {
   late final service = widget.service ?? KassealService();
+  late Future<double?> kasUsd;
   final search = TextEditingController();
   final rows = <Map<String, dynamic>>[];
   String? cursor;
@@ -60,6 +68,10 @@ class _KassealScreenState extends State<KassealScreen>
       rankingWarning = '';
       if (!more) history = service.history(address);
       if (!more) {
+        kasUsd = service.mainnet
+            ? (widget.displayPrice ?? DexDisplayPrice.shared)
+                .kasUsd(kasseal: true)
+            : Future.value(null);
         rows.clear();
         cursor = null;
       }
@@ -239,10 +251,27 @@ class _KassealScreenState extends State<KassealScreen>
                           height: 48,
                           errorBuilder: (_, e, s) => const Icon(Icons.token)),
                   title: Text('${m['ticker'] ?? m['name'] ?? 'Token'}'),
-                  subtitle: Text(
-                      '${t['phase'] == 'bonding' ? 'Launchpad' : 'Pool'} · ${m['covenantId']}'
-                      '${t['marketCapSompi'] == null ? '' : '\nMarket cap: ${KronDexService.display(t['marketCapSompi'], 8)} KAS'}'
-                      '${!t.containsKey('volume24hSompi') ? '' : '\n24h volume: ${t['volume24hSompi'] == null ? 'Unavailable' : '${KronDexService.display(t['volume24hSompi'], 8)} KAS'}'}'),
+                  subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(t['phase'] == 'bonding' ? 'Launchpad' : 'Pool'),
+                        Text('${m['covenantId']}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontFamily: 'monospace', fontSize: 10)),
+                        DexTokenMetrics(
+                            marketCapKas: DexDisplayPrice.kassealCapKas(t),
+                            priceKas: DexDisplayPrice.kassealPriceKas(t),
+                            volume24hKas: DexDisplayPrice.nonnegative(
+                                        t['volume24hSompi']) ==
+                                    null
+                                ? null
+                                : DexDisplayPrice.nonnegative(
+                                        t['volume24hSompi'])! /
+                                    100000000,
+                            kasUsd: kasUsd),
+                      ]),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => open(t)));
         }),

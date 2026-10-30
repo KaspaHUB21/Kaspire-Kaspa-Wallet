@@ -6,19 +6,29 @@ import '../services/native_security.dart';
 import '../services/network_settings.dart';
 import '../number_format.dart';
 import '../widgets/sell_amount_buttons.dart';
+import '../services/dex_display_price.dart';
+import '../widgets/dex_token_metrics.dart';
 
 class KaspaRocketScreen extends StatefulWidget {
   const KaspaRocketScreen(
-      {super.key, required this.address, this.initialTokenId});
+      {super.key,
+      required this.address,
+      this.initialTokenId,
+      this.service,
+      this.displayPrice});
   final String address;
   final String? initialTokenId;
+  final KaspaRocketService? service;
+  final DexDisplayPrice? displayPrice;
   @override
   State<KaspaRocketScreen> createState() => _KaspaRocketScreenState();
 }
 
 class _KaspaRocketScreenState extends State<KaspaRocketScreen>
     with SingleTickerProviderStateMixin {
-  late final service = KaspaRocketService(mainnet: !NetworkSettings.isTestnet);
+  late final service =
+      widget.service ?? KaspaRocketService(mainnet: !NetworkSettings.isTestnet);
+  late Future<double?> kasUsd;
   final search = TextEditingController();
   late final TabController tabs;
   late Future<List<KaspaRocketToken>> tokens;
@@ -35,6 +45,10 @@ class _KaspaRocketScreenState extends State<KaspaRocketScreen>
   void reload() {
     setState(() {
       tokens = service.tokens();
+      kasUsd = service.mainnet
+          ? (widget.displayPrice ?? DexDisplayPrice.shared)
+              .kasUsd(kasseal: false)
+          : Future.value(null);
       activity = service.activity(widget.address);
     });
   }
@@ -134,8 +148,12 @@ class _KaspaRocketScreenState extends State<KaspaRocketScreen>
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                     fontFamily: 'monospace', fontSize: 10)),
-                            Text(
-                                'Price ${kas(t.priceKas)} · Pool ${kas(t.poolValueKas)} · ${(t.phase ?? 'unknown').toUpperCase()}')
+                            Text(t.phase ?? 'Unknown phase'),
+                            DexTokenMetrics(
+                                marketCapKas: t.marketCapKas,
+                                priceKas: t.priceKas,
+                                volume24hKas: t.volume24hKas,
+                                kasUsd: kasUsd),
                           ]),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.push(

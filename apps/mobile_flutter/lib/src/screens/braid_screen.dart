@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show min;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -20,6 +21,9 @@ String braidRouteLabel(Map leg) {
   final venue = label(leg['venue']);
   final name = switch (venue?.toLowerCase()) {
     'kr' => 'KaspaRocket',
+    'krc' || 'krcurve' => 'KaspaRocket Launchpad',
+    'ksc' => 'Kasseal Launchpad',
+    'kasseal' => 'Kasseal',
     'kron' => 'KRON',
     'braid' => 'Braid',
     _ => venue ?? 'Swap route',
@@ -32,6 +36,28 @@ String braidRouteLabel(Map leg) {
     'sell' => '$name: $token → KAS',
     _ => '$name: Route details unavailable',
   };
+}
+
+/// Display server progress only; completion still requires independent checks.
+String braidStatusLabel(Map status) {
+  final parts = <String>['Swap status: ${status['state'] ?? 'unknown'}'];
+  final wait = status['wait'];
+  if (wait is Map) {
+    for (final entry
+        in const {'tries': 'Attempts', 'lost': 'Competing spends'}.entries) {
+      final value = int.tryParse('${wait[entry.key]}');
+      if (value != null && value >= 0) parts.add('${entry.value}: $value');
+    }
+    final priority = BigInt.tryParse('${wait['priority']}');
+    if (priority != null && priority >= BigInt.zero) {
+      parts.add('Network bid: ${formatRawTokenAmount(priority, 8)} KAS');
+    }
+    final why = wait['why'];
+    if (why is String && why.trim().isNotEmpty) {
+      parts.add(why.trim().substring(0, min(why.trim().length, 160)));
+    }
+  }
+  return '${parts.join(' · ')} · receipt retained';
 }
 
 class BraidScreen extends StatefulWidget {
@@ -453,7 +479,7 @@ class _BraidScreenState extends State<BraidScreen> {
       if (mounted) {
         setState(() => statusText = r['verifiedFinal'] == true
             ? '${result['state'] == 'done' ? 'Swap completed' : 'Funds returned'} · independently verified on chain'
-            : 'Swap status: ${result['state']} · receipt retained');
+            : braidStatusLabel(result));
       }
     } catch (e) {
       fail(e);

@@ -58,6 +58,30 @@ Future<void> selectFrom(WidgetTester tester, BraidToken token) async {
 }
 
 void main() {
+  test('launchpad route names and server wait progress remain non-final', () {
+    expect(braidRouteLabel({'venue': 'ksc', 'tick': 'TEK', 'side': 'buy'}),
+        'Kasseal Launchpad: KAS → TEK');
+    expect(braidRouteLabel({'venue': 'krCurve', 'tick': 'KB', 'side': 'sell'}),
+        'KaspaRocket Launchpad: KB → KAS');
+    final label = braidStatusLabel({
+      'state': 'deposited',
+      'fill': {'wait': true},
+      'wait': {
+        'tries': 3,
+        'lost': 1,
+        'priority': '1000000',
+        'why': 'Below minimum'
+      }
+    });
+    expect(label, contains('Attempts: 3'));
+    expect(label, contains('Competing spends: 1'));
+    expect(label, contains('Network bid: 0.01 KAS'));
+    expect(label, contains('Below minimum'));
+    expect(label, contains('receipt retained'));
+    expect(label, isNot(contains('completed')));
+    expect(braidStatusLabel({'state': 'executing'}),
+        'Swap status: executing · receipt retained');
+  });
   setUp(() => NetworkSettings.network.value = KaspaNetwork.tn10);
   test('router buy/sell legs, multi-venue routes and legacy receipts', () {
     expect(braidRouteLabel({'venue': 'kr', 'tick': 'THEN', 'side': 'buy'}),

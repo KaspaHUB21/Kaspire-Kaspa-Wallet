@@ -14,6 +14,7 @@ const browserDapps = [
       'assets/browser/kasseal-browser.png'),
   BrowserDapp(
       'GothDAG', 'https://gothdag.kaslab.space/', 'assets/browser/gothdag.png'),
+  BrowserDapp('Braid', 'https://app.braidswap.com/', 'assets/browser/braid.svg'),
   BrowserDapp('dot.k', 'https://dotk.name/', 'assets/browser/dotk.png'),
   BrowserDapp(
       'Kaspa News', 'https://kaspa.news/', 'assets/browser/kaspa-news.png',

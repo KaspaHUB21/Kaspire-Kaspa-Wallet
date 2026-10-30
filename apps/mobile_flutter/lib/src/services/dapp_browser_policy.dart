@@ -5,6 +5,7 @@ class DappBrowserPolicy {
     'gothdag.kaslab.space',
     'kasvio.network',
     'app.kasseal.com',
+    'app.braidswap.com',
     'devtools.kaslab.space',
     'dotk.name',
     'kaspa.news',
