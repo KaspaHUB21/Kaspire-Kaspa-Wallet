@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 from io import BytesIO
+from copy import deepcopy
 
 spec = importlib.util.spec_from_file_location("gateway", Path(__file__).with_name("gateway.py"))
 gateway = importlib.util.module_from_spec(spec)
@@ -127,6 +128,55 @@ class HistoryTests(unittest.TestCase):
         handler = SimpleNamespace(send_response=lambda status: None, send_header=lambda k, v: headers.update({k: v}), end_headers=lambda: None, wfile=BytesIO())
         gateway.GatewayHandler._respond(handler, 429, {"Retry-After": "45"}, b"{}")
         self.assertEqual(headers["retry-after"], "45")
+
+
+class LocalUtxoScriptVersionTests(unittest.TestCase):
+    def row(self, version="omitted"):
+        script = {"scriptPublicKey": "aa20" + "ab" * 32 + "87"}
+        if version != "omitted":
+            script["version"] = version
+        return {"address": "kaspa:synthetic", "outpoint": {"transactionId": "11" * 32, "index": 0},
+                "utxoEntry": {"amount": "200000000", "blockDaaScore": "579612899",
+                              "isCoinbase": False, "scriptPublicKey": script}}
+
+    def test_proto3_zero_is_explicit_and_all_other_chain_data_is_identical(self):
+        original = self.row()
+        expected = deepcopy(original)
+        expected["utxoEntry"]["scriptPublicKey"]["version"] = 0
+        status, headers, body = gateway._explicit_local_utxo_script_versions(
+            "/addresses/kaspa%3Asynthetic/utxos?unused=1", response(200, [original]))
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), [expected])
+        self.assertNotIn("version", original["utxoEntry"]["scriptPublicKey"])
+        self.assertNotIn("covenantId", json.loads(body)[0]["utxoEntry"])
+
+    def test_explicit_versions_and_missing_or_invalid_scripts_are_not_repaired(self):
+        rows = [self.row(0), self.row(1), self.row(65535), self.row(None), self.row("bad")]
+        rows += [{}, {"utxoEntry": {}}, {"utxoEntry": {"scriptPublicKey": {}}},
+                 {"utxoEntry": {"scriptPublicKey": {"scriptPublicKey": "not-hex"}}}]
+        original = response(200, rows)
+        self.assertIs(gateway._explicit_local_utxo_script_versions("/addresses/x/utxos", original), original)
+
+    def test_failures_non_utxo_routes_and_unreadable_responses_are_unchanged(self):
+        for status in (404, 429, 500):
+            original = response(status, {"detail": "unavailable"}, {"Retry-After": "5"})
+            self.assertIs(gateway._explicit_local_utxo_script_versions("/addresses/x/utxos", original), original)
+        for path in ("/transactions/id", "/addresses/x/full-transactions", "/addresses/x/utxos/other"):
+            original = response(200, [self.row()])
+            self.assertIs(gateway._explicit_local_utxo_script_versions(path, original), original)
+        for body in (b"not-json", b"{}", b"[]"):
+            original = (200, {}, body)
+            self.assertIs(gateway._explicit_local_utxo_script_versions("/addresses/x/utxos", original), original)
+
+    def test_local_node_handler_wires_normalization_without_public_fallback(self):
+        replies = []
+        handler = SimpleNamespace(path="/local-node/addresses/x/utxos", _respond=lambda *args: replies.append(args))
+        with patch.object(gateway, "_is_local_healthy", return_value=True), patch.object(
+            gateway, "_request", return_value=response(200, [self.row()])
+        ) as request:
+            gateway.GatewayHandler._proxy_local_node_read(handler)
+        request.assert_called_once_with(gateway.LOCAL, "GET", "/addresses/x/utxos", timeout=15)
+        self.assertEqual(json.loads(replies[0][2])[0]["utxoEntry"]["scriptPublicKey"]["version"], 0)
 
 
 if __name__ == "__main__":

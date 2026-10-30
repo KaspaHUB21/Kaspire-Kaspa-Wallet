@@ -275,6 +275,42 @@ def _history_response(rows: list[dict]) -> tuple[int, dict[str, str], bytes]:
     return 200, {"content-type": "application/json"}, json.dumps(rows, separators=(",", ":")).encode()
 
 
+def _explicit_local_utxo_script_versions(
+    path: str, response: tuple[int, dict[str, str], bytes]
+) -> tuple[int, dict[str, str], bytes]:
+    """Expose protobuf's implicit uint32 zero, without altering script meaning.
+
+    Kaspad RpcScriptPublicKey.version is a proto3 uint32. The local REST
+    serializer omits zero values; strict wallet verifiers require explicit 0.
+    Preserve all explicit values (including invalid/nonzero ones), every
+    outpoint/script/amount and errors. Never synthesize UTXOs or covenant IDs.
+    """
+    status, headers, body = response
+    if status != 200 or not re.fullmatch(
+        r"/addresses/[^/]+/utxos", urllib.parse.urlsplit(path).path
+    ):
+        return response
+    try:
+        rows = json.loads(body)
+    except (ValueError, TypeError):
+        return response
+    if not isinstance(rows, list):
+        return response
+    changed = False
+    for row in rows:
+        entry = row.get("utxoEntry") if isinstance(row, dict) else None
+        script = entry.get("scriptPublicKey") if isinstance(entry, dict) else None
+        if (
+            isinstance(script, dict)
+            and "version" not in script
+            and isinstance(script.get("scriptPublicKey"), str)
+            and re.fullmatch(r"(?:[0-9a-fA-F]{2})+", script["scriptPublicKey"])
+        ):
+            script["version"] = 0
+            changed = True
+    return (status, headers, json.dumps(rows, separators=(",", ":")).encode()) if changed else response
+
+
 class GatewayHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "KaspireKaspaGateway/1"
@@ -350,7 +386,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
         )
         try:
             response = _request(LOCAL, "GET", upstream_path, timeout=15)
-            self._respond(*response)
+            self._respond(*_explicit_local_utxo_script_versions(upstream_path, response))
         except OSError as error:
             self._error(502, f"Kaspire local Kaspa node unavailable: {error}")
 
