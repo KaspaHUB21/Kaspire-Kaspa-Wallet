@@ -154,6 +154,8 @@ class BraidService {
   ];
   final http.Client client;
   final EncryptedStore store;
+  // Outpoints only, never cached valuations. Every reuse is checked on chain.
+  final _verifiedPoolTips = <String, Map<String, dynamic>>{};
   late final BraidClock clock;
   static final _busy = <String>{};
   void guard(String address) {
@@ -328,12 +330,9 @@ class BraidService {
     Map<String, dynamic>? valuation;
     if (!from.isKas && !to.isKas) {
       final hint = await call('quote', query: query);
-      final tip = (hint['poolTips'] as Map?)?[from.id];
-      if (tip is! Map) {
-        throw StateError('No independently verifiable input pool hint.');
-      }
-      valuation = await BraidPoolReader(client, mainnet: mainnet)
-          .value(from.id, integer(raw), slippage, tip);
+      final tips = hint['poolTips'];
+      final tip = tips is Map ? tips[from.id] : null;
+      valuation = await _poolValue(from.id, integer(raw), slippage, tip);
       query['tkFloorMax'] = '${valuation['floor']}';
     }
     final q = await call('quote', query: {
@@ -373,6 +372,86 @@ class BraidService {
       'localValuation': valuation,
       'localAt': DateTime.now().millisecondsSinceEpoch
     };
+  }
+
+  static bool _validPoolTip(Object? tip) =>
+      tip is Map &&
+      RegExp(r'^[a-f0-9]{64}$').hasMatch('${tip['transactionId']}') &&
+      tip['index'] is int &&
+      tip['index'] >= 0 &&
+      tip['index'] <= 0xffffffff;
+
+  Future<Map<String, dynamic>> _poolValue(
+      String token, BigInt amount, int slippage, Object? quoteTip) async {
+    final pin = (BraidPoolReader.pins[net] as Map?)?[token];
+    if (pin is! Map) {
+      throw StateError(
+          'Token→token fees require an independently pinned pool.');
+    }
+    final reader = BraidPoolReader(client, mainnet: mainnet);
+    Map<String, dynamic> remember(Map<String, dynamic> proof) {
+      _verifiedPoolTips[token] = {
+        'transactionId': proof['transactionId'],
+        'index': proof['index']
+      };
+      return proof;
+    }
+
+    // Try a current quote tip cheaply. If it moved, refresh the discovery hint
+    // BEFORE walking potentially lagging transaction history.
+    if (_validPoolTip(quoteTip)) {
+      try {
+        return remember(await reader.value(
+            token, amount, slippage, quoteTip as Map,
+            followSpends: false));
+      } catch (_) {
+        /* Hints are not authority. Independently recheck a fresh one. */
+      }
+    }
+    Map? fresh;
+    if (mainnet) {
+      try {
+        final response = await client.get(
+            Uri.parse('https://app.braidswap.com/api/mainnet/pools'),
+            headers: {
+              'cache-control': 'no-cache'
+            }).timeout(const Duration(seconds: 8));
+        if (response.statusCode == 200 &&
+            response.bodyBytes.length <= 2 * 1024 * 1024) {
+          final data = jsonDecode(response.body);
+          if (data is Map &&
+              data['network'] == 'mainnet' &&
+              data['pools'] is List) {
+            final rows = (data['pools'] as List)
+                .whereType<Map>()
+                .where((p) =>
+                    p['tokenId'] == token &&
+                    p['poolCovid'] == pin['pool'] &&
+                    p['venue'] == pin['venue'] &&
+                    _validPoolTip(p['tip']))
+                .toList();
+            if (rows.length == 1) fresh = rows.single['tip'] as Map;
+          }
+        }
+      } catch (_) {
+        /* Cached/quote outpoints may still be verified independently. */
+      }
+    }
+    final visited = <String>{};
+    for (final tip in [fresh, _verifiedPoolTips[token], quoteTip]) {
+      if (!_validPoolTip(tip) ||
+          !visited.add('${(tip as Map)['transactionId']}:${tip['index']}')) {
+        continue;
+      }
+      try {
+        return remember(await reader.value(token, amount, slippage, tip));
+      } catch (_) {
+        /* Never replace missing chain proof with quoted reserves. */
+      }
+    }
+    throw StateError(
+        'The current input pool could not be independently verified. '
+        'No transaction was signed. Please try again shortly.');
   }
 
   /// r2c stage() guarantees stageCoin >= depositCoin + midMin - 0.2 KAS.
@@ -660,6 +739,13 @@ class BraidService {
     return d['entries'] as List;
   }
 
+  /// Fresh intent material. Offline build/review fixtures override this method
+  /// rather than replacing randomness or relaxing native intent verification.
+  String createDepositNonce() {
+    final random = Random.secure();
+    return hex(List.generate(32, (_) => random.nextInt(256)));
+  }
+
   Future<Map<String, dynamic>> build(
       String address, Map<String, dynamic> q) async {
     guard(address);
@@ -670,8 +756,7 @@ class BraidService {
       throw StateError('Quote expired. Refresh it.');
     }
     final clocks = await clock.read();
-    final random = Random.secure();
-    final nonce = hex(List.generate(32, (_) => random.nextInt(256)));
+    final nonce = createDepositNonce();
     final b = await call('deposit-build', body: {
       'from': q['from'],
       'to': q['to'],
@@ -753,16 +838,12 @@ class BraidService {
       for (var oi = 0; oi < (tx['outputs'] as List).length; oi++) {
         final output = (tx['outputs'] as List)[oi] as Map;
         if ((output['covenant'] as Map?)?['covenantId'] != from.id) continue;
-        final candidate = oi == b['noteIdx']
-            ? noteProgram
-            : (tok['change'] is String
-                ? tok['change']
-                : (tok['change'] as Map?)?['redeem']);
         // Change can be reconstructed from the independently supplied input
-        // notes; no remote change script is accepted as authority.
+        // notes; no remote change script is accepted as authority. In current
+        // builds tokRedeems.change is a list, not one redeem-script object.
         String r;
-        if (candidate is String) {
-          r = candidate;
+        if (oi == b['noteIdx']) {
+          r = noteProgram;
         } else {
           var sum = BigInt.zero;
           final ri = tok['inputs'];
@@ -779,8 +860,13 @@ class BraidService {
             sum += BigInt.from(
                 ByteData.sublistView(state).getUint64(at, Endian.little));
           }
-          r = noteRedeem(from, kaspaOwnerIdFromAddress(address),
-              sum - integer(q['localAmount']), false, bytes(code));
+          final change = sum - integer(q['localAmount']);
+          if (change <= BigInt.zero) {
+            throw StateError(
+                'Unexpected token change output. Nothing was signed.');
+          }
+          r = noteRedeem(from, kaspaOwnerIdFromAddress(address), change, false,
+              bytes(code));
         }
         if (scriptHash(r) != output['scriptPublicKey']) {
           throw StateError('Token change/route note differs from its output.');

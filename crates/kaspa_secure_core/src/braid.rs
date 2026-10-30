@@ -1217,15 +1217,17 @@ mod tests {
         ]
         .concat();
         let route_note = note(KR, &hash(&redeem), amount, true, &code).unwrap();
-        let own_note = note(KR, &address.payload, amount, false, &code).unwrap();
+        let change = 12345u64;
+        let own_note = note(KR, &address.payload, amount + change, false, &code).unwrap();
+        let change_note = note(KR, &address.payload, change, false, &code).unwrap();
         let mut witness = Vec::new();
         for field in [
-            amount.to_le_bytes().to_vec(),
-            hash(&redeem),
-            vec![3],
-            vec![0],
-            vec![0; 32],
-            vec![0; 32],
+            [amount.to_le_bytes(), change.to_le_bytes()].concat(),
+            [hash(&redeem), address.payload.to_vec()].concat(),
+            vec![3, 0],
+            vec![0, 0],
+            vec![0; 64],
+            vec![0; 64],
         ] {
             witness.extend(push(&field));
         }
@@ -1272,8 +1274,13 @@ mod tests {
                 Some(CovenantBinding::new(0, cid)),
             ),
             TransactionOutput::new(
-                funding - coin_value - 1_000_000,
+                funding - coin_value - 51_000_000,
                 pay_to_address_script(&address),
+            ),
+            TransactionOutput::with_covenant(
+                50_000_000,
+                pay_to_script_hash_script(&change_note),
+                Some(CovenantBinding::new(0, cid)),
             ),
         ];
         let mut payload = b"BRT1".to_vec();
@@ -1310,6 +1317,9 @@ mod tests {
         ];
         r.scripts = vec![serde_json::from_value(serde_json::json!({"inputIndex":0,"scriptHex":"","signType":1,"prebuiltSignatureScript":hex::encode(witness),"signatureOffsets":[slot],"expectedSighash":expected.to_string()})).unwrap()];
         let review = crate::prepare_pskt(&r).unwrap();
+        if let Ok(path) = std::env::var("KASPIRE_EXPORT_BRAID_CHANGE_FIXTURE") {
+            std::fs::write(path, serde_json::to_vec(&r).unwrap()).unwrap();
+        }
         let signed = crate::sign_pskt(
             &format!("private:{}", "01".repeat(32)),
             &r,

@@ -57,6 +57,16 @@ Future<void> selectFrom(WidgetTester tester, BraidToken token) async {
   await tester.pumpAndSettle();
 }
 
+class RetryQuoteSource extends Source {
+  bool failQuote = false;
+  @override
+  Future<Map<String, dynamic>> quote(String address, BraidToken from,
+      BraidToken to, String amount, int slippage) async {
+    if (failQuote) throw StateError('Current pool is temporarily unavailable.');
+    return super.quote(address, from, to, amount, slippage);
+  }
+}
+
 void main() {
   test('launchpad route names and server wait progress remain non-final', () {
     expect(braidRouteLabel({'venue': 'ksc', 'tick': 'TEK', 'side': 'buy'}),
@@ -83,6 +93,56 @@ void main() {
         'Swap status: executing · receipt retained');
   });
   setUp(() => NetworkSettings.network.value = KaspaNetwork.tn10);
+  testWidgets(
+      'failed pool refresh removes old review and a successful retry restores it',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final source = RetryQuoteSource();
+    await tester.pumpWidget(
+        MaterialApp(home: BraidScreen(address: 'fixture', service: source)));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '30');
+    Future<void> refresh() async {
+      await tester.scrollUntilVisible(find.text('Refresh quote'), 120,
+          scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Refresh quote'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Refresh quote'));
+      await tester.pumpAndSettle();
+    }
+
+    await refresh();
+    expect(
+        tester
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Review swap deposit'))
+            .onPressed,
+        isNotNull);
+    source.failQuote = true;
+    await refresh();
+    expect(
+        find.text('Current pool is temporarily unavailable.'), findsOneWidget);
+    expect(
+        tester
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Review swap deposit'))
+            .onPressed,
+        isNull);
+    source.failQuote = false;
+    await refresh();
+    expect(find.text('Current pool is temporarily unavailable.'), findsNothing);
+    expect(
+        tester
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Review swap deposit'))
+            .onPressed,
+        isNotNull);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
   test('router buy/sell legs, multi-venue routes and legacy receipts', () {
     expect(braidRouteLabel({'venue': 'kr', 'tick': 'THEN', 'side': 'buy'}),
         'KaspaRocket: KAS → THEN');

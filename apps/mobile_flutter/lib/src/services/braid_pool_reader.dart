@@ -8,9 +8,11 @@ import 'braid_service.dart';
 /// Port of the hash-checked pool reader from the verified 2026-10-28 kit.
 /// Only fixed independent node URLs are used; quote tips are not authority.
 class BraidPoolReader {
-  BraidPoolReader(this.client, {required this.mainnet});
+  BraidPoolReader(this.client, {required this.mainnet})
+      : _lookup = (Stopwatch()..start());
   final http.Client client;
   final bool mainnet;
+  final Stopwatch _lookup;
   String get net => mainnet ? 'mainnet' : 'tn10';
   String get node => mainnet
       ? 'https://kaspire.kaslab.space/api/local-node'
@@ -214,16 +216,45 @@ class BraidPoolReader {
     return (gross: gross, net: result);
   }
 
-  Future<dynamic> read(String path) async {
-    final response = await client
-        .get(Uri.parse('$node$path'))
-        .timeout(const Duration(seconds: 12));
+  Future<dynamic> read(String path, {bool publicNode = false}) async {
+    final remaining = const Duration(seconds: 24) - _lookup.elapsed;
+    if (remaining <= Duration.zero) {
+      throw StateError(
+          'Independent pool lookup timed out. Nothing was signed.');
+    }
+    final base = publicNode && mainnet ? 'https://api.kaspa.org' : node;
+    final response = await client.get(Uri.parse('$base$path'), headers: {
+      'cache-control': 'no-cache'
+    }).timeout(remaining < const Duration(seconds: 8)
+        ? remaining
+        : const Duration(seconds: 8));
     if (response.statusCode != 200 ||
         response.bodyBytes.length > 4 * 1024 * 1024) {
       throw StateError(
           'Independent pool lookup unavailable. Refresh the quote.');
     }
     return jsonDecode(response.body);
+  }
+
+  // History indexing can lag behind the node's live UTXO set. Either fixed
+  // independent indexer may supply a transaction, never its spendability.
+  // The exact current outpoint is always checked against our own synced node.
+  Future<Map> transaction(String id) async {
+    for (final publicNode in [false, if (mainnet) true]) {
+      try {
+        final tx = await read('/transactions/$id?resolve_previous_outpoints=no',
+            publicNode: publicNode);
+        if (tx is Map &&
+            tx['transaction_id'] == id &&
+            tx['is_accepted'] == true &&
+            tx['outputs'] is List &&
+            tx['inputs'] is List) {
+          return tx;
+        }
+      } catch (_) {/* Try the other fixed independent indexer. */}
+    }
+    throw StateError(
+        'Pool transaction not independently accepted yet. Nothing was signed.');
   }
 
   String address(String script) =>
@@ -233,24 +264,36 @@ class BraidPoolReader {
     final list = await read(
         '/addresses/${Uri.encodeComponent(address('${proof['scriptPublicKey']}'))}/utxos');
     if (list is! List) throw StateError('Independent pool UTXOs unavailable.');
-    return list.whereType<Map>().any((r) {
+    for (final r in list.whereType<Map>()) {
       final outpoint = r['outpoint'], entry = r['utxoEntry'];
-      if (outpoint is! Map || entry is! Map) return false;
+      if (outpoint is! Map ||
+          outpoint['transactionId'] != proof['transactionId'] ||
+          outpoint['index'] != proof['index']) {
+        continue;
+      }
+      if (entry is! Map) {
+        throw StateError(
+            'Independent pool UTXO data is incomplete. Nothing was signed.');
+      }
       final script = entry['scriptPublicKey'];
-      return outpoint['transactionId'] == proof['transactionId'] &&
-          outpoint['index'] == proof['index'] &&
-          script is Map &&
+      if (!(script is Map &&
           script['version'] == 0 &&
           (script['scriptPublicKey'] ?? script['script']) ==
               proof['scriptPublicKey'] &&
           entry['isCoinbase'] == false &&
           BigInt.tryParse('${entry['amount']}') != null &&
-          BigInt.parse('${entry['amount']}') > BigInt.zero;
-    });
+          BigInt.parse('${entry['amount']}') > BigInt.zero)) {
+        throw StateError(
+            'Independent pool UTXO data differs. Nothing was signed.');
+      }
+      return true;
+    }
+    return false;
   }
 
   Future<Map<String, dynamic>> value(
-      String token, BigInt amount, int slippage, Map tip) async {
+      String token, BigInt amount, int slippage, Map tip,
+      {bool followSpends = true}) async {
     final pin = (pins[net] as Map?)?[token] as Map?;
     if (pin == null) {
       throw StateError(
@@ -263,16 +306,15 @@ class BraidPoolReader {
           index < 0) {
         throw StateError('Invalid pool hint.');
       }
-      final tx = await read('/transactions/$id?resolve_previous_outpoints=no');
-      if (tx is! Map ||
-          tx['transaction_id'] != id ||
-          tx['is_accepted'] != true) {
-        throw StateError('Pool transaction not independently accepted.');
-      }
-      final output = (tx['outputs'] as List)
+      final tx = await transaction(id);
+      final matches = (tx['outputs'] as List)
           .whereType<Map>()
           .where((o) => o['index'] == index && o['covenant_id'] == pin['pool'])
-          .single;
+          .toList();
+      if (matches.length != 1) {
+        throw StateError('Pool hint does not identify the pinned pool output.');
+      }
+      final output = matches.single;
       String? redeem;
       for (final input in (tx['inputs'] as List).whereType<Map>()) {
         try {
@@ -305,32 +347,51 @@ class BraidPoolReader {
                 tradeKas * BigInt.from(10000 - slippage) ~/ BigInt.from(10000);
         return {...proof, 'tradeKas': '$tradeKas', 'floor': '$floor'};
       }
+      if (!followSpends) {
+        throw StateError('Pool changed. A fresh pool hint is required.');
+      }
       Map? spender;
-      for (var page = 0; page < 5 && spender == null; page++) {
-        final rows = await read(
-            '/addresses/${Uri.encodeComponent(address('${output['script_public_key']}'))}/full-transactions?limit=50&offset=${page * 50}&resolve_previous_outpoints=no');
-        if (rows is! List) throw StateError('Pool history unavailable.');
-        for (final row in rows.whereType<Map>()) {
-          if (row['is_accepted'] == true &&
-              (row['inputs'] as List).whereType<Map>().any((i) =>
-                  i['previous_outpoint_hash'] == id &&
-                  i['previous_outpoint_index'] == index)) {
-            spender = row;
+      for (final publicNode in [false, if (mainnet) true]) {
+        for (var page = 0; page < 5 && spender == null; page++) {
+          dynamic rows;
+          try {
+            rows = await read(
+                '/addresses/${Uri.encodeComponent(address('${output['script_public_key']}'))}/full-transactions?limit=50&offset=${page * 50}&resolve_previous_outpoints=no',
+                publicNode: publicNode);
+          } catch (_) {
             break;
           }
+          if (rows is! List) break;
+          for (final row in rows.whereType<Map>()) {
+            if (row['is_accepted'] == true &&
+                row['inputs'] is List &&
+                RegExp(r'^[a-f0-9]{64}$')
+                    .hasMatch('${row['transaction_id']}') &&
+                (row['inputs'] as List).whereType<Map>().any((i) =>
+                    i['previous_outpoint_hash'] == id &&
+                    i['previous_outpoint_index'] == index)) {
+              spender = row;
+              break;
+            }
+          }
+          if (rows.length < 50) break;
         }
-        if (rows.length < 50) break;
+        if (spender != null) break;
       }
       if (spender == null) {
         throw StateError(
             'Pool changed; its new state is not indexed yet. Refresh the quote.');
       }
-      final next = (spender['outputs'] as List)
+      final nextOutputs = (spender['outputs'] as List? ?? [])
           .whereType<Map>()
           .where((o) => o['covenant_id'] == pin['pool'])
-          .single;
+          .toList();
+      if (nextOutputs.length != 1) {
+        throw StateError(
+            'Pool continuation is not uniquely verified. Nothing was signed.');
+      }
       id = '${spender['transaction_id']}';
-      index = next['index'];
+      index = nextOutputs.single['index'];
     }
     throw StateError('Pool changed too often. Refresh the quote.');
   }

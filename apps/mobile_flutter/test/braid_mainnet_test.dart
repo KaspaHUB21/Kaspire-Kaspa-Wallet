@@ -107,7 +107,7 @@ void main() {
         }
       }
       final reader = BraidPoolReader(MockClient((r) async {
-        expect(r.url.host, 'kaspire.kaslab.space');
+        expect(['kaspire.kaslab.space', 'api.kaspa.org'], contains(r.url.host));
         return http.Response(
             jsonEncode(r.url.path.contains('/transactions/')
                 ? copy
