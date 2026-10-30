@@ -448,10 +448,18 @@ class BraidService {
   Future<Map<String, dynamic>> notes(String address, BraidToken token) async {
     guard(address);
     if (token.isKas) throw StateError('KAS is not a token note.');
-    final d = await call('notes',
+    // The router's documented read endpoint is merge-notes. /notes is not
+    // a balance API here and returns the misleading "POST required" error.
+    final d = await call('merge-notes',
         query: {'userPk': kaspaOwnerIdFromAddress(address), 'token': token.id});
-    if (d['tokenId'] != token.id || d['notes'] is! List) {
+    if (d['net'] != net || d['tokenId'] != token.id || d['notes'] is! List) {
       throw StateError('Token balance is unavailable, not zero.');
+    }
+    for (final row in d['notes'] as List) {
+      if (row is! Map) {
+        throw StateError('Token balance data is incomplete, not zero.');
+      }
+      integer(row['amount'] ?? (row['state'] as Map?)?['amount']);
     }
     return d;
   }
