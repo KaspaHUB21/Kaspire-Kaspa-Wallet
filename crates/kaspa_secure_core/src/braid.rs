@@ -376,6 +376,22 @@ fn validate_partner_fee(s: &Value, t: &Value, from: &str, to: &str, mainnet: boo
         }
         return Ok(0);
     }
+    if !t["midMin"].is_null() && number(t, "midMin")? > 0 {
+        let floor = pool_floor(s, from, mainnet)?;
+        let value = number(&s["valuation"], "tradeKas")?;
+        let basis = number(s, "feeBasis")?;
+        if number(t, "tkFloor")? != 0
+            || number(s, "feeCarrier")? != 0
+            || !(floor..=value).contains(&basis)
+            || fee < 10_000_000
+            || fee > basis / 100
+        {
+            return Err(bad(
+                "staged KAS fee exceeds independently valued 1% sale share",
+            ));
+        }
+        return Ok(0);
+    }
     if from != Z && to != Z {
         let floor = pool_floor(s, from, mainnet)? as u128;
         let carrier = number(s, "feeCarrier")? as u128;
@@ -530,18 +546,38 @@ pub(crate) fn validate(
     if h32(t, "recipient")? != upk || h32(t, "refund")? != upk {
         return Err(bad("payout or refund belongs to another wallet"));
     }
-    // No staged KRON→KRON execution in this initial profile. A refund must
-    // return the original asset; silently returning intermediate KAS is not parity.
-    if number(t, "midMin")? != 0 || number(s, "midMin")? != 0 {
-        return Err(bad("two-stage routes are not enabled"));
+    let staged = number(s, "midMin")? > 0;
+    let stage2_reclaim = s["reclaimStage2"] == true;
+    if stage2_reclaim && (!reclaim || !staged) {
+        return Err(bad("step-2 recovery requires an approved staged receipt"));
     }
     let from = text(s, "fromId")?;
     let to = text(s, "toId")?;
     if from == to {
         return Err(bad("identical input/output asset"));
     }
-    let inp = side(t, "in", from, mainnet)?;
+    let original_inp = side(t, "in", from, mainnet)?;
     side(t, "out", to, mainnet)?;
+    if staged {
+        let floor = pool_floor(s, from, mainnet)?;
+        if original_inp.is_none()
+            || !matches!(number(t, "inKind")?, 1 | 2)
+            || number(t, "inKind")? != number(t, "outKind")?
+            || number(t, "midMin")? < number(s, "midMin")?
+            || number(s, "midMin")?
+                < (floor - floor / 100)
+                    .checked_add(50_000_000)
+                    .ok_or_else(|| bad("intermediate floor overflow"))?
+            || number(t, "tkFloor")? != 0
+        {
+            return Err(bad(
+                "staged route or intermediate KAS floor differs from local valuation",
+            ));
+        }
+    } else if number(t, "midMin")? != 0 {
+        return Err(bad("unapproved staged sale"));
+    }
+    let inp = if stage2_reclaim { None } else { original_inp };
     let carrier = validate_partner_fee(s, t, from, to, mainnet)?;
     let minimum = number(s, "minimumOut")?;
     if minimum == 0 || number(t, "minOut")? < minimum || number(t, "feeCap")? > number(s, "feeCap")?
@@ -575,7 +611,18 @@ pub(crate) fn validate(
             "router program or keys differ from the pinned r2c release",
         ));
     }
-    let redeem = [prefix, state.clone(), suffix].concat();
+    // stage2Terms in r2c clears only the input side and midMin. All payout,
+    // fee, expiry, nonce and output-token commitments MUST remain identical.
+    let mut spend_terms = t.clone();
+    if stage2_reclaim {
+        for key in ["inKind", "inPfl", "inSfl", "inAmount", "midMin"] {
+            spend_terms[key] = Value::String("0".into());
+        }
+        for key in ["inCovid", "inTpl"] {
+            spend_terms[key] = Value::String(Z.into());
+        }
+    }
+    let redeem = [prefix, self::state(&spend_terms)?, suffix].concat();
     let coin = pay_to_script_hash_script(&redeem);
     let sh = hash(&redeem);
     let wallet = pay_to_address_script(&sender);
@@ -594,7 +641,7 @@ pub(crate) fn validate(
         return Err(bad("deadline is outside the permitted chain-time window"));
     }
     let amount = number(s, "amountIn")?;
-    if amount == 0 || number(t, "inAmount")? != if inp.is_some() { amount } else { 0 } {
+    if amount == 0 || number(t, "inAmount")? != if original_inp.is_some() { amount } else { 0 } {
         return Err(bad("input amount mismatch"));
     }
     let selected = signatures.iter().map(|(i, _)| *i).collect::<HashSet<_>>();
@@ -698,7 +745,7 @@ pub(crate) fn validate(
         .get(ci)
         .ok_or_else(|| bad("missing router output"))?;
     let wfee = number(t, "wfee")?;
-    let token_fee = inp.is_some() && to != Z && wfee > 0;
+    let token_fee = inp.is_some() && to != Z && wfee > 0 && !staged;
     let base = if token_fee {
         100_000_000u64
             .checked_add(carrier)
@@ -856,6 +903,382 @@ pub(crate) fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn staged_reclaim_request(stage2: bool, with_fee: bool) -> PsktRequest {
+        let secret = format!("private:{}", "01".repeat(32));
+        let mut address = crate::derive_address(&secret).unwrap();
+        address.prefix = Prefix::Mainnet;
+        let mut r = fixture();
+        r.sender = address.to_string();
+        r.profile = Some("braid-mainnet-reclaim-v1".into());
+        let s = r.trade_summary.as_mut().unwrap();
+        let proof: Value =
+            serde_json::from_str(include_str!("fixtures/braid-mainnet-then-pool.json")).unwrap();
+        s["network"] = serde_json::json!("mainnet");
+        s["fromId"] = proof["tokenId"].clone();
+        s["toId"] =
+            serde_json::json!("3cb7bd371ea2014af95f3471d2995ede8ffbde454d3a37e3b566880daf011c5a");
+        s["amountIn"] = serde_json::json!("10000000");
+        s["valuation"] = proof;
+        s["slippageBps"] = serde_json::json!("100");
+        s["feeBps"] = serde_json::json!("100");
+        s["feeCarrier"] = serde_json::json!("0");
+        s["feeBasis"] = s["valuation"]["tradeKas"].clone();
+        let fee = if with_fee {
+            number(s, "feeBasis").unwrap() / 100
+        } else {
+            0
+        };
+        s["walletFee"] = serde_json::json!(fee.to_string());
+        let floor = pool_floor(s, s["fromId"].as_str().unwrap(), true).unwrap();
+        s["midMin"] = serde_json::json!((floor + 50_000_000).to_string());
+        s["reclaimStage2"] = serde_json::json!(stage2);
+        for (field, value) in [
+            ("inCovid", s["fromId"].clone()),
+            ("outCovid", s["toId"].clone()),
+            ("inAmount", s["amountIn"].clone()),
+            ("midMin", s["midMin"].clone()),
+            (
+                "recipient",
+                serde_json::json!(hex::encode(&address.payload)),
+            ),
+            ("refund", serde_json::json!(hex::encode(&address.payload))),
+        ] {
+            s["terms"][field] = value;
+        }
+        for key in ["inKind", "outKind"] {
+            s["terms"][key] = serde_json::json!("1");
+        }
+        for key in ["inTpl", "outTpl"] {
+            s["terms"][key] = serde_json::json!(KR.id);
+        }
+        for key in ["inPfl", "outPfl"] {
+            s["terms"][key] = serde_json::json!("34");
+        }
+        for key in ["inSfl", "outSfl"] {
+            s["terms"][key] = serde_json::json!("11312");
+        }
+        s["terms"]["wfee"] = serde_json::json!(fee.to_string());
+        s["terms"]["wfeePk"] = serde_json::json!(if fee == 0 { Z } else { PARTNER_KEY });
+        let suffix = s["router"]["suffix"]
+            .as_str()
+            .unwrap()
+            .replace(EXECUTOR, MAINNET_EXECUTOR)
+            .replace(FEE_KEY, MAINNET_FEE_KEY);
+        s["router"] = serde_json::json!({"prefix":"6b","suffix":suffix,"pin":MAINNET_PIN,"executor":MAINNET_EXECUTOR,"feePk":MAINNET_FEE_KEY});
+        let original = [
+            vec![0x6b],
+            state(&s["terms"]).unwrap(),
+            bytes(&suffix).unwrap(),
+        ]
+        .concat();
+        let mut terms = s["terms"].clone();
+        if stage2 {
+            for key in ["inKind", "inPfl", "inSfl", "inAmount", "midMin"] {
+                terms[key] = serde_json::json!("0");
+            }
+            for key in ["inCovid", "inTpl"] {
+                terms[key] = serde_json::json!(Z);
+            }
+        }
+        let redeem = [vec![0x6b], state(&terms).unwrap(), bytes(&suffix).unwrap()].concat();
+        let deadline = number(&terms, "deadline").unwrap();
+        s["chainDaa"] = serde_json::json!((deadline + 1).to_string());
+        s["secondChainDaa"] = s["chainDaa"].clone();
+        let id = "11".repeat(32);
+        let coin = if stage2 {
+            floor + 130_000_000 + fee
+        } else {
+            100_000_000 + fee
+        };
+        s["depositTransactionId"] = serde_json::json!(id);
+        s["depositCoinIndex"] = serde_json::json!(if stage2 { "0" } else { "1" });
+        s["depositCoinValue"] = serde_json::json!(coin.to_string());
+        let spk = |script: &[u8]| {
+            format!(
+                "0000{}",
+                hex::encode(pay_to_script_hash_script(script).script())
+            )
+        };
+        let mut ins = vec![];
+        let mut outs = vec![];
+        if !stage2 {
+            let template: Value =
+                serde_json::from_str(include_str!("kcc20_reference_10_template.json")).unwrap();
+            let code = bytes(template["suffix"].as_str().unwrap()).unwrap();
+            let old = note(KR, &hash(&original), 10_000_000, true, &code).unwrap();
+            let back = note(KR, &address.payload, 10_000_000, false, &code).unwrap();
+            let witness = [
+                back[KR.prefix.len() / 2..back.len() - code.len()].to_vec(),
+                push(&[0, 1]),
+                push(&[0x79, 0xc7, 0x1c, 0x23]),
+                push(&old),
+            ]
+            .concat();
+            s["depositNoteIndex"] = serde_json::json!("0");
+            s["depositNoteValue"] = serde_json::json!("50000000");
+            s["depositNoteRedeem"] = serde_json::json!(hex::encode(&old));
+            ins.push(serde_json::json!({"transactionId":id,"index":0,"sequence":"0","computeBudget":150,"sigOpCount":0,"signatureScript":hex::encode(witness),"utxo":{"amount":"50000000","scriptPublicKey":spk(&old),"blockDaaScore":"123","isCoinbase":false,"covenantId":s["fromId"]}}));
+            outs.push(serde_json::json!({"value":"50000000","scriptPublicKey":spk(&back),"covenant":{"authorizingInput":0,"covenantId":s["fromId"]}}));
+        }
+        let ci = ins.len();
+        ins.push(serde_json::json!({"transactionId":id,"index":ci,"sequence":"0","computeBudget":30,"sigOpCount":0,"signatureScript":"","utxo":{"amount":coin.to_string(),"scriptPublicKey":spk(&redeem),"blockDaaScore":"123","isCoinbase":false,"covenantId":null}}));
+        outs.push(serde_json::json!({"value":(coin-5_000_000).to_string(),"scriptPublicKey":format!("0000{}",hex::encode(pay_to_address_script(&address).script()))}));
+        r.tx_json_string = serde_json::json!({"version":1,"inputs":ins,"outputs":outs,"lockTime":deadline.to_string(),"subnetworkId":"0000000000000000000000000000000000000000","gas":"0","storageMass":"0","payload":""}).to_string();
+        r.sign_inputs =
+            vec![serde_json::from_value(serde_json::json!({"index":ci,"sighashType":1})).unwrap()];
+        r.scripts = vec![serde_json::from_value(serde_json::json!({"inputIndex":ci,"scriptHex":hex::encode(redeem),"signType":1,"signatureScript":{"mode":"ordered-args","args":[{"type":"signature","prefixHex":""},{"type":"data","hex":"35eecca6"}]}})).unwrap()];
+        r
+    }
+
+    #[test]
+    fn staged_mainnet_refund_and_intermediate_kas_reclaim_execute_locally() {
+        for stage2 in [false, true] {
+            for fee in [false, true] {
+                let r = staged_reclaim_request(stage2, fee);
+                let review = crate::prepare_pskt(&r).unwrap();
+                let signed = crate::sign_pskt(
+                    &format!("private:{}", "01".repeat(32)),
+                    &r,
+                    &review.review_hash,
+                );
+                assert!(signed.is_ok(), "stage2={stage2},fee={fee}: {signed:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn staged_kron_intermediate_reclaim_preserves_the_original_fee_and_output_terms() {
+        for with_fee in [false, true] {
+            let mut r = staged_reclaim_request(true, with_fee);
+            let s = r.trade_summary.as_mut().unwrap();
+            let program: Value = serde_json::from_str(include_str!(
+                "fixtures/braid-mainnet-kron-pool-program.json"
+            ))
+            .unwrap();
+            let pool = bytes(program["redeem"].as_str().unwrap()).unwrap();
+            let cid = "7a98370c0d6b037c28089d7b77cd8229120804cb416ef592ddb99e23820544e4";
+            let to = "a73cdef004099b191759d320de970451be0e10423a7eb15b07d5e51d050b47cd";
+            s["fromId"] = serde_json::json!(cid);
+            s["toId"] = serde_json::json!(to);
+            s["amountIn"] = serde_json::json!("100000");
+            s["valuation"] = serde_json::json!({"network":"mainnet","tokenId":cid,
+                "poolCovenantId":"10f2155ebcd2e0cd55cc9354f78d43fa4e8b9f93de98683919d1f490da726c4f",
+                "transactionId":"22".repeat(32),"index":0,"redeem":program["redeem"],
+                "scriptPublicKey":hex::encode(pay_to_script_hash_script(&pool).script()),
+                "tradeKas":"79685507303","floor":"78888652229"});
+            let floor = pool_floor(s, cid, true).unwrap();
+            s["midMin"] = serde_json::json!((floor + 50_000_000).to_string());
+            s["feeBasis"] = serde_json::json!("79685507303");
+            let fee = if with_fee { 796855073u64 } else { 0 };
+            s["walletFee"] = serde_json::json!(fee.to_string());
+            let t = &mut s["terms"];
+            t["inCovid"] = serde_json::json!(cid);
+            t["outCovid"] = serde_json::json!(to);
+            for key in ["inKind", "outKind"] {
+                t[key] = serde_json::json!("2");
+            }
+            for key in ["inTpl", "outTpl"] {
+                t[key] = serde_json::json!(KRON.id);
+            }
+            for key in ["inPfl", "outPfl"] {
+                t[key] = serde_json::json!("0");
+            }
+            for key in ["inSfl", "outSfl"] {
+                t[key] = serde_json::json!("2387");
+            }
+            t["inAmount"] = serde_json::json!("100000");
+            t["midMin"] = serde_json::json!((floor + 50_000_000).to_string());
+            t["wfee"] = serde_json::json!(fee.to_string());
+            let mut st = t.clone();
+            for key in ["inKind", "inPfl", "inSfl", "inAmount", "midMin"] {
+                st[key] = serde_json::json!("0");
+            }
+            for key in ["inCovid", "inTpl"] {
+                st[key] = serde_json::json!(Z);
+            }
+            let redeem = [
+                vec![0x6b],
+                state(&st).unwrap(),
+                bytes(s["router"]["suffix"].as_str().unwrap()).unwrap(),
+            ]
+            .concat();
+            let coin = floor + 130_000_000 + fee;
+            s["depositCoinValue"] = serde_json::json!(coin.to_string());
+            let mut tx: Value = serde_json::from_str(&r.tx_json_string).unwrap();
+            tx["inputs"][0]["utxo"]["amount"] = serde_json::json!(coin.to_string());
+            tx["inputs"][0]["utxo"]["scriptPublicKey"] = serde_json::json!(format!(
+                "0000{}",
+                hex::encode(pay_to_script_hash_script(&redeem).script())
+            ));
+            tx["outputs"][0]["value"] = serde_json::json!((coin - 5_000_000).to_string());
+            r.tx_json_string = tx.to_string();
+            r.scripts[0].script_hex = hex::encode(redeem);
+            let review = crate::prepare_pskt(&r).unwrap();
+            let signed = crate::sign_pskt(
+                &format!("private:{}", "01".repeat(32)),
+                &r,
+                &review.review_hash,
+            );
+            assert!(signed.is_ok(), "KRON,fee={with_fee}: {signed:?}");
+        }
+    }
+
+    #[test]
+    fn staged_floor_fee_beneficiary_and_recovery_binding_cannot_be_weakened() {
+        let r = staged_reclaim_request(true, true);
+        for (key, val) in [
+            ("midMin", serde_json::json!("1")),
+            ("feeBasis", serde_json::json!("99999999999999")),
+            ("feeCarrier", serde_json::json!("10000000")),
+            ("depositCoinIndex", serde_json::json!("1")),
+            ("depositCoinValue", serde_json::json!("1")),
+            ("reclaimStage2", serde_json::json!(false)),
+        ] {
+            let mut altered = r.clone();
+            altered.trade_summary.as_mut().unwrap()[key] = val;
+            assert!(crate::prepare_pskt(&altered).is_err(), "{key}");
+        }
+        for (key, val) in [
+            ("wfeePk", serde_json::json!(Z)),
+            ("deadline", serde_json::json!("1")),
+            ("outKind", serde_json::json!("2")),
+            ("tkFloor", serde_json::json!("1")),
+        ] {
+            let mut altered = r.clone();
+            altered.trade_summary.as_mut().unwrap()["terms"][key] = val;
+            assert!(crate::prepare_pskt(&altered).is_err(), "terms.{key}");
+        }
+    }
+    #[test]
+    fn staged_rocket_deposit_signs_exact_owned_notes_and_funding_with_kas_fee() {
+        use kaspa_consensus_core::{
+            hashing::{
+                sighash::{calc_schnorr_signature_hash, SigHashReusedValuesUnsync},
+                sighash_type::SIG_HASH_ALL,
+            },
+            subnets::SUBNETWORK_ID_NATIVE,
+            tx::{
+                CovenantBinding, SignableTransaction, TransactionInput, TransactionOutpoint,
+                TransactionOutput,
+            },
+        };
+        use std::str::FromStr;
+        let mut r = staged_reclaim_request(false, true);
+        let address = Address::try_from(r.sender.as_str()).unwrap();
+        let s = r.trade_summary.as_mut().unwrap();
+        let amount = number(s, "amountIn").unwrap();
+        let coin_value = 100_000_000 + number(&s["terms"], "wfee").unwrap();
+        let funding = coin_value + 1_000_000_000;
+        let code: Value =
+            serde_json::from_str(include_str!("kcc20_reference_10_template.json")).unwrap();
+        let code = bytes(code["suffix"].as_str().unwrap()).unwrap();
+        let redeem = [
+            vec![0x6b],
+            state(&s["terms"]).unwrap(),
+            bytes(s["router"]["suffix"].as_str().unwrap()).unwrap(),
+        ]
+        .concat();
+        let route_note = note(KR, &hash(&redeem), amount, true, &code).unwrap();
+        let own_note = note(KR, &address.payload, amount, false, &code).unwrap();
+        let mut witness = Vec::new();
+        for field in [
+            amount.to_le_bytes().to_vec(),
+            hash(&redeem),
+            vec![3],
+            vec![0],
+            vec![0; 32],
+            vec![0; 32],
+        ] {
+            witness.extend(push(&field));
+        }
+        let slot = witness.len() + 2;
+        witness.extend(push(&[0; 66]));
+        witness.extend(push(&[0x79, 0xc7, 0x1c, 0x23]));
+        witness.extend(push(&own_note));
+        let cid = kaspa_hashes::Hash::from_str(s["fromId"].as_str().unwrap()).unwrap();
+        let entries = vec![
+            UtxoEntry::new(
+                50_000_000,
+                pay_to_script_hash_script(&own_note),
+                123,
+                false,
+                Some(cid),
+            ),
+            UtxoEntry::new(funding, pay_to_address_script(&address), 123, false, None),
+        ];
+        let inputs = vec![
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint::new(
+                    kaspa_hashes::Hash::from_str(&"22".repeat(32)).unwrap(),
+                    0,
+                ),
+                witness.clone(),
+                0,
+                150,
+            ),
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint::new(
+                    kaspa_hashes::Hash::from_str(&"33".repeat(32)).unwrap(),
+                    0,
+                ),
+                vec![],
+                0,
+                11,
+            ),
+        ];
+        let outputs = vec![
+            TransactionOutput::new(coin_value, pay_to_script_hash_script(&redeem)),
+            TransactionOutput::with_covenant(
+                50_000_000,
+                pay_to_script_hash_script(&route_note),
+                Some(CovenantBinding::new(0, cid)),
+            ),
+            TransactionOutput::new(
+                funding - coin_value - 1_000_000,
+                pay_to_address_script(&address),
+            ),
+        ];
+        let mut payload = b"BRT1".to_vec();
+        payload.extend([4, 0]);
+        for h in [MAINNET_PIN, MAINNET_EXECUTOR, MAINNET_FEE_KEY] {
+            payload.extend(bytes(h).unwrap());
+        }
+        payload.extend(state(&s["terms"]).unwrap());
+        let check = hash(&payload);
+        payload.extend(&check[..4]);
+        let tx = Transaction::new(1, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, payload);
+        let populated = SignableTransaction::with_entries(tx.clone(), entries.clone());
+        let expected = calc_schnorr_signature_hash(
+            &populated.as_verifiable(),
+            0,
+            SIG_HASH_ALL,
+            &SigHashReusedValuesUnsync::new(),
+        );
+        let mut raw: Value =
+            serde_json::from_str(&crate::kcc20::wrpc_safe_json(&tx, &entries).unwrap()).unwrap();
+        raw.as_object_mut().unwrap().remove("id");
+        r.tx_json_string = raw.to_string();
+        r.profile = Some("braid-mainnet-deposit-v1".into());
+        s["reclaimStage2"] = serde_json::json!(false);
+        s["chainDaa"] =
+            serde_json::json!((number(&s["terms"], "deadline").unwrap() - 6000).to_string());
+        s["secondChainDaa"] = s["chainDaa"].clone();
+        s["coinIndex"] = serde_json::json!("0");
+        s["noteIndex"] = serde_json::json!("1");
+        s["inputRedeems"] = serde_json::json!({"0":hex::encode(own_note)});
+        r.sign_inputs = vec![
+            serde_json::from_value(serde_json::json!({"index":0,"sighashType":1})).unwrap(),
+            serde_json::from_value(serde_json::json!({"index":1,"sighashType":1})).unwrap(),
+        ];
+        r.scripts = vec![serde_json::from_value(serde_json::json!({"inputIndex":0,"scriptHex":"","signType":1,"prebuiltSignatureScript":hex::encode(witness),"signatureOffsets":[slot],"expectedSighash":expected.to_string()})).unwrap()];
+        let review = crate::prepare_pskt(&r).unwrap();
+        let signed = crate::sign_pskt(
+            &format!("private:{}", "01".repeat(32)),
+            &r,
+            &review.review_hash,
+        );
+        assert!(signed.is_ok(), "{signed:?}");
+    }
     #[test]
     fn independent_mainnet_pool_fee_bound_rejects_forged_values_and_beneficiaries() {
         let proof: Value =

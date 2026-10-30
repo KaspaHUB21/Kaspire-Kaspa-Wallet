@@ -317,10 +317,6 @@ class BraidService {
       throw StateError(
           'Choose different assets, a positive amount and 0.01–5% slippage.');
     }
-    if (from.kind == 2 && to.kind == 2) {
-      throw StateError(
-          'Two-stage KRON routes are not enabled in this first integration.');
-    }
     await info();
     final query = <String, String>{
       'from': from.symbol,
@@ -349,11 +345,12 @@ class BraidService {
         q['from'] != from.symbol ||
         q['to'] != to.symbol ||
         q['pin'] != currentPin ||
-        q['staged'] != false ||
+        q['staged'] is! bool ||
         q[from.isKas ? 'payTotal' : 'amountIn'] != raw) {
       throw StateError('Braid quote differs from the selected swap.');
     }
     validateFee(q, from, to, raw, slippage, valuation);
+    final mid = stagedMinimum(q, from, to, valuation);
     final output = integer(q['amountOut']);
     final back = !from.isKas && to.isKas
         ? integer(q['kasBack'] ?? '150000000')
@@ -371,10 +368,33 @@ class BraidService {
       'localToId': to.id,
       'localAmount': raw,
       'localFloor': '$floor',
+      'localMidMin': '$mid',
       'localSlippage': slippage,
       'localValuation': valuation,
       'localAt': DateTime.now().millisecondsSinceEpoch
     };
+  }
+
+  /// r2c stage() guarantees stageCoin >= depositCoin + midMin - 0.2 KAS.
+  /// Pin the sale-dependent floor ourselves, including the 0.5 KAS note
+  /// reserve. Like Braid's independent reader, permit at most 1% quote/read
+  /// drift before the reviewed slippage floor, never an unbounded server value.
+  static BigInt stagedMinimum(
+      Map q, BraidToken from, BraidToken to, Map? valuation) {
+    if (q['staged'] != true) return BigInt.zero;
+    if (from.isKas ||
+        from.kind != to.kind ||
+        ![1, 2].contains(from.kind) ||
+        valuation == null) {
+      throw StateError('Unsupported staged Braid route. Nothing was signed.');
+    }
+    final mid = integer(q['midMin']);
+    final local = integer(valuation['floor']);
+    if (mid < local - local ~/ BigInt.from(100) + BigInt.from(50000000)) {
+      throw StateError(
+          'The intermediate KAS guarantee is below the locally verified sale floor. Refresh the quote.');
+    }
+    return mid;
   }
 
   void validateFee(Map q, BraidToken from, BraidToken to, String amount,
@@ -388,7 +408,32 @@ class BraidService {
       throw StateError('Braid fee identity/rate differs from the approved 1%.');
     }
     final fee = integer(w['amount']);
-    if (!from.isKas && !to.isKas) {
+    if (q['staged'] == true) {
+      stagedMinimum(q, from, to, valuation);
+      final basis = integer(w['basis']);
+      // Staged routes pay a KAS fee from the second coin, not an input-token
+      // fee. Value only the sale, excluding both returned KAS reserves.
+      if (w['unit'] != 'KAS' ||
+          w['basisKind'] is! String ||
+          '${w['basisKind']}'.isEmpty ||
+          w['basisKind'] == 'inAmount' ||
+          w['basisKind'] == 'payTotal' ||
+          basis < integer(valuation!['floor']) ||
+          basis > integer(valuation['tradeKas']) ||
+          integer(w['carrier'] ?? '0') != BigInt.zero ||
+          integer(w['tkFloor'] ?? '0') != BigInt.zero) {
+        throw StateError(
+            'Staged KAS fee differs from the independent sale valuation.');
+      }
+      final maximum = basis * BigInt.from(feeBps) ~/ BigInt.from(10000);
+      if (fee == BigInt.zero
+          ? w['reason'] is! String || '${w['reason']}'.isEmpty
+          : fee < BigInt.from(10000000) ||
+              fee > maximum ||
+              (w['capped'] != true && fee != maximum)) {
+        throw StateError('Staged KAS fee differs from the approved 1%.');
+      }
+    } else if (!from.isKas && !to.isKas) {
       if (valuation == null) {
         throw StateError('Independent token trade valuation missing.');
       }
@@ -656,6 +701,13 @@ class BraidService {
     if (b['quote'] is! Map) throw StateError('Build fee quote missing.');
     validateFee(b['quote'] as Map, from, to, '${q['localAmount']}',
         q['localSlippage'] as int, q['localValuation'] as Map?);
+    if (b['quote']['staged'] != q['staged'] ||
+        (q['staged'] == true
+            ? integer(b['terms']['midMin']) < integer(q['localMidMin'])
+            : integer(b['terms']['midMin']) != BigInt.zero)) {
+      throw StateError(
+          'Build changed the approved route or intermediate guarantee. Refresh the quote.');
+    }
     final quotedFee = (q['walletFee'] as Map);
     final builtFee = (b['quote']['walletFee'] as Map);
     if (builtFee['amount'] != quotedFee['amount'] ||
@@ -831,7 +883,7 @@ class BraidService {
       'payTotal': q['from'] == 'KAS' ? q['localAmount'] : '0',
       'minimumOut': q['localFloor'],
       'feeCap': q['braidFee'],
-      'midMin': '0',
+      'midMin': '${q['localMidMin'] ?? '0'}',
       'feeBps': '$feeBps',
       'walletFee': '${quotedFee['amount']}',
       'feeCarrier': '${quotedFee['carrier'] ?? '0'}',
@@ -976,13 +1028,26 @@ class BraidService {
           'Final transaction is not accepted by the independent node yet.');
     }
     final ctx = receipt['context'] as Map;
-    if (!(tx['inputs'] as List).whereType<Map>().any((i) =>
-        i['previous_outpoint_hash'] == receipt['transactionId'] &&
-        '${i['previous_outpoint_index']}' ==
-            '${receipt['depositCoinIndex']}')) {
-      throw StateError('Final transaction does not spend this exact deposit.');
+    bool spends(String hash, Object index) =>
+        (tx['inputs'] as List).whereType<Map>().any((i) =>
+            i['previous_outpoint_hash'] == hash &&
+            '${i['previous_outpoint_index']}' == '$index');
+    Map<String, dynamic>? intermediate;
+    if (!spends('${receipt['transactionId']}', receipt['depositCoinIndex'])) {
+      intermediate = await stageCoin(address, receipt);
     }
-    final toId = status['state'] == 'done' ? ctx['toId'] : ctx['fromId'];
+    if (!spends('${receipt['transactionId']}', receipt['depositCoinIndex']) &&
+        (intermediate == null ||
+            !spends(
+                '${intermediate['transactionId']}', intermediate['index']))) {
+      throw StateError(
+          'Final transaction does not spend this exact deposit or its verified intermediate coin.');
+    }
+    final toId = status['state'] == 'done'
+        ? ctx['toId']
+        : intermediate != null
+            ? zero
+            : ctx['fromId'];
     final token = tokens.singleWhere((t) => t.id == toId);
     final minimum = status['state'] == 'done'
         ? integer(ctx['minimumOut'])
@@ -996,7 +1061,8 @@ class BraidService {
           .where((o) => o['script_public_key'] == '20${owner}ac')
           .fold<BigInt>(BigInt.zero, (n, o) => n + integer(o['amount']));
       final refundMin =
-          integer(receipt['depositCoinValue']) - BigInt.from(5000000);
+          integer(intermediate?['amount'] ?? receipt['depositCoinValue']) -
+              BigInt.from(5000000);
       if (sum < (status['state'] == 'done' ? minimum : refundMin)) {
         throw StateError('Final KAS payout is below the saved guarantee.');
       }
@@ -1052,6 +1118,143 @@ class BraidService {
     guard(address);
   }
 
+  static Map<String, dynamic> stageTerms(Map original) => {
+        ...Map<String, dynamic>.from(original),
+        'inKind': '0',
+        'inCovid': zero,
+        'inTpl': zero,
+        'inPfl': '0',
+        'inSfl': '0',
+        'inAmount': '0',
+        'midMin': '0',
+      };
+
+  /// Locate step 1 on our node, then prove its exact original inputs and
+  /// deterministically derived output. A server status/txid is only a hint.
+  /// Absence or an indexer timeout never completes or discards the receipt.
+  Future<Map<String, dynamic>?> stageCoin(
+      String address, Map<String, dynamic> receipt) async {
+    guard(address);
+    final ctx = receipt['context'] as Map;
+    if (ctx['terms'] is! Map) {
+      throw StateError(
+          'Saved route terms are unavailable. The payment remains saved.');
+    }
+    final terms = ctx['terms'] as Map;
+    if (integer(terms['midMin']) == BigInt.zero) return null;
+    final from = tokens.singleWhere((t) => t.id == ctx['fromId']);
+    final to = tokens.singleWhere((t) => t.id == ctx['toId']);
+    if (from.kind != to.kind ||
+        ![1, 2].contains(from.kind) ||
+        terms['refund'] != kaspaOwnerIdFromAddress(address)) {
+      throw StateError('Saved staged route does not match this wallet.');
+    }
+    final router = ctx['router'] as Map;
+    String script(Map t) =>
+        scriptHash('${router['prefix']}${_state(t)}${router['suffix']}');
+    final originalScript = script(terms),
+        secondScript = script(stageTerms(terms));
+    final candidates = <String>{};
+    final cached = receipt['verifiedStage'];
+    final hint = (receipt['status'] as Map?)?['stage'];
+    for (final value in [
+      cached is Map ? cached['transactionId'] : null,
+      hint is Map ? hint['txid'] : null
+    ]) {
+      if (value is String && RegExp(r'^[a-f0-9]{64}$').hasMatch(value))
+        candidates.add(value);
+    }
+    Future<Map?> accepted(String id) async {
+      final r = await client
+          .get(Uri.parse('$readNode/transactions/$id'))
+          .timeout(const Duration(seconds: 15));
+      if (r.statusCode == 404) return null;
+      if (r.statusCode != 200 || r.bodyBytes.length > 2 * 1024 * 1024) {
+        throw StateError(
+            'Intermediate transaction lookup unavailable. Saved swap retained.');
+      }
+      final tx = jsonDecode(r.body);
+      return tx is Map &&
+              tx['transaction_id'] == id &&
+              tx['is_accepted'] == true
+          ? tx
+          : null;
+    }
+
+    Future<Map<String, dynamic>?> prove(String id) async {
+      final tx = await accepted(id);
+      if (tx == null) return null;
+      bool spends(Object index) =>
+          (tx['inputs'] as List).whereType<Map>().any((i) =>
+              i['previous_outpoint_hash'] == receipt['transactionId'] &&
+              '${i['previous_outpoint_index']}' == '$index');
+      if (!spends(receipt['depositCoinIndex']) ||
+          !spends(receipt['depositNoteIndex'])) return null;
+      final matches = (tx['outputs'] as List)
+          .whereType<Map>()
+          .where((o) =>
+              o['script_public_key'] == secondScript.substring(4) &&
+              o['covenant_id'] == null)
+          .toList();
+      if (matches.isEmpty) return null; // Original-token refund, not step 1.
+      if (matches.length != 1 ||
+          matches.single['index'] is! int ||
+          (matches.single['index'] as int) < 0 ||
+          integer(matches.single['amount']) <
+              integer(receipt['depositCoinValue']) +
+                  integer(terms['midMin']) -
+                  BigInt.from(20000000)) {
+        throw StateError('Intermediate coin violates the saved KAS guarantee.');
+      }
+      final result = <String, dynamic>{
+        'transactionId': id,
+        'index': matches.single['index'],
+        'amount': '${matches.single['amount']}',
+        'scriptPublicKey': secondScript
+      };
+      guard(address);
+      receipt['verifiedStage'] = result;
+      await retain(address, receipt);
+      return result;
+    }
+
+    for (final id in candidates) {
+      final proof = await prove(id);
+      if (proof != null) return proof;
+    }
+    // The original coin address is unique to this nonce. Bounded pagination
+    // also survives a missing Braid status response; it is not a new API dependency.
+    for (var offset = 0; offset < 200; offset += 50) {
+      final uri = Uri.parse(
+              '$readNode/addresses/${_addressForScript(originalScript)}/full-transactions')
+          .replace(queryParameters: {
+        'limit': '50',
+        'offset': '$offset',
+        'resolve_previous_outpoints': 'no'
+      });
+      final r = await client.get(uri).timeout(const Duration(seconds: 15));
+      if (r.statusCode != 200 || r.bodyBytes.length > 2 * 1024 * 1024) {
+        throw StateError(
+            'Intermediate history unavailable. Saved swap retained.');
+      }
+      final rows = jsonDecode(r.body);
+      if (rows is! List)
+        throw StateError('Intermediate history is incomplete.');
+      for (final tx in rows.whereType<Map>()) {
+        final id = tx['transaction_id'];
+        if (id is String &&
+            RegExp(r'^[a-f0-9]{64}$').hasMatch(id) &&
+            candidates.add(id)) {
+          final proof = await prove(id);
+          if (proof != null) return proof;
+        }
+      }
+      if (rows.length < 50) return null;
+    }
+    throw StateError(
+        'Intermediate history is incomplete. Saved swap retained.');
+  }
+
   static String push(String h) {
     final n = h.length ~/ 2;
     if (n <= 75) return '${n.toRadixString(16).padLeft(2, '0')}$h';
@@ -1066,7 +1269,9 @@ class BraidService {
       String address, Map<String, dynamic> receipt) async {
     guard(address);
     final context = Map<String, dynamic>.from(receipt['context'] as Map);
-    final t = context['terms'] as Map;
+    final originalTerms = context['terms'] as Map;
+    final stage = await stageCoin(address, receipt);
+    final t = stage == null ? originalTerms : stageTerms(originalTerms);
     final clocks = await clock.read();
     if (clocks.reduce(max) <= int.parse('${t['deadline']}')) {
       throw StateError('The on-chain refund deadline has not passed yet.');
@@ -1082,7 +1287,7 @@ class BraidService {
           .whereType<Map>()
           .where((r) =>
               (r['outpoint'] as Map)['transactionId'] ==
-                  receipt['transactionId'] &&
+                  (stage?['transactionId'] ?? receipt['transactionId']) &&
               (r['outpoint'] as Map)['index'] == index)
           .toList();
       if (live.length != 1) {
@@ -1098,7 +1303,7 @@ class BraidService {
         throw StateError('Saved deposit differs from the independent node.');
       }
       return {
-        'transactionId': receipt['transactionId'],
+        'transactionId': stage?['transactionId'] ?? receipt['transactionId'],
         'index': index,
         'sequence': '0',
         'sigOpCount': 0,
@@ -1116,7 +1321,7 @@ class BraidService {
     }
 
     final from = tokens.singleWhere((token) => token.id == context['fromId']);
-    if (!from.isKas) {
+    if (!from.isKas && stage == null) {
       final oldNote = '${receipt['depositNoteRedeem']}';
       final n = bytes(oldNote),
           offset = from.prefix.length ~/ 2 + (from.kind == 1 ? 112 : 46);
@@ -1153,12 +1358,16 @@ class BraidService {
       });
     }
     final ci = inputs.length;
-    final coinValue = integer(receipt['depositCoinValue']);
+    final coinValue = integer(stage?['amount'] ?? receipt['depositCoinValue']);
     if (coinValue <= BigInt.from(7000000)) {
       throw StateError('Router coin cannot cover the bounded recovery fee.');
     }
     inputs.add(await liveInput(
-        spk, receipt['depositCoinIndex'] as int, '$coinValue', 30, ''));
+        spk,
+        (stage?['index'] ?? receipt['depositCoinIndex']) as int,
+        '$coinValue',
+        30,
+        ''));
     outputs.add({
       'value': '${coinValue - BigInt.from(5000000)}',
       'scriptPublicKey': '000020${kaspaOwnerIdFromAddress(address)}ac'
@@ -1166,8 +1375,10 @@ class BraidService {
     context.addAll({
       'chainDaa': '${clocks[0]}',
       'secondChainDaa': '${clocks[1]}',
-      'depositTransactionId': receipt['transactionId'],
-      'depositCoinIndex': '${receipt['depositCoinIndex']}',
+      'reclaimStage2': stage != null,
+      'depositTransactionId':
+          stage?['transactionId'] ?? receipt['transactionId'],
+      'depositCoinIndex': '${stage?['index'] ?? receipt['depositCoinIndex']}',
       'depositCoinValue': '$coinValue'
     });
     return {

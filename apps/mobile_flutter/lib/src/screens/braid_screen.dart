@@ -41,6 +41,9 @@ String braidRouteLabel(Map leg) {
 /// Display server progress only; completion still requires independent checks.
 String braidStatusLabel(Map status) {
   final parts = <String>['Swap status: ${status['state'] ?? 'unknown'}'];
+  if (status['stage'] is Map && (status['stage'] as Map)['txid'] is String) {
+    parts.add('Step 1: token → KAS · step 2: buying destination token');
+  }
   final wait = status['wait'];
   if (wait is Map) {
     for (final entry
@@ -374,6 +377,14 @@ class _BraidScreenState extends State<BraidScreen> {
               '${service.mainnet ? 'Mainnet' : 'Testnet 10'} · one signed deposit. Completion is separate and is checked on chain.'),
           line('You pay', quantity(q['localAmount'], from)),
           line('Guaranteed minimum', quantity(q['localFloor'], to)),
+          if (q['staged'] == true) ...[
+            const Text(
+                'Two-step swap: the first sale cannot be reversed. If the destination purchase fails, the intermediate KAS can be returned or recovered, not the original tokens.'),
+            line(
+                'Independently valued sale floor (before execution network fees)',
+                quantity(
+                    q['localValuation']['floor'], BraidService.tokens.first)),
+          ],
           line('Deposit network fee',
               quantity('${review['feeSompi']}', BraidService.tokens.first)),
           Text(feeDescription(q)),
@@ -590,7 +601,7 @@ class _BraidScreenState extends State<BraidScreen> {
                           '${service.mainnet ? 'Kaspa Mainnet' : 'Testnet 10'} · Best-route quotes across available venues'),
                       SizedBox(height: 8),
                       const Text(
-                          'One covenant deposit, then independently checked execution or refund. Kaspire partner fee: 1%, waived when the minimum executable fee cannot be covered. Two-stage KRON→KRON swaps are not yet enabled.')
+                          'One covenant deposit, then independently checked execution or refund. Kaspire partner fee: 1%, waived when the minimum executable fee cannot be covered. Two-step routes sell to KAS first; a failed second step returns intermediate KAS, not the original tokens.')
                     ]))),
         if (error != null)
           Padding(padding: const EdgeInsets.all(12), child: Text(error!)),
@@ -715,6 +726,9 @@ class _BraidScreenState extends State<BraidScreen> {
                             const Text(
                                 'KAS output includes the returned router coin/token-note carrier. This is not all trading profit.'),
                           Text(feeDescription(quoted!)),
+                          if (quoted!['staged'] == true)
+                            const Text(
+                                'Two steps via KAS. If step 2 cannot complete, recover KAS instead of the original tokens.'),
                           for (final tx in (quoted!['txs'] as List? ?? [])
                               .whereType<Map>())
                             for (final leg
