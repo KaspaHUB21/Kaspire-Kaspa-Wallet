@@ -4,12 +4,33 @@ import 'encrypted_store.dart';
 import 'kaspa_api.dart';
 import 'activity_store.dart';
 import '../number_format.dart';
+import 'swap_conflict_lookup.dart';
+
+enum KronRecoveryState { confirmed, obsolete, pending }
+
+class KronSwapObsolete extends StateError {
+  KronSwapObsolete()
+      : super(
+            'The pool or wallet changed before this swap completed. The old signed swap was archived. Get a fresh quote to try again.');
+}
 
 class KronDexService {
-  KronDexService({http.Client? client}) : client = client ?? http.Client();
+  KronDexService(
+      {http.Client? client,
+      EncryptedStore? store,
+      KaspaApi? api,
+      ActivityStore? activity})
+      : client = client ?? http.Client(),
+        _store = store ?? const KeystoreEncryptedStore(),
+        _api = api,
+        _activity = activity;
   final http.Client client;
+  final EncryptedStore _store;
+  final KaspaApi? _api;
+  final ActivityStore? _activity;
+  static final _recovering = <String>{};
+  KaspaApi get api => _api ?? KaspaApi(client: client);
   static const base = 'https://kaspire.kaslab.space/dex-test-v1/kron';
-  static const store = KeystoreEncryptedStore();
   Future<dynamic> call(String path, [Map<String, Object?>? body]) async {
     final uri = Uri.parse('$base/$path');
     final response = await (body == null
@@ -138,19 +159,152 @@ class KronDexService {
 
   static String key(String address) => 'kron_swap_recovery_v1_$address';
   Future<Map<String, dynamic>?> pending(String address) async {
-    final text = await store.read(key(address));
+    final text = await _store.read(key(address));
     return text == null ? null : Map<String, dynamic>.from(jsonDecode(text));
   }
 
-  Future<void> retain(String address, Map<String, dynamic> receipt) =>
-      store.write(key(address), jsonEncode(receipt));
-  Future<String> submit(String address, Map<String, dynamic> receipt) async {
-    final id = await KaspaApi().broadcastKcc20(receipt['signedTxJson'],
-        expectedTransactionId: receipt['transactionId']);
-    await recordReceipt(address, receipt, id);
-    await store.delete(key(address));
-    return id;
+  Future<T> _exclusive<T>(String address, Future<T> Function() action) async {
+    if (!_recovering.add(address)) {
+      throw StateError('A saved KRON swap is already being checked.');
+    }
+    try {
+      return await action();
+    } finally {
+      _recovering.remove(address);
+    }
   }
+
+  Map _transaction(String address, Map receipt) {
+    final id = receipt['transactionId'], raw = receipt['signedTxJson'];
+    if (id is! String ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(id) ||
+        raw is! String ||
+        (receipt['address'] != null && receipt['address'] != address)) {
+      throw StateError('Invalid saved KRON swap. Its data remains saved.');
+    }
+    final tx = jsonDecode(raw);
+    if (tx is! Map ||
+        tx['inputs'] is! List ||
+        (tx['inputs'] as List).isEmpty ||
+        (tx['id'] != null && tx['id'] != id)) {
+      throw StateError(
+          'Invalid saved KRON transaction. Its data remains saved.');
+    }
+    return tx;
+  }
+
+  Future<void> retain(String address, Map<String, dynamic> receipt) =>
+      _exclusive(address, () async {
+        _transaction(address, receipt);
+        final previous = await pending(address);
+        if (previous != null && !_same(previous, receipt)) {
+          throw StateError(
+              'Check the saved KRON swap before creating another.');
+        }
+        await _store.write(key(address), jsonEncode(receipt));
+      });
+
+  bool _same(Map a, Map b) =>
+      a['transactionId'] == b['transactionId'] &&
+      a['signedTxJson'] == b['signedTxJson'];
+  Future<void> _requireSaved(String address, Map receipt) async {
+    final saved = await pending(address);
+    if (saved == null || !_same(saved, receipt)) {
+      throw StateError('The saved KRON swap changed. Refresh its status.');
+    }
+  }
+
+  Future<void> _complete(String address, Map<String, dynamic> receipt) async {
+    await _requireSaved(address, receipt);
+    await recordReceipt(address, receipt, receipt['transactionId'],
+        activity: _activity);
+    await _requireSaved(address, receipt);
+    await _store.delete(key(address));
+  }
+
+  Future<KronRecoveryState> checkSaved(
+          String address, Map<String, dynamic> receipt) =>
+      _exclusive(address, () => _checkSaved(address, receipt));
+
+  Future<KronRecoveryState> _checkSaved(
+      String address, Map<String, dynamic> receipt) async {
+    final tx = _transaction(address, receipt);
+    await _requireSaved(address, receipt);
+    final id = receipt['transactionId'] as String;
+    if (await api.kcc20PlanTransactionAccepted(id)) {
+      await _complete(address, receipt);
+      return KronRecoveryState.confirmed;
+    }
+    const node = 'https://kaspire.kaslab.space/api/local-node';
+    final watch = Stopwatch()..start();
+    Future<Object?> read(String url) async {
+      final remaining = const Duration(seconds: 24) - watch.elapsed;
+      if (remaining <= Duration.zero) throw SwapConflictUnknown();
+      final response = await client
+          .get(Uri.parse(url), headers: {'cache-control': 'no-cache'}).timeout(
+              remaining < const Duration(seconds: 6)
+                  ? remaining
+                  : const Duration(seconds: 6));
+      if (response.statusCode == 404 &&
+          Uri.parse(url).path.contains('/transactions/')) {
+        return null;
+      }
+      if (response.statusCode != 200 ||
+          response.bodyBytes.length > 4 * 1024 * 1024) {
+        throw StateError(
+            'KRON swap status is temporarily unavailable. The signed transaction remains saved.');
+      }
+      return jsonDecode(response.body);
+    }
+
+    final competing = await findConfirmedSwapConflict(
+        tx: tx, savedIds: {id}, node: node, prefix: 'kaspa:', read: read);
+    // Recheck after history traversal: a missing transaction alone never proves failure.
+    if (await api.kcc20PlanTransactionAccepted(id)) {
+      await _complete(address, receipt);
+      return KronRecoveryState.confirmed;
+    }
+    if (competing == null) return KronRecoveryState.pending;
+    await _requireSaved(address, receipt);
+    await _store.write(
+        '${key(address)}_last_obsolete',
+        jsonEncode({
+          ...receipt,
+          'retiredReason': 'confirmed-conflicting-spend',
+          'conflictingTransactionId': competing,
+          'retiredAt': DateTime.now().toIso8601String()
+        }));
+    await _requireSaved(address, receipt);
+    await _store.delete(key(address));
+    return KronRecoveryState.obsolete;
+  }
+
+  Future<String> submit(String address, Map<String, dynamic> receipt) =>
+      _exclusive(address, () async {
+        _transaction(address, receipt);
+        await _requireSaved(address, receipt);
+        final id = receipt['transactionId'] as String;
+        if (await api.kcc20PlanTransactionAccepted(id)) {
+          await _complete(address, receipt);
+          return id;
+        }
+        try {
+          final sent = await api.broadcastKcc20(receipt['signedTxJson'],
+              expectedTransactionId: id);
+          if (sent != id) {
+            throw StateError(
+                'KRON broadcast returned a different transaction ID.');
+          }
+          await _complete(address, receipt);
+          return id;
+        } catch (_) {
+          final state = await _checkSaved(address, receipt);
+          if (state == KronRecoveryState.confirmed) return id;
+          if (state == KronRecoveryState.obsolete) throw KronSwapObsolete();
+          throw StateError(
+              'The swap is not confirmed yet. Its exact signed transaction remains saved. Check its status or retry the saved swap; do not create a second trade.');
+        }
+      });
 
   static Future<void> recordReceipt(String address, Map receipt, String id,
       {ActivityStore? activity}) async {

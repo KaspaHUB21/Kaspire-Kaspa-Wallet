@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../services/kron_dex_service.dart';
 import '../services/kron_holdings.dart';
 import '../services/kaspa_api.dart';
@@ -24,7 +25,8 @@ class DexSelectionScreen extends StatelessWidget {
           Card(
               child: ListTile(
             contentPadding: const EdgeInsets.all(18),
-            leading: const Icon(Icons.route_rounded, size: 40),
+            leading: SvgPicture.asset('assets/browser/braid.svg',
+                width: 40, height: 40, semanticsLabel: 'Braid logo'),
             title: const Text('Braid Aggregator'),
             subtitle: Text(
                 '${NetworkSettings.isTestnet ? 'Testnet 10' : 'Kaspa Mainnet'} · Best-route swaps'),
@@ -212,6 +214,7 @@ class _KronTradeScreenState extends State<KronTradeScreen> {
     super.initState();
     amount.addListener(() => setState(() => quote = null));
     loadBalances();
+    loadRecovery();
   }
 
   @override
@@ -225,8 +228,7 @@ class _KronTradeScreenState extends State<KronTradeScreen> {
       final values = await Future.wait<dynamic>([
         (widget.api ?? KaspaApi()).loadBalanceSompi(widget.address),
         (widget.holdings ?? KronHoldings(widget.service.client))
-            .balances(widget.address),
-        widget.service.pending(widget.address)
+            .balances(widget.address)
       ]);
       final rows = values[1] as List;
       final matches = rows.where((r) => r['covenantId'] == id);
@@ -236,11 +238,46 @@ class _KronTradeScreenState extends State<KronTradeScreen> {
           held = matches.isEmpty
               ? BigInt.zero
               : BigInt.parse(matches.first['balance'].toString());
-          recovery = values[2];
         });
       }
     } catch (e) {
       if (mounted) setState(() => error = readable(e));
+    }
+  }
+
+  Future<void> loadRecovery() async {
+    try {
+      final saved = await widget.service.pending(widget.address);
+      if (!mounted || saved == null) return;
+      setState(() => recovery = saved);
+      await run(() => checkRecovery());
+    } catch (e) {
+      if (mounted) setState(() => error = readable(e));
+    }
+  }
+
+  Future<void> checkRecovery({bool resend = false}) async {
+    final saved = recovery;
+    if (saved == null) return;
+    final KronRecoveryState state;
+    if (resend) {
+      await widget.service.submit(widget.address, saved);
+      state = KronRecoveryState.confirmed;
+    } else {
+      state = await widget.service.checkSaved(widget.address, saved);
+    }
+    if (!mounted) return;
+    if (state == KronRecoveryState.confirmed) {
+      setState(() {
+        completed = saved;
+        recovery = null;
+      });
+    } else if (state == KronRecoveryState.obsolete) {
+      setState(() {
+        recovery = null;
+        quote = null;
+        error = KronSwapObsolete().message.toString();
+      });
     }
   }
 
@@ -257,7 +294,15 @@ class _KronTradeScreenState extends State<KronTradeScreen> {
     try {
       await action();
     } catch (e) {
-      if (mounted) setState(() => error = readable(e));
+      if (mounted) {
+        setState(() {
+          if (e is KronSwapObsolete) {
+            recovery = null;
+            quote = null;
+          }
+          error = readable(e);
+        });
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -284,7 +329,8 @@ class _KronTradeScreenState extends State<KronTradeScreen> {
   }
 
   Future<void> swap() async {
-    if (recovery != null) {
+    if (recovery != null ||
+        await widget.service.pending(widget.address) != null) {
       throw StateError('Resume the saved swap before starting another trade.');
     }
     final q = quote;
@@ -351,7 +397,8 @@ class _KronTradeScreenState extends State<KronTradeScreen> {
       'summary': summary,
       'ticker': ticker,
       'decimals': decimals,
-      'tokenId': id
+      'tokenId': id,
+      'address': widget.address
     };
     await widget.service.retain(widget.address, receipt);
     if (mounted) setState(() => recovery = receipt);
@@ -522,23 +569,25 @@ class _KronTradeScreenState extends State<KronTradeScreen> {
                 child: Padding(
                     padding: const EdgeInsets.all(14),
                     child: Column(children: [
+                      const Text('Swap awaiting confirmation'),
+                      const SizedBox(height: 8),
                       const Text(
-                          'Signed swap saved. Retry the same transaction; do not create a second purchase.'),
+                          'The exact signed swap is saved. Kaspire checks for completion or a confirmed conflicting spend before allowing another trade. A missing transaction alone never clears it.'),
+                      const SizedBox(height: 8),
+                      SelectableText(
+                          'Transaction ID\n${recovery!['transactionId']}'),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                          onPressed:
+                              busy ? null : () => run(() => checkRecovery()),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Check status / refresh quote')),
                       const SizedBox(height: 8),
                       FilledButton(
                           onPressed: busy
                               ? null
-                              : () => run(() async {
-                                    await widget.service
-                                        .submit(widget.address, recovery!);
-                                    if (mounted) {
-                                      setState(() {
-                                        completed = recovery;
-                                        recovery = null;
-                                      });
-                                    }
-                                  }),
-                          child: const Text('Resume saved swap'))
+                              : () => run(() => checkRecovery(resend: true)),
+                          child: const Text('Retry same saved swap'))
                     ]))),
           const SizedBox(height: 12),
           FilledButton.icon(
