@@ -216,6 +216,223 @@ class Kcc20StandardService {
     if (!address.startsWith('kaspa:') || owner.isEmpty) {
       return const StandardKcc20Wallet([], [], '');
     }
+    try {
+      return await _loadAddress(address, owner, historyLimit, onProgress);
+    } on Kcc20ReadError catch (e) {
+      // Compatibility with deployments that do not expose the address route.
+      // An outage/rate limit is not evidence that the wallet owns no tokens,
+      // and must not trigger hundreds of additional catalogue requests.
+      if (e.status != 404 && e.status != 405) rethrow;
+      return _loadCatalogue(address,
+          historyLimit: historyLimit, onProgress: onProgress);
+    }
+  }
+
+  Future<StandardKcc20Wallet> _loadAddress(String address, String owner,
+      int historyLimit, void Function(StandardKcc20Wallet)? onProgress) async {
+    final assets = <String, WalletAsset>{};
+    final references = <String, Set<String>>{};
+    final warnings = <String>{};
+    final seen = <String>{};
+    final cursors = <String>{};
+    String? cursor, snapshot;
+    StandardKcc20Wallet result([List<WalletTransaction> history = const []]) =>
+        StandardKcc20Wallet(alphabeticalWalletAssets(assets.values), history,
+            warnings.join(' '));
+    void publish() => onProgress?.call(result());
+    for (var page = 0; page < 20; page++) {
+      Map<String, dynamic> response;
+      try {
+        response = await get(
+            '$base/addresses/${Uri.encodeComponent(address)}/tokens?${Uri(queryParameters: {
+                  'limit': '100',
+                  if (cursor != null) 'cursor': cursor
+                }).query}',
+            priority: true);
+        final context = map(response['address_context']);
+        if (context['address'] != address ||
+            context['network'] != 'mainnet' ||
+            context['owner_scheme'] != 0 ||
+            context['owner_value'] != owner ||
+            response['data'] is! List ||
+            (response['data'] as List).length > 100) {
+          throw StateError(
+              'KCC20 address response is unavailable or mismatched.');
+        }
+        final meta = map(response['meta']);
+        final currentSnapshot = meta['snapshot_id']?.toString();
+        if (snapshot != null && currentSnapshot != snapshot) {
+          throw StateError('KCC20 address pagination snapshot changed.');
+        }
+        snapshot ??= currentSnapshot;
+        if (context['balances_complete'] != true) {
+          warnings.add(
+              'Standard KCC20 discovery is incomplete; additional holdings may not yet be indexed.');
+        }
+        if (meta['stale'] == true || meta['retained_snapshot'] == true) {
+          warnings.add(
+              'Standard KCC20 indexer data is stale; live outputs are rechecked before sending.');
+        }
+      } catch (_) {
+        if (page == 0) rethrow;
+        warnings.add(
+            'Some standard KCC20 holdings could not be loaded. Previously discovered holdings are retained.');
+        break;
+      }
+      final rows = response['data'] as List;
+      for (var offset = 0; offset < rows.length; offset += 6) {
+        await Future.wait(rows.skip(offset).take(6).map((item) async {
+          try {
+            if (item is! Map) throw StateError('Invalid KCC20 holding.');
+            final row = map(item), cid = rowId(row);
+            final rawText = row['balance_raw']?.toString() ?? '';
+            if (!_hex64.hasMatch(cid) ||
+                !seen.add(cid) ||
+                row['owner_scheme'] != 0 ||
+                row['owner_value'] != owner ||
+                !RegExp(r'^\d+$').hasMatch(rawText)) {
+              throw StateError('Invalid or duplicate KCC20 holding.');
+            }
+            final raw = BigInt.parse(rawText);
+            if (raw == BigInt.zero) return;
+            // The address route is balance evidence, not a signing template.
+            // Resolve only held tokens through the pinned public token API.
+            final token =
+                map((await get('$base/tokens/$cid', priority: true))['data']);
+            final program = tokenTemplate(token);
+            if (rowId(token) != cid ||
+                program == null ||
+                !const [
+                  'hash_proven_reference_actor_family',
+                  'hash_proven_program_artifact'
+                ].contains(token['recognition'])) {
+              throw StateError('Unsupported KCC20 program.');
+            }
+            final detailMetadata = map(token['metadata']);
+            final rowMetadata = map(row['metadata']);
+            for (final metadata in [detailMetadata, rowMetadata]) {
+              if (metadata['binding_verified'] == true &&
+                  metadata['covenant_id'] != null &&
+                  metadata['covenant_id'] != cid) {
+                throw StateError('KCC20 metadata covenant differs.');
+              }
+            }
+            final metadata = detailMetadata['binding_verified'] == true
+                ? detailMetadata
+                : rowMetadata;
+            final detailDecimals = verifiedDecimals(token);
+            final rowDecimals = verifiedDecimals(row);
+            if (detailDecimals != null &&
+                rowDecimals != null &&
+                detailDecimals != rowDecimals) {
+              throw StateError('KCC20 token units differ.');
+            }
+            final decimals = detailDecimals ?? rowDecimals;
+            if (decimals == null) throw StateError('Unverified KCC20 units.');
+            final ticker = (metadata['binding_verified'] == true
+                    ? metadata['ticker'] ?? metadata['symbol'] ?? 'KCC20_RAW'
+                    : 'KCC20_RAW')
+                .toString()
+                .toUpperCase();
+            if (!RegExp(r'^[A-Z0-9_.-]{1,32}$').hasMatch(ticker)) {
+              throw StateError('Invalid KCC20 ticker.');
+            }
+            if (row['balance_complete'] != true) {
+              warnings.add(
+                  'Some standard KCC20 balances have incomplete coverage.');
+            }
+            final hash = metadata['image_hash']?.toString() ?? '';
+            assets[cid] = WalletAsset(
+                symbol: ticker,
+                balance: raw.toDouble() / math.pow(10, decimals),
+                kind: 'KCC20',
+                decimals: decimals,
+                rawBalance: rawText,
+                id: cid,
+                covenantId: cid,
+                standard: standard,
+                templateHash: program,
+                validationStatus: 'observed',
+                discoveryComplete: false,
+                imageUrl: metadata['image_bytes_verified'] == true &&
+                        _hex64.hasMatch(hash)
+                    ? '$base/images/$hash'
+                    : null);
+            publish();
+          } catch (_) {
+            warnings.add(
+                'Some standard KCC20 holdings could not be verified. Refresh to retry.');
+          }
+        }));
+      }
+      final pagination = map(response['pagination']);
+      if (pagination['has_more'] == false) break;
+      final next = pagination['next_cursor'];
+      if (pagination['has_more'] != true ||
+          next is! String ||
+          next.isEmpty ||
+          next.length > 4096 ||
+          !cursors.add(next) ||
+          page == 19) {
+        warnings.add(
+            'Standard KCC20 address pagination is incomplete. Refresh to retry.');
+        break;
+      }
+      cursor = next;
+    }
+    // Publish balances before optional origin/history reads. Origin IDs keep
+    // existing Activity discovery working without scanning unrelated tokens.
+    publish();
+    for (final cid in assets.keys.toList()) {
+      try {
+        final b = await balance(cid, owner);
+        final origins = ((b['outputs'] as List? ?? []).whereType<Map>().toList()
+              ..sort((a, b) =>
+                  (BigInt.tryParse(b['acceptance_id'].toString()) ??
+                          BigInt.zero)
+                      .compareTo(
+                          BigInt.tryParse(a['acceptance_id'].toString()) ??
+                              BigInt.zero)))
+            .map((row) => row['txid']?.toString() ?? '')
+            .where(_hex64.hasMatch)
+            .take(512)
+            .toSet();
+        references[cid] = origins;
+        final asset = assets[cid]!;
+        assets[cid] = WalletAsset(
+            symbol: asset.symbol,
+            balance: asset.balance,
+            kind: asset.kind,
+            imageUrl: asset.imageUrl,
+            id: asset.id,
+            decimals: asset.decimals,
+            rawBalance: asset.rawBalance,
+            covenantId: cid,
+            standard: asset.standard,
+            templateHash: asset.templateHash,
+            validationStatus: asset.validationStatus,
+            discoveryComplete: false,
+            activityOrigins: origins.toList());
+        publish();
+      } catch (_) {
+        warnings.add(
+            'Some KCC20 activity origins are temporarily unavailable; loaded balances are retained.');
+      }
+    }
+    final history = historyLimit > 0
+        ? await historyForTransactions(address, references,
+            limit: historyLimit, onWarning: warnings.add)
+        : <WalletTransaction>[];
+    return result(history);
+  }
+
+  Future<StandardKcc20Wallet> _loadCatalogue(String address,
+      {int historyLimit = 20,
+      void Function(StandardKcc20Wallet)? onProgress}) async {
+    final owner = kaspaOwnerIdFromAddress(address);
+    if (!address.startsWith('kaspa:') || owner.isEmpty) {
+      return const StandardKcc20Wallet([], [], '');
+    }
     final status = await get('$base/status');
     if (map(status['data'])['status'] != 'ready') {
       throw StateError('Kasvio KCC20 indexer is not ready.');

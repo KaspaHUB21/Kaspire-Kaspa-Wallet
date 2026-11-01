@@ -167,8 +167,11 @@ class KaspaApi {
         dotkNames: progressiveDotk,
         kcc20Tokens:
             _alphabeticalAssets(progressiveCovenants?.assets ?? const []),
-        assetWarning:
-            parsed.warnings.isEmpty ? null : parsed.warnings.join(' '),
+        assetWarning: [
+          ...parsed.warnings,
+          if (progressiveCovenants?.warning.isNotEmpty == true)
+            progressiveCovenants!.warning,
+        ].where((warning) => warning.isNotEmpty).join(' '),
         utxoCount: progressiveUtxos,
       ));
     }

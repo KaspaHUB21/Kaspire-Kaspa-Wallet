@@ -88,7 +88,12 @@ class KronHoldings {
     // Public KRON-v2 catalogue, never one request per holding.
     final marketsFuture =
         get('$kasvio/api/kron/v2/tokens?limit=100').catchError((_) => null);
-    final rows = await balances(address);
+    // KRON also imports standard KCC20 balances using internal STD-<cid>
+    // routing tickers. These are not KRON-native signing programs and must
+    // not replace Kasvio/Kascov's standard-token identity or metadata.
+    final rows = (await balances(address))
+        .where((row) => row['family'] != 'kcc20v1')
+        .toList();
     List<WalletAsset> mapAssets(Map<String, dynamic> markets) =>
         rows.map((row) {
           final id = row['covenantId'].toString().toLowerCase();

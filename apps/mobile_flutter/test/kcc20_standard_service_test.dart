@@ -56,6 +56,9 @@ MockClient source(
         bool noBalance = false}) =>
     MockClient((r) async {
       final path = r.url.path;
+      if (path.contains('/api/kcc20/v1/addresses/')) {
+        return http.Response('{}', 404);
+      }
       if (path.endsWith('/status')) return envelope({'status': 'ready'});
       if (path.endsWith('/tokens')) return envelope([token]);
       if (path.endsWith('/balance')) {
@@ -443,7 +446,9 @@ void main() {
     final upstream = source();
     final client = MockClient((r) async {
       final response = await upstream.get(r.url);
-      if (!r.url.path.endsWith('/tokens')) return response;
+      if (response.statusCode != 200 || !r.url.path.endsWith('/tokens')) {
+        return response;
+      }
       return envelope([
         {
           ...token,

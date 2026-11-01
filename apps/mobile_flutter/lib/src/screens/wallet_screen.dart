@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../widgets/asset_discovery_notice.dart';
 import 'covenant_vault_screen.dart';
 import '../widgets/hub21_material.dart';
 import '../widgets/neptune_material.dart';
@@ -574,6 +575,7 @@ class _WalletScreenState extends State<WalletScreen> {
                   const SizedBox(height: 12),
                   _AssetOverview(
                     data: snapshot.data ?? _progress!,
+                    loading: snapshot.connectionState != ConnectionState.done,
                     address: widget.address,
                     onSendAsset: widget.onSendAsset,
                     hideAmounts: hideAmounts,
@@ -703,10 +705,12 @@ class _WalletScreenState extends State<WalletScreen> {
 class _AssetOverview extends StatelessWidget {
   const _AssetOverview(
       {required this.data,
+      required this.loading,
       required this.address,
       required this.onSendAsset,
       required this.hideAmounts});
   final WalletSnapshot data;
+  final bool loading;
   final String address;
   final ValueChanged<AssetSendIntent> onSendAsset;
   final bool hideAmounts;
@@ -731,11 +735,8 @@ class _AssetOverview extends StatelessWidget {
           child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (empty)
-            const Text(
-              'No token, NFT or name assets found for this address.',
-              style: TextStyle(color: KasVaultTheme.muted),
-            ),
+          AssetDiscoveryNotice(
+              empty: empty, loading: loading, warning: data.assetWarning),
           if (data.krc20Tokens.isNotEmpty)
             _AssetSection(
               title: 'KRC-20 TOKENS',
