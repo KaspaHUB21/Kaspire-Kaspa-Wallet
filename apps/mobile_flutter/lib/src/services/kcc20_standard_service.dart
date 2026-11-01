@@ -64,10 +64,12 @@ class _KasvioReadQueue {
 }
 
 class StandardKcc20Wallet {
-  const StandardKcc20Wallet(this.assets, this.transactions, this.warning);
+  const StandardKcc20Wallet(this.assets, this.transactions, this.warning,
+      {this.coverageComplete = true});
   final List<WalletAsset> assets;
   final List<WalletTransaction> transactions;
   final String warning;
+  final bool coverageComplete;
 }
 
 class Kcc20ReadError extends StateError {
@@ -88,8 +90,14 @@ class Kcc20StandardService {
   static bool isStandard(String? value) =>
       value == standard ||
       value == 'kcc20-last-call' ||
-      value == 'kasparocket-kcc20';
+      value == 'kasparocket-kcc20' ||
+      value == 'kasseal-kcc20';
+  static bool supportsBorrowedReceive(String? value) =>
+      isStandard(value) && value != 'kasseal-kcc20';
   static const templateId = 'argent-kcc20-c8a0871';
+  // Separate native mode: pinned reference bytes, owner signatures only,
+  // whole tokens, borrow=0 and Kasseal's 5 KAS output reserve.
+  static const kassealOwnerTemplateId = 'kasseal-kcc20-owner-v1';
   static const reference = 'c8a087117735a1f87c5c6d115fcddeaf2562c784';
   static const templateHash =
       '9703112ee6e3555107cd168858992b77d3b74f655205b2b463b1f9ec2ec73cf7';
@@ -235,10 +243,12 @@ class Kcc20StandardService {
     final warnings = <String>{};
     final seen = <String>{};
     final cursors = <String>{};
+    var coverageComplete = true;
     String? cursor, snapshot;
     StandardKcc20Wallet result([List<WalletTransaction> history = const []]) =>
         StandardKcc20Wallet(alphabeticalWalletAssets(assets.values), history,
-            warnings.join(' '));
+            warnings.join(' '),
+            coverageComplete: coverageComplete);
     void publish() => onProgress?.call(result());
     for (var page = 0; page < 20; page++) {
       Map<String, dynamic> response;
@@ -266,8 +276,13 @@ class Kcc20StandardService {
         }
         snapshot ??= currentSnapshot;
         if (context['balances_complete'] != true) {
-          warnings.add(
-              'Standard KCC20 discovery is incomplete; additional holdings may not yet be indexed.');
+          coverageComplete = false;
+          // Global unrecognized contracts are not a failed holding of this
+          // wallet. Retain partial-state semantics separately, even if empty.
+          if (context['unknown_tokens_attributable_to_address'] != false) {
+            warnings.add(
+                'Standard KCC20 discovery is incomplete; additional holdings may not yet be indexed.');
+          }
         }
         if (meta['stale'] == true || meta['retained_snapshot'] == true) {
           warnings.add(
@@ -300,6 +315,15 @@ class Kcc20StandardService {
             final token =
                 map((await get('$base/tokens/$cid', priority: true))['data']);
             final program = tokenTemplate(token);
+            if (rowId(token) == cid &&
+                token['recognition'] ==
+                    'hash_proven_parameterized_actor_family' &&
+                token['profile_id'] == 'KCC20Parameterized@v1-i10-o10' &&
+                map(token['market'])['venue'] == 'kasparocket') {
+              // Discovered and verified by the separate KaspaRocket path;
+              // this is not a failed reference-actor holding or a signing pin.
+              return;
+            }
             if (rowId(token) != cid ||
                 program == null ||
                 !const [
@@ -847,6 +871,7 @@ class Kcc20StandardService {
   Future<Kcc20Step> signingBatch(String address, String cid, int amount,
       {bool Function()? isCancelled,
       void Function(String)? onProgress,
+      bool kassealOwnerOnly = false,
       bool fullPlan = false}) async {
     final watch = Stopwatch()..start();
     bool cancelled() =>
@@ -932,7 +957,14 @@ class Kcc20StandardService {
     if (!ten && programHash != templateHash) {
       throw StateError('Unsupported KCC20 program configuration.');
     }
-    final programId = ten ? tenTemplateId : templateId;
+    if (kassealOwnerOnly && ten) {
+      throw StateError('Unsupported Kasseal token program.');
+    }
+    final programId = kassealOwnerOnly
+        ? kassealOwnerTemplateId
+        : ten
+            ? tenTemplateId
+            : templateId;
     final limit = ten ? 10 : 3;
     final template = map(jsonDecode(await rootBundle.loadString(ten
         ? 'assets/kcc20_reference_10_template.json'
@@ -998,6 +1030,13 @@ class Kcc20StandardService {
         final extension = state['extension_commitment']?.toString() ?? '';
         if (!_hex64.hasMatch(extension)) {
           throw StateError('KCC20 extension commitment is missing.');
+        }
+        if (kassealOwnerOnly &&
+            (borrowScheme != 0 ||
+                guard != '0' * 64 ||
+                extension != '0' * 64 ||
+                units > BigInt.from(1200000000))) {
+          throw StateError('Unsupported Kasseal token policy.');
         }
         final bytes = <int>[
           8,

@@ -768,6 +768,134 @@ void main() {
     expect(snapshot.assetWarning, isNot(contains('unusable KNS')));
   });
 
+  test('only proven pre-final legacy mapping gaps suppress signing warnings',
+      () async {
+    const owner =
+        '1111111111111111111111111111111111111111111111111111111111111111';
+    const covenant =
+        '2222222222222222222222222222222222222222222222222222222222222222';
+    for (final template in [
+      '9bf2df2cd4a05b8124082c868e79c52eb4d719362af2e1a75c025cfb50a2844e',
+      '36205a78ae657a7f1db798f6c52925ca82aca7361df71ef6a8202ce05aa7ec5f',
+    ]) {
+      final client = MockClient((r) async {
+        if (r.url.host == 'kascov.io') {
+          if (r.url.path.contains('/addr/'))
+            return http.Response(
+                jsonEncode({
+                  'pubkey': owner,
+                  'tip_daa': 200,
+                  'token_holdings': [
+                    {
+                      'token_id': covenant,
+                      'status': 'verified',
+                      'claimed_ticker': 'OLD'
+                    }
+                  ]
+                }),
+                200);
+          if (r.url.path.endsWith('/token/$covenant'))
+            return http.Response(
+                jsonEncode({
+                  'token': {
+                    'status': 'verified',
+                    'claimed_ticker': 'OLD',
+                    'claimed_decimals': 0
+                  },
+                  'balances': [
+                    {'owner': owner, 'balance': 1000}
+                  ],
+                  'events': []
+                }),
+                200);
+          if (r.url.path.endsWith('/c/$covenant.json'))
+            return http.Response(
+                jsonEncode({
+                  'kcc1_template_hash': template,
+                  'lineage_complete': false,
+                  'utxos': []
+                }),
+                200);
+        }
+        if (r.url.path.endsWith('/balance'))
+          return http.Response('{"balance":0}', 200);
+        if (r.url.path.endsWith('/info/price'))
+          return http.Response('{"price":0.1}', 200);
+        if (r.url.host == 'kaspatoken.kaslab.space')
+          return http.Response('{}', 503);
+        return http.Response('[]', 200);
+      });
+      final snapshot = await KaspaApi(client: client).loadWallet(address);
+      final asset = snapshot.kcc20Tokens.single;
+      expect(asset.balance, 1000);
+      expect(asset.discoveryComplete, false);
+      expect(asset.templateHash, template);
+      final message = snapshot.assetWarning ?? '';
+      if (template.startsWith('9bf2')) {
+        expect(message, isNot(contains('mapped to complete signing')));
+      } else {
+        expect(message, contains('mapped to complete signing'));
+      }
+    }
+  });
+
+  test(
+      'Kasseal detail preserves signing identity and reads price by covenant, not ticker',
+      () async {
+    final cid = 'c' * 64;
+    final cell = Kcc20CellRecord(
+        covenantId: cid,
+        transactionId: 'a' * 64,
+        index: 0,
+        valueSompi: 500000000,
+        blockDaaScore: 1,
+        scriptPublicKey: 'aa',
+        tokenAmount: 1000,
+        redeemScript: 'bb');
+    final client = MockClient((r) async {
+      if (r.url.path.endsWith('/info/price'))
+        return http.Response('{"price":0.1}', 200);
+      expect(r.url.path, contains('kasseal-mainnet/tokens'));
+      expect(r.url.queryParameters['search'], cid);
+      return http.Response(
+          jsonEncode({
+            'tokens': [
+              {
+                'meta': {'covenantId': 'd' * 64},
+                'marketCapSompi': '99999999',
+                'supply': {'total': '1'}
+              },
+              {
+                'meta': {'covenantId': cid},
+                'marketCapSompi': '200000000',
+                'supply': {'total': '1000'}
+              }
+            ]
+          }),
+          200);
+    });
+    final value = await KaspaApi(client: client).loadTokenMarket(WalletAsset(
+        symbol: 'SEAL',
+        balance: 1000,
+        kind: 'KCC20',
+        covenantId: cid,
+        id: cid,
+        standard: 'kasseal-kcc20',
+        decimals: 0,
+        rawBalance: '1000',
+        kcc20Cells: [cell],
+        discoveryComplete: false,
+        activityOrigins: ['a' * 64]));
+    expect(value.priceKas, .002);
+    expect(value.priceUsd, .0002);
+    expect(value.covenantId, cid);
+    expect(value.standard, 'kasseal-kcc20');
+    expect(value.rawBalance, '1000');
+    expect(value.discoveryComplete, false);
+    expect(value.kcc20Cells.single, same(cell));
+    expect(value.activityOrigins, ['a' * 64]);
+  });
+
   test('loads KCC20 cells when live_utxos is a numeric count', () async {
     const owner =
         '1111111111111111111111111111111111111111111111111111111111111111';

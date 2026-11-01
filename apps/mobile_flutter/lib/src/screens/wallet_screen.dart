@@ -736,7 +736,10 @@ class _AssetOverview extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AssetDiscoveryNotice(
-              empty: empty, loading: loading, warning: data.assetWarning),
+              empty: empty,
+              loading: loading,
+              warning: data.assetWarning,
+              complete: data.assetDiscoveryComplete),
           if (data.krc20Tokens.isNotEmpty)
             _AssetSection(
               title: 'KRC-20 TOKENS',
@@ -781,51 +784,52 @@ class _AssetOverview extends StatelessWidget {
                                               address),
                                       initialTokenId:
                                           asset.covenantId ?? asset.id)))
-                          : asset.standard == 'kasseal-kcc20'
+                          : (asset.standard == 'kasseal-kcc20' ||
+                                  asset.standard == 'kasparocket-kcc20')
                               ? () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                      builder: (_) => KassealScreen(
-                                          address: address,
-                                          tokenId:
-                                              asset.covenantId ?? asset.id)))
-                              : asset.standard == 'kasparocket-kcc20'
-                                  ? () => Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (detailContext) =>
-                                              Krc20TokenDetailScreen(
-                                            asset: asset,
-                                            usdToFiat: data.usdToFiat,
-                                            fiatCode: data.fiatCode,
-                                            fiatSymbol: data.fiatSymbol,
-                                            onSend: () => onSendAsset(
-                                                AssetSendIntent.kcc20(
-                                                    asset.symbol,
-                                                    asset.covenantId ??
-                                                        asset.id ??
-                                                        '',
-                                                    wallet: data)),
-                                            onSwap: () => Navigator.of(
-                                                    detailContext)
-                                                .push(MaterialPageRoute<void>(
-                                                    builder: (_) =>
-                                                        KaspaRocketScreen(
-                                                          address: NetworkSettings
-                                                              .addressForNetwork(
-                                                                  address),
-                                                          initialTokenId: asset
-                                                                  .covenantId ??
-                                                              asset.id,
-                                                        ))),
-                                          ),
-                                        ),
-                                      )
-                                  : () => onSendAsset(
-                                        AssetSendIntent.kcc20(
-                                          asset.symbol,
-                                          asset.covenantId ?? asset.id ?? '',
-                                          wallet: data,
-                                        ),
+                                    MaterialPageRoute<void>(
+                                      builder: (detailContext) =>
+                                          Krc20TokenDetailScreen(
+                                        asset: asset,
+                                        usdToFiat: data.usdToFiat,
+                                        fiatCode: data.fiatCode,
+                                        fiatSymbol: data.fiatSymbol,
+                                        onSend: () => onSendAsset(
+                                            AssetSendIntent.kcc20(
+                                                asset.symbol,
+                                                asset.covenantId ??
+                                                    asset.id ??
+                                                    '',
+                                                wallet: data)),
+                                        onSwap: () => Navigator.of(
+                                                detailContext)
+                                            .push(MaterialPageRoute<void>(
+                                                builder: (_) => asset
+                                                            .standard ==
+                                                        'kasseal-kcc20'
+                                                    ? KassealScreen(
+                                                        address: address,
+                                                        tokenId:
+                                                            asset.covenantId ??
+                                                                asset.id)
+                                                    : KaspaRocketScreen(
+                                                        address: NetworkSettings
+                                                            .addressForNetwork(
+                                                                address),
+                                                        initialTokenId:
+                                                            asset.covenantId ??
+                                                                asset.id,
+                                                      ))),
                                       ),
+                                    ),
+                                  )
+                              : () => onSendAsset(
+                                    AssetSendIntent.kcc20(
+                                      asset.symbol,
+                                      asset.covenantId ?? asset.id ?? '',
+                                      wallet: data,
+                                    ),
+                                  ),
                     ),
                   )
                   .toList(),

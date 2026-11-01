@@ -4,13 +4,18 @@ import 'package:flutter/material.dart';
 /// wallet. Positive holdings remain visible while independent sources finish.
 class AssetDiscoveryNotice extends StatelessWidget {
   const AssetDiscoveryNotice(
-      {super.key, required this.empty, required this.loading, this.warning});
+      {super.key,
+      required this.empty,
+      required this.loading,
+      this.complete = true,
+      this.warning});
   final bool empty, loading;
+  final bool complete;
   final String? warning;
 
   @override
   Widget build(BuildContext context) {
-    final incomplete = warning?.isNotEmpty == true;
+    final incomplete = !complete || warning?.isNotEmpty == true;
     final kcc20Warning = warning?.toLowerCase().contains('kcc20') == true;
     return Column(
       mainAxisSize: MainAxisSize.min,

@@ -3,6 +3,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kasvault_wallet/src/widgets/asset_discovery_notice.dart';
 
 void main() {
+  testWidgets('global coverage gaps never claim confirmed empty balance',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+            body: AssetDiscoveryNotice(
+                empty: true, loading: false, complete: false))));
+    expect(find.textContaining('discovery is incomplete'), findsOneWidget);
+    expect(find.textContaining('No token,'), findsNothing);
+  });
   testWidgets('loading and partial discovery never claim an empty wallet',
       (tester) async {
     Future<void> show({required bool loading, String? warning}) =>

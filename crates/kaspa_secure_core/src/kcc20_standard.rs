@@ -12,12 +12,17 @@ use serde_json::Value;
 use std::{collections::HashSet,str::FromStr};
 pub const TEMPLATE_ID: &str = "argent-kcc20-c8a0871";
 pub const TEMPLATE_10_ID: &str = "argent-kcc20-c8a0871-10x10";
-pub fn is_template(id:&str)->bool { matches!(id,TEMPLATE_ID|TEMPLATE_10_ID) }
-pub fn input_limit(id:&str)->Result<usize> { match id {TEMPLATE_ID=>Ok(3),TEMPLATE_10_ID=>Ok(10),_=>Err(bad("Unsupported KCC20 program configuration"))} }
+// Separate owner-only transfer mode; never a KasSeal swap/borrowed signer.
+// The complete program outside its 112-byte state has the already pinned
+// KasSeal SDK 0.3.0 SHA256 77d1bf0010f639e881c8d56ffe5bb78c2d2bc9b883365959e84cdbc2744c7ba7.
+pub const KASSEAL_OWNER_ID: &str = "kasseal-kcc20-owner-v1";
+pub fn is_template(id:&str)->bool { matches!(id,TEMPLATE_ID|TEMPLATE_10_ID|KASSEAL_OWNER_ID) }
+pub fn input_limit(id:&str)->Result<usize> { match id {TEMPLATE_ID|KASSEAL_OWNER_ID=>Ok(3),TEMPLATE_10_ID=>Ok(10),_=>Err(bad("Unsupported KCC20 program configuration"))} }
 const DEPOSIT:u64=100_000_000;
+fn deposit(id:&str)->u64 {if id==KASSEAL_OWNER_ID {500_000_000} else {DEPOSIT}}
 fn bad(message:&str)->CoreError {CoreError::InvalidRequest(message.into())}
 fn template_for(id:&str)->Result<(Vec<u8>,Vec<u8>)>{
-    let source=match id {TEMPLATE_ID=>include_str!("kcc20_standard_template.json"),TEMPLATE_10_ID=>include_str!("kcc20_reference_10_template.json"),_=>return Err(bad("Unsupported KCC20 program configuration"))};
+    let source=match id {TEMPLATE_ID|KASSEAL_OWNER_ID=>include_str!("kcc20_standard_template.json"),TEMPLATE_10_ID=>include_str!("kcc20_reference_10_template.json"),_=>return Err(bad("Unsupported KCC20 program configuration"))};
     let v:Value=serde_json::from_str(source).map_err(|_|CoreError::Serialization)?;
     Ok((hex::decode(v["prefix"].as_str().unwrap()).map_err(|_|CoreError::Serialization)?,hex::decode(v["suffix"].as_str().unwrap()).map_err(|_|CoreError::Serialization)?))
 }
@@ -28,6 +33,12 @@ fn owner(address:&str)->Result<[u8;32]>{
 }
 #[derive(Clone)]
 struct State{amount:u64,owner:[u8;32],borrow:u8,guard:[u8;32],extension:[u8;32]}
+fn validate_owner_policy(request:&KronTransferRequest,s:&State)->Result<()> {
+    if request.template_hash==KASSEAL_OWNER_ID && (request.decimals!=0 || request.borrowed_receive.is_some() || s.borrow!=0 || s.guard!=[0;32] || s.extension!=[0;32] || s.amount>1_200_000_000) {
+        return Err(bad("KasSeal owner transfer requires whole tokens, owner signatures, disabled borrowing and no extension"));
+    }
+    Ok(())
+}
 fn state_bytes(s:&State)->Vec<u8>{
     let mut v=vec![8];v.extend(s.amount.to_le_bytes());v.push(32);v.extend(s.owner);
     v.extend([1,0,1,s.borrow,32]);v.extend(s.guard);v.push(32);v.extend(s.extension);v
@@ -77,6 +88,9 @@ fn borrowed_state(request:&KronTransferRequest)->Result<Option<State>> {
 }
 pub fn prepare(request:&KronTransferRequest)->Result<PreparedKronTransfer>{
     let limit=input_limit(&request.template_hash)?;
+    if request.template_hash==KASSEAL_OWNER_ID && (request.decimals!=0 || request.borrowed_receive.is_some()) {
+        return Err(bad("KasSeal owner transfer does not enable borrowed receive or fractional tokens"));
+    }
     let borrowed=borrowed_state(request)?;
     if request.amount==0||request.cells.is_empty()||request.cells.len()+usize::from(borrowed.is_some())>limit||request.decimals>18||!request.fee_rate.is_finite()||!(100.0..=10_000.0).contains(&request.fee_rate){return Err(bad("Invalid standard KCC20 transfer parameters"));}
     let sender=owner(&request.sender)?;let recipient=owner(&request.recipient)?;
@@ -90,6 +104,7 @@ pub fn prepare(request:&KronTransferRequest)->Result<PreparedKronTransfer>{
         if !seen.insert((cell.transaction_id.clone(),cell.index)){return Err(bad("Duplicate KCC20 input"));}
         let script=hex::decode(&cell.redeem_script).map_err(|_|bad("Malformed KCC20 redeem script"))?;
         let state=decode_for(&script,&request.template_hash)?;
+        validate_owner_policy(request,&state)?;
         let spk=pay_to_script_hash_script(&script);
         if state.owner!=if position==0&&borrowed.is_some(){recipient}else{sender}||state.amount!=cell.token_amount||hex::encode(spk.script())!=cell.script_public_key.strip_prefix("0000").unwrap_or(&cell.script_public_key){return Err(bad("KCC20 owner, amount or live script differs"));}
         if states.first().is_some_and(|s:&State|s.extension!=state.extension){return Err(bad("Different extended token identities cannot be combined"));}
@@ -99,15 +114,17 @@ pub fn prepare(request:&KronTransferRequest)->Result<PreparedKronTransfer>{
         states.push(state);scripts.push(script);
     }
     if total<request.amount {return Err(bad("Insufficient KCC20 token balance"));}
+    if request.template_hash==KASSEAL_OWNER_ID && total>1_200_000_000 {return Err(bad("KasSeal token total exceeds fixed supply"));}
     let change=total-request.amount;
-    let mut destination=borrowed.clone().unwrap_or(State{amount:0,owner:recipient,borrow:1,guard:[0;32],extension:states[0].extension});
+    let mut destination=borrowed.clone().unwrap_or(State{amount:0,owner:recipient,borrow:if request.template_hash==KASSEAL_OWNER_ID {0}else{1},guard:[0;32],extension:states[0].extension});
     destination.amount=destination.amount.checked_add(request.amount).ok_or_else(||bad("Borrowed KCC20 amount overflow"))?;
     total.checked_add(borrowed.as_ref().map_or(0,|s|s.amount)).filter(|v|*v<=i64::MAX as u64).ok_or_else(||bad("KCC20 token total overflow"))?;
     let mut next=vec![destination];
-    if change>0{let mut s=states[usize::from(borrowed.is_some())].clone();s.amount=change;if s.borrow==0{s.borrow=1;s.guard=[0;32];}next.push(s);}
+    if change>0{let mut s=states[usize::from(borrowed.is_some())].clone();s.amount=change;if s.borrow==0 && request.template_hash!=KASSEAL_OWNER_ID{s.borrow=1;s.guard=[0;32];}next.push(s);}
     // A borrowed deposit belongs to the receiver: never release it as sender change.
-    let mut values=vec![request.borrowed_receive.as_ref().map_or(DEPOSIT,|c|c.value_sompi.max(DEPOSIT))];
-    if change>0 {values.push(DEPOSIT);}
+    let cell_deposit=deposit(&request.template_hash);
+    let mut values=vec![request.borrowed_receive.as_ref().map_or(cell_deposit,|c|c.value_sompi.max(cell_deposit))];
+    if change>0 {values.push(cell_deposit);}
     let output_locked=values.iter().try_fold(0u64,|sum,v|sum.checked_add(*v)).ok_or(CoreError::Serialization)?;
     let address=Address::try_from(request.sender.as_str()).map_err(|_|CoreError::InvalidAddress)?;
     let mut funding=parse_utxos(&request.funding_utxos_json,&address)?;
@@ -161,6 +178,7 @@ pub(crate) fn validate_plan_cells(request:&KronTransferRequest)->Result<()> {
     for cell in &request.cells {
         let script=hex::decode(&cell.redeem_script).map_err(|_|bad("Malformed KCC20 plan script"))?;
         let s=decode_for(&script,&request.template_hash)?;
+        validate_owner_policy(request,&s)?;
         let spk=pay_to_script_hash_script(&script);
         if s.owner!=expected_owner || s.amount!=cell.token_amount || borrowed.as_ref().is_some_and(|b|b.extension!=s.extension) ||
             hex::encode(spk.script())!=cell.script_public_key.strip_prefix("0000").unwrap_or(&cell.script_public_key) ||
@@ -173,9 +191,9 @@ pub(crate) fn validate_plan_cells(request:&KronTransferRequest)->Result<()> {
 }
 pub(crate) fn plan_output(first:&crate::KronCell,txid:&str,amount:u64,id:&str)->Result<crate::KronCell> {
     let mut s=decode_for(&hex::decode(&first.redeem_script).map_err(|_|bad("Malformed KCC20 script"))?,id)?;
-    s.amount=amount;s.borrow=1;s.guard=[0;32];
+    s.amount=amount;s.borrow=if id==KASSEAL_OWNER_ID {0}else{1};s.guard=[0;32];
     let script=redeem_for(&s,id)?;
-    Ok(crate::KronCell {transaction_id:txid.into(),index:0,value_sompi:DEPOSIT,block_daa_score:0,
+    Ok(crate::KronCell {transaction_id:txid.into(),index:0,value_sompi:deposit(id),block_daa_score:0,
         script_public_key:hex::encode(pay_to_script_hash_script(&script).script()),token_amount:amount,redeem_script:hex::encode(script)})
 }
 pub(crate) fn validate(request:&PsktRequest)->Result<()> {

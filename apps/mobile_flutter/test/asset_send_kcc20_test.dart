@@ -9,6 +9,7 @@ import 'package:kasvault_wallet/src/models/wallet_snapshot.dart';
 import 'package:kasvault_wallet/src/screens/asset_send_screen.dart';
 import 'package:kasvault_wallet/src/services/kaspa_api.dart';
 import 'package:kasvault_wallet/src/services/kcc20_compound.dart';
+import 'package:kasvault_wallet/src/services/kcc20_standard_service.dart';
 import 'package:kasvault_wallet/src/services/app_settings.dart';
 
 const address = 'kaspa:test';
@@ -76,7 +77,9 @@ class SendApi extends KaspaApi {
       void Function(String)? onProgress,
       String? sourceStandard,
       bool fullPlan = false}) async {
-    if (initialSnapshot != null) expect(sourceStandard, 'kasparocket-kcc20');
+    if (initialSnapshot != null) {
+      expect(sourceStandard, initialSnapshot!.kcc20Tokens.single.standard);
+    }
     proofs++;
     onProgress?.call('Verifying selected token only…');
     final cells = List.generate(
@@ -91,7 +94,11 @@ class SendApi extends KaspaApi {
             tokenAmount: i == 0 ? 90 : 1,
             redeemScript: 'bb'));
     return Kcc20Step(cells, count > 1 ? 30 : amount, count > 1,
-        requiredCells: count > 1 ? 10 : 1, transactionCount: count);
+        requiredCells: count > 1 ? 10 : 1,
+        transactionCount: count,
+        templateId: sourceStandard == 'kasseal-kcc20'
+            ? Kcc20StandardService.kassealOwnerTemplateId
+            : null);
   }
 
   @override
@@ -267,6 +274,41 @@ void main() {
     expect(api.proofs, 1);
     expect(requests, hasLength(1));
     expect(requests.single['amount'], 80);
+    expect(api.broadcasts, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+      'Kasseal display-only balance verifies fresh owner cells and uses isolated native mode',
+      (tester) async {
+    final api = SendApi(1,
+        initialSnapshot: WalletSnapshot(
+            balanceSompi: 100000000,
+            kasUsd: null,
+            transactions: [],
+            krc20Tokens: [],
+            krc721Collections: [],
+            knsDomains: [],
+            kcc20Tokens: [
+              WalletAsset(
+                  symbol: 'TEST.K',
+                  balance: 100,
+                  rawBalance: '100',
+                  decimals: 0,
+                  kind: 'KCC20',
+                  covenantId: cid,
+                  standard: 'kasseal-kcc20',
+                  discoveryComplete: false)
+            ]));
+    await open(tester, api);
+    expect(find.text('Sending disabled: cell discovery is incomplete.'),
+        findsNothing);
+    await prepare(tester);
+    expect(api.proofs, 1);
+    expect(requests.single['templateHash'],
+        Kcc20StandardService.kassealOwnerTemplateId);
+    expect(requests.single['amount'], 80);
+    expect(requests.single['decimals'], 0);
+    expect(requests.single['borrowedReceive'], isNull);
     expect(api.broadcasts, isEmpty);
     expect(tester.takeException(), isNull);
   });

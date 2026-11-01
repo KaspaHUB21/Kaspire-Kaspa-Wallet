@@ -186,6 +186,45 @@ MockClient fragmented(List<int> amounts,
 }
 
 void main() {
+  test('Kasseal owner sends use pinned program and the separate native mode',
+      () async {
+    final step = await KaspaApi(client: fragmented([1000]))
+        .loadStandardKcc20SigningBatch(address, cid, 80,
+            sourceStandard: 'kasseal-kcc20', fullPlan: true);
+    expect(step.templateId, Kcc20StandardService.kassealOwnerTemplateId);
+    expect(step.inputLimit, 3);
+    expect(step.cells.single.tokenAmount, 1000);
+    expect(step.cells.single.blockDaaScore, 123);
+    expect(step.amount, 80);
+    expect(
+        Kcc20StandardService.supportsBorrowedReceive('kasseal-kcc20'), false);
+    expect(Kcc20StandardService.supportsBorrowedReceive('kcc20'), true);
+  });
+  test(
+      'Kasseal rejects borrowing, extensions, unpinned programs and foreign owners',
+      () async {
+    for (final mutation in [
+      'borrow_scheme',
+      'extension_commitment',
+      'template_hash',
+      'owner_value'
+    ]) {
+      final upstream = fragmented([1000]);
+      final client = MockClient((r) async {
+        final response = await upstream.get(r.url);
+        if (!r.url.path.endsWith('/transactions/$txid') ||
+            r.url.path.contains('/local-node/')) return response;
+        final value = jsonDecode(response.body);
+        value['data']['outputs'][0][mutation] =
+            mutation == 'borrow_scheme' ? 1 : 'f' * 64;
+        return http.Response(jsonEncode(value), 200);
+      });
+      await expectLater(
+          Kcc20StandardService(client)
+              .signingBatch(address, cid, 80, kassealOwnerOnly: true),
+          throwsStateError);
+    }
+  });
   test('targeted history never scans the catalogue or global token history',
       () async {
     final paths = <String>[];

@@ -207,6 +207,74 @@ pub(crate) fn validate_preparation(request:&PsktRequest,tx:&Transaction,entries:
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn owner_transfer() -> (String, crate::KronTransferRequest, Vec<u8>) {
+        // SDK-produced Mainnet buy fixture, not a made-up generic token.
+        let fixture:PsktRequest=serde_json::from_str(include_str!("fixtures/kasseal-mainnet-curve-buy.json")).unwrap();
+        let secret=format!("private:{:064x}",1);
+        assert_eq!(crate::derive_address(&secret).unwrap().to_string(),fixture.sender);
+        let summary=fixture.trade_summary.as_ref().unwrap();
+        let wallet=Address::try_from(fixture.sender.as_str()).unwrap();
+        let programs=summary["outputPrograms"].as_object().unwrap();
+        let program=programs.values().filter_map(Value::as_str).map(|s|hex::decode(s).unwrap())
+            .find(|p|token(p).is_ok_and(|(_,key,scheme)|scheme==0 && key.as_slice()==wallet.payload.as_slice())).unwrap();
+        assert!(matches(&program,&pins(true).token));
+        let (quantity,_,_)=token(&program).unwrap();
+        let recipient=crate::derive_address(&format!("private:{:064x}",2)).unwrap().to_string();
+        let funding=serde_json::json!([{"address":fixture.sender,"outpoint":{"transactionId":"bb".repeat(32),"index":0},"utxoEntry":{"amount":"100000000000","scriptPublicKey":{"version":0,"scriptPublicKey":hex::encode(pay_to_address_script(&wallet).script())},"blockDaaScore":"123","isCoinbase":false}}]);
+        (secret,crate::KronTransferRequest{sender:fixture.sender,recipient,covenant_id:fixture.token_id.unwrap(),ticker:"TEST".into(),amount:1,decimals:0,fee_rate:100.0,template_hash:crate::kcc20_standard::KASSEAL_OWNER_ID.into(),cells:vec![crate::KronCell{transaction_id:"aa".repeat(32),index:0,value_sompi:500_000_000,block_daa_score:123,script_public_key:hex::encode(pay_to_script_hash_script(&program).script()),token_amount:quantity,redeem_script:hex::encode(&program)}],borrowed_receive:None,funding_utxos_json:funding.to_string()},program)
+    }
+    #[test]
+    fn owner_transfer_of_sdk_mainnet_token_executes_and_preserves_kasseal_policy_and_reserve() {
+        let (secret,original,program)=owner_transfer();
+        for amount in [1,original.cells[0].token_amount] {
+            let mut request=original.clone(); request.amount=amount;
+            let built=crate::prepare_kron_transfer(&request).unwrap();
+            let review=crate::prepare_pskt(&built.pskt_request).unwrap();
+            crate::sign_pskt(&secret,&built.pskt_request,&review.review_hash).unwrap();
+            let count=if amount==original.cells[0].token_amount {1}else{2};
+            assert_eq!(built.covenant_output_count,count);
+            assert_eq!(built.locked_kas_output_sompi,500_000_000*count as u64);
+            for index in 0..count {
+                let mut next=program.clone();
+                let units=if index==0 {amount}else{original.cells[0].token_amount-amount};
+                next[35..43].copy_from_slice(&units.to_le_bytes());
+                if index==0 {next[44..76].copy_from_slice(Address::try_from(request.recipient.as_str()).unwrap().payload.as_slice());}
+                assert!(matches(&next,&pins(true).token));
+                let (actual,_,scheme)=token(&next).unwrap();
+                assert_eq!(actual,units);assert_eq!(scheme,0);
+                let script=built.raw_json["outputs"][index]["scriptPublicKey"].as_str().unwrap();
+                assert!(script.ends_with(&hex::encode(pay_to_script_hash_script(&next).script())));
+            }
+        }
+    }
+    #[test]
+    fn owner_transfer_rejects_unknown_program_foreign_owner_borrowing_and_fractional_units() {
+        let (_,request,program)=owner_transfer();
+        for changed in [0,1,2,3,4] {
+            let mut bad=request.clone();
+            if changed==0 {bad.decimals=3;}
+            if changed==1 {bad.borrowed_receive=Some(bad.cells[0].clone());}
+            if changed>=2 {
+                let mut script=program.clone();
+                if changed==2 {script[34+45]=1;}
+                if changed==3 {script[44]^=1;}
+                if changed==4 {let last=script.len()-1;script[last]^=1;}
+                bad.cells[0].redeem_script=hex::encode(&script);
+                bad.cells[0].script_public_key=hex::encode(pay_to_script_hash_script(&script).script());
+            }
+            assert!(crate::prepare_kron_transfer(&bad).is_err(),"changed {changed}");
+        }
+    }
+    #[test]
+    fn owner_transfer_compound_plan_keeps_every_intermediate_kasseal_compatible() {
+        let (secret,mut request,_)=owner_transfer();
+        let cell=request.cells[0].clone();
+        request.cells=(0..4).map(|i|crate::KronCell{transaction_id:format!("{:064x}",100+i),..cell.clone()}).collect();
+        request.amount=cell.token_amount*4-1;
+        let plan=crate::prepare_kcc20_plan(&request).unwrap();
+        assert_eq!(plan.transaction_count,2);
+        crate::sign_kcc20_plan(&secret,&request,&plan.review_hash).unwrap();
+    }
     #[test]
     fn sdk030_creator_window_deposits_execute_on_both_networks_and_wrong_sequences_fail() {
         for raw in [include_str!("fixtures/kasseal-mainnet-creator-window-buy.json"), include_str!("fixtures/kasseal-tn10-creator-window-buy.json")] {

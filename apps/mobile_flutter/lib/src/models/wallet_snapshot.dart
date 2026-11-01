@@ -27,6 +27,7 @@ class WalletSnapshot {
     required this.knsDomains,
     this.dotkNames = const [],
     this.assetWarning,
+    this.assetDiscoveryComplete = true,
     this.hasMoreTransactions = false,
     this.utxoCount = 0,
   });
@@ -43,6 +44,7 @@ class WalletSnapshot {
   final List<KnsDomain> knsDomains;
   final List<DotkName> dotkNames;
   final String? assetWarning;
+  final bool assetDiscoveryComplete;
   final bool hasMoreTransactions;
   final int utxoCount;
 
@@ -69,6 +71,7 @@ class WalletSnapshot {
         knsDomains: knsDomains,
         dotkNames: dotkNames,
         assetWarning: assetWarning,
+        assetDiscoveryComplete: assetDiscoveryComplete,
         hasMoreTransactions: hasMoreTransactions,
         utxoCount: utxoCount,
       );
@@ -87,6 +90,7 @@ class WalletSnapshot {
         knsDomains: knsDomains,
         dotkNames: dotkNames,
         assetWarning: assetWarning,
+        assetDiscoveryComplete: assetDiscoveryComplete,
         hasMoreTransactions: hasMoreTransactions,
         utxoCount: utxoCount,
       );

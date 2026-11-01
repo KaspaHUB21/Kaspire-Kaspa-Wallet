@@ -42,6 +42,49 @@ void main() {
   });
   for (final theme in KaspireTheme.values) {
     testWidgets(
+        'Kasseal detail offers Send and Swap without automatic redirect in $theme',
+        (tester) async {
+      tester.view.physicalSize = const Size(320, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      var sends = 0, swaps = 0;
+      await tester.pumpWidget(MaterialApp(
+          theme: KasVaultTheme.forTheme(theme),
+          home: Krc20TokenDetailScreen(
+              asset: const WalletAsset(
+                  symbol: 'UNNACHOD',
+                  balance: 1404000,
+                  kind: 'KCC20',
+                  rawBalance: '1404000',
+                  decimals: 0,
+                  standard: 'kasseal-kcc20'),
+              usdToFiat: 1,
+              fiatCode: 'USD',
+              fiatSymbol: r'$',
+              onSend: () {
+                sends++;
+              },
+              onSwap: () {
+                swaps++;
+              })));
+      await tester.pump();
+      expect(swaps, 0);
+      expect(find.text('1,404,000 UNNACHOD'), findsOneWidget);
+      await tester.ensureVisible(find.text('Swap'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Swap'));
+      await tester.pump();
+      expect(swaps, 1);
+      await tester.ensureVisible(find.text('Send Asset'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Send Asset'));
+      await tester.pump();
+      expect(sends, 1);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    });
+    testWidgets(
         'Rocket detail keeps price, grouped balance and explicit Swap in $theme',
         (tester) async {
       tester.view.physicalSize = const Size(320, 900);

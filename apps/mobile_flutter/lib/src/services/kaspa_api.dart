@@ -4,6 +4,7 @@ import 'kns_holdings_loader.dart';
 import 'dotk_service.dart';
 import 'kasparocket_service.dart';
 import 'kasseal_service.dart';
+import 'dex_display_price.dart';
 import 'kasforge_service.dart';
 import 'krc721_reads.dart';
 import 'kron_holdings.dart';
@@ -101,6 +102,7 @@ class KaspaApi {
           : standardKcc20.signingBatch(address, covenantId, amount,
               isCancelled: isCancelled,
               onProgress: onProgress,
+              kassealOwnerOnly: sourceStandard == 'kasseal-kcc20',
               fullPlan: fullPlan);
   Future<void> waitForStandardKcc20Cell(
           String address, String covenantId, String transactionId,
@@ -172,6 +174,7 @@ class KaspaApi {
           if (progressiveCovenants?.warning.isNotEmpty == true)
             progressiveCovenants!.warning,
         ].where((warning) => warning.isNotEmpty).join(' '),
+        assetDiscoveryComplete: progressiveCovenants?.coverageComplete ?? false,
         utxoCount: progressiveUtxos,
       ));
     }
@@ -312,6 +315,7 @@ class KaspaApi {
       knsDomains: assets.domains,
       dotkNames: progressiveDotk,
       assetWarning: assetWarnings.isEmpty ? null : assetWarnings.join(' '),
+      assetDiscoveryComplete: kcc20Wallet?.coverageComplete ?? false,
       hasMoreTransactions: includeNativeTransactions &&
           nativeTransactions.length >= transactionLimit,
       utxoCount: utxoCount,
@@ -1291,6 +1295,11 @@ class KaspaApi {
       return _Kcc20Wallet(
           assets: _alphabeticalAssets(assets.values.toList()),
           transactions: ordinary?.transactions ?? const [],
+          coverageComplete: ordinary?.coverageComplete == true &&
+              !rocketUnavailable &&
+              !sealUnavailable,
+          signingIssues: {...?ordinary?.signingIssues}
+            ..removeAll([...rocket, ...seal].map((a) => a.covenantId)),
           warning: [
             if (ordinary?.warning.isNotEmpty == true) ordinary!.warning,
             if (rocketUnavailable)
@@ -1386,12 +1395,14 @@ class KaspaApi {
         standardProgress = _Kcc20Wallet(
             assets: result.assets,
             transactions: result.transactions,
+            coverageComplete: result.coverageComplete,
             warning: result.warning);
         publish();
       }).then<_Kcc20Wallet?>((result) {
         final value = _Kcc20Wallet(
             assets: result.assets,
             transactions: result.transactions,
+            coverageComplete: result.coverageComplete,
             warning: result.warning);
         standardProgress = value;
         publish();
@@ -1420,6 +1431,8 @@ class KaspaApi {
       _Kcc20Wallet? existing, _Kcc20Wallet standard) {
     final ids = standard.assets.map((asset) => asset.covenantId).toSet();
     return _Kcc20Wallet(
+      coverageComplete: standard.coverageComplete,
+      signingIssues: {...?existing?.signingIssues}..removeAll(ids),
       assets: _alphabeticalAssets([
         ...?existing?.assets.where((asset) => !ids.contains(asset.covenantId)),
         ...standard.assets,
@@ -1436,6 +1449,8 @@ class KaspaApi {
   _Kcc20Wallet _withKronHoldings(_Kcc20Wallet? existing, _Kcc20Wallet kron) {
     final ids = kron.assets.map((asset) => asset.covenantId).toSet();
     return _Kcc20Wallet(
+      coverageComplete: existing?.coverageComplete ?? false,
+      signingIssues: {...?existing?.signingIssues}..removeAll(ids),
       assets: [
         ...?existing?.assets.where((asset) =>
             asset.standard != 'kron-native' && !ids.contains(asset.covenantId)),
@@ -1531,14 +1546,17 @@ class KaspaApi {
       if (asset.discoveryComplete) return false;
       return assets[assetKey(asset)]?.discoveryComplete == true;
     });
-    final incomplete = assets.values.any((asset) => !asset.discoveryComplete);
+    final issues = {
+      ...primary.signingIssues,
+      ...fallback.signingIssues
+    }..removeWhere((id) =>
+        assets[id]?.discoveryComplete == true || _isObsoleteLegacy(assets[id]));
 
     return _Kcc20Wallet(
       assets: assets.values.toList(),
       transactions: mergedTransactions,
+      signingIssues: issues,
       warning: [
-        if (incomplete)
-          'Some KCC20 balances could not be mapped to complete signing cells.',
         if (repaired)
           'Kascov supplied complete signing data for an incomplete primary indexer response.',
       ].join(' '),
@@ -1605,17 +1623,21 @@ class KaspaApi {
           ? fallback
           : primary;
     }));
-    final limited = details.any((item) =>
-        item.asset == null || item.discoveryLimited || item.sourceMismatch);
+    final issues = <String>{
+      for (var i = 0; i < details.length; i++)
+        if ((details[i].asset == null ||
+                details[i].discoveryLimited ||
+                details[i].sourceMismatch) &&
+            !_isObsoleteLegacy(details[i].asset))
+          balances[i]['token_id'].toString(),
+    };
     return _Kcc20Wallet(
       assets:
           details.map((item) => item.asset).whereType<WalletAsset>().toList(),
       transactions: details.expand((item) => item.transactions).toList()
         ..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
-      warning: [
-        if (limited)
-          'Some KCC20 balances could not be mapped to complete signing cells.',
-      ].join(' '),
+      signingIssues: issues,
+      warning: '',
     );
   }
 
@@ -1876,13 +1898,18 @@ class KaspaApi {
         details.map((item) => item.asset).whereType<WalletAsset>().toList();
     final transactions = details.expand((item) => item.transactions).toList()
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    final limited = details.any((item) => item.discoveryLimited);
+    final issues = <String>{
+      for (var i = 0; i < details.length; i++)
+        if (details[i].discoveryLimited && !_isObsoleteLegacy(details[i].asset))
+          rows[i]['covenant_id'].toString(),
+    };
     return _Kcc20Wallet(
       assets: assets,
       transactions: transactions,
+      signingIssues: issues,
       warning: [
         if (warning.isNotEmpty) warning,
-        if (limited)
+        if (issues.isNotEmpty)
           'KCC20 discovery is conservative: Kascov exposes the top 100 holders per token; verify small or newly received balances before sending.',
       ].join(' '),
     );
@@ -2171,7 +2198,21 @@ class KaspaApi {
       price = _asDouble(
           _map(await _getReadOnlyWithFallback('/info/price'))['price']);
     } catch (_) {}
-    if (asset.standard == 'kasparocket-kcc20') {
+    if (asset.kind == 'KCC20') {
+      var tokenPrice = asset.priceKas;
+      if (asset.standard == 'kasseal-kcc20' && asset.covenantId != null) {
+        try {
+          final catalogue = await KassealService(client: _client)
+              .searchTokens(asset.covenantId!);
+          final row = (catalogue['tokens'] as List? ?? const [])
+              .whereType<Map>()
+              .where((r) => _map(r['meta'])['covenantId'] == asset.covenantId)
+              .singleOrNull;
+          if (row != null) tokenPrice = DexDisplayPrice.kassealPriceKas(row);
+        } catch (_) {
+          /* Display data never changes the asset or signing identity. */
+        }
+      }
       return WalletAsset(
           symbol: asset.symbol,
           balance: asset.balance,
@@ -2180,14 +2221,15 @@ class KaspaApi {
           id: asset.id,
           decimals: asset.decimals,
           rawBalance: asset.rawBalance,
-          priceKas: asset.priceKas,
-          priceUsd: asset.priceKas == null || price == null
+          priceKas: tokenPrice,
+          priceUsd: tokenPrice == null || price == null
               ? asset.priceUsd
-              : asset.priceKas! * price,
+              : tokenPrice * price,
           covenantId: asset.covenantId,
           templateHash: asset.templateHash,
           validationStatus: asset.validationStatus,
           kcc20Cells: asset.kcc20Cells,
+          activityOrigins: asset.activityOrigins,
           discoveryComplete: asset.discoveryComplete,
           standard: asset.standard);
     }
@@ -3238,12 +3280,27 @@ class _Kcc20Wallet {
   const _Kcc20Wallet({
     required this.assets,
     required this.transactions,
-    required this.warning,
-  });
+    required String warning,
+    this.signingIssues = const {},
+    this.coverageComplete = true,
+  }) : _warning = warning;
   final List<WalletAsset> assets;
   final List<WalletTransaction> transactions;
-  final String warning;
+  final Set<String> signingIssues;
+  final bool coverageComplete;
+  final String _warning;
+  // A resolved source cannot leave a frozen generic failure message behind.
+  static const signingWarning =
+      'Some KCC20 balances could not be mapped to complete signing cells.';
+  String get warning => [
+        if (signingIssues.isNotEmpty) signingWarning,
+        _warning.replaceAll(signingWarning, '').trim(),
+      ].where((s) => s.isNotEmpty).join(' ');
 }
+
+bool _isObsoleteLegacy(WalletAsset? asset) =>
+    asset?.templateHash ==
+    '9bf2df2cd4a05b8124082c868e79c52eb4d719362af2e1a75c025cfb50a2844e';
 
 class _Kcc20TokenResult {
   const _Kcc20TokenResult({

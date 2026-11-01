@@ -376,7 +376,9 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
           final stepRecipient = compound ? widget.address : recipient;
           Kcc20CellRecord? borrowedReceive;
           var recipientCellStatus = 'new';
-          if (isStandard && widget.address != recipient && !compound) {
+          if (Kcc20StandardService.supportsBorrowedReceive(token.standard) &&
+              widget.address != recipient &&
+              !compound) {
             setState(() => _status =
                 'Checking whether an existing recipient cell can be reused…');
             try {

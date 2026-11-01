@@ -164,6 +164,39 @@ void main() {
     expect(value.warning, isEmpty);
     expect(paths, hasLength(1));
   });
+  test('non-attributable global gaps are not wallet errors or complete zero',
+      () async {
+    for (final rows in [
+      <Object?>[],
+      <Object?>[holding()]
+    ]) {
+      final response = reply(rows, context: {
+        ...context(complete: false),
+        'unknown_tokens_attributable_to_address': false
+      }, pagination: {
+        'has_more': false,
+        'next_cursor': null
+      });
+      final value =
+          await Kcc20StandardService(source(addressResponse: response))
+              .load(address, historyLimit: 0);
+      expect(value.assets.length, rows.length);
+      expect(value.warning, isEmpty);
+      expect(value.coverageComplete, false);
+    }
+  });
+  test('recognized Rocket family delegates to its dedicated discovery only',
+      () async {
+    final value = await Kcc20StandardService(source(
+        tokenResponse: reply({
+      ...token(),
+      'profile_id': 'KCC20Parameterized@v1-i10-o10',
+      'recognition': 'hash_proven_parameterized_actor_family',
+      'market': {'venue': 'kasparocket'},
+    }))).load(address, historyLimit: 0);
+    expect(value.assets, isEmpty);
+    expect(value.warning, isEmpty);
+  });
   test('verified 0, 3 and 8 decimal units remain exact on the address path',
       () async {
     for (final decimals in [0, 3, 8]) {
