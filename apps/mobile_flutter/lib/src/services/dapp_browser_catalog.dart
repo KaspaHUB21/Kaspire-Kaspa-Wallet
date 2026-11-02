@@ -23,4 +23,7 @@ const browserDapps = [
       'assets/browser/devtools.png'),
   BrowserDapp('KasCoven Vaults', 'https://vaults.kaslab.space/',
       'assets/browser/vaults.png'),
+  BrowserDapp('Jeetslab',
+      'https://jeetslab-staging.kaspajeets.workers.dev/wallet',
+      'assets/browser/jeetslab.jpg'),
 ];

@@ -35,8 +35,8 @@ void main() {
     }
   });
 
-  test('catalog is limited to eight approved browser sites, Braid fourth', () {
-    expect(browserDapps, hasLength(8));
+  test('catalog is limited to nine approved browser sites, Braid fourth', () {
+    expect(browserDapps, hasLength(9));
     expect(browserDapps[3].name, 'Braid');
     expect(browserDapps[3].url, 'https://app.braidswap.com/');
     expect(browserDapps.map((d) => d.home.host).toSet(),
@@ -71,6 +71,11 @@ void main() {
       'https://www.kaspa.news/',
       'http://kaspa.news/',
       'https://kaspa.news:444/',
+      'http://jeetslab-staging.kaspajeets.workers.dev/wallet',
+      'https://jeetslab-staging.kaspajeets.workers.dev.evil.example/wallet',
+      'https://other.kaspajeets.workers.dev/wallet',
+      'https://jeetslab-staging.kaspajeets.workers.dev:444/wallet',
+      'https://user@jeetslab-staging.kaspajeets.workers.dev/wallet',
     ]) {
       expect(DappBrowserPolicy.approvedPage(Uri.parse(value)), isFalse);
     }

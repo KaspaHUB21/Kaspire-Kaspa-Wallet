@@ -21,6 +21,7 @@ void main() {
       'Kaspa News',
       'Kaspa Dev Tools',
       'KasCoven Vaults',
+      'Jeetslab',
     ]);
     expect(browserDapps[1].url, 'https://app.kasseal.com/');
     expect(browserDapps[1].walletConnectEnabled, isTrue);
@@ -33,7 +34,14 @@ void main() {
     expect(browserDapps[news].url, 'https://kaspa.news/');
     expect(browserDapps[news].logo, 'assets/browser/kaspa-news.png');
     expect(browserDapps[news].walletConnectEnabled, isFalse);
-    expect(browserDapps.last.name, 'KasCoven Vaults');
+    expect(browserDapps[browserDapps.length - 2].name, 'KasCoven Vaults');
+  });
+  test('Jeetslab is last and uses the supplied image and exact wallet URL', () {
+    expect(browserDapps.last.name, 'Jeetslab');
+    expect(browserDapps.last.url,
+        'https://jeetslab-staging.kaspajeets.workers.dev/wallet');
+    expect(browserDapps.last.logo, 'assets/browser/jeetslab.jpg');
+    expect(browserDapps.last.walletConnectEnabled, isTrue);
   });
   testWidgets('dApp selection and invitation fit narrow screens in every theme',
       (tester) async {
@@ -54,6 +62,8 @@ void main() {
       expect(find.text('Kasseal'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Kaspa Dev Tools'), 160);
       expect(find.text('Kaspa Dev Tools'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Jeetslab'), 160);
+      expect(find.text('Jeetslab'), findsOneWidget);
       await tester.scrollUntilVisible(
           find.text('Integrate your dApp into Kaspire Browser'), 160);
       await tester.pumpAndSettle();
