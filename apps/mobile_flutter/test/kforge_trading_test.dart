@@ -224,9 +224,11 @@ void main() {
     final r = receipt();
     final t = KForgeTrading(
         store: store,
-        client: MockClient((_) async => http.Response('unavailable', 503)));
+        client: MockClient((_) async => http.Response('unavailable', 503)),
+        lookupWait: (_) async {});
     await t.retain(address, r);
-    await expectLater(t.resume(address, r), throwsStateError);
+    await expectLater(
+        t.resume(address, r), throwsA(isA<KForgeLookupUnavailable>()));
     expect((await t.pending(address))?['id'], r['id']);
     final missing = KForgeTrading(
         store: store,

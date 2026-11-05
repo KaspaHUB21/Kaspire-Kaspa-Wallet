@@ -10,6 +10,14 @@ import 'kforge_service.dart';
 import 'native_security.dart';
 import 'swap_conflict_lookup.dart';
 
+class KForgeLookupUnavailable implements Exception {
+  const KForgeLookupUnavailable({this.statusCode});
+  final int? statusCode;
+  @override
+  String toString() =>
+      'Independent node verification is temporarily unavailable. Please retry shortly. Any saved transaction remains preserved.';
+}
+
 /// Atomic KForge swaps, NOT sequenced KasForge orders. Never persist a
 /// mere unsigned quote as a pending payment. Signed bytes are retained before
 /// the first submission and are never dropped on 404, timeout or missing UTXO.
@@ -19,14 +27,17 @@ class KForgeTrading {
       {http.Client? client,
       EncryptedStore? store,
       NativeSecurity? security,
-      bool? mainnet})
+      bool? mainnet,
+      Future<void> Function(Duration)? lookupWait})
       : client = client ?? http.Client(),
         store = store ?? const KeystoreEncryptedStore(),
         security = security ?? NativeSecurity(),
+        _lookupWait = lookupWait ?? ((delay) => Future<void>.delayed(delay)),
         service = KForgeService(client: client, mainnet: mainnet);
   final http.Client client;
   final EncryptedStore store;
   final NativeSecurity security;
+  final Future<void> Function(Duration) _lookupWait;
   final KForgeService service;
   bool get mainnet => service.mainnet;
   String get network => service.network;
@@ -142,22 +153,61 @@ class KForgeTrading {
     throw StateError('Unsupported KForge input script.');
   }
 
-  Future<Object?> read(String uri) async {
-    final r =
-        await client.get(Uri.parse(uri)).timeout(const Duration(seconds: 15));
-    if (r.statusCode == 404) return null;
-    if (r.statusCode != 200 || r.bodyBytes.length > 4 * 1024 * 1024)
-      throw StateError(
-          'Independent KForge lookup unavailable. Saved bytes remain preserved.');
-    return jsonDecode(utf8.decode(r.bodyBytes));
+  Future<Object?> read(String uri,
+      {Duration timeout = const Duration(seconds: 15)}) async {
+    // Retry read-only overload responses, never signing/submission requests.
+    // All attempts and waits share one deadline; a timeout is never zero,
+    // proof of a conflict or permission to discard a saved transaction.
+    final elapsed = Stopwatch()..start();
+    const delays = [250, 750, 1500];
+    for (var attempt = 0;; attempt++) {
+      final remaining = timeout - elapsed.elapsed;
+      if (remaining <= Duration.zero) throw const KForgeLookupUnavailable();
+      final http.Response response;
+      try {
+        response = await client.get(Uri.parse(uri)).timeout(remaining);
+      } on TimeoutException {
+        throw const KForgeLookupUnavailable();
+      } on http.ClientException {
+        throw const KForgeLookupUnavailable();
+      }
+      if (response.bodyBytes.length > 4 * 1024 * 1024) {
+        throw const KForgeLookupUnavailable();
+      }
+      if (response.statusCode == 404) return null;
+      if (response.statusCode == 200) {
+        try {
+          return jsonDecode(utf8.decode(response.bodyBytes));
+        } on FormatException {
+          throw const KForgeLookupUnavailable();
+        }
+      }
+      if (!const {429, 502, 503, 504}.contains(response.statusCode) ||
+          attempt == delays.length) {
+        throw KForgeLookupUnavailable(statusCode: response.statusCode);
+      }
+      final retryAfter = int.tryParse(response.headers['retry-after'] ?? '');
+      final delay = retryAfter != null && retryAfter > 0
+          ? Duration(seconds: retryAfter.clamp(1, 2).toInt())
+          : Duration(milliseconds: delays[attempt]);
+      if (delay >= timeout - elapsed.elapsed) {
+        throw KForgeLookupUnavailable(statusCode: response.statusCode);
+      }
+      await _lookupWait(delay);
+    }
   }
 
   Future<void> verify(String address, Map tx) async {
     guard(address);
     final cache = <String, List>{}, seen = <String>{};
+    final elapsed = Stopwatch()..start();
     final inputs = (tx['inputs'] as List).cast<Map>();
     if (inputs.length > 4) throw StateError('Unexpected KForge input count.');
-    await Future.wait(inputs.map((input) async {
+    // One paced lookup at a time, deduplicated within THIS verification only.
+    // Four concurrent inputs previously overflowed the reader's three slots.
+    // Signing calls verify again with a fresh cache after user approval.
+    for (final input in inputs) {
+      guard(address);
       final point = '${input['transactionId']}:${input['index']}';
       if (!RegExp(r'^[a-f0-9]{64}:[0-9]+$').hasMatch(point) || !seen.add(point))
         throw StateError('Invalid or duplicate KForge input.');
@@ -167,11 +217,20 @@ class KForgeTrading {
       if (cache.containsKey(owner)) {
         rows = cache[owner]!;
       } else {
+        if (cache.isNotEmpty) {
+          await _lookupWait(const Duration(milliseconds: 220));
+        }
+        guard(address);
+        final remaining = const Duration(seconds: 15) - elapsed.elapsed;
+        if (remaining <= Duration.zero) throw const KForgeLookupUnavailable();
         // Our fixed wRPC-backed reader retains covenant IDs. The ordinary
         // REST UTXO route omits them and cannot authorize these inputs.
-        final data = await read(Uri.parse(
-                'https://kaspire.kaslab.space/dex-test-v1/${mainnet ? 'kasseal-mainnet' : 'kasseal'}/utxos')
-            .replace(queryParameters: {'address': owner}).toString());
+        final data = await read(
+            Uri.parse(
+                    'https://kaspire.kaslab.space/dex-test-v1/${mainnet ? 'kasseal-mainnet' : 'kasseal'}/utxos')
+                .replace(queryParameters: {'address': owner}).toString(),
+            timeout: remaining);
+        guard(address);
         if (data is! Map ||
             data['network'] != network ||
             data['covenantIdsIncluded'] != true ||
@@ -199,7 +258,7 @@ class KForgeTrading {
         throw StateError('KForge input differs from the independent node.');
       u['address'] = owner;
       u['blockDaaScore'] = '${e['blockDaaScore']}';
-    }));
+    }
     guard(address);
   }
 
