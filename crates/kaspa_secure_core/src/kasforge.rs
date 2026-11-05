@@ -1,4 +1,4 @@
-//! TN10-only Forge 3.3 orders. Public SDK 0.4.0 templates are data, not code.
+//! TN10-only Forge 3.3–3.8 orders. Public SDK 0.5.1 templates are data, not code.
 //! Never use the provider's checkOrder verdict as signing authority.
 use crate::{CoreError, PsktRequest, Result};
 use kaspa_addresses::{Address, Prefix, Version};
@@ -61,18 +61,39 @@ fn push(b: &[u8]) -> Result<Vec<u8>> {
 pub(crate) fn order_program(order: &Value) -> Result<Vec<u8>> {
     let s = &order["state"];
     let t = templates();
-    let name = if !s["unitsIn"].is_null() {
-        "ForgeBuyOrder"
-    } else if !s["refundGuard"].is_null() {
-        "ForgeSellOrder"
+    let contracts = s["contracts"].as_str();
+    if !s["contracts"].is_null() && !matches!(contracts,Some("3.3"|"3.4"|"3.5"|"3.6"|"3.7"|"3.8")) {
+        return Err(bad("unsupported order contract version"));
+    }
+    let candidates: &[&str] = if !s["unitsIn"].is_null() {
+        match contracts {
+            Some("3.7"|"3.8") => &["ForgeBuyOrder"],
+            Some("3.4"|"3.5"|"3.6") => &["ForgeBuyOrder_v4"],
+            Some("3.3") => &["ForgeBuyOrder_v33"],
+            _ => &["ForgeBuyOrder", "ForgeBuyOrder_v4", "ForgeBuyOrder_v33"],
+        }
+    } else if s["refundGuard"].is_null() {
+        if contracts.is_some_and(|version| version!="3.3") {return Err(bad("legacy sell contract version differs"));}
+        &["ForgeSellOrder_v1"]
     } else {
-        "ForgeSellOrder_v1"
+        match contracts {
+            Some("3.3") => &["ForgeSellOrder_v3"],
+            Some(_) => &["ForgeSellOrder"],
+            None => &["ForgeSellOrder", "ForgeSellOrder_v3"],
+        }
     };
+    for name in candidates {
+        if let Ok(program) = order_candidate(order, &t, name) { return Ok(program); }
+    }
+    Err(bad("order does not match its pinned contract version, program and state"))
+}
+fn order_candidate(order: &Value, t: &Value, name: &str) -> Result<Vec<u8>> {
+    let s=&order["state"];
     if num(s, "refundFee")? != 1_000_000 {
         return Err(bad("unexpected refund fee"));
     }
     let mut out = Vec::new();
-    if name == "ForgeBuyOrder" {
+    if name.starts_with("ForgeBuyOrder") {
         if num(s, "creatorBps")? != 50
             || num(s, "feeBps")? != 100
             || num(s, "feeMin")? != 20_000_000
@@ -247,6 +268,9 @@ pub(crate) fn validate(
         .ok_or_else(|| bad("missing review"))?;
     let order = &s["order"];
     let st = &order["state"];
+    if !s["contracts"].is_null() && s["contracts"] != st["contracts"] {
+        return Err(bad("order contract version differs from the selected market"));
+    }
     if text(st,"kcc20")?!=text(s,"tokenId")?||text(st,"market")?!=text(s,"marketId")? {
         return Err(bad("order token or market differs from the selected quote"));
     }
@@ -279,11 +303,15 @@ pub(crate) fn validate(
     let fee = input_total
         .checked_sub(output_total)
         .ok_or_else(|| bad("unfunded transaction"))?;
-    if fee > 10_000_000 {
-        return Err(bad("network fee exceeds 0.1 KAS"));
+    if fee > 50_000_000 {
+        return Err(bad("network fee exceeds the absolute 0.5 KAS safety limit"));
     }
     let action = text(s, "action")?;
     let sell = st["unitsIn"].is_null();
+    // Sell v4 reserves a second KAS in the order-owned token piece. Old
+    // orders retain their original one-KAS deposit, including versionless
+    // recovery receipts whose program is matched against the pinned template.
+    let order_token_deposit=if sell && order_candidate(order,&templates(),"ForgeSellOrder").is_ok(){200_000_000}else{100_000_000};
     let mut token_inputs = Vec::new();
     let mut token_total = 0u64;
     let mut funding = 0u64;
@@ -387,7 +415,7 @@ pub(crate) fn validate(
         if n.owner != owner
             || n.scheme != if token_order { 3 } else { 0 }
             || !policy
-            || o.value != 100_000_000
+            || o.value != if token_order {order_token_deposit} else {100_000_000}
             || binding.covenant_id.to_string() != text(st, "kcc20")?
             || !token_inputs
                 .iter()
@@ -477,7 +505,7 @@ pub(crate) fn validate(
                 if action != "order-sell"
                     || num(st, "amount")? != num(s, "amount")?
                     || num(st, "minSompi")? < num(s, "minimumOut")?
-                    || funding.saturating_sub(owned_change) > 210_000_000
+                    || funding.saturating_sub(owned_change) > order_token_deposit + 100_000_000 + fee
                     || token_inputs.is_empty()
                     || num(&order["output"], "sompi")? != 100_000_000
                 {
@@ -519,6 +547,12 @@ pub(crate) fn validate(
     let cf=MAINNET_PARAMS.block_mass_cofactors();
     let effective=non.compute_mass.max((non.transient_mass as f64*cf.transient).ceil() as u64).max((ctx.storage_mass as f64*cf.storage).ceil() as u64);
     if non.compute_mass>500_000||non.transient_mass>1_000_000||ctx.storage_mass>100_000||fee<effective.saturating_mul(100){return Err(bad("order exceeds network mass limits or needs a higher network fee; nothing was signed"));}
+    // A token witness can legitimately cost more than the old flat 0.1 KAS
+    // cap. Bound the reviewed fee by independently calculated signed mass,
+    // never the API's advertised fee/mass or its fee-rate recommendation.
+    if fee > effective.saturating_mul(250).max(10_000_000).min(50_000_000) {
+        return Err(bad("network fee exceeds the independent mass-based safety limit"));
+    }
     Ok(())
 }
 
@@ -529,14 +563,46 @@ mod tests {
         subnets::SUBNETWORK_ID_NATIVE,
         tx::{CovenantBinding, TransactionInput, TransactionOutpoint, TransactionOutput},
     };
+    #[test]
+    fn confidential_partner_vectors_match_the_public_order_templates() {
+        let Ok(zip)=std::env::var("KASPIRE_FORGE_PARTNER_KIT") else {return;};
+        let output=std::process::Command::new("unzip").args(["-p",&zip,"vectors.json"]).output().unwrap();
+        assert!(output.status.success()&&output.stdout.len()<250_000);
+        let vectors:Value=serde_json::from_slice(&output.stdout).unwrap();
+        // The 3.8 kit intentionally uses identical 3.7/3.8 order contracts.
+        assert!(matches!(vectors["contractsVersion"].as_str(),Some("3.7"|"3.8")));
+        for (example,sell,legacy) in [("buyOrderExample",false,false),("sellOrderExample",true,false),("sellOrderV1Example",true,true)] {
+            let mut state=if sell {vectors["sellOrderExample"]["args"].clone()} else {vectors[example]["state"].clone()};
+            state["market"]=state["marketCovid"].clone();state["kcc20"]=state["kcc20Covid"].clone();
+            state["refundFee"]=1_000_000.into();
+            if sell {state["tip"]=state["tipSompi"].clone();if legacy {state.as_object_mut().unwrap().remove("refundGuard");}}
+            else {for (name,n) in [("creatorBps",50),("feeBps",100),("feeMin",20_000_000),("tokenDust",100_000_000)] {state[name]=n.into();}state["templateHash"]=templates()["ForgeBuyOrder"]["templateHash"].clone();}
+            let result=&vectors[example]["result"];
+            let mut order=serde_json::json!({"state":state,"redeemScript":result["bytecode"],"scriptHash":result["scriptHash"],"address":result["testnetAddress"]});
+            assert!(order_program(&order).is_ok(),"{example}: public SDK does not match partner vector");
+            if !legacy {
+                for contracts in ["3.7","3.8"] {order["state"]["contracts"]=contracts.into();assert!(order_program(&order).is_ok(),"{example}: {contracts}");}
+                order["state"]["contracts"]="3.3".into();assert!(order_program(&order).is_err());
+                order["state"]["contracts"]="9.0".into();assert!(order_program(&order).is_err());
+            }
+        }
+    }
     fn fixture(sell: bool) -> (String, PsktRequest) {
+        fixture_version(sell,"3.8")
+    }
+    fn fixture_version(sell: bool, contracts: &str) -> (String, PsktRequest) {
+        fixture_version_fee(sell,contracts,9_000_000)
+    }
+    fn fixture_version_fee(sell: bool, contracts: &str, fee: u64) -> (String, PsktRequest) {
         let secret = format!("private:{}", "01".repeat(32));
         let mut address = crate::derive_address(&secret).unwrap();
         address.prefix = Prefix::Testnet;
         let owner = hex::encode(&address.payload);
         let cid = "aa".repeat(32);
         let market = "bb".repeat(32);
-        let mut st = serde_json::json!({"owner":owner,"market":market,"kcc20":cid,"expiryDaa":1036000,"refundFee":1000000});
+        let mut st = serde_json::json!({"contracts":contracts,"owner":owner,"market":market,"kcc20":cid,"expiryDaa":1036000,"refundFee":1000000});
+        let name=if sell {if contracts=="3.3" {"ForgeSellOrder_v3"} else {"ForgeSellOrder"}}
+            else {match contracts {"3.3"=>"ForgeBuyOrder_v33","3.4"|"3.5"|"3.6"=>"ForgeBuyOrder_v4",_=>"ForgeBuyOrder"}};
         if sell {
             st["amount"] = 1000.into();
             st["tip"] = 5000000.into();
@@ -553,12 +619,12 @@ mod tests {
             ] {
                 st[k] = serde_json::json!(v);
             }
-            st["templateHash"] = templates()["ForgeBuyOrder"]["templateHash"].clone();
+            st["templateHash"] = templates()[name]["templateHash"].clone();
         }
         let t = templates();
         let mut program = vec![];
         if sell {
-            for p in t["ForgeSellOrder"]["parts"].as_array().unwrap() {
+            for p in t[name]["parts"].as_array().unwrap() {
                 if let Some(h) = p["hex"].as_str() {
                     program.extend(bytes(h).unwrap());
                     continue;
@@ -589,7 +655,7 @@ mod tests {
                 program.push(8);
                 program.extend(st[f].as_u64().unwrap().to_le_bytes());
             }
-            program.extend(bytes(t["ForgeBuyOrder"]["suffix"].as_str().unwrap()).unwrap());
+            program.extend(bytes(t[name]["suffix"].as_str().unwrap()).unwrap());
         }
         let spk = pay_to_script_hash_script(&program);
         let order_address = Address::new(
@@ -599,6 +665,7 @@ mod tests {
         )
         .to_string();
         let coin_value = if sell { 100000000 } else { 1099850000 };
+        let token_deposit=if sell && contracts!="3.3" {200_000_000}else{100_000_000};
         let mut order = serde_json::json!({"state":st,"redeemScript":hex::encode(&program),"scriptHash":hash(&program),"address":order_address,"output":{"sompi":coin_value,"index":if sell{2}else{0}}});
         let wallet = pay_to_address_script(&address);
         let mut inputs = vec![];
@@ -646,7 +713,7 @@ mod tests {
                 let p = note_program(n).unwrap();
                 output_redeems[i.to_string()] = hex::encode(&p).into();
                 outs.push(TransactionOutput::with_covenant(
-                    100000000,
+                    if i==0 {token_deposit}else{100000000},
                     pay_to_script_hash_script(&p),
                     Some(CovenantBinding::new(0, cid.parse().unwrap())),
                 ));
@@ -669,14 +736,14 @@ mod tests {
         ));
         outs.push(TransactionOutput::new(coin_value, spk));
         outs.push(TransactionOutput::new(
-            if sell { 3_791_000_000 } else { 2_899_150_000 },
+            if sell { 3_900_000_000 - token_deposit - fee } else { 2_899_150_000 },
             wallet,
         ));
         let tx = Transaction::new(1, inputs, outs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
         let oi = if sell { 2 } else { 0 };
         order["output"]["outpoint"] = format!("{}:{oi}", tx.id()).into();
         if sell {
-            order["tokens"] = serde_json::json!({"redeemScript":output_redeems["0"],"output":{"index":0,"sompi":100000000,"outpoint":format!("{}:0",tx.id())}});
+            order["tokens"] = serde_json::json!({"redeemScript":output_redeems["0"],"output":{"index":0,"sompi":token_deposit,"outpoint":format!("{}:0",tx.id())}});
         }
         let raw: Value =
             serde_json::from_str(&crate::kcc20::wrpc_safe_json(&tx, &entries).unwrap()).unwrap();
@@ -724,9 +791,22 @@ mod tests {
         }
     }
     #[test]
+    fn high_mass_sells_use_a_bounded_independent_fee_budget() {
+        // Raise the synthetic sell fee from 0.09 to 0.14 KAS. This is within
+        // its locally sized token-witness budget, not an arbitrary flat raise.
+        let (_,r)=fixture_version_fee(true,"3.8",14_000_000);
+        assert!(crate::prepare_pskt(&r).is_ok());
+        let (_,high)=fixture_version_fee(true,"3.8",49_000_000);
+        let error=crate::prepare_pskt(&high).unwrap_err().to_string();
+        assert!(error.contains("mass-based safety limit"),"{error}");
+        let (_,absolute)=fixture_version_fee(true,"3.8",51_000_000);
+        assert!(crate::prepare_pskt(&absolute).unwrap_err().to_string().contains("absolute 0.5 KAS"));
+    }
+    #[test]
     fn saved_buy_and_sell_orders_cancel_without_the_forge_server() {
+        for contracts in ["3.3","3.4","3.6","3.7","3.8"] {
         for sell in [false, true] {
-            let (secret, source) = fixture(sell);
+            let (secret, source) = fixture_version(sell,contracts);
             let summary = source.trade_summary.as_ref().unwrap();
             let order = &summary["order"];
             let program = bytes(text(order, "redeemScript").unwrap()).unwrap();
@@ -764,7 +844,7 @@ mod tests {
                     150,
                 ));
                 entries.push(UtxoEntry::new(
-                    100000000,
+                    num(&order["tokens"]["output"],"sompi").unwrap(),
                     pay_to_script_hash_script(&old_script),
                     100,
                     false,
@@ -798,7 +878,7 @@ mod tests {
                 None,
             ));
             outputs.push(TransactionOutput::new(
-                value - 10000000,
+                value + if sell {num(&order["tokens"]["output"],"sompi").unwrap()-100000000}else{0} - 10000000,
                 pay_to_address_script(&address),
             ));
             let tx = Transaction::new(1, inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
@@ -806,7 +886,8 @@ mod tests {
             let r:PsktRequest=serde_json::from_value(serde_json::json!({"sender":address.to_string(),"profile":"kasforge-tn10-order-v1","txJsonString":raw,"signInputs":[{"index":ci,"sighashType":1}],"scripts":[{"inputIndex":ci,"scriptHex":hex::encode(program),"signType":1,"signatureScript":{"mode":"ordered-args","args":[{"type":"signature","prefixHex":""},{"type":"data","hex":"a0893109"}]}}],"tradeSummary":{"action":"cancel","order":order,"tokenId":order["state"]["kcc20"],"marketId":order["state"]["market"],"inputRedeems":ir,"outputRedeems":or}})).unwrap();
             let review = crate::prepare_pskt(&r).unwrap();
             let result = crate::sign_pskt(&secret, &r, &review.review_hash);
-            assert!(result.is_ok(), "{sell} cancellation: {result:?}");
+            assert!(result.is_ok(), "{contracts} {sell} cancellation: {result:?}");
+        }
         }
     }
 }

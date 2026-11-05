@@ -1,7 +1,7 @@
 MIT License
 
 The template data in kasforge_templates.json is from the public
-@kasforge_official/sdk 0.4.0 package, which declares the MIT license.
+@kasforge_official/sdk 0.5.1 package, which declares the MIT license.
 Upstream authors retain their rights.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

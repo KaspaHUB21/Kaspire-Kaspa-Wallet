@@ -2572,6 +2572,17 @@ class MainActivity : FlutterFragmentActivity() {
                         "Funding inputs and change are not trade proceeds.\n" +
                         "Wallet input ${json.optString("walletInputSompi")} sompi\nWallet output ${json.optString("walletOutputSompi")} sompi\n" +
                         "Network fee ${json.optString("feeSompi")} sompi\nTransaction ${json.optString("transactionId")}"
+                else if (json.optString("profile") in listOf("kforge-tn10-swap-v1", "kforge-mainnet-swap-v1")) {
+                    val trade = json.getJSONObject("tradeSummary").getJSONObject("verified")
+                    "KForge · ${if (json.optString("profile") == "kforge-mainnet-swap-v1") "Mainnet" else "TN10"} · ${json.optString("side").uppercase()} ${json.optString("ticker")}\n" +
+                        "Token amount ${trade.getString("tokens")} (whole tokens)\n" +
+                        "Wallet ${if (json.optString("side") == "buy") "pays" else "receives"} ${trade.getString("walletNet")} sompi\n" +
+                        "Market amount ${trade.getString("marketKas")} sompi\n" +
+                        "Network fee ${trade.getString("networkFee")} sompi\n" +
+                        "Token covenant ${json.optString("tokenId")}\n" +
+                        "Market covenant ${json.optString("lpCovenantId")}\n" +
+                        "Transaction ${json.getString("transactionId")}"
+                }
                 else if (json.optString("profile") in listOf("kasparocket-testnet-v1", "kasparocket-mainnet-v1"))
                     "KaspaRocket ${if (json.optString("profile") == "kasparocket-mainnet-v1") "Mainnet" else "TN10"} · ${json.optString("side").uppercase()}\n" +
                         "${json.optString("ticker")} · token ${json.optString("tokenId")}\n" +

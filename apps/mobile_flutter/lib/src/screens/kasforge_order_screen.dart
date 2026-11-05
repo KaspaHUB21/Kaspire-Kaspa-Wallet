@@ -145,6 +145,9 @@ class _KasForgeOrderScreenState extends State<KasForgeOrderScreen>
     final submitted = r['state'] != 'prepared' && signed != null;
     final order = r['order'] as Map, st = order['state'] as Map;
     final done = r['finalVerified'] == true;
+    final preparing = r['stepSubmit'] == true &&
+        signed != null &&
+        signed.length < (r['requests'] as List).length;
     final expired = r['requestExpired'] == true ||
         '${r['submissionError'] ?? ''}'.toLowerCase().contains('expired');
     return Scaffold(
@@ -159,15 +162,32 @@ class _KasForgeOrderScreenState extends State<KasForgeOrderScreen>
                         Text(
                             done
                                 ? 'Order ${r['state']}'
-                                : r['state'] == 'deposited-untracked'
-                                    ? 'Deposit confirmed · swap not registered'
-                                    : submitted
-                                        ? 'Order awaiting settlement'
-                                        : 'Review Forge order',
+                                : preparing
+                                    ? 'Preparing order · ${signed.length} of ${(r['requests'] as List).length} steps signed'
+                                    : r['state'] == 'deposited-untracked'
+                                        ? 'Deposit confirmed · swap not registered'
+                                        : submitted
+                                            ? 'Order awaiting settlement'
+                                            : 'Review Forge order',
                             style: Theme.of(context).textTheme.headlineSmall),
                         const Text(
                             'Testnet 10 · covenant order. A deposit is not a completed swap. The owner can cancel an unfilled order at any time.'),
                         row('Direction', '${r['side']} · ${r['symbol']}'),
+                        if (r['contracts'] is String)
+                          row('Contract version', '${r['contracts']}'),
+                        ValueListenableBuilder<String?>(
+                          valueListenable: trading.progress,
+                          builder: (context, message, _) => message == null
+                              ? const SizedBox.shrink()
+                              : Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 8),
+                                  child: Text(message,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium),
+                                ),
+                        ),
                         row('You pay',
                             '${r['amount']} ${r['side'] == 'buy' ? 'KAS' : r['symbol']}'),
                         row(

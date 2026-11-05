@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../kaspa_address.dart';
 import 'braid_clock.dart';
@@ -31,10 +32,13 @@ class KasForgeTrading {
   final http.Client client;
   final EncryptedStore store;
   final NativeSecurity security;
+  final progress = ValueNotifier<String?>(null);
   static final _busy = <String>{};
   static const api = '${KasForgeService.origin}/api/v1';
   void guard(String address) => KasForgeService().guard(address);
   String _key(String address) => 'kasforge_tn10_orders_v1_$address';
+  @visibleForTesting
+  Future<List<int>> readClocks() => BraidClock(client).read();
   Future<T> exclusive<T>(String address, Future<T> Function() f) async {
     if (!_busy.add(address)) {
       throw StateError('A Forge order is already being processed.');
@@ -237,12 +241,13 @@ class KasForgeTrading {
     }
     final market = await call(address, 'market/${token.id}');
     final current = token.withMarket(market['market'] as Map);
+    final contracts = (market['market'] as Map)['contracts'];
     if (current.activeMarket != quote['marketId'] ||
-        (market['market'] as Map)['contracts'] != '3.3') {
+        !const {'3.3', '3.4', '3.5', '3.6', '3.7', '3.8'}.contains(contracts)) {
       throw StateError(
           'Forge market or contract changed. Reload before quoting.');
     }
-    final clocks = await BraidClock(client).read();
+    final clocks = await readClocks();
     final b = await call(address, 'build', body: {
       'action': 'order-$side',
       'pub': kaspaOwnerIdFromAddress(address),
@@ -258,6 +263,12 @@ class KasForgeTrading {
         (b['txs'] as List).length > 32 ||
         b['buildId'] is! String) {
       throw StateError('Forge build lacks complete order and recovery data.');
+    }
+    if ((b['stepSubmit'] != null && b['stepSubmit'] is! bool) ||
+        (order['state'] as Map)['contracts'] != contracts ||
+        ((b['txs'] as List).length > 1 && b['stepSubmit'] != true)) {
+      throw StateError(
+          'Forge order version or sequential submission policy differs. Nothing was signed.');
     }
     final template = await _template();
     final pub = kaspaOwnerIdFromAddress(address);
@@ -384,6 +395,7 @@ class KasForgeTrading {
         'scripts': scripts,
         'tradeSummary': {
           'action': finalStep ? 'order-$side' : 'merge',
+          'contracts': contracts,
           'order': order,
           'tokenId': token.id,
           'marketId': current.activeMarket,
@@ -413,6 +425,8 @@ class KasForgeTrading {
     }
     return {
       'buildId': b['buildId'],
+      'contracts': contracts,
+      'stepSubmit': b['stepSubmit'] == true,
       'address': address,
       'network': 'testnet-10',
       'tokenId': token.id,
@@ -446,47 +460,56 @@ class KasForgeTrading {
     receipt['signed'] ??= <String>[];
     receipt['signedWrpc'] ??= <String>[];
     await retain(address, receipt);
-    final signed = receipt['signed'] as List;
+    var signed = receipt['signed'] as List;
     final parents = <String, Map>{};
     final requests = receipt['requests'] as List,
         reviews = receipt['reviews'] as List;
-    for (var i = 0; i < requests.length; i++) {
-      final request = Map<String, Object?>.from(requests[i] as Map);
-      final tx = Map<String, dynamic>.from(
-          jsonDecode('${request['txJsonString']}') as Map);
-      if (i >= signed.length) {
-        final clocks = await BraidClock(client).read();
-        final expiry = int.parse('${receipt['order']['state']['expiryDaa']}');
-        if (clocks.reduce((a, b) => a > b ? a : b) + 1800 > expiry) {
-          receipt['requestExpired'] = true;
+    try {
+      for (var i = 0; i < requests.length; i++) {
+        final request = Map<String, Object?>.from(requests[i] as Map);
+        final tx = Map<String, dynamic>.from(
+            jsonDecode('${request['txJsonString']}') as Map);
+        if (i >= signed.length) {
+          if (i > 0 && receipt['stepSubmit'] == true) {
+            await submitPreparation(address, receipt, i);
+            signed = receipt['signed'] as List;
+          }
+          final clocks = await readClocks();
+          final expiry = int.parse('${receipt['order']['state']['expiryDaa']}');
+          if (clocks.reduce((a, b) => a > b ? a : b) + 1800 > expiry) {
+            receipt['requestExpired'] = true;
+            await retain(address, receipt);
+            throw StateError(
+                'The saved request expired. Use recovery to cancel it safely; nothing new was signed.');
+          }
+          // New multi-step builds must have real on-chain parents, not just a
+          // plausible parent embedded in the provider's plan.
+          await verify(address, tx,
+              receipt['stepSubmit'] == true ? <String, Map>{} : parents);
+          progress.value = 'Authorize step ${i + 1} of ${requests.length}';
+          final result =
+              await security.signPskt(request, '${reviews[i]['reviewHash']}');
+          if (result['transactionId'] != receipt['transactionIds'][i]) {
+            throw StateError('Forge signed ID differs. Saved state retained.');
+          }
+          signed.add(result['signedTxJson']);
+          (receipt['signedWrpc'] as List).add(result['wrpcJson']);
           await retain(address, receipt);
-          throw StateError(
-              'The saved request expired. Use recovery to cancel it safely; nothing new was signed.');
         }
-        await verify(address, tx, parents);
-        final result =
-            await security.signPskt(request, '${reviews[i]['reviewHash']}');
-        if (result['transactionId'] != receipt['transactionIds'][i]) {
-          throw StateError('Forge signed ID differs. Saved state retained.');
-        }
-        signed.add(result['signedTxJson']);
-        (receipt['signedWrpc'] as List).add(result['wrpcJson']);
-        await retain(address, receipt);
+        parents['${receipt['transactionIds'][i]}'] = tx;
       }
-      parents['${receipt['transactionIds'][i]}'] = tx;
+    } finally {
+      progress.value = null;
     }
   }
 
-  Future<void> submit(String address, Map<String, dynamic> receipt) async {
-    guard(address);
-    if ((receipt['signed'] as List?)?.length !=
-        (receipt['requests'] as List).length) {
-      throw StateError('Finish authorizing the saved order before submitting.');
-    }
+  Future<List<String>> _submissionEnvelope(
+      String address, Map<String, dynamic> receipt,
+      {bool partial = false}) async {
     // Forge's SDK deserializer requires `id` in the JSON envelope. The native
     // signer returns the computed ID separately; never trust a provider hint
     // or change/re-sign a saved transaction just to add this metadata.
-    await _completeSubmissionIds(address, receipt);
+    await _completeSubmissionIds(address, receipt, partial: partial);
     final apiSigned = <String>[];
     for (var i = 0; i < (receipt['signed'] as List).length; i++) {
       final request = receipt['requests'][i] as Map;
@@ -507,6 +530,90 @@ class KasForgeTrading {
     }
     receipt['apiSigned'] = apiSigned;
     await retain(address, receipt);
+    return apiSigned;
+  }
+
+  /// Submit ONLY the already signed preparation prefix, then require independent
+  /// acceptance before authorizing a dependent step. Unknown status retains all
+  /// bytes and permits only retry of this same build, never a replacement order.
+  Future<void> submitPreparation(
+      String address, Map<String, dynamic> receipt, int count) async {
+    guard(address);
+    final requests = receipt['requests'] as List;
+    final signed = receipt['signed'] as List;
+    if (receipt['stepSubmit'] != true ||
+        count < 1 ||
+        count >= requests.length ||
+        signed.length != count) {
+      throw StateError(
+          'Invalid Forge preparation prefix. Saved order retained.');
+    }
+    final prefix = await _submissionEnvelope(address, receipt, partial: true);
+    final ids = receipt['transactionIds'] as List;
+    progress.value = 'Checking preparation $count of ${requests.length}';
+    var allAccepted = true;
+    for (var i = 0; i < count; i++) {
+      if (!await accepted('${ids[i]}')) {
+        allAccepted = false;
+        break;
+      }
+    }
+    if (!allAccepted) {
+      progress.value = 'Submitting preparation $count of ${requests.length}';
+      receipt['state'] = 'preparing';
+      await retain(address, receipt);
+      try {
+        final response = await call(address, 'submit', body: {
+          'buildId': receipt['buildId'],
+          'signed': prefix,
+          'step': true
+        });
+        if (response['txid'] != null && response['txid'] != ids[count - 1]) {
+          throw StateError(
+              'Forge preparation returned a different transaction ID.');
+        }
+      } catch (error) {
+        receipt['submissionError'] = error
+            .toString()
+            .substring(0, error.toString().length.clamp(0, 500));
+        if (error.toString().toLowerCase().contains('expired')) {
+          receipt['requestExpired'] = true;
+        }
+        await retain(address, receipt);
+        rethrow;
+      }
+      progress.value = 'Waiting for independent preparation confirmation';
+      await waitForPreparation(ids.take(count).map((id) => '$id').toList());
+    }
+    receipt['acceptedPreparationCount'] = count;
+    receipt.remove('submissionError');
+    await retain(address, receipt);
+  }
+
+  @visibleForTesting
+  Future<void> waitForPreparation(List<String> ids) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 45));
+    do {
+      var ready = true;
+      for (final id in ids) {
+        if (!await accepted(id)) {
+          ready = false;
+          break;
+        }
+      }
+      if (ready) return;
+      await Future<void>.delayed(const Duration(seconds: 2));
+    } while (DateTime.now().isBefore(deadline));
+    throw KasForgeConfirmationPending();
+  }
+
+  Future<void> submit(String address, Map<String, dynamic> receipt) async {
+    guard(address);
+    if ((receipt['signed'] as List?)?.length !=
+        (receipt['requests'] as List).length) {
+      throw StateError('Finish authorizing the saved order before submitting.');
+    }
+    final apiSigned = await _submissionEnvelope(address, receipt);
     Map<String, dynamic> r;
     try {
       r = await call(address, 'submit',
@@ -777,6 +884,17 @@ class KasForgeTrading {
       await retain(address, receipt);
       return Map<String, dynamic>.from(receipt['status'] as Map);
     }
+    if (receipt['stepSubmit'] == true &&
+        (receipt['signed'] as List? ?? []).length <
+            (receipt['requests'] as List).length) {
+      receipt['status'] = {
+        'status': 'preparation-pending',
+        'message':
+            'This multi-step order is not fully authorized yet. Resume the saved order to check the same preparations and continue; no replacement order is needed.'
+      };
+      await retain(address, receipt);
+      return Map<String, dynamic>.from(receipt['status'] as Map);
+    }
     final id = '${(receipt['transactionIds'] as List).last}';
     Map<String, dynamic> d;
     try {
@@ -859,8 +977,15 @@ class KasForgeTrading {
         outputs = <Map<String, Object?>>[],
         inputRedeems = <String, String>{},
         outputRedeems = <String, String>{};
+    var extraTokenDeposit = BigInt.zero;
     if (sell) {
       final note = order['tokens'] as Map;
+      extraTokenDeposit =
+          KasForgeService.exactUnsigned(note['output']['sompi']) -
+              BigInt.from(100000000);
+      if (extraTokenDeposit.isNegative) {
+        throw StateError('Saved Forge token deposit is incomplete.');
+      }
       final back = _note(template, kaspaOwnerIdFromAddress(address),
           KasForgeService.exactUnsigned(st['amount']));
       final state = back.substring('${template['prefix']}'.length,
@@ -886,7 +1011,7 @@ class KasForgeTrading {
       throw StateError('Order cannot fund cancellation.');
     }
     outputs.add({
-      'value': '${value - BigInt.from(10000000)}',
+      'value': '${value + extraTokenDeposit - BigInt.from(10000000)}',
       'scriptPublicKey': '000020${kaspaOwnerIdFromAddress(address)}ac'
     });
     final tx = <String, dynamic>{

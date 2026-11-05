@@ -1,5 +1,81 @@
 # KasForge TN10 integration
 
+## Android test APK 0.11.88 / build 233 — contracts 3.8
+
+This is a separate Android test download, not a public update-channel release.
+Download: https://kaspire.kaslab.space/downloads/Kaspire-Android-v0.11.88-Forge-test.apk
+SHA-256: `4604b97225a17fc77b473c5b0fb91df715fc8f7ae462ac2f24227fe425d3deec`.
+KasForge remains Testnet-10 only. Public SDK 0.5.1 templates are pinned as data:
+buy v5 for contracts 3.7/3.8, buy v4 for 3.4–3.6, and sell v4 for 3.4+.
+Old 3.3 and versionless, byte-for-byte matched saved orders retain recovery.
+Unknown declared versions and mismatched fresh market/order versions reject.
+
+The confidential 3.8 partner kit is not redistributed. Its order vectors are
+labelled 3.7 because 3.7 and 3.8 share these order programs. Private-vector
+checks rebuild the programs from the public SDK data, checking bytecode,
+script hash and addresses; they do not execute partner SDK JavaScript or
+establish an independent contract audit.
+
+New multi-step builds require `stepSubmit: true`. Before a dependent signature,
+the already signed prefix is persisted/read back, locally re-reviewed, submitted
+with `{buildId, signed: prefix, step: true}`, and independently confirmed. Later
+inputs are checked on chain, not merely against embedded parent data. Resuming
+does not re-sign an existing prefix. Rejection, expiry and unknown confirmation
+preserve the exact bytes and recovery journal. Progress is visible in the
+existing themed order screen; a partial plan is not reported as a filled order.
+
+Live unsigned 3.8 buy/sell checking exposed two old assumptions: sell v4's
+order-owned token piece reserves 2 KAS instead of 1, and a legitimate token
+witness can exceed the former flat 0.1 KAS network-fee cap. The reserve is
+version/program-bound and excess reserve is returned during local cancellation.
+Fees remain review-bound: the ceiling is the greater of 0.1 KAS and 250
+sompi times locally calculated signed mass, bounded by an absolute 0.5 KAS.
+This is a safety ceiling, not a minimum fee charged to the user.
+Cancellation keeps its separately confirmed 0.1 KAS fee. No provider-advertised
+mass or recommended fee rate authorizes a larger payment.
+
+The old fixed TN10 node URLs were no longer available during verification.
+The officially resolved `vector-10.kaspa.green` is now pinned for independent
+TN10 reads/clock and same-byte recovery broadcast, with a fixed old-node
+fallback. The unsigned TN10 UTXO service uses bounded per-read connections,
+safe handle retirement and explicit unavailable state. Mainnet services and
+their existing node route are unchanged.
+
+Validation includes 157 Rust tests (actual local script execution for buy/sell
+and cancellation across supported versions), private partner vectors, prefix
+submission/reopening tests, and parent-captured actual 3.8 API buy/sell builds
+replayed against the native inspector with independent live UTXOs and two chain
+clocks. No funded buy, sell, broadcast, or physical-device settlement was
+performed. An attached Android device/emulator is not available on this server.
+The full Flutter suite passes 1,013 tests (18 explicit opt-in tests skipped),
+35 focused snapshot/service/theme tests pass with the captured public data,
+and five bounded-node lifecycle/failure tests pass. Final focused analysis
+reports no issues. Both packaged Android ABIs match the verified native build
+after the normal Android symbol stripping, contain the new order policy and
+use the same release signing certificate/lineage as the public Android APK.
+
+Intentional exclusions: no Forge Mainnet, direct-buy third-party recipient,
+launch/claim workflow, extension or iOS port is enabled by this test build.
+The new, separately named KForge preview below does not share this signer.
+
+## KForge preview in the same test APK
+
+KForge is **not KasForge**. Public documentation at
+https://testnet.kforge.xyz/#/docs identifies the separate TN10 API
+https://api-test.kforge.xyz. The APK adds a distinct KForge catalogue with
+search, paging, images, curve/pool identity, copyable token covenant IDs, prices
+and indexer-reported whole-token wallet balances. Balances participate in the
+existing progressive TN10 discovery; failed/unknown results never mean zero.
+Narrow layouts are tested in all ten themes.
+
+Native KForge swaps and generic transfers remain disabled. The public registry
+publishes curve/pool source fingerprints, compiler commit and parameters, but
+the documented downloadable artifact covers only KCC20. The user confirms no
+curve/pool source/artifact kit is available. Required for the native verifier:
+`saleshard_prod5.sil` and `amm_pool6.sil` (or compiled, reconstructible templates),
+constructor/state/entrypoint layouts and representative curve/pool buy/sell
+vectors. No general PSKT policy is loosened to substitute for that handoff.
+
 ## Android 0.11.76 / build 221
 
 The Forge submission adapter now sends the SDK's single owner-signature

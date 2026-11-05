@@ -8,11 +8,14 @@ import '../services/network_settings.dart';
 import 'kasparocket_screen.dart' show rocketListPadding, KaspaRocketScreen;
 import 'kasseal_screen.dart';
 import 'kasforge_screen.dart';
+import 'kforge_screen.dart';
 import 'braid_screen.dart';
 import '../services/braid_service.dart';
 import '../services/kasforge_service.dart';
+import '../services/kforge_service.dart';
 import '../services/kasseal_service.dart';
 import '../widgets/sell_amount_buttons.dart';
+import '../widgets/kforge_image.dart';
 
 class DexSelectionScreen extends StatelessWidget {
   const DexSelectionScreen({super.key, required this.address});
@@ -21,7 +24,7 @@ class DexSelectionScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: const Text('KCC20 DEX Swaps')),
       body: ListView(padding: rocketListPadding(context), children: [
-        if (BraidService.enabled)
+        if (BraidService.enabled && NetworkSettings.isTestnet)
           Card(
               child: ListTile(
             contentPadding: const EdgeInsets.all(18),
@@ -43,7 +46,7 @@ class DexSelectionScreen extends StatelessWidget {
             leading: Image.asset('assets/browser/kasforge.png',
                 width: 44, height: 44),
             title: const Text('KasForge'),
-            subtitle: const Text('Testnet 10 · Tokens and quote preview'),
+            subtitle: const Text('Testnet 10 · Covenant order swaps'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push(
                 context,
@@ -85,6 +88,33 @@ class DexSelectionScreen extends StatelessWidget {
                 MaterialPageRoute<void>(
                     builder: (_) => KassealScreen(address: address))),
           )),
+        if (BraidService.enabled && !NetworkSettings.isTestnet)
+          Card(
+              child: ListTile(
+            contentPadding: const EdgeInsets.all(18),
+            leading: SvgPicture.asset('assets/browser/braid.svg',
+                width: 40, height: 40, semanticsLabel: 'Braid logo'),
+            title: const Text('Braid Aggregator'),
+            subtitle: const Text('Kaspa Mainnet · Best-route swaps'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                    builder: (_) => BraidScreen(address: address))),
+          )),
+        if (KForgeService.enabled)
+          Card(
+              child: ListTile(
+                  contentPadding: const EdgeInsets.all(18),
+                  leading: const KForgeImage(),
+                  title: const Text('KForge'),
+                  subtitle: Text(
+                      '${NetworkSettings.isTestnet ? 'Testnet 10' : 'Kaspa Mainnet'} · Verified curve and pool swaps'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                          builder: (_) => KForgeScreen(address: address))))),
         if (!NetworkSettings.isTestnet)
           Card(
               child: ListTile(

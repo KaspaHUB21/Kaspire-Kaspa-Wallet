@@ -5,13 +5,14 @@ use serde_json::Value;
 use std::process::Command;
 
 fn read(zip: &str, file: &str) -> Result<Value, String> {
-    let result=Command::new("unzip").args(["-p",zip,&format!("kasforge-orders/{file}")]).output().map_err(|_|"unzip unavailable")?;
+    let mut result=Command::new("unzip").args(["-p",zip,file]).output().map_err(|_|"unzip unavailable")?;
+    if !result.status.success() {result=Command::new("unzip").args(["-p",zip,&format!("kasforge-orders/{file}")]).output().map_err(|_|"unzip unavailable")?;}
     if !result.status.success() || result.stdout.len()>250_000 {return Err("invalid kit member".into());}
     serde_json::from_slice(&result.stdout).map_err(|_|"invalid JSON".into())
 }
 fn verify(zip:&str)->Result<(),String> {
     let vectors=read(zip,"vectors.json")?;
-    if vectors["contractsVersion"]!="3.3" {return Err("unexpected contract version".into());}
+    if !matches!(vectors["contractsVersion"].as_str(),Some("3.3"|"3.7"|"3.8")) {return Err("unexpected contract version".into());}
     for (name,file,contract) in [
         ("buyOrderTemplate","ForgeBuyOrder.template.json","ForgeBuyOrder"),
         ("buyOrderExample","ForgeBuyOrder.example.json","ForgeBuyOrder"),

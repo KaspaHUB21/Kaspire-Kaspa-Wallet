@@ -18,7 +18,7 @@ class BraidClock {
           .broadcastKcc20(jsonEncode(tx), expectedTransactionId: expectedId);
     }
     final encoded = encodeBraidSubmit(tx);
-    for (final host in ['muon-10.kaspa.blue', 'vega-10.kaspa.green']) {
+    for (final host in ['vector-10.kaspa.green', 'muon-10.kaspa.blue']) {
       final url = 'wss://$host/kaspa/testnet-10/wrpc/borsh';
       try {
         decodeBraidServerInfo(await _rpc(url, 114, [1, 0]));
@@ -103,7 +103,7 @@ class BraidClock {
       }
       return int.parse('${data['virtualDaaScore']}');
     }
-    for (final host in ['muon-10.kaspa.blue', 'vega-10.kaspa.green']) {
+    for (final host in ['vector-10.kaspa.green', 'muon-10.kaspa.blue']) {
       try {
         final socket =
             await WebSocket.connect('wss://$host/kaspa/testnet-10/wrpc/borsh')

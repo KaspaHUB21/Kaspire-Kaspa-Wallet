@@ -1,6 +1,10 @@
 // Independent TN10 state, never Kasseal's transaction history or provider hints.
 import {sdk} from '@kassealhq/sdk/node';
 import {NETWORK, PREFIX} from './network.mjs';
+import {createTn10UtxoReader} from './tn10-utxos.mjs';
+const readTestnet=createTn10UtxoReader(url=>{
+  const k=sdk();return new k.RpcClient({url,encoding:k.Encoding.Borsh,networkId:'testnet-10'});
+});
 let connecting;
 export function normalizeEntry(u) {
   const entry=u.entry;
@@ -28,6 +32,10 @@ async function node() {
 }
 export async function utxos(address) {
   checkAddress(address);
+  if(NETWORK==='testnet-10'){
+    const entries=await readTestnet(address);
+    return {network:NETWORK,covenantIdsIncluded:true,entries:entries.map(normalizeEntry)};
+  }
   const connection=await node(),{rpc}=connection;
   connection.active++;
   try {

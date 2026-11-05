@@ -6,6 +6,7 @@ import 'kasparocket_service.dart';
 import 'kasseal_service.dart';
 import 'dex_display_price.dart';
 import 'kasforge_service.dart';
+import 'kforge_service.dart';
 import 'krc721_reads.dart';
 import 'kron_holdings.dart';
 import 'kcc20_standard_service.dart';
@@ -322,8 +323,9 @@ class KaspaApi {
     );
   }
 
-  Future<_Kcc20Wallet> _loadTestnetDexWallet(String address,
+  Future<_Kcc20Wallet> _loadTestnetDexWallet(String walletAddress,
       {required void Function(_Kcc20Wallet) onProgress}) async {
+    final address = NetworkSettings.addressForNetwork(walletAddress);
     final groups = <String, List<WalletAsset>>{};
     final warnings = <String, String>{};
     _Kcc20Wallet snapshot() => _Kcc20Wallet(
@@ -354,6 +356,17 @@ class KaspaApi {
       if (KasForgeService.enabled)
         load(
             'KasForge', KasForgeService(client: _client).walletAssets(address)),
+      if (KForgeService.enabled)
+        load(
+            'KForge',
+            KForgeService(client: _client).walletAssets(address,
+                onProgress: (assets) {
+              groups['KForge'] = assets;
+              onProgress(snapshot());
+            }, onWarning: (warning) {
+              warnings['KForge metadata'] = warning;
+              onProgress(snapshot());
+            })),
     ]);
     return snapshot();
   }
@@ -1255,9 +1268,11 @@ class KaspaApi {
       {required int historyLimit,
       void Function(_Kcc20Wallet)? onProgress}) async {
     _Kcc20Wallet? ordinary;
-    List<WalletAsset> rocket = const [], seal = const [];
+    List<WalletAsset> rocket = const [], seal = const [], forge = const [];
     var rocketUnavailable = false;
     var sealUnavailable = false;
+    var forgeUnavailable = false;
+    String forgeWarning = '';
     _Kcc20Wallet merged() {
       String key(WalletAsset asset) =>
           (asset.covenantId ?? asset.id ?? asset.symbol).toLowerCase();
@@ -1265,9 +1280,11 @@ class KaspaApi {
         for (final asset in ordinary?.assets ?? <WalletAsset>[])
           key(asset): asset
       };
-      for (final asset in [...rocket, ...seal]) {
+      for (final asset in [...rocket, ...seal, ...forge]) {
         final current = assets[key(asset)];
-        if (current == null || !current.discoveryComplete) {
+        if (current == null ||
+            !current.discoveryComplete ||
+            asset.standard == 'kforge-kcc20') {
           assets[key(asset)] = asset;
         } else {
           // Preserve independently discovered signing cells while retaining
@@ -1297,20 +1314,40 @@ class KaspaApi {
           transactions: ordinary?.transactions ?? const [],
           coverageComplete: ordinary?.coverageComplete == true &&
               !rocketUnavailable &&
-              !sealUnavailable,
-          signingIssues: {...?ordinary?.signingIssues}
-            ..removeAll([...rocket, ...seal].map((a) => a.covenantId)),
+              !sealUnavailable &&
+              !forgeUnavailable,
+          signingIssues: {
+            ...?ordinary?.signingIssues
+          }..removeAll([...rocket, ...seal, ...forge].map((a) => a.covenantId)),
           warning: [
             if (ordinary?.warning.isNotEmpty == true) ordinary!.warning,
             if (rocketUnavailable)
               'KaspaRocket token balances are temporarily unavailable. Pull to refresh.',
             if (sealUnavailable)
-              'Kasseal token balances are temporarily unavailable. Pull to refresh.'
+              'Kasseal token balances are temporarily unavailable. Pull to refresh.',
+            if (forgeUnavailable)
+              'KForge token balances are temporarily unavailable. Previously loaded balances are retained.',
+            if (forgeWarning.isNotEmpty) forgeWarning,
           ].join(' '));
     }
 
     void publish() => onProgress?.call(merged());
     await Future.wait([
+      if (KForgeService.enabled)
+        KForgeService(client: _client, mainnet: true).walletAssets(address,
+            onProgress: (assets) {
+          forge = assets;
+          publish();
+        }, onWarning: (warning) {
+          forgeWarning = warning;
+          publish();
+        }).then((assets) {
+          forge = assets;
+          publish();
+        }).catchError((_) {
+          forgeUnavailable = true;
+          publish();
+        }),
       KassealService(client: _client).walletAssets(address).then((assets) {
         seal = assets;
         publish();

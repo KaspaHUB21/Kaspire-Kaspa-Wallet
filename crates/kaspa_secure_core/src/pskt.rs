@@ -247,8 +247,12 @@ pub fn sign_pskt(
         built.json["inputs"][*index]["signatureScript"] =
             Value::String(hex::encode(signature_script));
     }
+    if matches!(request.profile.as_deref(), Some("kforge-tn10-swap-v1" | "kforge-mainnet-swap-v1")) {
+        crate::kforge::commit_storage_mass(&built.tx,&built.entries)?;
+        built.json["storageMass"]=json!(built.tx.storage_mass().to_string());
+    }
     built.tx.finalize();
-    if (matches!(request.profile.as_deref(), Some("kasforge-tn10-order-v1" | "braid-tn10-deposit-v1" | "braid-tn10-reclaim-v1" | "braid-mainnet-deposit-v1" | "braid-mainnet-reclaim-v1" | "krc721-market-v1" | "kron-transfer-v1" | "kcc20-standard-transfer-v1" | "kron-swap-v1" | "kasparocket-mainnet-v1" | "kasseal-tn10-swap-v1" | "kasseal-tn10-prepare-v1" | "kasseal-mainnet-swap-v1" | "kasseal-mainnet-prepare-v1")) || (request.profile.as_deref()==Some("kaspacom-market-v1") && request.side.as_deref()==Some("cancel"))) && built.review.funding_deficit_sompi == 0 {
+    if (matches!(request.profile.as_deref(), Some("kforge-tn10-swap-v1" | "kforge-mainnet-swap-v1" | "kasforge-tn10-order-v1" | "braid-tn10-deposit-v1" | "braid-tn10-reclaim-v1" | "braid-mainnet-deposit-v1" | "braid-mainnet-reclaim-v1" | "krc721-market-v1" | "kron-transfer-v1" | "kcc20-standard-transfer-v1" | "kron-swap-v1" | "kasparocket-mainnet-v1" | "kasseal-tn10-swap-v1" | "kasseal-tn10-prepare-v1" | "kasseal-mainnet-swap-v1" | "kasseal-mainnet-prepare-v1")) || (request.profile.as_deref()==Some("kaspacom-market-v1") && request.side.as_deref()==Some("cancel"))) && built.review.funding_deficit_sompi == 0 {
         crate::kcc20::simulate_all(&built.tx, &built.entries)
             .map_err(|e|CoreError::Transaction(format!("Local contract script validation failed: {e}")))?;
     }
@@ -268,6 +272,13 @@ pub fn sign_pskt(
 }
 
 fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
+    if matches!(request.profile.as_deref(), Some("kforge-tn10-swap-v1" | "kforge-mainnet-swap-v1")) {
+        return build_pskt_inner(&crate::kforge::expand(request)?);
+    }
+    build_pskt_inner(request)
+}
+
+fn build_pskt_inner(request: &PsktRequest) -> Result<BuiltPskt> {
     if request.tx_json_string.is_empty() || request.tx_json_string.len() > MAX_PSKT_BYTES {
         return Err(CoreError::InvalidRequest("PSKT exceeds size limit".into()));
     }
@@ -665,6 +676,9 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
         crate::kasseal::validate_preparation(request, &tx, &entries, &sighashes, &scripts)?;
     } else if matches!(request.profile.as_deref(),Some("braid-tn10-deposit-v1"|"braid-tn10-reclaim-v1"|"braid-mainnet-deposit-v1"|"braid-mainnet-reclaim-v1")) {
         crate::braid::validate(request, &tx, &entries, &sighashes, &scripts)?;
+    } else if matches!(request.profile.as_deref(), Some("kforge-tn10-swap-v1" | "kforge-mainnet-swap-v1")) {
+        crate::kforge::validate_mass(&tx, &entries, request)?;
+        warnings.retain(|w|w!="This is a partial signature; other parties may add signatures." && !w.contains("cannot verify its dApp business rules"));
     } else if request.profile.as_deref() == Some("kasforge-tn10-order-v1") {
         crate::kasforge::validate(request, &tx, &entries, &sighashes)?;
     } else if request.profile.as_deref() == Some("krc721-market-v1") {
@@ -762,6 +776,18 @@ fn build_pskt(request: &PsktRequest) -> Result<BuiltPskt> {
             review_hash,
         },
     })
+}
+
+#[cfg(test)]
+pub(crate) fn kforge_fixture_sighash(request:&PsktRequest)->Result<String>{
+    let mut expanded=crate::kforge::expand(request)?;
+    for s in &mut expanded.sign_inputs{s.expected_sighash=None;}
+    for s in &mut expanded.scripts{s.expected_sighash=None;}
+    let built=build_pskt_inner(&expanded)?;
+    let populated=SignableTransaction::with_entries(built.tx,built.entries);
+    let mut reused=SigHashReusedValuesUnsync::new();
+    let hash=calc_schnorr_signature_hash(&populated.as_verifiable(),request.sign_inputs[0].index,SIG_HASH_ALL,&mut reused).to_string();
+    Ok(hash)
 }
 
 fn covenant_id_from_utxo(value: &Value) -> Result<Option<Hash>> {

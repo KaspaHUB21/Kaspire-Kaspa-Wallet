@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">
+  <!-- Official KForge site's graduated sm() mark, unchanged geometry/colors.
+       https://testnet.kforge.xyz/assets/index-8MGX6mg-.js (2026-11-04). -->
+  <rect x="0" y="17.68" width="8.32" height="8.32" rx="2.3296" fill="#00CF9B"/>
+  <rect x="4.797312" y="12.108928" width="8.32" height="8.32" rx="2.3296" fill="#00CF9B"/>
+  <rect x="9.594624" y="6.537856" width="8.32" height="8.32" rx="2.3296" fill="#00CF9B"/>
+  <rect x="14.391936" y="0.966784" width="8.32" height="8.32" rx="2.3296" fill="#FFAE4F"/>
+</svg>
