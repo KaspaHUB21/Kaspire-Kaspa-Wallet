@@ -37,7 +37,8 @@ void main() {
         'Kasseal DEX',
         'Braid Aggregator',
         'KForge',
-        'Kron DEX'
+        'Kron DEX',
+        'KasForge'
       ]);
       await tester.scrollUntilVisible(find.text('Kron DEX'), 200);
       await tester.pumpAndSettle();

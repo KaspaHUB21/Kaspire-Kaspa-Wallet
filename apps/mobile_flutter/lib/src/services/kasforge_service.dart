@@ -6,23 +6,32 @@ import '../kaspa_address.dart';
 import '../models/wallet_snapshot.dart';
 import 'network_settings.dart';
 
-/// Read-only, explicitly opt-in TN10 integration. The token list is metadata,
+/// The token list is metadata,
 /// not authority to sign an order or accept an arbitrary contract program.
 class KasForgeService {
-  KasForgeService({http.Client? client}) : client = client ?? http.Client();
+  KasForgeService({http.Client? client, bool? mainnet})
+      : client = client ?? http.Client(),
+        mainnet = mainnet ?? !NetworkSettings.isTestnet;
 
   static const enabled =
       bool.fromEnvironment('KASPIRE_KASFORGE_TN10', defaultValue: true);
   static const tradingEnabled = true;
-  static const origin = 'https://kaspa.pumpforge.tech';
+  final bool mainnet;
+  String get network => mainnet ? 'mainnet' : 'testnet-10';
+  String get label => mainnet ? 'Kaspa Mainnet' : 'Testnet 10';
+  String get prefix => mainnet ? 'kaspa' : 'kaspatest';
+  String get origin => mainnet
+      ? 'https://kaspa.pumpforge.tech'
+      : 'https://kaspa.testnet.pumpforge.tech';
   final http.Client client;
 
   void guard([String? address]) {
-    if (!NetworkSettings.isTestnet ||
+    if (!NetworkSettings.isKaspa ||
+        mainnet == NetworkSettings.isTestnet ||
         (address != null &&
-            (!address.startsWith('kaspatest:') ||
+            (!address.startsWith('$prefix:') ||
                 kaspaOwnerIdFromAddress(address).isEmpty))) {
-      throw StateError('KasForge is available only on Kaspa Testnet 10.');
+      throw StateError('KasForge wallet/network changed. Reopen the DEX.');
     }
   }
 
@@ -50,15 +59,16 @@ class KasForgeService {
   }
 
   Future<List<KasForgeToken>> tokens() async {
-    final data = await _read('/api/kaspa-tn/forge/tokenlist');
-    if (data['network'] != 'testnet-10' || data['tokens'] is! List) {
+    final data =
+        await _read('/api/${mainnet ? 'kaspa' : 'kaspa-tn'}/forge/tokenlist');
+    if (data['network'] != network || data['tokens'] is! List) {
       throw StateError('KasForge token list has the wrong network or shape.');
     }
     final seen = <String>{};
     final rows = <KasForgeToken>[];
     for (final item in data['tokens'] as List) {
       if (item is! Map) throw StateError('Invalid KasForge token entry.');
-      final token = KasForgeToken.fromJson(item);
+      final token = KasForgeToken.fromJson(item, network: network);
       if (!seen.add(token.id)) {
         throw StateError('KasForge token list repeats a covenant ID.');
       }
@@ -158,6 +168,8 @@ class KasForgeService {
   Future<Map<String, dynamic>> quote(
       KasForgeToken token, String side, String amount) async {
     guard();
+    if (token.network != network)
+      throw StateError('KasForge token belongs to another network.');
     if (!['buy', 'sell'].contains(side) ||
         !RegExp(side == 'buy'
                 ? r'^(?:0|[1-9][0-9]{0,10})(?:\.[0-9]{1,8})?$'
@@ -277,19 +289,22 @@ class KasForgeToken {
     this.priceKas,
     this.marketCapKas,
     this.volume24hKas,
+    this.network = 'testnet-10',
   });
 
   final String id, symbol, name, genesis, curve;
+  final String network;
   final String? pool, logo;
   final int decimals;
   final bool graduated;
   final double? priceKas, marketCapKas, volume24hKas;
   String get activeMarket => graduated ? pool! : curve;
 
-  factory KasForgeToken.fromJson(Map row) {
+  factory KasForgeToken.fromJson(Map row, {String network = 'testnet-10'}) {
     final extensions = row['extensions'];
     final hex = RegExp(r'^[a-f0-9]{64}$');
-    if (row['network'] != 'testnet-10' ||
+    if (!const {'mainnet', 'testnet-10'}.contains(network) ||
+        row['network'] != network ||
         extensions is! Map ||
         extensions['launchpad'] != 'kasforge' ||
         !hex.hasMatch('${row['covenantId']}') ||
@@ -312,6 +327,7 @@ class KasForgeToken {
     }
     final logo = Uri.tryParse('${row['logoURI']}');
     return KasForgeToken(
+      network: network,
       id: row['covenantId'] as String,
       symbol: row['symbol'] as String,
       name: row['name'] as String,
@@ -330,7 +346,7 @@ class KasForgeToken {
   }
 
   KasForgeToken withMarket(Map market) {
-    if (market['network'] != 'testnet-10' ||
+    if (market['network'] != network ||
         market['covenantId'] != id ||
         market['genesisTxid'] != genesis ||
         market['id'] != curve ||
@@ -341,6 +357,7 @@ class KasForgeToken {
           'KasForge token list and live market disagree. Reload before continuing.');
     }
     return KasForgeToken(
+      network: network,
       id: id,
       symbol: symbol,
       name: name,

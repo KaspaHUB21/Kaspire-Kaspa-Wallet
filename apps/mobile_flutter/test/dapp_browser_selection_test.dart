@@ -20,8 +20,11 @@ void main() {
       'dot.k',
       'Kaspa News',
       'Kaspa Dev Tools',
-      'KasCoven Vaults',
+      'KasForge',
+      'KasForge Vaults',
       'Jeetslab',
+      'ANTX Universe',
+      'KasCoven Vaults',
     ]);
     expect(browserDapps[1].url, 'https://app.kasseal.com/');
     expect(browserDapps[1].walletConnectEnabled, isTrue);
@@ -34,14 +37,27 @@ void main() {
     expect(browserDapps[news].url, 'https://kaspa.news/');
     expect(browserDapps[news].logo, 'assets/browser/kaspa-news.png');
     expect(browserDapps[news].walletConnectEnabled, isFalse);
-    expect(browserDapps[browserDapps.length - 2].name, 'KasCoven Vaults');
+    expect(browserDapps.last.name, 'KasCoven Vaults');
   });
-  test('Jeetslab is last and uses the supplied image and exact wallet URL', () {
-    expect(browserDapps.last.name, 'Jeetslab');
-    expect(browserDapps.last.url,
+  test('Jeetslab retains the supplied image and exact wallet URL', () {
+    final jeetslab = browserDapps[9];
+    expect(jeetslab.name, 'Jeetslab');
+    expect(jeetslab.url,
         'https://jeetslab-staging.kaspajeets.workers.dev/wallet');
-    expect(browserDapps.last.logo, 'assets/browser/jeetslab.jpg');
-    expect(browserDapps.last.walletConnectEnabled, isTrue);
+    expect(jeetslab.logo, 'assets/browser/jeetslab.jpg');
+    expect(jeetslab.walletConnectEnabled, isTrue);
+  });
+  test('new dApps use exact official origins and bundled official icons', () {
+    for (final entry in [
+      (7, 'https://kaspa.pumpforge.tech/', 'assets/browser/kasforge.png'),
+      (8, 'https://vault.pumpforge.tech/', 'assets/browser/kasforge-vaults.svg'),
+      (10, 'https://universe.antx.world/', 'assets/browser/antx-universe.svg'),
+    ]) {
+      final dapp = browserDapps[entry.$1];
+      expect(dapp.url, entry.$2);
+      expect(dapp.logo, entry.$3);
+      expect(dapp.walletConnectEnabled, isTrue);
+    }
   });
   testWidgets('dApp selection and invitation fit narrow screens in every theme',
       (tester) async {
@@ -62,8 +78,16 @@ void main() {
       expect(find.text('Kasseal'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Kaspa Dev Tools'), 160);
       expect(find.text('Kaspa Dev Tools'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('KasForge'), 160);
+      expect(find.text('KasForge'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('KasForge Vaults'), 160);
+      expect(find.text('KasForge Vaults'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Jeetslab'), 160);
       expect(find.text('Jeetslab'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('ANTX Universe'), 160);
+      expect(find.text('ANTX Universe'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('KasCoven Vaults'), 160);
+      expect(find.text('KasCoven Vaults'), findsOneWidget);
       await tester.scrollUntilVisible(
           find.text('Integrate your dApp into Kaspire Browser'), 160);
       await tester.pumpAndSettle();

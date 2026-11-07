@@ -134,6 +134,20 @@ class DexSelectionScreen extends StatelessWidget {
                           MaterialPageRoute<void>(
                               builder: (_) =>
                                   KronDexScreen(address: address))))),
+        if (KasForgeService.enabled && !NetworkSettings.isTestnet)
+          Card(
+              child: ListTile(
+            contentPadding: const EdgeInsets.all(18),
+            leading: Image.asset('assets/browser/kasforge.png',
+                width: 44, height: 44),
+            title: const Text('KasForge'),
+            subtitle: const Text('Kaspa Mainnet · Covenant order swaps'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                    builder: (_) => KasForgeScreen(address: address))),
+          )),
         const SizedBox(height: 16),
         const Text('More KCC20 DEXes are coming soon.',
             textAlign: TextAlign.center)

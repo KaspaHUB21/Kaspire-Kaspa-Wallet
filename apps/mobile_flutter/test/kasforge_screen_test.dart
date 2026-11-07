@@ -346,14 +346,17 @@ void main() {
     expect(journal.builds, 0);
     await tester.pumpWidget(const SizedBox.shrink());
   });
-  testWidgets('KasForge is absent from mainnet Swap selection', (tester) async {
+  testWidgets('KasForge is last in mainnet Swap selection', (tester) async {
     NetworkSettings.network.value = KaspaNetwork.mainnet;
     await tester.pumpWidget(
         const MaterialApp(home: DexSelectionScreen(address: 'kaspa:qfixture')));
     await tester.pumpAndSettle();
-    expect(find.text('KasForge'), findsNothing);
     expect(find.text('KaspaRocket'), findsOneWidget);
     expect(find.text('Kasseal DEX'), findsOneWidget);
     expect(find.text('Kron DEX'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('KasForge'), 200);
+    expect(find.text('KasForge'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('KasForge')).dy,
+        greaterThan(tester.getTopLeft(find.text('Kron DEX')).dy));
   });
 }

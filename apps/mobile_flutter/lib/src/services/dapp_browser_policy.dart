@@ -11,6 +11,9 @@ class DappBrowserPolicy {
     'kaspa.news',
     'vaults.kaslab.space',
     'jeetslab-staging.kaspajeets.workers.dev',
+    'kaspa.pumpforge.tech',
+    'vault.pumpforge.tech',
+    'universe.antx.world',
   };
 
   static bool approvedPage(Uri uri) =>

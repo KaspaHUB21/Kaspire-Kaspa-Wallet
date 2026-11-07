@@ -75,7 +75,7 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-            title: const Text('KasForge · Testnet 10'),
+            title: Text('KasForge · ${service.label}'),
             actions: [
               IconButton(
                   onPressed: reload,
@@ -136,7 +136,7 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
               trading: trading,
               reload: reload,
               pendingOnly: true),
-          const Card(
+          Card(
               child: Padding(
                   padding: EdgeInsets.all(16),
                   child: Column(
@@ -145,10 +145,11 @@ class _KasForgeScreenState extends State<KasForgeScreen> {
                         Text('KasForge',
                             style: TextStyle(
                                 fontSize: 22, fontWeight: FontWeight.bold)),
-                        Text('Testnet 10 · Bonding curves and graduated pools'),
+                        Text(
+                            '${service.label} · Bonding curves and graduated pools'),
                         SizedBox(height: 8),
                         Text(
-                            'Testnet trades use locally verified covenant orders. A deposit is not a completed swap.'),
+                            'Trades use locally verified covenant orders. A deposit is not a completed swap.'),
                       ]))),
           const SizedBox(height: 12),
           TextField(
@@ -500,7 +501,9 @@ class _KasForgeTradeScreenState extends State<KasForgeTradeScreen> {
           await widget.service.quote(widget.token, side, amount.text.trim());
       if (mounted && current == generation) setState(() => quoted = result);
     } catch (e) {
-      if (mounted && current == generation) setState(() => error = '$e');
+      if (mounted && current == generation) {
+        setState(() => error = KasForgeTrading.preparationError(e));
+      }
     } finally {
       if (mounted && current == generation) setState(() => busy = false);
     }
@@ -530,7 +533,9 @@ class _KasForgeTradeScreenState extends State<KasForgeTradeScreen> {
                   trading: trading)));
       if (mounted) reload();
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+      if (mounted) {
+        setState(() => error = KasForgeTrading.preparationError(e));
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -569,8 +574,8 @@ class _KasForgeTradeScreenState extends State<KasForgeTradeScreen> {
                         ]),
                         const SizedBox(height: 12),
                         Text(widget.token.graduated
-                            ? 'Testnet 10 · Pool'
-                            : 'Testnet 10 · Bonding curve'),
+                            ? '${widget.service.label} · Pool'
+                            : '${widget.service.label} · Bonding curve'),
                         SelectableText(widget.token.id),
                         if (widget.token.priceKas != null)
                           Text(

@@ -133,7 +133,7 @@ void main() {
       expect(() => KasForgeTrading.kasSompi(text), throwsStateError);
     }
   });
-  test('Mainnet fails before any build or HTTP call', () async {
+  test('TN10 address on Mainnet fails before any build or HTTP call', () async {
     var calls = 0;
     final trading = KasForgeTrading(client: MockClient((_) async {
       calls++;
@@ -263,7 +263,7 @@ void main() {
           store: store,
           client: MockClient((request) async {
             calls.add(request.url);
-            if (request.url.host == 'kaspa.pumpforge.tech') {
+            if (request.url.host == 'kaspa.testnet.pumpforge.tech') {
               expect(request.url.queryParameters['market'], 'b' * 64);
               return http.Response('{"error":"no such order","ok":false}', 400);
             }
@@ -461,7 +461,7 @@ void main() {
     final trading = KasForgeTrading(
         store: Memory(),
         client: MockClient((request) async {
-          if (request.url.host == 'kaspa.pumpforge.tech') {
+          if (request.url.host == 'kaspa.testnet.pumpforge.tech') {
             return http.Response('{"ok":true,"status":"open"}', 200);
           }
           final deposit = request.url.path.endsWith('a' * 64);

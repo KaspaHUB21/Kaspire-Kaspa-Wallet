@@ -1268,10 +1268,14 @@ class KaspaApi {
       {required int historyLimit,
       void Function(_Kcc20Wallet)? onProgress}) async {
     _Kcc20Wallet? ordinary;
-    List<WalletAsset> rocket = const [], seal = const [], forge = const [];
+    List<WalletAsset> rocket = const [],
+        seal = const [],
+        forge = const [],
+        kasforge = const [];
     var rocketUnavailable = false;
     var sealUnavailable = false;
     var forgeUnavailable = false;
+    var kasforgeUnavailable = false;
     String forgeWarning = '';
     _Kcc20Wallet merged() {
       String key(WalletAsset asset) =>
@@ -1280,11 +1284,12 @@ class KaspaApi {
         for (final asset in ordinary?.assets ?? <WalletAsset>[])
           key(asset): asset
       };
-      for (final asset in [...rocket, ...seal, ...forge]) {
+      for (final asset in [...rocket, ...seal, ...forge, ...kasforge]) {
         final current = assets[key(asset)];
         if (current == null ||
             !current.discoveryComplete ||
-            asset.standard == 'kforge-kcc20') {
+            asset.standard == 'kforge-kcc20' ||
+            asset.standard == 'kasforge-kcc20') {
           assets[key(asset)] = asset;
         } else {
           // Preserve independently discovered signing cells while retaining
@@ -1315,7 +1320,8 @@ class KaspaApi {
           coverageComplete: ordinary?.coverageComplete == true &&
               !rocketUnavailable &&
               !sealUnavailable &&
-              !forgeUnavailable,
+              !forgeUnavailable &&
+              !kasforgeUnavailable,
           signingIssues: {
             ...?ordinary?.signingIssues
           }..removeAll([...rocket, ...seal, ...forge].map((a) => a.covenantId)),
@@ -1327,12 +1333,24 @@ class KaspaApi {
               'Kasseal token balances are temporarily unavailable. Pull to refresh.',
             if (forgeUnavailable)
               'KForge token balances are temporarily unavailable. Previously loaded balances are retained.',
+            if (kasforgeUnavailable)
+              'KasForge token balances are temporarily unavailable. Previously loaded balances are retained.',
             if (forgeWarning.isNotEmpty) forgeWarning,
           ].join(' '));
     }
 
     void publish() => onProgress?.call(merged());
     await Future.wait([
+      if (KasForgeService.enabled)
+        KasForgeService(client: _client, mainnet: true)
+            .walletAssets(address)
+            .then((assets) {
+          kasforge = assets;
+          publish();
+        }).catchError((_) {
+          kasforgeUnavailable = true;
+          publish();
+        }),
       if (KForgeService.enabled)
         KForgeService(client: _client, mainnet: true).walletAssets(address,
             onProgress: (assets) {

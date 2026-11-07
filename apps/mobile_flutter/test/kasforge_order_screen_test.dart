@@ -67,6 +67,30 @@ Map<String, dynamic> receipt() => {
       'state': 'prepared'
     };
 void main() {
+  for (final reserve in [100000000, 300000000]) {
+    testWidgets('sell review shows exact refundable token reserve $reserve',
+        (tester) async {
+      final r = receipt()..['side'] = 'sell';
+      (r['order'] as Map)['tokens'] = {
+        'output': {'sompi': reserve}
+      };
+      (r['order'] as Map)['output'] = {'sompi': 100000000};
+      await tester.pumpWidget(MaterialApp(
+          home: KasForgeOrderScreen(
+              address: 'fixture',
+              receipt: r,
+              trading: Trading(),
+              autoCheck: false)));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+          find.text('Refundable token reserve'), 160,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('Refundable token reserve'), findsOneWidget);
+      expect(find.text('Refundable order reserve'), findsOneWidget);
+      expect(find.text('${reserve ~/ 100000000} KAS'), findsWidgets);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
   testWidgets(
       'signed order verifies automatically through delayed acceptance without resubmitting',
       (tester) async {

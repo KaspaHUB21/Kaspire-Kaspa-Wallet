@@ -58,7 +58,7 @@ http.Client source(
     MockClient((request) async {
       expect(request.method, 'GET',
           reason: 'This integration cannot build, sign or submit orders.');
-      expect(request.url.host, 'kaspa.pumpforge.tech');
+      expect(request.url.host, 'kaspa.testnet.pumpforge.tech');
       if (unavailable) return response({'ok': false}, 503);
       if (request.url.path.endsWith('/tokenlist')) {
         return response({
@@ -254,11 +254,12 @@ void main() {
     }));
     await check;
   });
-  test('native trading is TN10 only, never enabled by a server Mainnet flag',
-      () {
+  test('a TN10 instance cannot become Mainnet by changing global settings', () {
     expect(KasForgeService.tradingEnabled, true);
+    final testnet = KasForgeService();
     NetworkSettings.network.value = KaspaNetwork.mainnet;
-    expect(() => KasForgeService().guard(), throwsStateError);
+    expect(() => testnet.guard(), throwsStateError);
+    expect(() => KasForgeService().guard(), returnsNormally);
   });
   test(
       'positive KasForge balance publishes before another TN10 source finishes',
@@ -267,7 +268,7 @@ void main() {
     final slowSeal = Completer<http.Response>();
     final seen = Completer<void>();
     final client = MockClient((request) async {
-      if (request.url.host == 'kaspa.pumpforge.tech') {
+      if (request.url.host == 'kaspa.testnet.pumpforge.tech') {
         if (request.url.path.endsWith('/tokenlist')) {
           return response({
             'network': 'testnet-10',

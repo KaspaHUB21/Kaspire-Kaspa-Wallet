@@ -170,8 +170,8 @@ class _KasForgeOrderScreenState extends State<KasForgeOrderScreen>
                                             ? 'Order awaiting settlement'
                                             : 'Review Forge order',
                             style: Theme.of(context).textTheme.headlineSmall),
-                        const Text(
-                            'Testnet 10 · covenant order. A deposit is not a completed swap. The owner can cancel an unfilled order at any time.'),
+                        Text(
+                            '${trading.service.label} · covenant order. A deposit is not a completed swap. The owner can cancel an unfilled order at any time.'),
                         row('Direction', '${r['side']} · ${r['symbol']}'),
                         if (r['contracts'] is String)
                           row('Contract version', '${r['contracts']}'),
@@ -198,6 +198,14 @@ class _KasForgeOrderScreenState extends State<KasForgeOrderScreen>
                         row('Order expiry (DAA score)', '${st['expiryDaa']}'),
                         row('Order address', '${order['address']}'),
                         row('Token covenant ID', '${r['tokenId']}'),
+                        if (r['side'] == 'sell' &&
+                            order['tokens'] is Map &&
+                            order['tokens']['output'] is Map)
+                          row('Refundable token reserve',
+                              '${formatRawTokenAmount(BigInt.parse('${order['tokens']['output']['sompi']}'), 8)} KAS'),
+                        if (r['side'] == 'sell' && order['output'] is Map)
+                          row('Refundable order reserve',
+                              '${formatRawTokenAmount(BigInt.parse('${order['output']['sompi']}'), 8)} KAS'),
                         for (final review
                             in (r['reviews'] as List? ?? []).whereType<Map>())
                           row('Deposit network fee',

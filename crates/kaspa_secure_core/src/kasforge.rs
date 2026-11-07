@@ -1,4 +1,4 @@
-//! TN10-only Forge 3.3–3.8 orders. Public SDK 0.5.1 templates are data, not code.
+//! Forge 3.8 Mainnet and 3.3–3.8 TN10 orders. Public SDK templates are data, not code.
 //! Never use the provider's checkOrder verdict as signing authority.
 use crate::{CoreError, PsktRequest, Result};
 use kaspa_addresses::{Address, Prefix, Version};
@@ -146,7 +146,7 @@ fn order_candidate(order: &Value, t: &Value, name: &str) -> Result<Vec<u8>> {
         return Err(bad("order does not match pinned program and state"));
     }
     let address = Address::try_from(text(order, "address")?).map_err(|_| bad("order address"))?;
-    if address.prefix != Prefix::Testnet
+    if !matches!(address.prefix, Prefix::Testnet | Prefix::Mainnet)
         || pay_to_address_script(&address) != pay_to_script_hash_script(&out)
     {
         return Err(bad("order address differs"));
@@ -262,6 +262,11 @@ pub(crate) fn validate(
     signatures: &[(usize, SigHashType)],
 ) -> Result<()> {
     let sender = Address::try_from(r.sender.as_str()).map_err(|_| bad("sender"))?;
+    let network = match r.profile.as_deref() {
+        Some("kasforge-mainnet-order-v1") => Prefix::Mainnet,
+        Some("kasforge-tn10-order-v1") => Prefix::Testnet,
+        _ => return Err(bad("unsupported signing profile")),
+    };
     let s = r
         .trade_summary
         .as_ref()
@@ -275,9 +280,13 @@ pub(crate) fn validate(
         return Err(bad("order token or market differs from the selected quote"));
     }
     let redeem = order_program(order)?;
+    let order_address = Address::try_from(text(order, "address")?).map_err(|_| bad("order address"))?;
+    if order_address.prefix != network || (network == Prefix::Mainnet && st["contracts"] != "3.8") {
+        return Err(bad("order network or Mainnet contract version differs"));
+    }
     let order_spk = pay_to_script_hash_script(&redeem);
     let wallet = pay_to_address_script(&sender);
-    if sender.prefix != Prefix::Testnet
+    if sender.prefix != network
         || sender.version != Version::PubKey
         || text(st, "owner")? != hex::encode(&sender.payload)
         || tx.version != 1
@@ -308,12 +317,9 @@ pub(crate) fn validate(
     }
     let action = text(s, "action")?;
     let sell = st["unitsIn"].is_null();
-    // Sell v4 reserves a second KAS in the order-owned token piece. Old
-    // orders retain their original one-KAS deposit, including versionless
-    // recovery receipts whose program is matched against the pinned template.
-    let order_token_deposit=if sell && order_candidate(order,&templates(),"ForgeSellOrder").is_ok(){200_000_000}else{100_000_000};
     let mut token_inputs = Vec::new();
     let mut token_total = 0u64;
+    let mut token_input_value = 0u64;
     let mut funding = 0u64;
     let recovery = action == "cancel";
     let mut expected_signatures = HashSet::new();
@@ -360,6 +366,9 @@ pub(crate) fn validate(
         token_total = token_total
             .checked_add(n.amount)
             .ok_or_else(|| bad("token overflow"))?;
+        token_input_value = token_input_value
+            .checked_add(e.amount)
+            .ok_or_else(|| bad("token reserve overflow"))?;
         token_inputs.push((i, raw));
         if !recovery {
             expected_signatures.insert(i);
@@ -368,6 +377,16 @@ pub(crate) fn validate(
     if selected != expected_signatures || token_inputs.len() > 3 {
         return Err(bad("unexpected signing inputs"));
     }
+    // A token piece's KAS reserve is not fixed by the order version. Forge
+    // preserves existing token-input reserves (e.g. ROCKET: 4 -> 3 + 1 KAS),
+    // while smaller inputs may need funding up to the ordinary 1-KAS floor.
+    // Derive the ceiling from independently checked inputs, never an API claim.
+    let change_reserve = if action == "order-sell" && token_total > num(st, "amount")? {
+        100_000_000
+    } else {
+        0
+    };
+    let order_reserve_ceiling = token_input_value.saturating_sub(change_reserve).max(100_000_000);
     let mut next = Vec::new();
     let mut owned_change = 0u64;
     let mut order_count = 0;
@@ -393,7 +412,7 @@ pub(crate) fn validate(
         let program = bytes(text(&s["outputRedeems"], &i.to_string())?)?;
         let n = parse_note(&program)?;
         let token_order =
-            !recovery && sell && i == num(&order["tokens"]["output"], "index")? as usize;
+            !recovery && action == "order-sell" && sell && i == num(&order["tokens"]["output"], "index")? as usize;
         let owner = if token_order {
             bytes(text(order, "scriptHash")?)?
         } else {
@@ -412,10 +431,19 @@ pub(crate) fn validate(
                         .as_str()
                         .is_some_and(|g| hex::encode(&n.guard) == g))
         };
+        let reserve_ceiling = if token_order {
+            order_reserve_ceiling
+        } else if !recovery && action == "merge" {
+            token_input_value.max(100_000_000)
+        } else {
+            100_000_000
+        };
+        if !(100_000_000..=reserve_ceiling).contains(&o.value) {
+            return Err(bad("token reserve differs from independently checked inputs"));
+        }
         if n.owner != owner
             || n.scheme != if token_order { 3 } else { 0 }
             || !policy
-            || o.value != if token_order {order_token_deposit} else {100_000_000}
             || binding.covenant_id.to_string() != text(st, "kcc20")?
             || !token_inputs
                 .iter()
@@ -440,6 +468,13 @@ pub(crate) fn validate(
     if token_total != token_outputs {
         return Err(bad("token conservation failed"));
     }
+    let reserve_shortfall = (next.len() as u64)
+        .checked_mul(100_000_000)
+        .ok_or_else(|| bad("token reserve overflow"))?
+        .saturating_sub(token_input_value);
+    let reserve_and_fee_budget = reserve_shortfall
+        .checked_add(fee)
+        .ok_or_else(|| bad("funding budget overflow"))?;
     for (position, (i, program)) in token_inputs.iter().enumerate() {
         let (expected, _) = witness(&next, program, position == 0, recovery)?;
         if if recovery {
@@ -491,7 +526,7 @@ pub(crate) fn validate(
                 || order_count != 0
                 || next.len() != 1
                 || tx.outputs.len() != 2
-                || funding.saturating_sub(owned_change) > 5_000_000
+                || funding.saturating_sub(owned_change) > reserve_and_fee_budget
             {
                 return Err(bad("merge moves funds outside wallet"));
             }
@@ -505,8 +540,9 @@ pub(crate) fn validate(
                 if action != "order-sell"
                     || num(st, "amount")? != num(s, "amount")?
                     || num(st, "minSompi")? < num(s, "minimumOut")?
-                    || funding.saturating_sub(owned_change) > order_token_deposit + 100_000_000 + fee
+                    || funding.saturating_sub(owned_change) > reserve_and_fee_budget.checked_add(100_000_000).ok_or_else(|| bad("funding budget overflow"))?
                     || token_inputs.is_empty()
+                    || next.len() != 1 + usize::from(token_total > num(st, "amount")?)
                     || num(&order["output"], "sompi")? != 100_000_000
                 {
                     return Err(bad("sale differs from review"));
@@ -594,6 +630,11 @@ mod tests {
         fixture_version_fee(sell,contracts,9_000_000)
     }
     fn fixture_version_fee(sell: bool, contracts: &str, fee: u64) -> (String, PsktRequest) {
+        let deposit=if sell && contracts!="3.3" {200_000_000}else{100_000_000};
+        let input_reserve=if sell && contracts!="3.3" {300_000_000}else{100_000_000};
+        fixture_reserves(sell, contracts, fee, input_reserve, deposit)
+    }
+    fn fixture_reserves(sell: bool, contracts: &str, fee: u64, input_reserve: u64, token_deposit: u64) -> (String, PsktRequest) {
         let secret = format!("private:{}", "01".repeat(32));
         let mut address = crate::derive_address(&secret).unwrap();
         address.prefix = Prefix::Testnet;
@@ -665,7 +706,6 @@ mod tests {
         )
         .to_string();
         let coin_value = if sell { 100000000 } else { 1099850000 };
-        let token_deposit=if sell && contracts!="3.3" {200_000_000}else{100_000_000};
         let mut order = serde_json::json!({"state":st,"redeemScript":hex::encode(&program),"scriptHash":hash(&program),"address":order_address,"output":{"sompi":coin_value,"index":if sell{2}else{0}}});
         let wallet = pay_to_address_script(&address);
         let mut inputs = vec![];
@@ -702,7 +742,7 @@ mod tests {
                 150,
             ));
             entries.push(UtxoEntry::new(
-                100000000,
+                input_reserve,
                 pay_to_script_hash_script(&old_script),
                 100,
                 false,
@@ -736,7 +776,7 @@ mod tests {
         ));
         outs.push(TransactionOutput::new(coin_value, spk));
         outs.push(TransactionOutput::new(
-            if sell { 3_900_000_000 - token_deposit - fee } else { 2_899_150_000 },
+            if sell { 4_000_000_000 + input_reserve - token_deposit - 200_000_000 - fee } else { 2_899_150_000 },
             wallet,
         ));
         let tx = Transaction::new(1, inputs, outs, 0, SUBNETWORK_ID_NATIVE, 0, vec![]);
@@ -749,6 +789,94 @@ mod tests {
             serde_json::from_str(&crate::kcc20::wrpc_safe_json(&tx, &entries).unwrap()).unwrap();
         let request=serde_json::from_value(serde_json::json!({"sender":address.to_string(),"profile":"kasforge-tn10-order-v1","txJsonString":raw.to_string(),"signInputs":(0..tx.inputs.len()).map(|i|serde_json::json!({"index":i,"sighashType":1})).collect::<Vec<_>>(),"scripts":scripts,"tradeSummary":{"order":order,"tokenId":cid,"marketId":market,"action":if sell{"order-sell"}else{"order-buy"},"chainDaa":"1000000","secondChainDaa":"1000000","amount":if sell{"1000"}else{"1000000000"},"maximumDebit":"1101000000","minimumOut":if sell{"100000000"}else{"1000"},"inputRedeems":input_redeems,"outputRedeems":output_redeems}})).unwrap();
         (secret, request)
+    }
+    #[test]
+    fn mainnet_orders_bind_network_and_execute_locally() {
+        for sell in [false,true] {
+            let (secret,mut r)=fixture(sell);
+            let tn_sender=r.sender.clone();
+            let mut sender=Address::try_from(r.sender.as_str()).unwrap();
+            sender.prefix=Prefix::Mainnet;
+            r.sender=sender.to_string();
+            r.profile=Some("kasforge-mainnet-order-v1".into());
+            let summary=r.trade_summary.as_mut().unwrap();
+            let tn_order=summary["order"]["address"].clone();
+            let mut order=Address::try_from(tn_order.as_str().unwrap()).unwrap();
+            order.prefix=Prefix::Mainnet;
+            summary["order"]["address"]=order.to_string().into();
+            let review=crate::prepare_pskt(&r).unwrap();
+            assert!(crate::sign_pskt(&secret,&r,&review.review_hash).is_ok());
+            let mut bad=r.clone();
+            bad.sender=tn_sender;
+            assert!(crate::prepare_pskt(&bad).is_err());
+            let mut bad=r.clone();
+            bad.profile=Some("kasforge-tn10-order-v1".into());
+            assert!(crate::prepare_pskt(&bad).is_err());
+            let mut bad=r.clone();
+            bad.trade_summary.as_mut().unwrap()["order"]["address"]=tn_order;
+            assert!(crate::prepare_pskt(&bad).is_err());
+            let mut bad=r.clone();
+            bad.trade_summary.as_mut().unwrap()["order"]["state"]["contracts"]="3.7".into();
+            assert!(crate::prepare_pskt(&bad).is_err());
+        }
+        let t=templates();
+        assert_eq!(t["ForgeBuyOrder"]["templateHash"],"e6592285d3730c9b2fedb30aad733e207ede80c78b50a91f6d708d93dd6526dd");
+        let (_,r)=fixture(false);
+        assert_eq!(order_program(&r.trade_summary.unwrap()["order"]).unwrap().len(),1249);
+    }
+    #[test]
+    fn sell_reserves_follow_verified_inputs_not_contract_version() {
+        for (version,input,deposit) in [("3.3",400_000_000,300_000_000),("3.8",50_000_000,100_000_000),("3.8",300_000_000,200_000_000)] {
+            let (secret,r)=fixture_reserves(true,version,9_000_000,input,deposit);
+            let review=crate::prepare_pskt(&r).unwrap();
+            assert!(crate::sign_pskt(&secret,&r,&review.review_hash).is_ok(),"{version} reserve {deposit}");
+        }
+        // A provider cannot fund an oversized reserve from ordinary wallet
+        // KAS merely by declaring it in summary.order.tokens.output.sompi.
+        for (input,deposit) in [(50_000_000,200_000_000),(400_000_000,400_000_000),(300_000_000,99_999_999)] {
+            let (_,r)=fixture_reserves(true,"3.8",9_000_000,input,deposit);
+            let error=crate::prepare_pskt(&r).unwrap_err().to_string();
+            assert!(error.contains("token reserve differs"),"{error}");
+        }
+    }
+    #[test]
+    fn merge_preparation_retains_wallet_ownership_and_bounded_reserves() {
+        let (secret, source)=fixture_version(true,"3.8");
+        let address=Address::try_from(source.sender.as_str()).unwrap();
+        let cid=source.trade_summary.as_ref().unwrap()["tokenId"].as_str().unwrap();
+        let old=Note{amount:2000,owner:address.payload.to_vec(),scheme:0,borrow:0,guard:vec![0;32]};
+        let merged=Note{amount:6000,..old.clone()};
+        let old_program=note_program(&old).unwrap();
+        let merged_program=note_program(&merged).unwrap();
+        for reserve in [100_000_000,300_000_000,300_000_001] {
+            let mut inputs=vec![];
+            let mut entries=vec![];
+            let mut scripts=vec![];
+            let mut ir=serde_json::json!({});
+            for i in 0..3 {
+                inputs.push(TransactionInput::new_with_compute_budget(TransactionOutpoint::new(format!("{:02x}",i+1).repeat(32).parse().unwrap(),0),vec![],0,150));
+                entries.push(UtxoEntry::new(100_000_000,pay_to_script_hash_script(&old_program),100,false,Some(cid.parse().unwrap())));
+                scripts.push(serde_json::json!({"inputIndex":i,"scriptHex":hex::encode(&old_program),"signType":1,"signatureScript":token_signature_template(&[merged.clone()],i==0)}));
+                ir[i.to_string()]=hex::encode(&old_program).into();
+            }
+            inputs.push(TransactionInput::new_with_compute_budget(TransactionOutpoint::new("22".repeat(32).parse().unwrap(),0),vec![],0,11));
+            entries.push(UtxoEntry::new(4_000_000_000,pay_to_address_script(&address),100,false,None));
+            let tx=Transaction::new(1,inputs,vec![
+                TransactionOutput::with_covenant(reserve,pay_to_script_hash_script(&merged_program),Some(CovenantBinding::new(0,cid.parse().unwrap()))),
+                TransactionOutput::new(4_300_000_000-reserve-9_000_000,pay_to_address_script(&address))
+            ],0,SUBNETWORK_ID_NATIVE,0,vec![]);
+            let mut summary=source.trade_summary.clone().unwrap();
+            summary["action"]="merge".into();
+            summary["inputRedeems"]=ir;
+            summary["outputRedeems"]=serde_json::json!({"0":hex::encode(&merged_program)});
+            let r:PsktRequest=serde_json::from_value(serde_json::json!({"sender":source.sender,"profile":"kasforge-tn10-order-v1","txJsonString":crate::kcc20::wrpc_safe_json(&tx,&entries).unwrap(),"signInputs":(0..4).map(|i|serde_json::json!({"index":i,"sighashType":1})).collect::<Vec<_>>(),"scripts":scripts,"tradeSummary":summary})).unwrap();
+            if reserve>300_000_000 {
+                assert!(crate::prepare_pskt(&r).unwrap_err().to_string().contains("token reserve differs"));
+            } else {
+                let review=crate::prepare_pskt(&r).unwrap();
+                assert!(crate::sign_pskt(&secret,&r,&review.review_hash).is_ok());
+            }
+        }
     }
     #[test]
     fn synthetic_buy_and_sell_sign_and_execute_locally() {
@@ -887,6 +1015,18 @@ mod tests {
             let review = crate::prepare_pskt(&r).unwrap();
             let result = crate::sign_pskt(&secret, &r, &review.review_hash);
             assert!(result.is_ok(), "{contracts} {sell} cancellation: {result:?}");
+            if contracts == "3.8" {
+                let mut mainnet=r.clone();
+                address.prefix=Prefix::Mainnet;
+                mainnet.sender=address.to_string();
+                mainnet.profile=Some("kasforge-mainnet-order-v1".into());
+                let order=&mut mainnet.trade_summary.as_mut().unwrap()["order"];
+                let mut address=Address::try_from(order["address"].as_str().unwrap()).unwrap();
+                address.prefix=Prefix::Mainnet;
+                order["address"]=address.to_string().into();
+                let review=crate::prepare_pskt(&mainnet).unwrap();
+                assert!(crate::sign_pskt(&secret,&mainnet,&review.review_hash).is_ok(),"Mainnet {sell} cancellation");
+            }
         }
         }
     }

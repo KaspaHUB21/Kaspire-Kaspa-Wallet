@@ -22,23 +22,56 @@ class KasForgeConfirmationPending extends StateError {
       : super('Waiting for independent transaction confirmation.');
 }
 
-/// TN10 orders only. API responses never grant permission to sign a generic PSKT.
+/// API responses never grant permission to sign a generic PSKT.
 class KasForgeTrading {
   KasForgeTrading(
-      {http.Client? client, EncryptedStore? store, NativeSecurity? security})
+      {http.Client? client,
+      EncryptedStore? store,
+      NativeSecurity? security,
+      bool? mainnet})
       : client = client ?? http.Client(),
         store = store ?? const KeystoreEncryptedStore(),
-        security = security ?? NativeSecurity();
+        security = security ?? NativeSecurity(),
+        service = KasForgeService(client: client, mainnet: mainnet);
   final http.Client client;
   final EncryptedStore store;
   final NativeSecurity security;
   final progress = ValueNotifier<String?>(null);
   static final _busy = <String>{};
-  static const api = '${KasForgeService.origin}/api/v1';
-  void guard(String address) => KasForgeService().guard(address);
-  String _key(String address) => 'kasforge_tn10_orders_v1_$address';
+  final KasForgeService service;
+  bool get mainnet => service.mainnet;
+  String get network => service.network;
+  String get profile =>
+      mainnet ? 'kasforge-mainnet-order-v1' : 'kasforge-tn10-order-v1';
+  String get api => '${service.origin}/api/v1';
+  String get node => mainnet
+      ? 'https://kaspire.kaslab.space/api/local-node'
+      : 'https://api-tn10.kaspa.org';
+
+  /// Only used before signing, while preparing an unsigned quote/order.
+  static String preparationError(Object error) {
+    if (error is PlatformException) {
+      final message = error.message ?? '';
+      final marker = message.indexOf('KasForge:');
+      final detail = marker >= 0
+          ? message.substring(marker).trim()
+          : 'KasForge could not verify this order. Refresh the quote and retry.';
+      return '$detail\nNothing was signed or submitted.';
+    }
+    return error is StateError ? error.message : '$error';
+  }
+
+  void guard(String address) => service.guard(address);
+  String _key(String address) =>
+      'kasforge_${mainnet ? 'mainnet' : 'tn10'}_orders_v1_$address';
   @visibleForTesting
-  Future<List<int>> readClocks() => BraidClock(client).read();
+  Future<List<int>> readClocks() async {
+    service.guard();
+    final clocks = await BraidClock(client, mainnet: mainnet).read();
+    service.guard();
+    return clocks;
+  }
+
   Future<T> exclusive<T>(String address, Future<T> Function() f) async {
     if (!_busy.add(address)) {
       throw StateError('A Forge order is already being processed.');
@@ -84,7 +117,13 @@ class KasForgeTrading {
       throw StateError(
           'Saved Forge orders are unreadable. Do not create a replacement.');
     }
-    return rows.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+    return rows.map((r) {
+      if (r is! Map || r['address'] != address || r['network'] != network) {
+        throw StateError(
+            'Saved Forge order belongs to another wallet or network.');
+      }
+      return Map<String, dynamic>.from(r);
+    }).toList();
   }
 
   Future<Map<String, dynamic>?> pending(String address) async {
@@ -96,7 +135,7 @@ class KasForgeTrading {
 
   Future<void> retain(String address, Map<String, dynamic> receipt) async {
     guard(address);
-    if (receipt['address'] != address || receipt['network'] != 'testnet-10') {
+    if (receipt['address'] != address || receipt['network'] != network) {
       throw StateError(
           'Saved Forge order belongs to another wallet or network.');
     }
@@ -139,24 +178,29 @@ class KasForgeTrading {
   String _address(String packed) {
     if (RegExp(r'^000020[a-f0-9]{64}ac$').hasMatch(packed)) {
       return kaspaAddressFromOwnerId(packed.substring(6, 70),
-          prefix: 'kaspatest');
+          prefix: service.prefix);
     }
     if (RegExp(r'^0000aa20[a-f0-9]{64}87$').hasMatch(packed)) {
       return kaspaScriptHashAddress(packed.substring(8, 72),
-          prefix: 'kaspatest');
+          prefix: service.prefix);
     }
     throw StateError('Unsupported Forge input script.');
   }
 
   Future<List> live(String address) async {
+    service.guard();
+    if (!address.startsWith('${service.prefix}:'))
+      throw StateError('Wrong Forge input network.');
     final r = await client
-        .get(Uri.parse('https://kaspire.kaslab.space/dex-test-v1/kasseal/utxos')
+        .get(Uri.parse(
+                'https://kaspire.kaslab.space/dex-test-v1/${mainnet ? 'kasseal-mainnet' : 'kasseal'}/utxos')
             .replace(queryParameters: {'address': address}))
         .timeout(const Duration(seconds: 15));
+    service.guard();
     final d = jsonDecode(r.body);
     if (r.statusCode != 200 ||
         d is! Map ||
-        d['network'] != 'testnet-10' ||
+        d['network'] != network ||
         d['covenantIdsIncluded'] != true ||
         d['entries'] is! List) {
       throw StateError(
@@ -224,6 +268,8 @@ class KasForgeTrading {
   Future<Map<String, dynamic>> build(String address, KasForgeToken token,
       String side, String amount, Map quote) async {
     guard(address);
+    if (token.network != network)
+      throw StateError('KasForge token belongs to another network.');
     if (quote['tokenId'] != token.id ||
         quote['side'] != side ||
         quote['localAmount'] != amount ||
@@ -243,7 +289,8 @@ class KasForgeTrading {
     final current = token.withMarket(market['market'] as Map);
     final contracts = (market['market'] as Map)['contracts'];
     if (current.activeMarket != quote['marketId'] ||
-        !const {'3.3', '3.4', '3.5', '3.6', '3.7', '3.8'}.contains(contracts)) {
+        !const {'3.3', '3.4', '3.5', '3.6', '3.7', '3.8'}.contains(contracts) ||
+        (mainnet && contracts != '3.8')) {
       throw StateError(
           'Forge market or contract changed. Reload before quoting.');
     }
@@ -389,7 +436,7 @@ class KasForgeTrading {
       }
       final request = <String, Object?>{
         'sender': address,
-        'profile': 'kasforge-tn10-order-v1',
+        'profile': profile,
         'txJsonString': jsonEncode(tx),
         'signInputs': item['signInputs'],
         'scripts': scripts,
@@ -428,7 +475,7 @@ class KasForgeTrading {
       'contracts': contracts,
       'stepSubmit': b['stepSubmit'] == true,
       'address': address,
-      'network': 'testnet-10',
+      'network': network,
       'tokenId': token.id,
       'symbol': token.symbol,
       'side': side,
@@ -487,6 +534,7 @@ class KasForgeTrading {
           await verify(address, tx,
               receipt['stepSubmit'] == true ? <String, Map>{} : parents);
           progress.value = 'Authorize step ${i + 1} of ${requests.length}';
+          guard(address);
           final result =
               await security.signPskt(request, '${reviews[i]['reviewHash']}');
           if (result['transactionId'] != receipt['transactionIds'][i]) {
@@ -746,7 +794,7 @@ class KasForgeTrading {
       final request = Map<String, Object?>.from(requests[i] as Map);
       final expected = '${ids[i]}';
       if (request['sender'] != address ||
-          request['profile'] != 'kasforge-tn10-order-v1' ||
+          request['profile'] != profile ||
           !RegExp(r'^[a-f0-9]{64}$').hasMatch(expected)) {
         throw StateError(
             'Saved Forge signing identity differs. Recovery retained.');
@@ -805,9 +853,11 @@ class KasForgeTrading {
   }
 
   Future<bool> accepted(String id) async {
+    service.guard();
     final response = await client
-        .get(Uri.parse('https://api-tn10.kaspa.org/transactions/$id'))
+        .get(Uri.parse('$node/transactions/$id'))
         .timeout(const Duration(seconds: 15));
+    service.guard();
     if (response.statusCode == 404) return false;
     if (response.statusCode != 200) {
       throw StateError(
@@ -1027,7 +1077,7 @@ class KasForgeTrading {
     await verify(address, tx, {});
     return {
       'sender': address,
-      'profile': 'kasforge-tn10-order-v1',
+      'profile': profile,
       'txJsonString': jsonEncode(tx),
       'signInputs': [
         {'index': ci, 'sighashType': 1}
@@ -1106,6 +1156,7 @@ class KasForgeTrading {
         throw StateError(
             'Cancellation fee differs from the confirmed terms. Nothing was signed.');
       }
+      guard(address);
       final result =
           await security.signPskt(request, '${review['reviewHash']}');
       receipt['cancelSigned'] = result['wrpcJson'];
@@ -1126,8 +1177,11 @@ class KasForgeTrading {
     await retain(address, receipt);
   }
 
-  Future<void> broadcastSaved(Map tx, String id) =>
-      BraidClock(client).broadcast(tx, id).then((_) {});
+  Future<void> broadcastSaved(Map tx, String id) async {
+    service.guard();
+    await BraidClock(client, mainnet: mainnet).broadcast(tx, id);
+    service.guard();
+  }
 
   Future<bool> _prepareFundingRecovery(
       String address, Map<String, dynamic> receipt) async {
@@ -1135,7 +1189,7 @@ class KasForgeTrading {
     final requests = receipt['requests'] as List;
     final ids = (receipt['transactionIds'] as List).cast<String>();
     if (receipt['address'] != address ||
-        receipt['network'] != 'testnet-10' ||
+        receipt['network'] != network ||
         requests.isEmpty ||
         ids.length != requests.length ||
         signed.length > requests.length) {
@@ -1224,8 +1278,8 @@ class KasForgeTrading {
     final conflict = await findConfirmedSwapConflict(
         tx: jsonDecode('${request['txJsonString']}') as Map,
         savedIds: ids.toSet(),
-        node: 'https://api-tn10.kaspa.org',
-        prefix: 'kaspatest:',
+        node: node,
+        prefix: '${service.prefix}:',
         read: (url) async {
           final response = await client
               .get(Uri.parse(url))
@@ -1250,7 +1304,7 @@ class KasForgeTrading {
       String address, Map<String, dynamic> receipt) async {
     guard(address);
     final requests = receipt['requests'] as List;
-    if (receipt['address'] != address || receipt['network'] != 'testnet-10') {
+    if (receipt['address'] != address || receipt['network'] != network) {
       throw StateError(
           'This saved plan requires its existing contract recovery. No payment was signed.');
     }
@@ -1320,7 +1374,7 @@ class KasForgeTrading {
     guard(address);
     final id = '${receipt['cancelId']}';
     final response = await client
-        .get(Uri.parse('https://api-tn10.kaspa.org/transactions/$id'))
+        .get(Uri.parse('$node/transactions/$id'))
         .timeout(const Duration(seconds: 15));
     final tx = jsonDecode(response.body);
     if (response.statusCode != 200 ||
@@ -1393,7 +1447,7 @@ class KasForgeTrading {
       throw StateError('Invalid final Forge transaction ID.');
     }
     final r = await client
-        .get(Uri.parse('https://api-tn10.kaspa.org/transactions/$id'))
+        .get(Uri.parse('$node/transactions/$id'))
         .timeout(const Duration(seconds: 15));
     if (r.statusCode == 404) throw KasForgeConfirmationPending();
     if (r.statusCode != 200) {

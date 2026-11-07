@@ -1,4 +1,4 @@
-//! Unsigned TN10 order diagnostic. No key or signing entry point.
+//! Unsigned KasForge order diagnostic. No key or signing entry point.
 use std::io::{self, Read};
 fn main() {
     let mut raw = String::new();
@@ -12,7 +12,7 @@ fn main() {
         let self_return = std::env::args().any(|a| a == "--self-return")
             && r.profile.is_none()
             && r.sender.starts_with("kaspatest:");
-        if r.profile.as_deref() != Some("kasforge-tn10-order-v1") && !self_return {
+        if !matches!(r.profile.as_deref(), Some("kasforge-tn10-order-v1" | "kasforge-mainnet-order-v1")) && !self_return {
             return Err("Forge profile required".into());
         }
         serde_json::to_string(&kaspa_secure_core::prepare_pskt(&r).map_err(|e| e.to_string())?)

@@ -35,14 +35,24 @@ void main() {
     }
   });
 
-  test('catalog is limited to nine approved browser sites, Braid fourth', () {
-    expect(browserDapps, hasLength(9));
+  test('catalog is limited to twelve approved browser sites, Braid fourth', () {
+    expect(browserDapps, hasLength(12));
     expect(browserDapps[3].name, 'Braid');
     expect(browserDapps[3].url, 'https://app.braidswap.com/');
     expect(browserDapps.map((d) => d.home.host).toSet(),
         DappBrowserPolicy.approvedHosts);
     for (final dapp in browserDapps) {
       expect(DappBrowserPolicy.approvedPage(dapp.home), isTrue);
+      for (final invalid in [
+        dapp.home.replace(scheme: 'http'),
+        dapp.home.replace(host: '${dapp.home.host}.evil.example'),
+        dapp.home.replace(host: 'www.${dapp.home.host}'),
+        dapp.home.replace(port: 444),
+        dapp.home.replace(userInfo: 'user'),
+      ]) {
+        expect(DappBrowserPolicy.approvedPage(invalid), isFalse,
+            reason: invalid.toString());
+      }
       expect(
           DappBrowserPolicy.sameDapp(
               dapp.home.resolve('/account?tab=nfts'), dapp.home),

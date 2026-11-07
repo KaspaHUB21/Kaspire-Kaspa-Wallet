@@ -1,4 +1,110 @@
-# KasForge TN10 integration
+# KasForge integration
+
+## Android public 0.11.97 / build 242
+
+Promotes the user-confirmed Mainnet build 241 and reserve fix 240 to the public
+Android channel. Cumulative changes since 0.11.94 are recorded in
+[the release notes](release-v0.11.97.md). Both official-site and GitHub-release
+APK downloads use the existing signed manifest and Android signing identity.
+Extension, iOS and Windows are not updated by this Android release.
+
+The browser adds exact origins for KasForge, KasForge Vaults and ANTX Universe;
+KasCoven Vaults remains accessible and moves to the last position. Official
+local icon sources, checked 2026-11-07:
+
+- KasForge: `https://kaspa.pumpforge.tech/kasforge/apple-touch-icon.png`
+  (identical to the existing bundled `kasforge.png`).
+- KasForge Vaults: the inline SVG favicon from `https://vault.pumpforge.tech/`.
+- ANTX Universe: the inline SVG favicon from `https://universe.antx.world/`.
+
+The two SVGs reproduce the official artwork without scripts or remote resources.
+Only catalogue/navigation entries are added; browser signing and download
+permissions are not broadened.
+
+## Android test APK 0.11.96 / build 241 — Mainnet
+
+Direct download:
+https://kaspire.kaslab.space/downloads/Kaspire-Android-v0.11.96-Forge-test.apk
+SHA-256: `4a88939e085b19d3f50c739818b63e7f4639dbe9db058a2253b2ffa47755256b`.
+Both packaged Android ABIs match their verified native builds after stripping.
+The existing release certificate/lineage, package ID, build/version, public
+client configuration and package exclusions were checked. The complete HTTP
+download matches the signed local artifact and returns APK content headers.
+
+KasForge is the last Mainnet Swap entry after KaspaRocket, Kasseal, Braid,
+KForge and KRON. It retains the existing themed catalogue, DEX/activity tabs,
+KAS-budget buys, whole-token sells, order review, automatic status checks,
+encrypted same-byte journal and independently checked recovery. The reserve
+correction from test build 240 is included.
+
+Instances pin their network for their entire lifetime. Mainnet uses
+`https://kaspa.pumpforge.tech/api/v1` and `/api/kaspa/forge/tokenlist`;
+TN10 now uses `https://kaspa.testnet.pumpforge.tech/api/v1` and
+`/api/kaspa-tn/forge/tokenlist`. Network changes reject in-flight results.
+Indexed Mainnet KasForge balances, names and logos join progressive assets;
+this does not enable unverified generic transfers of these tokens.
+
+The new `kasforge-mainnet-order-v1` native policy requires Mainnet sender and
+order addresses and contract version 3.8. Buy v5 and sell v4 use the same
+locally reconstructed public SDK 0.5.1 templates. The buy program is 1,249
+bytes and pins template hash
+`e6592285d3730c9b2fedb30aad733e207ede80c78b50a91f6d708d93dd6526dd`.
+Mainnet UTXOs, transaction acceptance, conflict lookup, two independent clocks
+and cancellation broadcast use the existing Mainnet node paths. Mainnet and
+TN10 encrypted journal keys are distinct; existing TN10 keys remain unchanged.
+
+Public unsigned TKFORGE Mainnet buy and sell builds were captured after the
+announced launch, together with independently read UTXOs and chain clocks.
+The actual Dart adapter and native inspector accept these captured plans.
+Synthetic Mainnet buy/sell and cancellation witnesses are checked in the local
+script VM; network/profile substitutions and obsolete Mainnet contract versions
+reject. No real funds were signed or submitted, and no physical-device
+settlement is claimed. Original confidential partner kits are not distributed.
+
+Validation: 166 Rust tests and 1,143 full Flutter tests passed (17 explicit
+opt-in skips). The final focused run passed 134 tests (one opt-in skip),
+including current public Mainnet buy/sell plans, old TN10 reserve fixtures,
+cross-network failures, separate journals, recovery and all-theme DEX ordering.
+Dart analysis has no compile errors or warnings; seven non-blocking brace-style
+information messages remain in the focused source/test selection.
+
+This is a separate test APK. Public Android update channels, website content,
+GitHub releases, extension, iOS and Windows remain unchanged.
+
+## Android test APK 0.11.95 / build 240 — input-bounded sell reserves
+
+Separate test download; Android's public update channel remains 0.11.94:
+https://kaspire.kaslab.space/downloads/Kaspire-Android-v0.11.95-Forge-test.apk
+Checksum:
+https://kaspire.kaslab.space/downloads/Kaspire-Android-v0.11.95-Forge-test.apk.sha256
+
+Sell-order token reserves are not fixed by contract version. Current unsigned
+API captures reproduce both rejected cases: ROCKET 3.3 preserves a 4-KAS input
+as a 3-KAS order piece plus 1-KAS token change; a 3.8 sale tops up a historical
+0.5-KAS input into two 1-KAS pieces. The earlier fixed 1-/2-KAS rule rejected
+these before signing. The exact `summary.order.tokens.output.sompi` must still
+match the actual output, but its upper bound now comes from independently
+checked token-input value and the ordinary minimum reserve. Ordinary-wallet
+funding is separately limited to minimum reserve shortfall, the 1-KAS order
+coin and the independently bounded, reviewed network fee. An API-supplied
+deposit value never authorizes arbitrary extra wallet funding.
+
+Merge preparations retain wallet ownership, rather than being mistaken for
+the final order-owned output at the same index. Conservation, output counts,
+owner/receive-policy checks, pinned contracts, signature templates, fresh
+own-node checks, review binding and exact saved-byte recovery remain enforced.
+The review shows the exact refundable token/order reserves; unsigned native
+rejections no longer expose raw JNI/PlatformException wrappers.
+
+Validation: 165 Rust tests; 1,136 full Flutter tests; 95 focused KasForge tests,
+including the current public unsigned ROCKET and 3.8 builds with independently
+captured live UTXOs and two TN10 chain clocks. Synthetic sell/merge/cancellation
+transactions execute in the local script VM. No funded trade, live signature,
+trade submission or physical-device settlement is claimed. Actual APK ABIs,
+native build identity, policy/UI markers, release certificate and public-client
+configuration are checked before the direct download is enabled. Confidential
+partner sources are not packaged. Extension, iOS, website content, GitHub
+releases and the public Android update manifest are unchanged.
 
 ## Android test APK 0.11.88 / build 233 — contracts 3.8
 
