@@ -104,10 +104,21 @@ class Kcc20StandardService {
   static const tenTemplateId = 'argent-kcc20-c8a0871-10x10';
   static const tenTemplateHash =
       'ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b';
+  // Pre-final KCC20 experiments are not supported signing programs. Only
+  // these two identifiers of the same legacy template are exempt from warnings
+  // (Kascov KCC1 identifier and canonical SilverScript hash, respectively).
+  static const obsoleteTemplateHashes = {
+    '9bf2df2cd4a05b8124082c868e79c52eb4d719362af2e1a75c025cfb50a2844e',
+    '36205a78ae657a7f1db798f6c52925ca82aca7361df71ef6a8202ce05aa7ec5f',
+  };
+
+  static Object? _templateHash(Map row) =>
+      row['template_hash'] ??
+      map(row['program'])['template_hash'] ??
+      map(row['configuration'])['template_hash'];
+
   static String? tokenTemplate(Map row) {
-    final hash = row['template_hash'] ??
-        map(row['program'])['template_hash'] ??
-        map(row['configuration'])['template_hash'];
+    final hash = _templateHash(row);
     if (hash != null) {
       if (hash == templateHash) return templateId;
       if (hash == tenTemplateHash) return tenTemplateId;
@@ -290,6 +301,7 @@ class Kcc20StandardService {
         }
       } catch (_) {
         if (page == 0) rethrow;
+        coverageComplete = false;
         warnings.add(
             'Some standard KCC20 holdings could not be loaded. Previously discovered holdings are retained.');
         break;
@@ -316,11 +328,18 @@ class Kcc20StandardService {
                 map((await get('$base/tokens/$cid', priority: true))['data']);
             final program = tokenTemplate(token);
             if (rowId(token) == cid &&
+                obsoleteTemplateHashes.contains(_templateHash(token))) {
+              return;
+            }
+            final venue = map(token['market'])['venue'];
+            if (rowId(token) == cid &&
                 token['recognition'] ==
                     'hash_proven_parameterized_actor_family' &&
-                token['profile_id'] == 'KCC20Parameterized@v1-i10-o10' &&
-                map(token['market'])['venue'] == 'kasparocket') {
-              // Discovered and verified by the separate KaspaRocket path;
+                ((token['profile_id'] == 'KCC20Parameterized@v1-i10-o10' &&
+                        venue == 'kasparocket') ||
+                    (token['profile_id'] == 'KCC20Parameterized@v1-i6-o6' &&
+                        venue == 'kforge'))) {
+              // Discovered and verified by the dedicated venue path;
               // this is not a failed reference-actor holding or a signing pin.
               return;
             }
@@ -362,6 +381,7 @@ class Kcc20StandardService {
               throw StateError('Invalid KCC20 ticker.');
             }
             if (row['balance_complete'] != true) {
+              coverageComplete = false;
               warnings.add(
                   'Some standard KCC20 balances have incomplete coverage.');
             }
@@ -384,6 +404,7 @@ class Kcc20StandardService {
                     : null);
             publish();
           } catch (_) {
+            coverageComplete = false;
             warnings.add(
                 'Some standard KCC20 holdings could not be verified. Refresh to retry.');
           }
@@ -398,6 +419,7 @@ class Kcc20StandardService {
           next.length > 4096 ||
           !cursors.add(next) ||
           page == 19) {
+        coverageComplete = false;
         warnings.add(
             'Standard KCC20 address pagination is incomplete. Refresh to retry.');
         break;

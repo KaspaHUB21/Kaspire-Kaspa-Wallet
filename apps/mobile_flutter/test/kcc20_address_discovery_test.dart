@@ -197,6 +197,133 @@ void main() {
     expect(value.assets, isEmpty);
     expect(value.warning, isEmpty);
   });
+  test('KForge 6x6 holdings are delegated without a standard-token warning',
+      () async {
+    final value = await Kcc20StandardService(source(
+        tokenResponse: reply({
+      ...token(),
+      'profile_id': 'KCC20Parameterized@v1-i6-o6',
+      'recognition': 'hash_proven_parameterized_actor_family',
+      'market': {'venue': 'kforge'},
+      'token_units': {'status': 'unknown', 'decimals': null},
+    }))).load(address, historyLimit: 0);
+    expect(value.assets, isEmpty);
+    expect(value.warning, isEmpty);
+  });
+  test('delegation cannot hide wrong identities or unknown venue programs',
+      () async {
+    for (final override in [
+      {'covenant_id': 'd' * 64},
+      {'profile_id': 'KCC20Parameterized@v1-i99-o99'},
+      {
+        'market': {'venue': 'other'}
+      },
+      {'recognition': 'unverified'},
+    ]) {
+      final value = await Kcc20StandardService(source(
+          tokenResponse: reply({
+        ...token(),
+        'profile_id': 'KCC20Parameterized@v1-i6-o6',
+        'recognition': 'hash_proven_parameterized_actor_family',
+        'market': {'venue': 'kforge'},
+        ...override,
+      }))).load(address, historyLimit: 0);
+      expect(value.warning, contains('could not be verified'));
+      expect(value.coverageComplete, false);
+    }
+  });
+  test('only the identified obsolete template is quietly excluded', () async {
+    for (final legacy in Kcc20StandardService.obsoleteTemplateHashes) {
+      for (final location in ['template_hash', 'program', 'configuration']) {
+        final detail = {
+          ...token(),
+          location:
+              location == 'template_hash' ? legacy : {'template_hash': legacy},
+        };
+        final value =
+            await Kcc20StandardService(source(tokenResponse: reply(detail)))
+                .load(address, historyLimit: 0);
+        expect(value.assets, isEmpty);
+        expect(value.warning, isEmpty);
+        final mismatch = await Kcc20StandardService(source(
+                tokenResponse: reply({...detail, 'covenant_id': 'd' * 64})))
+            .load(address, historyLimit: 0);
+        expect(mismatch.warning, isNotEmpty);
+      }
+    }
+  });
+  test('healthy Kasvio reads never query Kascov or the retiring legacy API',
+      () async {
+    for (final complete in [true, false]) {
+      final fallbackReads = <String>[];
+      final upstream = source(
+          addressResponse: reply([
+        holding()
+      ], context: {
+        ...context(complete: complete),
+        'unknown_tokens_attributable_to_address': false,
+      }, pagination: {
+        'has_more': false,
+        'next_cursor': null
+      }));
+      final api = KaspaApi(client: MockClient((r) async {
+        if (r.url.host == 'kasvio.network' && r.url.path.contains('/kcc20/v1/'))
+          return upstream.get(r.url);
+        if (r.url.host == 'kascov.io' || r.url.host == 'kcc20.info') {
+          fallbackReads.add(r.url.toString());
+          return http.Response('{}', 503);
+        }
+        if (r.url.path.endsWith('/balance')) {
+          return http.Response('{"balance":0}', 200);
+        }
+        if (r.url.path.endsWith('/utxos')) return http.Response('[]', 200);
+        return http.Response('{}', 503);
+      }));
+      final snapshots = <WalletSnapshot>[];
+      final result = await api.loadWallet(address,
+          includeAssetHistory: false,
+          includeNativeTransactions: false,
+          includeMarketData: false,
+          onProgress: snapshots.add);
+      expect(result.kcc20Tokens.single.symbol, 'NACHO');
+      expect(fallbackReads, isEmpty);
+      for (final snapshot in [...snapshots, result]) {
+        final warning = snapshot.assetWarning ?? '';
+        expect(warning, isNot(contains('top 100')));
+        expect(warning, isNot(contains('Legacy KCC20 sources')));
+        expect(warning, isNot(contains('could not be verified')));
+      }
+      if (!complete) expect(result.assetDiscoveryComplete, false);
+    }
+  });
+  test('Kasvio outage stays visible even when fallback reports no holdings',
+      () async {
+    var kasvioFailed = false;
+    final api = KaspaApi(client: MockClient((r) async {
+      if (r.url.host == 'kasvio.network' && r.url.path.contains('/kcc20/v1/')) {
+        kasvioFailed = true;
+        return http.Response('{}', 503);
+      }
+      if (r.url.host == 'kascov.io') {
+        expect(kasvioFailed, true);
+        return http.Response(
+            jsonEncode({'pubkey': owner, 'token_holdings': []}), 200);
+      }
+      if (r.url.host == 'kcc20.info')
+        fail('Not needed after a valid Kascov read');
+      if (r.url.path.endsWith('/balance'))
+        return http.Response('{"balance":0}', 200);
+      if (r.url.path.endsWith('/utxos')) return http.Response('[]', 200);
+      return http.Response('{}', 503);
+    }));
+    final result = await api.loadWallet(address,
+        includeAssetHistory: false,
+        includeNativeTransactions: false,
+        includeMarketData: false);
+    expect(result.assetWarning,
+        contains('Kasvio KCC20 data is temporarily unavailable'));
+    expect(result.assetDiscoveryComplete, false);
+  });
   test('verified 0, 3 and 8 decimal units remain exact on the address path',
       () async {
     for (final decimals in [0, 3, 8]) {
@@ -461,6 +588,30 @@ void main() {
     expect(assets.single.standard, 'kron-native');
     expect(assets.single.balance, 1);
   });
+  final hotfixSnapshot = Platform.environment['KASPIRE_KCC20_HOTFIX_SNAPSHOT'];
+  test('captured goatmilk Kasvio holdings have no spurious standard warning',
+      () async {
+    final snapshot =
+        jsonDecode(File(hotfixSnapshot!).readAsStringSync()) as Map;
+    final replies = snapshot['responses'] as Map;
+    final result = await Kcc20StandardService(MockClient((request) async {
+      final response = replies[request.url.toString()];
+      if (response == null)
+        throw StateError('Uncaptured request ${request.url}');
+      return http.Response(jsonEncode(response), 200);
+    })).load(snapshot['address'] as String, historyLimit: 0);
+    expect(result.warning, isEmpty);
+    expect(
+        result.assets
+            .any((asset) => asset.symbol == 'KASPIREISTHEBESTKASPAWALLET'),
+        true);
+    expect(result.assets.every((asset) => asset.standard == 'kcc20'), true);
+    // Global unknown contracts are not silently re-labelled as full coverage.
+    expect(result.coverageComplete, false);
+  },
+      skip: hotfixSnapshot == null
+          ? 'Requires public read-only Kasvio capture'
+          : false);
   test('live public address discovery (read-only, opt-in)', () async {
     final client = HttpOverrides.runWithHttpOverrides(
         () => http.Client(), _LiveHttpOverrides());

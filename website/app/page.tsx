@@ -10,7 +10,7 @@ const highlights = [
   {
     number: "01",
     title: "One wallet. Every Kaspa asset.",
-    copy: "Hold and move KAS, KRC20, KRC721, KNS, KCC20, and Kasplex/Igra L2 assets. Android and the browser extension support the pinned KCC20 reference profile, with own-node cell checks and independent local covenant validation.",
+    copy: "Hold and move KAS, KRC20, KRC721, KNS, KCC20, and Kasplex/Igra L2 assets. Android and the browser extension support the pinned KCC20 reference profile, with own-node cell checks and independent local covenant validation. Android loads standard KCC20 holdings primarily from Kasvio, using Kascov only when fallback data is needed; known unsupported pre-final token contracts do not produce wallet error notices.",
     tags: ["KAS", "KRC-20", "KRC-721", "KNS", "KCC20"],
   },
   {

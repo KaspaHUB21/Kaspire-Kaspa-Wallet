@@ -777,6 +777,7 @@ void main() {
     for (final template in [
       '9bf2df2cd4a05b8124082c868e79c52eb4d719362af2e1a75c025cfb50a2844e',
       '36205a78ae657a7f1db798f6c52925ca82aca7361df71ef6a8202ce05aa7ec5f',
+      'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
     ]) {
       final client = MockClient((r) async {
         if (r.url.host == 'kascov.io') {
@@ -831,7 +832,8 @@ void main() {
       expect(asset.discoveryComplete, false);
       expect(asset.templateHash, template);
       final message = snapshot.assetWarning ?? '';
-      if (template.startsWith('9bf2')) {
+      expect(message, isNot(contains('top 100')));
+      if (!template.startsWith('ffff')) {
         expect(message, isNot(contains('mapped to complete signing')));
       } else {
         expect(message, contains('mapped to complete signing'));
@@ -964,7 +966,7 @@ void main() {
     expect(activity.to.single.ownerId, owner);
   });
 
-  test('queries KCC20.info and Kascov concurrently when signing-ready',
+  test('retiring legacy API is used only after Kasvio and Kascov fail',
       () async {
     const owner =
         '1bacea84ca721c95d67ecace19bc499a77c03726bc8739af637bcd89abaaf058';
@@ -1013,7 +1015,7 @@ void main() {
       if (request.url.host == 'kascov.io') {
         if (request.url.path.contains('/addr/')) {
           resolvedThroughKascov = true;
-          return http.Response('{"pubkey":"$owner"}', 200);
+          return http.Response('{}', 503);
         }
         if (request.url.path.endsWith('/token/$covenant')) {
           return http.Response(

@@ -1405,14 +1405,11 @@ class KaspaApi {
     int historyLimit = 20,
     void Function(_Kcc20Wallet)? onProgress,
   }) async {
-    _Kcc20Wallet? primaryProgress;
     _Kcc20Wallet? fallbackProgress;
     _Kcc20Wallet? kronProgress;
     _Kcc20Wallet? standardProgress;
     void publish() {
-      var value = primaryProgress != null && fallbackProgress != null
-          ? _mergeKcc20Wallets(primaryProgress!, fallbackProgress!)
-          : primaryProgress ?? fallbackProgress;
+      var value = fallbackProgress;
       if (kronProgress != null) value = _withKronHoldings(value, kronProgress!);
       if (standardProgress != null) {
         value = _withStandardHoldings(value, standardProgress!);
@@ -1420,66 +1417,72 @@ class KaspaApi {
       if (value != null) onProgress?.call(value);
     }
 
-    // Query both independent indexers at the same time. KCC20.info remains the
-    // preferred source, but a failed or incomplete response can immediately be
-    // repaired with Kascov data without waiting for a second request round.
-    final results = await Future.wait<_Kcc20Wallet?>([
-      _loadKcc20WalletFromIndexer(address).then<_Kcc20Wallet?>((value) {
-        primaryProgress = value;
+    // Kasvio is primary. Global coverage gaps not attributable to this wallet
+    // do not justify a competing legacy scan. Preserve its partial-state flag,
+    // but only consult Kascov on actual account read/verification failures.
+    Future<void> loadFallback() async {
+      try {
+        fallbackProgress = await _loadKcc20WalletFromKascov(address);
         publish();
-        return value;
-      }).catchError((_) => null),
-      _loadKcc20WalletFromKascov(address).then<_Kcc20Wallet?>((value) {
-        fallbackProgress = value;
-        publish();
-        return value;
-      }).catchError((_) => null),
+      } catch (_) {
+        // Unavailable is not an empty wallet.
+      }
+      if (fallbackProgress == null ||
+          fallbackProgress!.signingIssues.isNotEmpty) {
+        try {
+          // Last-resort compatibility only; the retiring KCC20.info API is
+          // neither a primary source nor a dependency of healthy Kasvio reads.
+          final legacy = await _loadKcc20WalletFromIndexer(address);
+          fallbackProgress = fallbackProgress == null
+              ? legacy
+              : _mergeKcc20Wallets(fallbackProgress!, legacy);
+          publish();
+        } catch (_) {
+          // Keep any positive fallback data; never convert a failure to zero.
+        }
+      }
+    }
+
+    await Future.wait<void>([
       kronHoldings.load(address, onProgress: (assets) {
         kronProgress =
             _Kcc20Wallet(assets: assets, transactions: const [], warning: '');
         publish();
-      }).then<_Kcc20Wallet?>((assets) {
-        final value =
+      }).then<void>((assets) {
+        kronProgress =
             _Kcc20Wallet(assets: assets, transactions: const [], warning: '');
-        kronProgress = value;
         publish();
-        return value;
-      }).catchError((_) => null),
-      standardKcc20.load(address, historyLimit: historyLimit,
-          onProgress: (result) {
-        standardProgress = _Kcc20Wallet(
-            assets: result.assets,
-            transactions: result.transactions,
-            coverageComplete: result.coverageComplete,
-            warning: result.warning);
-        publish();
-      }).then<_Kcc20Wallet?>((result) {
-        final value = _Kcc20Wallet(
-            assets: result.assets,
-            transactions: result.transactions,
-            coverageComplete: result.coverageComplete,
-            warning: result.warning);
-        standardProgress = value;
-        publish();
-        return value;
-      }).catchError((_) => null),
+      }).catchError((_) {}),
+      () async {
+        void accept(StandardKcc20Wallet result) {
+          standardProgress = _Kcc20Wallet(
+              assets: result.assets,
+              transactions: result.transactions,
+              coverageComplete: result.coverageComplete,
+              warning: result.warning);
+          publish();
+        }
+
+        try {
+          accept(await standardKcc20.load(address,
+              historyLimit: historyLimit, onProgress: accept));
+        } catch (_) {
+          // Retain progressive results if a later read failed.
+          standardProgress = _Kcc20Wallet(
+              assets: standardProgress?.assets ?? const [],
+              transactions: standardProgress?.transactions ?? const [],
+              coverageComplete: false,
+              warning:
+                  'Kasvio KCC20 data is temporarily unavailable. Loaded balances are retained; refresh to retry.');
+          publish();
+        }
+        if (standardProgress!.warning.isNotEmpty) await loadFallback();
+      }(),
     ]);
-    final primary = results[0];
-    final fallback = results[1];
-    if (results.every((value) => value == null)) {
-      throw KaspaApiException(
-        'Both KCC20 indexers are temporarily unavailable.',
-      );
-    }
-    final existing = primary != null && fallback != null
-        ? _mergeKcc20Wallets(primary, fallback)
-        : primary ?? fallback;
-    final combined = results[2] != null
-        ? _withKronHoldings(existing, results[2]!)
-        : existing;
-    return results[3] != null
-        ? _withStandardHoldings(combined, results[3]!)
-        : combined!;
+    final combined = kronProgress != null
+        ? _withKronHoldings(fallbackProgress, kronProgress!)
+        : fallbackProgress;
+    return _withStandardHoldings(combined, standardProgress!);
   }
 
   _Kcc20Wallet _withStandardHoldings(
@@ -1512,9 +1515,7 @@ class KaspaApi {
         ...kron.assets,
       ],
       transactions: existing?.transactions ?? const [],
-      warning: existing == null
-          ? 'KRON balances loaded. Legacy KCC20 sources are temporarily unavailable.'
-          : existing.warning,
+      warning: existing?.warning ?? '',
     );
   }
 
@@ -1597,10 +1598,6 @@ class KaspaApi {
     }
     final mergedTransactions = transactions.values.toList()
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    final repaired = primary.assets.any((asset) {
-      if (asset.discoveryComplete) return false;
-      return assets[assetKey(asset)]?.discoveryComplete == true;
-    });
     final issues = {
       ...primary.signingIssues,
       ...fallback.signingIssues
@@ -1611,10 +1608,7 @@ class KaspaApi {
       assets: assets.values.toList(),
       transactions: mergedTransactions,
       signingIssues: issues,
-      warning: [
-        if (repaired)
-          'Kascov supplied complete signing data for an incomplete primary indexer response.',
-      ].join(' '),
+      warning: '',
     );
   }
 
@@ -1962,11 +1956,7 @@ class KaspaApi {
       assets: assets,
       transactions: transactions,
       signingIssues: issues,
-      warning: [
-        if (warning.isNotEmpty) warning,
-        if (issues.isNotEmpty)
-          'KCC20 discovery is conservative: Kascov exposes the top 100 holders per token; verify small or newly received balances before sending.',
-      ].join(' '),
+      warning: warning,
     );
   }
 
@@ -3354,8 +3344,7 @@ class _Kcc20Wallet {
 }
 
 bool _isObsoleteLegacy(WalletAsset? asset) =>
-    asset?.templateHash ==
-    '9bf2df2cd4a05b8124082c868e79c52eb4d719362af2e1a75c025cfb50a2844e';
+    Kcc20StandardService.obsoleteTemplateHashes.contains(asset?.templateHash);
 
 class _Kcc20TokenResult {
   const _Kcc20TokenResult({
