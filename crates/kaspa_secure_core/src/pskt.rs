@@ -1040,12 +1040,17 @@ fn validate_kasparocket_request(
             < tx.outputs.iter().map(|output| output.value as u128).sum::<u128>() {
             return Err(CoreError::InvalidRequest("KaspaRocket Mainnet trade must be fully funded".into()));
         }
-        // Pin actual Mainnet payout scripts, not merely provider fee labels.
-        for (address, expected) in [
-            ("kaspa:qqgaj6tkfd0u9a58659vk0yl46mgja0l0gdpurj9fwqnw7ysg97xuvm9ack2h", platform),
-            ("kaspa:qqre4wt08dp0rvmxwqgwdkz4zu4m36g9uvmfledd27mx939uxe2yjpmmd37zq", partner),
-        ] {
-            let address = Address::try_from(address).map_err(|_| CoreError::InvalidRequest("Invalid pinned KaspaRocket fee address".into()))?;
+        // KDOLLAR's deployed pool donates its treasury leg to KaspaDollar.
+        // Pin all three identities; never accept an API-selected recipient.
+        let treasury = if token.to_string() == "e5554a63a0fddf927fce200d55d7019e102d664c6d735063a7277936dc680a2c"
+            && pool.to_string() == "2727d248acf34e81517afa28f58d5de023312e48ecdc5af8a1a7136ecbc4e0ce" {
+            Address::new(kaspa_addresses::Prefix::Mainnet, kaspa_addresses::Version::PubKey,
+                &hex::decode("48f1b205dd93dd6993b8f356ba18ae1f3e1e57659f2fa44c078c70e652c883c9").unwrap())
+        } else {
+            Address::try_from("kaspa:qqgaj6tkfd0u9a58659vk0yl46mgja0l0gdpurj9fwqnw7ysg97xuvm9ack2h").unwrap()
+        };
+        let partner_address = Address::try_from("kaspa:qqre4wt08dp0rvmxwqgwdkz4zu4m36g9uvmfledd27mx939uxe2yjpmmd37zq").unwrap();
+        for (address, expected) in [(treasury, platform), (partner_address, partner)] {
             let script = pay_to_address_script(&address);
             let matches = tx.outputs.iter().filter(|output| output.script_public_key == script).collect::<Vec<_>>();
             // The partner may also be the trader receiving wallet change.
@@ -1379,9 +1384,18 @@ mod tests {
 
     #[test]
     fn kasparocket_mainnet_buy_signs_and_executes_all_covenants_with_synthetic_funding() {
+        check_rocket_fixture(include_str!("fixtures/kasparocket-mainnet-buy.json"));
+    }
+
+    #[test]
+    fn kdollar_donation_buy_signs_and_executes_with_synthetic_funding() {
+        check_rocket_fixture(include_str!("fixtures/kasparocket-kdollar-buy.json"));
+    }
+
+    fn check_rocket_fixture(fixture: &str) {
         // Public unsigned provider plan. Substitute only synthetic wallet inputs;
         // never access real keys and never broadcast this transaction.
-        let mut request: PsktRequest = serde_json::from_str(include_str!("fixtures/kasparocket-mainnet-buy.json")).unwrap();
+        let mut request: PsktRequest = serde_json::from_str(fixture).unwrap();
         let sender = derive_address(SECRET).unwrap();
         let mut tx: Value = serde_json::from_str(&request.tx_json_string).unwrap();
         for input in &request.sign_inputs {
@@ -1399,6 +1413,21 @@ mod tests {
         }
         request.profile = Some("kasparocket-mainnet-v1".into());
         let review = prepare_pskt(&request).unwrap();
+        let built = build_pskt(&request).unwrap();
+        // Exercise fee validation directly so failures cannot be explained
+        // merely by the altered transaction's stale provider sighash.
+        for index in [0usize, 5usize] {
+            let mut redirected = built.tx.clone();
+            redirected.outputs[index].script_public_key = pay_to_address_script(&sender);
+            let result = validate_kasparocket_request(&request, &redirected,
+                &built.entries, &[], &HashMap::new());
+            assert!(result.unwrap_err().to_string().contains("fee payout differs"));
+            let mut wrong_amount = built.tx.clone();
+            wrong_amount.outputs[index].value -= 1;
+            let result = validate_kasparocket_request(&request, &wrong_amount,
+                &built.entries, &[], &HashMap::new());
+            assert!(result.unwrap_err().to_string().contains("fee payout differs"));
+        }
         let signed = sign_pskt(SECRET, &request, &review.review_hash).unwrap();
         assert_eq!(signed.signed_input_indexes.len(), request.sign_inputs.len());
         let mut altered = request.clone();
