@@ -56,7 +56,7 @@ MockClient source(
         bool noBalance = false}) =>
     MockClient((r) async {
       final path = r.url.path;
-      if (path.contains('/api/kcc20/v1/addresses/')) {
+      if (path.contains('/api/kcc20/v4/addresses/')) {
         return http.Response('{}', 404);
       }
       if (path.endsWith('/status')) return envelope({'status': 'ready'});
@@ -740,7 +740,7 @@ void main() {
       () async {
     final reader = source();
     final api = KaspaApi(client: MockClient((r) async {
-      if (r.url.path.contains('/api/kcc20/v1/')) return reader.get(r.url);
+      if (r.url.path.contains('/api/kcc20/v4/')) return reader.get(r.url);
       if (r.url.path.endsWith('/balance')) {
         return http.Response('{"balance":0}', 200);
       }

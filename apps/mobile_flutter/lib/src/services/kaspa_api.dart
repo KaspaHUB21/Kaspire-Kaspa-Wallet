@@ -73,7 +73,7 @@ class KaspaApi {
   KronHoldings get kronHoldings =>
       KronHoldings(_client, indexer: kronIndexerBaseUrl, kasvio: kasvioBaseUrl);
   Kcc20StandardService get standardKcc20 => Kcc20StandardService(_client,
-      base: '$kasvioBaseUrl/api/kcc20/v1',
+      base: '$kasvioBaseUrl/api/kcc20/v4',
       node: '$baseUrl/local-node',
       kascovBase: kascovBaseUrl);
   Future<Kcc20CellRecord?> loadKcc20BorrowedReceive(String recipient,
@@ -2200,9 +2200,9 @@ class KaspaApi {
     await _diagnosticProbe(
       checks,
       'KCC20 primary · Kasvio',
-      '$kasvioBaseUrl/api/kcc20/v1',
+      '$kasvioBaseUrl/api/kcc20/v4',
       () =>
-          standardKcc20.get('$kasvioBaseUrl/api/kcc20/v1/status').then((value) {
+          standardKcc20.get('$kasvioBaseUrl/api/kcc20/v4/status').then((value) {
         if (_map(value['data'])['status'] != 'ready')
           throw KaspaApiException('Kasvio is not ready');
         return 'KCC20 API available';

@@ -84,7 +84,7 @@ class Kcc20ReadError extends StateError {
 /// every script/transfer using the same pinned KCC20 reference template.
 class Kcc20StandardService {
   Kcc20StandardService(this.client,
-      {this.base = 'https://kasvio.network/api/kcc20/v1',
+      {this.base = 'https://kasvio.network/api/kcc20/v4',
       this.kascovBase = 'https://kascov.io/data/mainnet',
       this.node = 'https://kaspire.kaslab.space/api/local-node'});
   final http.Client client;
@@ -189,12 +189,40 @@ class Kcc20StandardService {
             source: primary ? 'Kasvio KCC20' : 'Own-node KCC20');
       }
       final value = map(jsonDecode(r.body));
-      if (url.startsWith(base)) {
+      if (primary) {
         final meta = map(value['meta']);
+        // V4 covers multiple contract families and no longer claims one global
+        // reference revision. This is read provenance only: individual token
+        // templates, reconstructed states and own-node proofs remain pinned.
+        final v4Envelope = Uri.parse(base).path.endsWith('/kcc20/v4') &&
+            meta['reference_commit'] == null &&
+            meta['adapter'] == 'kcc20' &&
+            meta['source_run'] is String &&
+            (meta['source_run'] as String).startsWith('v4:') &&
+            _hex64.hasMatch('${meta['source_fingerprint']}') &&
+            _hex64.hasMatch('${meta['decoder_fingerprint']}');
         if (meta['network'] != 'mainnet' ||
-            meta['reference_commit'] != reference) {
+            (meta['reference_commit'] != reference && !v4Envelope)) {
           throw StateError(
               'Kasvio KCC20 network or reference revision differs.');
+        }
+        // An unassigned V4 family has no signing identity. Ask the secondary
+        // source for its independently pinned identity, including known retired
+        // profiles that must be excluded rather than shown as wallet errors.
+        if (v4Envelope && path.length == 2 && path.first == 'tokens') {
+          final token = map(value['data']);
+          if (rowId(token) == path[1] &&
+              tokenTemplate(token) == null &&
+              token['profile_id'] == null &&
+              _templateHash(token) == null) {
+            return await _fallback.read(path, uri.queryParameters);
+          }
+          if (rowId(token) == path[1] &&
+              tokenTemplate(token) == templateId &&
+              map(token['market'])['venue'] == 'kasseal' &&
+              verifiedDecimals(token) == 0) {
+            value['data'] = {...token, 'wallet_standard': 'kasseal-kcc20'};
+          }
         }
       }
       return value;

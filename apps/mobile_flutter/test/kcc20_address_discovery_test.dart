@@ -107,14 +107,14 @@ void main() {
         .load(address, historyLimit: 0);
     final asset = wallet.assets.single;
     expect(paths, hasLength(3));
-    expect(paths.any((p) => p.endsWith('/status') || p.endsWith('/v1/tokens')),
+    expect(paths.any((p) => p.endsWith('/status') || p.endsWith('/v4/tokens')),
         false);
     expect(asset.symbol, 'NACHO');
     expect(asset.balance, 1.25);
     expect(asset.decimals, 6);
     expect(asset.rawBalance, '1250000');
     expect(asset.imageUrl,
-        'https://kasvio.network/api/kcc20/v1/images/${'e' * 64}');
+        'https://kasvio.network/api/kcc20/v4/images/${'e' * 64}');
     expect(asset.standard, 'kcc20');
     expect(asset.discoveryComplete, false);
     expect(asset.kcc20Cells, isEmpty);
@@ -267,7 +267,7 @@ void main() {
         'next_cursor': null
       }));
       final api = KaspaApi(client: MockClient((r) async {
-        if (r.url.host == 'kasvio.network' && r.url.path.contains('/kcc20/v1/'))
+        if (r.url.host == 'kasvio.network' && r.url.path.contains('/kcc20/v4/'))
           return upstream.get(r.url);
         if (r.url.host == 'kascov.io' || r.url.host == 'kcc20.info') {
           fallbackReads.add(r.url.toString());
@@ -300,7 +300,7 @@ void main() {
       () async {
     var kasvioFailed = false;
     final api = KaspaApi(client: MockClient((r) async {
-      if (r.url.host == 'kasvio.network' && r.url.path.contains('/kcc20/v1/')) {
+      if (r.url.host == 'kasvio.network' && r.url.path.contains('/kcc20/v4/')) {
         kasvioFailed = true;
         return http.Response('{}', 503);
       }
@@ -320,8 +320,10 @@ void main() {
         includeAssetHistory: false,
         includeNativeTransactions: false,
         includeMarketData: false);
-    expect(result.assetWarning,
-        contains('KCC20 account data is temporarily unavailable from Kasvio and Kascov'));
+    expect(
+        result.assetWarning,
+        contains(
+            'KCC20 account data is temporarily unavailable from Kasvio and Kascov'));
     expect(result.assetDiscoveryComplete, false);
   });
   test('verified 0, 3 and 8 decimal units remain exact on the address path',
@@ -358,7 +360,7 @@ void main() {
         throwsStateError);
     expect(paths, hasLength(2));
     expect(paths.last, contains('/addr/'));
-    expect(paths.contains('/api/kcc20/v1/tokens'), false);
+    expect(paths.contains('/api/kcc20/v4/tokens'), false);
   });
   test('wrong address, owner, chain and revision are rejected', () async {
     for (final response in [
@@ -456,7 +458,7 @@ void main() {
       final upstream = source();
       final api = KaspaApi(client: MockClient((r) async {
         if (r.url.host == 'kasvio.network' &&
-            r.url.path.contains('/kcc20/v1/')) {
+            r.url.path.contains('/kcc20/v4/')) {
           if (nativeFirst && r.url.path.contains('/addresses/')) {
             await kronArrived.future;
           }
@@ -591,8 +593,7 @@ void main() {
     expect(assets.single.balance, 1);
   });
   final hotfixSnapshot = Platform.environment['KASPIRE_KCC20_HOTFIX_SNAPSHOT'];
-  test('captured goatmilk Kasvio holdings have no spurious standard warning',
-      () async {
+  test('archived V1 goatmilk capture retains adapter compatibility', () async {
     final snapshot =
         jsonDecode(File(hotfixSnapshot!).readAsStringSync()) as Map;
     final replies = snapshot['responses'] as Map;
@@ -601,7 +602,8 @@ void main() {
       if (response == null)
         throw StateError('Uncaptured request ${request.url}');
       return http.Response(jsonEncode(response), 200);
-    })).load(snapshot['address'] as String, historyLimit: 0);
+    }), base: 'https://kasvio.network/api/kcc20/v1')
+        .load(snapshot['address'] as String, historyLimit: 0);
     expect(result.warning, isEmpty);
     expect(
         result.assets
@@ -632,7 +634,7 @@ void main() {
       expect(nacho.symbol, 'NACHO');
       expect(nacho.decimals, 6);
       expect(BigInt.parse(nacho.rawBalance!), greaterThan(BigInt.zero));
-      expect(nacho.imageUrl, contains('/api/kcc20/v1/images/'));
+      expect(nacho.imageUrl, contains('/api/kcc20/v4/images/'));
       print('Live discovery completed: ${watch.elapsedMilliseconds} ms');
     } finally {
       client.close();

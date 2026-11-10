@@ -1,4 +1,4 @@
-# Kaspire Android 0.11.101 — Verified KCC20 fallback and L2 QR scanning
+# Kaspire Android 0.11.101 — Kasvio V4, verified KCC20 fallback and L2 QR scanning
 
 Public Android release, build 246. Complete changes since public Android
 0.11.99/build 244, including the previously test-only 0.11.100 L2 QR fix.
@@ -6,6 +6,19 @@ Android 11 or later; ARM64 and ARMv7.
 
 ## KCC20 discovery and sending during Kasvio outages
 
+- Move Standard-KCC20 discovery, token details, balances, transaction evidence,
+  diagnostics and verified-image URLs to Kasvio's public `/api/kcc20/v4` API.
+  The complete cursor-paginated catalogue was verified read-only at 580 tokens.
+  V4 is a multi-family indexer: its null global reference revision is accepted
+  only in a network-bound V4 envelope, not as a new signing template or a waiver
+  of any local contract checks. Native signing support is not broadened.
+- Preserve Kasseal's restricted owner mode when V4 identifies its venue.
+  Unassigned V4 identities can be resolved through Kascov, so known retired
+  profiles remain excluded rather than returning as wallet errors. Metadata
+  image paths are built from the V4 base instead of copying old V1 image links
+  still present in some server records. The separate KRON-native API is a
+  different protocol: KRON remains its own balance/signing source, with its
+  existing optional `/api/kron/v2` presentation feed unchanged.
 - Kasvio remains the primary Standard-KCC20 reader. Kascov now provides a
   per-read fallback for address holdings, token identity, balances and current
   cell proofs used to prepare transfers. This includes failures occurring after
@@ -72,12 +85,16 @@ on GitHub, not embedded beneath the website download buttons.
 - [Checksum](https://kaspire.kaslab.space/downloads/Kaspire-Android-mainnet-v0.11.101.apk.sha256)
 - [Changes since 0.11.99](https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/compare/v0.11.99...v0.11.101)
 
-Validation: 167 Rust tests and 1,171 full-suite Flutter tests passed (18 optional
+Validation: 167 Rust tests and 1,176 full-suite Flutter tests passed (18 optional
 fixture/live-environment skips). Both captured unsigned Kaspire/UNNACHOD plans
 also passed real native reconstruction. Analyzer reports no errors or warnings;
 29 informational brace-style hints remain. APK verification confirms both ABIs,
 the approved public client configuration, unchanged signing identity and native
-cores, the new fallback/QR code and absence of the retired KCC20.info URL.
+cores, the new V4/fallback/QR code, absence of old KCC20 V1/V2/V3 routes and
+absence of the retired KCC20.info URL. A second read-only capture verifies all
+580 V4 catalogue entries with opaque cursor paging, goatmilk.kas holdings, V4
+image paths, Kasseal's owner-only mode and native-ready cells against own-node
+data.
 
 APK SHA-256:
-`0307b029cbcdc6ef1aab15530d642f7ea84294cb04f456a50a809d4346ef0b8b`.
+`1752a3ef84500bb929865071f78c74822cafb776d72e6bc28706e130499885af`.
