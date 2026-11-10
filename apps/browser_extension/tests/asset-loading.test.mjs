@@ -45,7 +45,8 @@ test('real KCC20 category path keeps standard tokens when another balance fails'
   const meta={network:'mainnet',reference_commit:'c8a087117735a1f87c5c6d115fcddeaf2562c784'};
   globalThis.fetch=async input=>{
     const u=new URL(String(input));
-    if(!u.pathname.startsWith('/api/kcc20/v1/'))throw Error('Other KCC20 sources offline');
+    if(!u.pathname.startsWith('/api/kcc20/v4/'))throw Error('Other KCC20 sources offline');
+    if(u.pathname.includes('/addresses/'))return new Response('{}',{status:404});
     let data;
     if(u.pathname.endsWith('/status'))data={status:'ready'};
     else if(u.pathname.endsWith('/tokens'))data=ids.map((id,i)=>({covenant_id:id,profile_id:'KCC20PublicMint@c8a0871',recognition:'hash_proven_reference_actor_family',metadata:{binding_verified:true,ticker:['WALLET','Wobbly.k','BROKEN'][i],decimals:0}}));
@@ -58,4 +59,25 @@ test('real KCC20 category path keeps standard tokens when another balance fails'
     assert.deepEqual(assets.map(a=>a.symbol),['WALLET','WOBBLY.K']);
     assert.match(kcc20DiscoveryWarning(wallet),/Some standard KCC20 balances/);
   }finally{globalThis.fetch=previous;}
+});
+
+test('partial/failed refresh preserves known KCC20 holdings; a complete zero clears them',async t=>{
+  const wallet='kaspa:qp0mtdvzscrkfft702j85s8yzdl8a87n5d6pgtm8vrxg6hqu0wywzvwkevdk3',owner='5fb5b582860764a57e7aa47a40e4137e7e9fd3a374142f6760cc8d5c1c7b88e1',cid='7'.repeat(64);
+  const old=globalThis.fetch,now=Date.now;let offset=60000,mode='positive';Date.now=()=>now()+offset;
+  t.after(()=>{globalThis.fetch=old;Date.now=now;});
+  globalThis.fetch=async input=>{
+    const u=new URL(String(input)),p=u.pathname;
+    if(u.hostname!=='kasvio.network'||mode==='offline')return new Response('{}',{status:503});
+    const meta={network:'mainnet',reference_commit:null,adapter:'kcc20',source_run:'v4:fixture',source_fingerprint:'1'.repeat(64),decoder_fingerprint:'2'.repeat(64),snapshot_id:mode};let data,extra={};
+    if(p.includes('/addresses/')){data=mode==='positive'?[{covenant_id:cid,owner_scheme:0,owner_value:owner,balance_raw:'42',balance_complete:true}]:[];
+      extra={address_context:{address:wallet,owner_scheme:0,owner_value:owner,network:'mainnet',balances_complete:mode!=='partial',unknown_tokens_attributable_to_address:false},pagination:{has_more:false}};}
+    else if(p.endsWith('/'+cid))data={covenant_id:cid,profile_id:'KCC20PublicMint@c8a0871',recognition:'hash_proven_reference_actor_family',metadata:{binding_verified:true,ticker:'STILLHERE',decimals:8}};
+    else if(p.endsWith('/balance'))data={covenant_id:cid,owner_scheme:0,owner_value:owner,available:true,balance_raw:'42',outputs:[]};
+    else return new Response('{}',{status:404});
+    return new Response(JSON.stringify({data,meta,...extra}));
+  };
+  const read=()=>walletAssetCategory(wallet,'mainnet','kcc20');
+  assert.equal((await read())[0].rawBalance,'42');
+  for(const next of ['partial','offline']){offset+=60000;mode=next;const rows=await read();assert.equal(rows[0].rawBalance,'42');assert.equal(rows[0].retainedBalance,true);assert.match(kcc20DiscoveryWarning(wallet),/retained/);}
+  offset+=60000;mode='zero';assert.deepEqual(await read(),[]);
 });

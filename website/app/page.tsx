@@ -10,7 +10,7 @@ const highlights = [
   {
     number: "01",
     title: "One wallet. Every Kaspa asset.",
-    copy: "Hold and move KAS, KRC20, KRC721, KNS, KCC20, and Kasplex/Igra L2 assets. Android and the browser extension support the pinned KCC20 reference profile, with own-node cell checks and independent local covenant validation. Android uses Kasvio V4 first and can fall back to Kascov for both standard KCC20 discovery and transfers. Fallback programs must match the bundled contract and P2SH commitment, with live own-node verification before signing. Unsupported pre-final token contracts are excluded; unavailable or partial data is never treated as a verified zero balance.",
+    copy: "Hold and move KAS, KRC20, KRC721, KNS, KCC20, and Kasplex/Igra L2 assets. Android and the browser extension use Kasvio V4 first and can fall back to Kascov for standard KCC20 discovery and transfers. Fallback programs must match the bundled contract and P2SH commitment, with live own-node verification before signing. Known unsupported pre-final token contracts are excluded; unavailable or partial data is never treated as a verified zero balance.",
     tags: ["KAS", "KRC-20", "KRC-721", "KNS", "KCC20"],
   },
   {
@@ -76,8 +76,8 @@ const highlights = [
   {
     number: "12",
     title: "Mainnet DEX swaps, inside your wallet.",
-    copy: "On Android and in the browser extension, choose KaspaRocket, Kasseal or KRON under Swap to trade supported mainnet covenant tokens. Android additionally supports KForge Mainnet curve and pool swaps and KasForge Mainnet covenant order swaps, with KAS amounts for buys, token amounts for sells, a native transaction review and detailed trade history. KasForge orders include automatic status checks, independently checked recovery and a review of refundable reserves. Android's KaspaRocket and Kasseal token lists show market cap in USD, price per token in KAS and 24h volume in KAS. Android also offers Braid Aggregator for supported KAS and atomic token-to-token routes, with a disclosed 1% Kaspire partner fee. Token-to-token fees are paid in the input token plus a KAS cell reserve, together within the independently checked 1% limit; fees below the executable minimum are waived. Multi-stage KRON-to-KRON routes remain unavailable. Kasseal supports exact 1,000-token bonding-curve lots and whole-token constant-product pool swaps after graduation, with launch-proof verification, token preparation and a separate swap history. KaspaRocket token details show your balance, price and value with separate Send Asset and Swap buttons. Review covenant IDs, wallet flows and fees before local signing. Signed swaps are encrypted for recovery; uncertain broadcasts remain saved.",
-    tags: ["KaspaRocket", "Kasseal", "KRON DEX", "Braid on Android", "KForge on Android", "KasForge on Android"],
+    copy: "On Android and in the browser extension, choose KaspaRocket, Kasseal, Braid, KForge, KRON or KasForge under Swap. KForge supports curve and pool trades; KasForge uses covenant orders with status checks and independently verified recovery. Both use KAS amounts for buys and token amounts for sells. Braid routes supported KAS and token-to-token trades, with a disclosed 1% Kaspire partner fee. For token-to-token trades, the input-token fee and KAS cell reserve stay within the independently checked limit; fees below the executable minimum are waived. Kasseal supports exact 1,000-token bonding-curve lots and whole-token pool swaps after graduation. Review covenant IDs, wallet flows and fees before local signing. Signed swaps are saved for recovery when their outcome is uncertain.",
+    tags: ["KaspaRocket", "Kasseal", "Braid", "KForge", "KRON DEX", "KasForge"],
   },
   {
     number: "13",

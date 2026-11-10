@@ -99,6 +99,6 @@ test('account binding and a lock during approval prevent signing',async t=>{
 });
 test('Kasseal store package has the official logo, no test name, and the narrow API origin permission',async()=>{
   const manifest=JSON.parse(await readFile(new URL('../manifest.json',import.meta.url),'utf8'));
-  assert(!/\btest\b/i.test(manifest.name+' '+manifest.version_name));assert(manifest.host_permissions.includes('https://app.kasseal.com/*'));
+  assert(!/\btest\b/i.test(manifest.name));assert.equal(manifest.version_name,manifest.version);assert(manifest.host_permissions.includes('https://app.kasseal.com/*'));
   assert(!manifest.host_permissions.includes('<all_urls>'));
 });

@@ -1,4 +1,5 @@
 import { loadState, saveState } from "./state";
+import {runDexEngine,sharedDexAssets,type DexContext,type DexVenue} from './dexEngine';
 import {kassealTokens,kassealHoldings,kassealQuote,prepareKasseal,submitKasseal,resumeKasseal,clearKassealReviews,type KassealContext,type KassealState} from './kasseal';
 import { core } from "./core";
 import { exclusiveRocket, rocketPendingInfo, requireFreshRocketSwap, resumeRocketSwap,
@@ -160,6 +161,7 @@ interface VaultWallet {
   hiddenKas?: P2shState;
   rocketSwaps?: Record<string, RocketRecoveryState>;
   kassealSwaps?: Record<string, KassealState>;
+  dexEngineStore?: Record<string,string>;
 }
 interface VaultPayload {
   version: 2;
@@ -340,7 +342,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     }
   }
   if (message?.channel === "wallet") {
-    if ((message.command==='historySource'||String(message.command).startsWith('covenantVault') || String(message.command).startsWith('p2sh')) && !isWalletPage(sender.url, chrome.runtime.getURL(''))) {
+    if ((message.command==='dex'||message.command==='historySource'||String(message.command).startsWith('covenantVault') || String(message.command).startsWith('p2sh')) && !isWalletPage(sender.url, chrome.runtime.getURL(''))) {
       respond({ error: { code: 4100, message: 'Covenant vault commands are available only inside Kaspire Wallet.' } });
       return false;
     }
@@ -394,7 +396,7 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onDisconnect.addListener(() => disconnected.abort());
   port.onMessage.addListener((message) => {
     if (message?.channel !== "wallet") return;
-    if ((message.command==='historySource'||String(message.command).startsWith('covenantVault') || String(message.command).startsWith('p2sh')) && !isWalletPage(port.sender?.url, chrome.runtime.getURL(''))) {
+    if ((message.command==='dex'||message.command==='historySource'||String(message.command).startsWith('covenantVault') || String(message.command).startsWith('p2sh')) && !isWalletPage(port.sender?.url, chrome.runtime.getURL(''))) {
       port.postMessage({ error: { code: 4100, message: 'Covenant vault commands are available only inside Kaspire Wallet.' } });
       return;
     }
@@ -418,6 +420,47 @@ async function walletCommand(
   const state = await loadState();
   await expireSessionIfNeeded(state);
   if (sessionVault && !['nexusPoll', 'covenantVaultSaved', 'covenantVaultRefresh', 'covenantVaultDaa'].includes(message.command)) await touchSession();
+  if(message.command==='dex'){
+    if(!['mainnet','testnet-10'].includes(state.network)||!state.selectedAddress)throw Error('Select a Kaspa wallet first.');
+    const venue=String(message.venue) as DexVenue,action=String(message.action),address=state.selectedAddress,network=state.network as 'mainnet'|'testnet-10';
+    const entry=state.addresses.find(a=>a.address===address),wallet=sessionVault?.wallets.find(w=>w.id===entry?.walletId),generation=sessionGeneration,revision=nftContextRevision;
+    const readOnly=['tokens','assets','portfolio','saved','info','notes','context'].includes(action);
+    // Display discovery survives popup closure and can be joined by a reopened
+    // view. Signing/recovery remain bound to their live approval surface.
+    const dexSignal=action==='assets'?undefined:operationSignal;
+    if(!readOnly&&(!wallet||entry?.watchOnly))throw Error('Unlock a signing wallet to review this DEX operation.');
+    const guard=async()=>{
+      dexSignal?.throwIfAborted();const fresh=await loadState();await expireSessionIfNeeded(fresh);
+      const selected=fresh.addresses.find(a=>a.address===address);
+      if(fresh.network!==network||fresh.selectedAddress!==address||revision!==nftContextRevision||generation!==sessionGeneration||
+        !selected||selected.walletId!==entry?.walletId||selected.path!==entry?.path||!readOnly&&(!sessionVault||!wallet||!sessionVault.wallets.includes(wallet)||selected.watchOnly))throw Error('Wallet locked or account/network changed. Reopen the DEX. Saved transactions remain preserved.');
+    };
+    const context:DexContext={address,network,guard,ensure:ensureOffscreenSessionDocument,signal:dexSignal,progress,
+      read:async key=>{await guard();return wallet?.dexEngineStore?.[key]??null;},
+      write:async(key,value)=>{await guard();if(!wallet||!sessionVault)throw Error('Unlock the recovery wallet.');
+        const old=wallet.dexEngineStore?.[key];wallet.dexEngineStore??={};if(value===null)delete wallet.dexEngineStore[key];else wallet.dexEngineStore[key]=value;
+        try{await persistVault(guard);await guard();}catch(e){if(old===undefined)delete wallet.dexEngineStore[key];else wallet.dexEngineStore[key]=old;throw e;}},
+      prepare:async request=>{await guard();const review=JSON.parse((await core()).preparePskt(JSON.stringify(request)));await guard();return review;},
+      sign:async(request,hash)=>{await guard();if(!wallet||!entry)throw Error('Unlock a signing wallet.');
+        const wasm=await core(),review=JSON.parse(wasm.preparePskt(JSON.stringify(request)));
+        if(review.reviewHash!==hash)throw Error('DEX review changed; nothing was signed.');
+        if(request.profile==null&&(String(review.feeSompi)!=='10000000'||!review.outputs?.length||review.outputs.some((o:any)=>o.returnsToWallet!==true)))throw Error('Forge funding recovery must return all outputs to this wallet with the fixed reviewed fee.');
+        const details=[`Network: ${network}`,`Wallet: ${address}`,`Transaction: ${review.transactionId}`,`Network fee: ${formatSompi(review.feeSompi)} KAS`,
+          ...review.outputs.map((o:any)=>`Output ${o.index}: ${formatSompi(o.amountSompi)} KAS · ${o.address??o.scriptPublicKey}`)];
+        const terms=request.tradeSummary??{};
+        for(const key of ['tokenId','fromId','toId','side','action','amount','amountIn','payTotal','minimumOut','feeBps','walletFee','feeCarrier','midMin','expiryDaa'])if(terms[key]!=null)details.push(`${key}: ${String(terms[key])}`);
+        if(terms.verified)details.push(`Verified token and KAS amounts: ${JSON.stringify(terms.verified)}`);
+        if(venue==='braid')details.push('Partner fee: 1% (independently bounded). A staged trade may return intermediate KAS if its second step cannot execute.');
+        if(venue==='kasforge')details.push('This is an order deposit, not completed settlement. Unfilled orders retain owner cancellation and expiry recovery.');
+        if(!await approve({origin:'Kaspire Wallet',title:`${venue==='kasforge'?'KasForge':venue==='kforge'?'KForge':'Braid'} · Review ${request.tradeSummary?.action??request.tradeSummary?.side??'transaction'}`,description:'The shared Android trading logic verified the current inputs. The local Rust/WASM core independently rebuilds and checks this exact transaction. Review token amounts, fee terms and recovery conditions.',details,rawJson:{request,review}},operationSignal))throw Error('Transaction rejected.');
+        await guard();return JSON.parse(wasm.signPskt(signingSecret(wallet,entry),JSON.stringify(request),hash));},
+      broadcast:async(raw,id)=>{await guard();const expected=JSON.stringify(JSON.parse(raw));let found=false;
+        function contains(value:any,depth=0):boolean{if(depth>12||value==null)return false;if(typeof value==='string'){try{return JSON.stringify(JSON.parse(value))===expected;}catch{return false;}}if(typeof value==='object'){if(JSON.stringify(value)===expected)return true;return Object.values(value).some(v=>contains(v,depth+1));}return false;}
+        for(const saved of Object.values(wallet?.dexEngineStore??{}))if(saved.includes(id)&&contains(JSON.parse(saved)))found=true;
+        if(!found)throw Error('Only exact, durably saved DEX recovery bytes may be broadcast.');return broadcastKcc20(raw,id);},
+    };
+    return action==='assets'?sharedDexAssets(context,venue):runDexEngine(context,venue,action,message.args??{});
+  }
   if (message.command === "storeUpdateStatus") {
     return new Promise<{
       installedVersion: string;
@@ -582,8 +625,10 @@ async function walletCommand(
   }
   if (message.command === "assetCategory") {
     if (!state.selectedAddress) throw new Error("No wallet is selected.");
+    if(['kforge','kasforge'].includes(String(message.category)))return walletCommand({command:'dex',venue:message.category,action:'assets'},progress,operationSignal);
     if(String(message.category)==='kasseal')return state.network==='mainnet'?kassealHoldings(state.selectedAddress,operationSignal):[];
     if (String(message.category) === "rocket") {
+      if(state.network!=='mainnet')return [];
       requireRocketNetwork(state.network);
       return rocketWalletAssets(state.selectedAddress);
     }
@@ -3817,7 +3862,7 @@ async function prepareWalletAsset(
       );
     } else {
       progress("Verifying KCC20 cells…");
-      const standard = ['kcc20','kasparocket-kcc20'].includes(covenantAsset?.standard);
+      const standard = ['kcc20','kasparocket-kcc20','kasseal-kcc20'].includes(covenantAsset?.standard);
       const verified = standard
         ? {...await (covenantAsset.standard==='kasparocket-kcc20'?rocketTransferData:standardKcc20SigningData)(sender,covenantId,numericAmount,{signal,progress,fullPlan:true}), ticker:covenantAsset.symbol, decimals:covenantAsset.decimals}
         : await kcc20TransferData(sender,covenantId,numericAmount);
@@ -3828,7 +3873,7 @@ async function prepareWalletAsset(
       progress("Loading wallet UTXOs and fee…");
       const funding = await spendingData(sender, state.network);
       let borrowedReceive=null,recipientCellStatus='new';
-      if(standard && sender!==recipient && !compound) {
+      if(standard && covenantAsset?.standard!=='kasseal-kcc20' && sender!==recipient && !compound) {
         progress('Checking whether an existing recipient cell can be reused…');
         try {borrowedReceive=await kcc20BorrowedReceive(recipient,covenantId,numericAmount,verified.cells[0],verified.templateHash,{signal,progress});if(borrowedReceive)recipientCellStatus='reused';}
         catch(error) {if(signal?.aborted)throw error;recipientCellStatus='lookup-unavailable';progress('Recipient cell reuse is unavailable. Preparing a new receiving cell.');}

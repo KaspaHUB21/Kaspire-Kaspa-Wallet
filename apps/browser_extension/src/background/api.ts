@@ -1,9 +1,8 @@
 import type { KaspaNetwork } from "../shared/protocol";
-import {verifiedKascovDeclaration} from '../shared/kcc20Metadata';
 import {rocketWalletAssets, mergeRocketAssets,cachedRocketAsset} from './kasparocket';
 import {kassealHoldings,cachedKassealAsset} from './kasseal';
 import {directKronAssets, directKronTransfer} from './kronHoldings';
-import {standardKcc20Assets, standardKcc20TransferData, cachedStandardKcc20Asset, standardKcc20Token, waitForStandardKcc20Cell, standardKcc20History,standardKcc20BorrowedReceive,standardKcc20HistoryMetadata} from './standardKcc20';
+import {standardKcc20Assets, standardKcc20TransferData, cachedStandardKcc20Asset, standardKcc20Token, waitForStandardKcc20Cell, standardKcc20History,standardKcc20BorrowedReceive,standardKcc20HistoryMetadata,standardKcc20CoverageComplete} from './standardKcc20';
 import {formatRawTokenAmount} from '../shared/tokenAmount';
 import {dotkNamesOf, resolveDotkName} from "./dotk";
 import { nftWalletPage, nftMetadata, nftImage, requireUnlistedNft } from "./krc721Reads";
@@ -439,90 +438,6 @@ function ownerId(address: string) {
         .join("")
     : "";
 }
-function verifiedKcc20Standard(token: any) {
-  const standard = String(token?.standard ?? "").toLowerCase(),
-    status = String(token?.validation_status ?? "").toLowerCase();
-  if (
-    (standard === "kron-native" || token?.contract_type === "kron-native") &&
-    status === "template_verified"
-  )
-    return "kron-native";
-  if ((!standard || standard === "legacy-kcc20") && status === "verified")
-    return "legacy-kcc20";
-  return "";
-}
-async function loadKcc20AssetsFromIndexer(address: string) {
-  const owner = ownerId(address);
-  if (!owner) return [];
-  const [status, balances] = await Promise.all([
-    get("https://kcc20.info/v1/status"),
-    get(`https://kcc20.info/v1/owners/${owner}/balances?limit=1000`),
-  ]);
-  if (status?.capabilities?.balances !== true || Number(status?.max_daa) <= 0)
-    throw new Error("KCC20 indexer is not ready.");
-  const rows = (Array.isArray(balances?.balances) ? balances.balances : [])
-    .filter(
-      (item: any) =>
-        (item?.validation_status === "verified" ||
-          item?.validation_status === "template_verified") &&
-        Number(item?.unresolved_cells) === 0 &&
-        Number(item?.balance) > 0,
-    )
-    .slice(0, 1000);
-  return (
-    await Promise.all(
-      rows.map(async (item: any) => {
-        const id = String(item.token_id ?? "").toLowerCase();
-        if (!/^[0-9a-f]{64}$/.test(id))
-          throw new Error("Invalid KCC20 covenant ID.");
-        const token = await get(`https://kcc20.info/v1/tokens/${id}`);
-        const decimals = Number(
-            token?.decimals ?? token?.claimed_decimals ?? 8,
-          ),
-          standard = verifiedKcc20Standard(token);
-        if (
-          !Number.isInteger(decimals) ||
-          decimals < 0 ||
-          decimals > 18 ||
-          !standard
-        )
-          throw new Error("Invalid KCC20 metadata.");
-        const claimedImage = String(token?.image ?? token?.claimed_image ?? ""),
-          imageApi = String(token?.image_api ?? "");
-        const image = /^https:\/\//.test(claimedImage)
-          ? claimedImage
-          : imageApi.startsWith("/v1/tokens/")
-            ? `https://kcc20.info${imageApi}`
-            : "";
-        return {
-          covenantId: id,
-          symbol: String(
-            token?.ticker ??
-              token?.claimed_name ??
-              token?.name ??
-              token?.fallback_name ??
-              "KCC20",
-          ).toUpperCase(),
-          name: String(
-            token?.name ??
-              token?.claimed_name ??
-              token?.fallback_name ??
-              "KCC20",
-          ),
-          rawBalance: String(item.balance),
-          decimals,
-          image_url: image,
-          standard,
-          contractType: String(token?.contract_type ?? ""),
-          validationStatus: String(token?.validation_status ?? ""),
-          directTransfer: standard === "legacy-kcc20",
-          explorerUrl: `https://kcc20.info/token/${id}`,
-          kronUrl: standard === "kron-native" ? "https://kron.technology/" : "",
-        };
-      }),
-    )
-  ).filter(Boolean);
-}
 const kcc20Warnings = new Map<string,string>();
 const covenantAssetObservers=new Map<string,Set<(items:any[])=>void>>();
 const covenantAssetProgress=new Map<string,any[]>();
@@ -534,25 +449,22 @@ export function observeCovenantAssets(address:string,publish:(items:any[])=>void
   return ()=>{observers!.delete(publish);if(!observers!.size)covenantAssetObservers.delete(address);};
 }
 export function kcc20DiscoveryWarning(address:string) {return kcc20Warnings.get(address)??'';}
-async function loadKcc20Assets(address: string) {
-  let warning='';
-  let legacyRows:any[]=[],kronRows:any[]=[],standardRows:any[]=[];
-  const merge=()=>{const direct=[...kronRows,...standardRows],ids=new Set(direct.map(r=>r.covenantId));return [...legacyRows.filter(r=>r.standard!=='kron-native'&&!ids.has(r.covenantId)),...direct];};
-  const publish=()=>{const rows=merge();covenantAssetProgress.set(address,rows);for(const observer of covenantAssetObservers.get(address)??[])try{observer([...rows]);}catch{/* Display subscribers never affect discovery. */}};
-  const [legacy, kron, standard] = await Promise.allSettled([
-    loadKcc20AssetsFromIndexer(address).catch(() => loadKascovAssets(address)).then(rows=>{legacyRows=rows;publish();return rows;}),
-    directKronAssets(url => request(url, {headers: {accept: 'application/json'}}, 5000), address).then(rows=>{kronRows=rows;publish();return rows;}),
-    standardKcc20Assets(get, ownerId(address), value=>{warning=value;}, rows=>{standardRows=rows;publish();}).catch(error=>{
-      warning='Standard KCC20 balances are temporarily unavailable. Please retry.';throw error;
-    }).then(rows=>{standardRows=rows;publish();return rows;}),
+async function loadKcc20Assets(address:string){
+  const previous=categoryCache.get(`mainnet:${address}:kcc20`)?.value??[],owner=ownerId(address);
+  const retained=(rows:any[])=>rows.map(a=>({...a,retainedBalance:true}));
+  const previousKron=retained(previous.filter(a=>a.standard==='kron-native')),previousStandard=retained(previous.filter(a=>a.standard!=='kron-native'));
+  const merge=(old:any[],current:any[])=>[...new Map([...old,...current].map(a=>[a.covenantId,a])).values()];
+  let warning='',kronRows=previousKron,standardRows=previousStandard;
+  const publish=()=>{const rows=[...kronRows,...standardRows];covenantAssetProgress.set(address,rows);for(const observer of covenantAssetObservers.get(address)??[])try{observer([...rows]);}catch{/* Display only. */}};
+  const [kron,standard]=await Promise.allSettled([
+    directKronAssets(url=>request(url,{headers:{accept:'application/json'}},5000),address,rows=>{kronRows=merge(previousKron,rows);publish();}).then(rows=>{kronRows=rows;publish();return rows;}),
+    standardKcc20Assets(get,owner,value=>{warning=value;},rows=>{standardRows=merge(previousStandard,rows);publish();}).catch(e=>{warning='KCC20 account data is temporarily unavailable from Kasvio and Kascov. Loaded balances are retained.';throw e;}).then(rows=>{standardRows=standardKcc20CoverageComplete(get,owner)?rows:merge(previousStandard,rows);publish();return rows;})
   ]);
-  covenantAssetProgress.delete(address);
-  kcc20Warnings.set(address,warning);
-  if (legacy.status === 'rejected' && kron.status === 'rejected' && standard.status === 'rejected') throw new Error(warning||'KCC20 balances are temporarily unavailable.');
-  const assets = legacy.status === 'fulfilled' ? legacy.value : [];
-  const direct = [...(kron.status==='fulfilled'?kron.value:[]), ...(standard.status==='fulfilled'?standard.value:[])];
-  const ids = new Set(direct.map((item: any) => item.covenantId));
-  return [...assets.filter((item: any) => item.standard !== 'kron-native' && !ids.has(item.covenantId)), ...direct];
+  if(kron.status==='rejected'&&previousKron.length)warning+=`${warning?' ':''}KRON balances could not be refreshed. Previously loaded holdings are retained.`;
+  if(!warning&&standardRows.some(row=>row.retainedBalance))warning='Some KCC20 balances could not be refreshed. Previously loaded holdings are retained.';
+  covenantAssetProgress.delete(address);kcc20Warnings.set(address,warning);
+  if(kron.status==='rejected'&&standard.status==='rejected'&&!previous.length)throw Error(warning||'KCC20 balances are temporarily unavailable.');
+  return [...kronRows,...standardRows];
 }
 
 export async function selectedKcc20Asset(address:string,covenantId:string) {
@@ -571,7 +483,8 @@ export async function selectedKcc20Asset(address:string,covenantId:string) {
   }
 }
 export async function standardKcc20SigningData(address: string, covenantId: string, amount: number, options:{signal?:AbortSignal;progress?:(stage:string)=>void;fullPlan?:boolean}={}) {
-  return standardKcc20TransferData(get, covenantId, ownerId(address), amount, options);
+  const token=await standardKcc20Token(get,covenantId);
+  return standardKcc20TransferData(get,covenantId,ownerId(address),amount,{...options,kassealOwnerOnly:token.standard==='kasseal-kcc20'});
 }
 export async function kcc20BorrowedReceive(recipient:string,cid:string,amount:number,cell:{redeemScript:string},templateId:string,options:{signal?:AbortSignal;progress?:(stage:string)=>void}={}) {
   return standardKcc20BorrowedReceive(get,cid,ownerId(recipient),amount,cell,templateId,options);
@@ -580,38 +493,6 @@ export async function waitForStandardKcc20Output(address:string,covenantId:strin
   return waitForStandardKcc20Cell(get,covenantId,ownerId(address),txid,options);
 }
 
-async function loadKascovAssets(address: string) {
-  const owner = ownerId(address);
-  if (!owner) return [];
-  const data = await get(`https://kascov.io/data/mainnet/addr/${encodeURIComponent(address)}.json`);
-  if (String(data?.pubkey).toLowerCase() !== owner || !Array.isArray(data?.token_holdings))
-    throw new Error('Kascov did not resolve this wallet.');
-  const assets: any[] = [], seen = new Set<string>();
-  const rows = data.token_holdings.filter((item: any) => item?.status === 'verified');
-  if (rows.length > 1000) throw new Error('Invalid Kascov holdings response.');
-  for (let start = 0; start < rows.length; start += 4) {
-    const batch = await Promise.all(rows.slice(start, start + 4).map(async (row: any) => {
-      const id = String(row?.token_id ?? row?.covenant_id ?? '').toLowerCase();
-      if (!/^[0-9a-f]{64}$/.test(id) || seen.has(id)) return null;
-      seen.add(id);
-      try {
-        const detail = await get(`https://kascov.io/data/mainnet/token/${id}`), token = detail?.token;
-        if (token?.status !== 'verified') return null;
-        const balance = (Array.isArray(detail?.balances) ? detail.balances : []).find((item: any) => String(item?.owner).toLowerCase() === owner);
-        const declaration=verifiedKascovDeclaration(id,token);
-        const rawBalance = String(balance?.balance ?? ''), decimals = Number(declaration?.decimals ?? token?.claimed_decimals ?? row?.claimed_decimals ?? 8);
-        if (!/^\d+$/.test(rawBalance) || BigInt(rawBalance) <= 0n || !Number.isInteger(decimals) || decimals < 0 || decimals > 18) return null;
-        const image = String(token?.claimed_image ?? row?.claimed_image ?? '');
-        return {covenantId:id, symbol:String(declaration?.ticker ?? token?.claimed_ticker ?? row?.claimed_ticker ?? token?.claimed_name ?? 'KCC20').toUpperCase(),
-          name:String(token?.claimed_name ?? row?.claimed_name ?? 'KCC20'), rawBalance, decimals,
-          image_url:/^https:\/\//.test(image) ? image : '', standard:'legacy-kcc20', validationStatus:'verified', directTransfer:true,
-          explorerUrl:`https://kascov.io/token/${id}`};
-      } catch { return null; }
-    }));
-    assets.push(...batch.filter(Boolean));
-  }
-  return assets;
-}
 export function mapKcc20Cells(
   cellsData: any,
   covenantId: string,
@@ -698,246 +579,11 @@ export function normalizeKcc20Script(value: unknown) {
   return /^0000aa20[0-9a-f]{64}87$/.test(script) ? script.slice(4) : script;
 }
 
-async function loadKascovKcc20Cells(
-  covenantId: string,
-  owner: string,
-  rawBalance: number,
-) {
-  const [detail, coin] = await Promise.all([
-    get(`https://kascov.io/data/mainnet/token/${covenantId}`),
-    get(`https://kascov.io/data/mainnet/c/${covenantId}.json`),
-  ]);
-  const balance = (Array.isArray(detail?.balances) ? detail.balances : []).find(
-    (item: any) => String(item?.owner).toLowerCase() === owner,
-  );
-  if (
-    !Number.isSafeInteger(Number(balance?.balance)) ||
-    Number(balance.balance) !== rawBalance ||
-    coin?.lineage_complete === false
-  )
-    throw new Error("KCC20 fallback conflicts with the primary balance.");
-  const amounts = new Map<string, number>();
-  for (const event of Array.isArray(detail?.events) ? detail.events : []) {
-    if (String(event?.owner_to).toLowerCase() !== owner) continue;
-    const txid = String(event?.txid ?? "").toLowerCase(),
-      index = Number(event?.delta_idx ?? event?.output_index ?? event?.index),
-      value = Number(event?.balance_to ?? event?.state_amount ?? event?.amount);
-    if (
-      /^[0-9a-f]{64}$/.test(txid) &&
-      Number.isSafeInteger(index) &&
-      index >= 0 &&
-      Number.isSafeInteger(value) &&
-      value > 0
-    )
-      amounts.set(`${txid}:${index}`, value);
-  }
-  const liveRows =
-    [coin?.live_utxos, coin?.live_outputs, coin?.utxos].find(Array.isArray) ??
-    [];
-  const rows = [];
-  for (const item of liveRows) {
-    if (!item || item.live === false) continue;
-    const outpoint = typeof item.outpoint === "string" ? item.outpoint : "";
-    const parts = outpoint.split(":");
-    const nested =
-      item.outpoint && typeof item.outpoint === "object" ? item.outpoint : {};
-    const txid = String(
-      nested.transaction_id ??
-        nested.transactionId ??
-        item.transaction_id ??
-        item.txid ??
-        parts[0] ??
-        "",
-    ).toLowerCase();
-    const index = Number(
-      nested.index ?? item.index ?? item.output_index ?? parts[1],
-    );
-    const tokenAmount = amounts.get(`${txid}:${index}`);
-    if (tokenAmount === undefined) continue;
-    const script = String(
-      item.script_hex ??
-        item?.script_public_key?.script ??
-        item?.scriptPublicKey?.scriptPublicKey ??
-        "",
-    ).toLowerCase();
-    rows.push({
-      covenant_id: covenantId,
-      outpoint_tx_id: txid,
-      outpoint_index: index,
-      value: Number(item.value ?? item.amount),
-      created_daa: Number(item.created_daa ?? item.block_daa_score),
-      script_public_key: script,
-      state: { owner, amount: tokenAmount, is_minter: item.is_minter === true },
-      signing_ready: true,
-    });
-  }
-  const templateHash = String(coin?.kcc1_template_hash ?? "").toLowerCase();
-  return {
-    templateHash,
-    cells: mapKcc20Cells(
-      { cells: rows, unmapped: [] },
-      covenantId,
-      owner,
-      rawBalance,
-      templateHash,
-    ),
-  };
-}
-
-async function loadKcc20CellTransaction(transactionId: string) {
-  try {
-    return await get(`${MAINNET}/local-node/transactions/${transactionId}`);
-  } catch (error) {
-    if (!String((error as Error)?.message ?? error).includes("(404)"))
-      throw error;
-    return get(`https://api.kaspa.org/transactions/${transactionId}`);
-  }
-}
-
-export async function kcc20TransferData(
-  address: string,
-  covenantId: string,
-  amount: number,
-) {
-  const owner = ownerId(address);
-  if (
-    !owner ||
-    !/^[0-9a-f]{64}$/.test(covenantId) ||
-    !Number.isSafeInteger(amount) ||
-    amount <= 0
-  )
-    throw new Error("Invalid KCC20 request.");
-  let status: any, balances: any, cellsData: any, token: any;
-  let usingKascov = false;
-  try {
-    [status, balances, cellsData, token] = await Promise.all([
-    get("https://kcc20.info/v1/status"),
-    get(`https://kcc20.info/v1/owners/${owner}/balances?limit=1000`),
-    get(
-      `https://kcc20.info/v1/owners/${owner}/cells?signing_ready=true&limit=1000`,
-    ),
-    get(`https://kcc20.info/v1/tokens/${covenantId}`),
-    ]);
-  } catch {
-    const detail = await get(`https://kascov.io/data/mainnet/token/${covenantId}`);
-    if (detail?.token?.status !== 'verified') throw new Error('Legacy KCC20 verification is unavailable.');
-    const row = (Array.isArray(detail?.balances) ? detail.balances : []).find((item: any) => String(item?.owner).toLowerCase() === owner);
-    usingKascov = true;
-    balances = {balances:[{token_id:covenantId,balance:row?.balance,validation_status:'verified',unresolved_cells:0}]};
-    token = {...detail.token, validation_status:'verified', unresolved_cells:0};
-    // Null forces the existing Kascov cell adapter. All cells still undergo
-    // node checks and the locally audited template validation before signing.
-    cellsData = null;
-  }
-  if (
-    !usingKascov && (status?.capabilities?.balances !== true ||
-    status?.capabilities?.signing_data !== true ||
-    Number(status?.max_daa) <= 0)
-  )
-    throw new Error("KCC20 indexer lacks verified signing data.");
-  const balance = (
-    Array.isArray(balances?.balances) ? balances.balances : []
-  ).find(
-    (item: any) =>
-      String(item?.token_id).toLowerCase() === covenantId &&
-      item?.validation_status === "verified" &&
-      Number(item?.unresolved_cells) === 0,
-  );
-  const rawBalance = Number(balance?.balance);
-  if (
-    !Number.isSafeInteger(rawBalance) ||
-    rawBalance <= 0 ||
-    amount > rawBalance
-  )
-    throw new Error("Insufficient verified KCC20 balance.");
-  if (
-    token?.validation_status !== "verified" ||
-    Number(token?.unresolved_cells) > 0
-  )
-    throw new Error("KCC20 token is not fully verified.");
-  let templateHash = String(
-    token?.template_hash ?? token?.kcc1_template_hash ?? "",
-  ).toLowerCase();
-  let cells: any[];
-  try {
-    if (!/^[0-9a-f]{64}$/.test(templateHash)) {
-      const coin = await get(
-        `https://kascov.io/data/mainnet/c/${covenantId}.json`,
-      );
-      templateHash = String(coin?.kcc1_template_hash ?? "").toLowerCase();
-      if (coin?.lineage_complete === false)
-        throw new Error("KCC20 fallback lineage is incomplete.");
-    }
-    cells = mapKcc20Cells(
-      cellsData,
-      covenantId,
-      owner,
-      rawBalance,
-      templateHash,
-    );
-  } catch {
-    const fallback = await loadKascovKcc20Cells(covenantId, owner, rawBalance);
-    templateHash = fallback.templateHash;
-    cells = fallback.cells;
-  }
-  for (const cell of cells) {
-    const tx = await loadKcc20CellTransaction(cell.transactionId);
-    const output = (Array.isArray(tx?.outputs) ? tx.outputs : []).find(
-      (item: any) => Number(item?.index) === cell.index,
-    );
-    const script = normalizeKcc20Script(
-      output?.script_public_key ?? output?.scriptPublicKey,
-    );
-    const outputAddress = String(
-      output?.script_public_key_address ?? output?.address ?? "",
-    );
-    if (
-      String(tx?.transaction_id ?? "").toLowerCase() !== cell.transactionId ||
-      tx?.is_accepted !== true ||
-      String(output?.covenant_id ?? "").toLowerCase() !== covenantId ||
-      Number(output?.amount) !== cell.valueSompi ||
-      script !== cell.scriptPublicKey ||
-      !/^kaspa:[a-z0-9]{61,63}$/.test(outputAddress)
-    )
-      throw new Error("KCC20 indexer conflicts with the verified transaction.");
-    const live = await get(
-      `${MAINNET}/local-node/addresses/${encodeURIComponent(outputAddress)}/utxos`,
-    );
-    const isLive =
-      Array.isArray(live) &&
-      live.some((item: any) => {
-        const outpoint = item?.outpoint ?? {},
-          entry = item?.utxoEntry ?? {},
-          liveScript = normalizeKcc20Script(
-            typeof entry?.scriptPublicKey === "object"
-              ? (entry.scriptPublicKey?.scriptPublicKey ??
-                  entry.scriptPublicKey?.script_public_key)
-              : entry?.scriptPublicKey,
-          );
-        return (
-          String(
-            outpoint?.transactionId ?? outpoint?.transaction_id ?? "",
-          ).toLowerCase() === cell.transactionId &&
-          Number(outpoint?.index) === cell.index &&
-          Number(entry?.amount) === cell.valueSompi &&
-          liveScript === cell.scriptPublicKey &&
-          entry?.isCoinbase !== true
-        );
-      });
-    if (!isLive)
-      throw new Error(
-        "The local Kaspa node reports that this KCC20 cell is no longer spendable.",
-      );
-  }
-  return {
-    ticker: String(
-      token?.ticker ?? token?.claimed_ticker ?? token?.claimed_name ?? token?.name ?? "KCC20",
-    ).toUpperCase(),
-    decimals: Number(token?.decimals ?? token?.claimed_decimals ?? 8),
-    templateHash,
-    cells,
-    rawBalance,
-  };
+// Compatibility entrypoint for existing UI/journals. Retired pre-final programs
+// never select a permissive signer; modern cells still require fresh node proofs.
+export async function kcc20TransferData(address:string,covenantId:string,amount:number){
+  const token=await standardKcc20Token(get,covenantId);
+  return {...await standardKcc20TransferData(get,covenantId,ownerId(address),amount,{kassealOwnerOnly:token.standard==='kasseal-kcc20'}),ticker:token.symbol,decimals:token.decimals};
 }
 export async function isKcc20TransactionAccepted(transactionId: string) {
   if(!/^[0-9a-f]{64}$/.test(transactionId))throw Error('Invalid KCC20 transaction ID.');
@@ -1101,97 +747,8 @@ export async function kronHistory(address:string,limit=51) {
   }));
   return {items:items.sort((a,b)=>b.blockTime-a.blockTime).slice(0,limit),warnings};
 }
-export async function kcc20History(address: string) {
-  const owner = ownerId(address);
-  if (!owner) return [];
-  const [status, result] = await Promise.all([
-    get("https://kcc20.info/v1/status"),
-    get(`https://kcc20.info/v1/owners/${owner}/history?limit=250`),
-  ]);
-  const tipDaa = Number(status?.max_daa ?? 0),
-    tipAt = Number(status?.tip_at_ms ?? status?.updated_at_ms ?? Date.now());
-  const rows = Array.isArray(result?.history) ? result.history : [];
-  const selected = new Map<string, any>();
-  for (const item of rows) {
-    const tx = String(item?.tx_id ?? "").toLowerCase(),
-      tokenId = String(item?.token_id ?? item?.covenant_id ?? "").toLowerCase(),
-      delta = String(item?.balance_delta ?? "");
-    if (
-      !/^[0-9a-f]{64}$/.test(tx) ||
-      !/^[0-9a-f]{64}$/.test(tokenId) ||
-      !/^-[0-9]+$|^[0-9]+$/.test(delta) ||
-      delta === "0"
-    )
-      continue;
-    const key = `${tx}:${tokenId}`,
-      previous = selected.get(key);
-    if (
-      !previous ||
-      (item?.source === "node" && previous?.source !== "node") ||
-      (item?.kind === "balance-change" && previous?.kind !== "balance-change")
-    )
-      selected.set(key, item);
-  }
-  const tokenIds = [
-    ...new Set(
-      [...selected.values()].map((item) =>
-        String(item.token_id ?? item.covenant_id).toLowerCase(),
-      ),
-    ),
-  ];
-  const metadata = new Map<string, any>();
-  await Promise.all(
-    tokenIds.map(async (id) => {
-      let legacy:any={};
-      try {
-        legacy=await get(`https://kcc20.info/v1/tokens/${id}`);
-      } catch { /* Old indexer does not know new standard covenants. */ }
-      try {const standard=await standardKcc20HistoryMetadata(get,id);if(standard){metadata.set(id,standard);return;}}
-      catch { /* A failed unit lookup never means eight decimals. */ }
-      const venue=cachedRocketAsset(address,id)??cachedKassealAsset(address,id)??cachedStandardKcc20Asset(get,owner,id);
-      if(venue) {metadata.set(id,{ticker:venue.symbol,decimals:venue.decimals});return;}
-      if(legacy.decimals==null&&legacy.claimed_decimals==null)legacy={ticker:'KCC20_RAW',decimals:0};
-      metadata.set(id,legacy);
-    }),
-  );
-  return [...selected.values()].map((item) => {
-    const tokenId = String(item.token_id ?? item.covenant_id).toLowerCase(),
-      token = metadata.get(tokenId) ?? {},
-      decimals = Number(token?.decimals ?? token?.claimed_decimals ?? 8),
-      raw = BigInt(String(item.balance_delta)),
-      incoming = raw > 0n,
-      absolute = (raw < 0n ? -raw : raw).toString().padStart(decimals + 1, "0"),
-      whole = decimals ? absolute.slice(0, -decimals) : absolute,
-      fraction = decimals ? absolute.slice(-decimals).replace(/0+$/g, "") : "",
-      daa = Number(item?.daa ?? item?.accepting_daa ?? 0),
-      blockTime = tipDaa >= daa && tipAt > 0 ? tipAt - (tipDaa - daa) * 100 : 0;
-    return {
-      transactionId: String(item.tx_id).toLowerCase(),
-      blockTime,
-      isAccepted: true,
-      incoming,
-      assetKind: "KCC20",
-      assetSymbol: String(
-        token?.ticker ?? token?.claimed_name ?? token?.name ?? "KCC20",
-      ).toUpperCase(),
-      unitSource:token.unitSource,
-      displayAmount: fraction ? `${whole}.${fraction}` : whole,
-      tokenId,
-      covenantId: tokenId,
-      counterparty: "",
-      from: incoming ? [] : [{ address, ownerId: owner }],
-      to: incoming ? [{ address, ownerId: owner }] : [],
-      feeSompi: null,
-      totalInputSompi: null,
-      totalOutputSompi: null,
-      inputCount: null,
-      outputCount: null,
-      mass: null,
-      blockDaaScore: daa,
-      type: String(item?.kind ?? "transfer"),
-    };
-  });
-}
+// Retired pre-final history source is intentionally no longer queried.
+export async function kcc20History(_address:string):Promise<any[]>{return [];}
 export function parseKcc20BroadcastId(value: any, expectedId: string) {
   const id = String(
     value?.txId ?? value?.transactionId ?? value?.transaction_id ?? "",
@@ -1576,7 +1133,8 @@ export async function networkDiagnostics(
             name: "KNS fallback",
             url: `https://api.knsdomains.org/mainnet/api/v1/assets?owner=${encodeURIComponent(address)}&page=1&pageSize=1&type=domain`,
           },
-          { name: "KCC20 indexer", url: "https://kcc20.info/v1/status" },
+          {name:'KCC20 primary · Kasvio V4',url:'https://kasvio.network/api/kcc20/v4/status'},
+          {name:'KCC20 fallback · Kascov',url:`https://kascov.io/data/mainnet/addr/${encodeURIComponent(address)}.json`},
         ]
       : []),
   ];

@@ -31,7 +31,7 @@ export function kassealImage(token:any){
 function validToken(token:any){return hex.test(token?.meta?.covenantId??'')&&token.verification==='verified'&&token.meta.decimals===0&&typeof token.meta.ticker==='string';}
 export async function kassealTokens(search='',cursor='',signal?:AbortSignal){
   search=search.trim();if(search.length>64||cursor.length>1024)throw Error('Search is too long.');
-  const data=await kassealJson(`${KASSEAL_PLANNER}/tokens?${new URLSearchParams({search,cursor})}`,undefined,signal);
+  const data=await kassealJson(`${KASSEAL_PLANNER}/tokens?${new URLSearchParams({sort:'mcap-volume',search,cursor})}`,undefined,signal);
   if(!Array.isArray(data?.tokens)||data.tokens.length>100||
     (data.nextCursor!=null&&typeof data.nextCursor!=='string'))throw Error('Invalid Kasseal catalogue.');
   return {...data,tokens:data.tokens.filter(validToken)};
@@ -80,7 +80,7 @@ export async function verifyKassealInputs(request:any,review?:any,signal?:AbortS
 }
 export function validateKassealPlan(data:any,address:string,body:any){
   const request=data?.request,terms=request?.tradeSummary;
-  if(data?.proofStatus!=='bound'||data.sdkVersion!=='0.1.1'||request?.sender!==address||request.tokenId!==body.tokenId||request.side!==body.side||
+  if(data?.proofStatus!=='bound'||!['0.1.1','0.3.0'].includes(data.sdkVersion)||request?.sender!==address||request.tokenId!==body.tokenId||request.side!==body.side||
     !['kasseal-mainnet-swap-v1','kasseal-mainnet-prepare-v1'].includes(request.profile))throw Error('Kasseal plan identity verification failed.');
   if(request.profile==='kasseal-mainnet-prepare-v1'){
     if(body.side!=='sell'||terms?.stage!=='preparation'||!['split','merge'].includes(terms.operation)||terms.maxPreparationDebitSompi!=='700000000')throw Error('Invalid Kasseal self-owned token preparation.');

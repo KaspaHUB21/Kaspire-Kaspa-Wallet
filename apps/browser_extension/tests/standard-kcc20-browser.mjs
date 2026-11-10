@@ -22,20 +22,22 @@ async function shot(ws,name){const value=await cdp(ws,'Page.captureScreenshot',{
 try {
   const worker=await until(async()=>(await targets()).find(t=>t.type==='service_worker'),'extension worker');
   await evaluate(worker.webSocketDebuggerUrl,`(()=>{
-    const original=globalThis.fetch,base='https://kasvio.network/api/kcc20/v1';
-    const cid='82f033aed87d6eb39f509b51b1c817a49e0b07c4789b619cab08d4c8fb82d18e',slow='b'.repeat(64),late='e'.repeat(64);
+    const original=globalThis.fetch,base='https://kasvio.network/api/kcc20/v4';
+    const cid='82f033aed87d6eb39f509b51b1c817a49e0b07c4789b619cab08d4c8fb82d18e',slow='b'.repeat(64),late='e'.repeat(64),owner='3485c974d6e79b75c4ff130ee0cd20ab01b8118329837b2db8ed3b7275777df4';
     let release;const blocked=new Promise(resolve=>{release=resolve;});
     const fixture=globalThis.holdingsFixture={release,calls:[],started:0};
-    const envelope=data=>new Response(JSON.stringify({data,meta:{network:'mainnet',reference_commit:'c8a087117735a1f87c5c6d115fcddeaf2562c784'}}),{headers:{'content-type':'application/json'}});
+    const envelope=(data,extra={})=>new Response(JSON.stringify({data,meta:{network:'mainnet',reference_commit:null,adapter:'kcc20',source_run:'v4:browser-fixture',source_fingerprint:'1'.repeat(64),decoder_fingerprint:'2'.repeat(64),snapshot_id:'fixed'},...extra}),{headers:{'content-type':'application/json'}});
     globalThis.fetch=async(input,options)=>{
       const url=String(input);if(!url.startsWith(base+'/'))return original(input,options);
       fixture.calls.push(url);fixture.started||=Date.now();
       const u=new URL(url),path=u.pathname;
-      if(path.endsWith('/status'))return envelope({status:'ready'});
-      if(path.endsWith('/tokens'))return envelope([cid,slow,late].map((id,i)=>({covenant_id:id,profile_id:'KCC20PublicMint@c8a0871',recognition:'hash_proven_reference_actor_family',metadata:{binding_verified:true,ticker:i===0?'KASPIREISTHEBESTKASPAWALLET':i===1?'SLOW':'LATE',decimals:8}})));
+      if(path.includes('/addresses/'))return envelope([cid,slow,late].map((id,i)=>({covenant_id:id,owner_scheme:0,owner_value:owner,balance_raw:['59973229','1','123000000'][i],balance_complete:true})),{address_context:{network:'mainnet',address:decodeURIComponent(path.split('/').at(-2)),owner_scheme:0,owner_value:owner,balances_complete:true},pagination:{has_more:false}});
+      if(path.endsWith('/'+slow))await blocked;
+      const id=path.split('/').at(-1),i=[cid,slow,late].indexOf(id);
+      if(i>=0)return envelope({covenant_id:id,profile_id:'KCC20PublicMint@c8a0871',recognition:'hash_proven_reference_actor_family',metadata:{binding_verified:true,ticker:['KASPIREISTHEBESTKASPAWALLET','SLOW','LATE'][i],decimals:8}});
       if(path.endsWith('/balance')){
-        const id=path.split('/').at(-2);if(id===slow)await blocked;
-        return envelope({covenant_id:id,owner_value:u.searchParams.get('owner'),owner_scheme:0,available:true,balance_raw:id===cid?'59973229':id===late?'123000000':'0',outputs:[]});
+        const id=path.split('/').at(-2);
+        return envelope({covenant_id:id,owner_value:u.searchParams.get('owner'),owner_scheme:0,available:true,balance_raw:id===cid?'59973229':id===late?'123000000':'1',outputs:[]});
       }
       return new Response('{}',{status:404});
     };return true;
@@ -60,8 +62,9 @@ try {
   assert.equal(await evaluate(ws,`document.querySelector('#asset-list')?.textContent.includes('temporarily unavailable')`),false);
   await evaluate(worker.webSocketDebuggerUrl,'holdingsFixture.release();true');
   await until(()=>evaluate(ws,`document.querySelector('#asset-list')?.textContent.includes('LATE1.23')`),'late balance past 30 seconds');
-  const counts=await evaluate(worker.webSocketDebuggerUrl,`({status:holdingsFixture.calls.filter(url=>url.endsWith('/status')).length,balances:holdingsFixture.calls.filter(url=>url.includes('/balance?')).length})`);
-  assert.deepEqual(counts,{status:1,balances:3},'Reopened views share the same paced scan');
+  await until(()=>evaluate(worker.webSocketDebuggerUrl,'holdingsFixture.calls.filter(url=>url.includes("/balance?")).length===3'),'activity origins complete');
+  const counts=await evaluate(worker.webSocketDebuggerUrl,`({addresses:holdingsFixture.calls.filter(url=>url.includes('/addresses/')).length,balances:holdingsFixture.calls.filter(url=>url.includes('/balance?')).length})`);
+  assert.deepEqual(counts,{addresses:1,balances:3},'Reopened views share the same address-scoped scan');
   await shot(ws,'reopened-and-complete');
   assert.equal(await evaluate(ws,`[...document.querySelectorAll('#asset-list .error')].some(el=>/KCC20/.test(el.textContent))`),false);
   console.log('Packaged Chromium holdings: early positive, reopen replay, post-30s progress, exact units and request coalescing passed.');

@@ -29,21 +29,15 @@ export async function kronMetadata(get: JsonGet, row: any) {
   return matches[0];
 }
 
-export async function directKronAssets(get: JsonGet, address: string) {
-  const marketsFuture = get(`${KASVIO}/api/dex?dex=kron&range=7d`).catch(() => null);
-  const rows = await kronBalances(get, address), data = await marketsFuture;
-  const markets = new Map<string, any>();
-  if (data?.stale === false && data?.source?.available === true && Array.isArray(data?.tokens)) {
-    for (const token of data.tokens) {
-      if (/^[0-9a-f]{64}$/.test(String(token?.id).toLowerCase()))
-        markets.set(String(token.id).toLowerCase(), token);
-    }
-  }
-  return rows.map((row: any) => {
+export async function directKronAssets(get: JsonGet, address: string,onProgress:(rows:any[])=>void=()=>{}) {
+  const marketsFuture = get(`${KASVIO}/api/kron/v2/tokens?limit=100`).catch(() => null);
+  const rows = (await kronBalances(get, address)).filter((r:any)=>r.family!=='kcc20v1');
+  const markets = new Map<string, any>(),needed=new Set<string>(rows.map((r:any)=>String(r.covenantId).toLowerCase()));
+  const assets=()=>rows.map((row: any) => {
     const id = String(row.covenantId).toLowerCase(), market = markets.get(id);
     const price = Number(market?.price), scale = 10 ** Number(row.dec);
     return {
-      covenantId: id, symbol: String(row.tick).toUpperCase(), name: String(market?.name ?? row.tick),
+      covenantId: id, symbol: String(row.tick).toUpperCase(), name: String(row.tick),
       rawBalance: String(row.balance), decimals: Number(row.dec),
       image_url: /^https:\/\//.test(String(market?.logo ?? '')) ? market.logo : '',
       priceKas: Number.isFinite(price) && price >= 0 ? price * scale : null,
@@ -51,6 +45,17 @@ export async function directKronAssets(get: JsonGet, address: string) {
       explorerUrl: 'https://kron.technology/', kronUrl: 'https://kron.technology/',
     };
   });
+  onProgress(assets());
+  let data=await marketsFuture;const cursors=new Set<string>();
+  for(let page=0;page<10;page++){
+    if(!Array.isArray(data?.data)||data?.meta?.network!=='mainnet')break;
+    const fresh=data.meta.adapter_fresh===true&&data.meta.source_caught_up===true;
+    for(const token of data.data){const id=String(token?.token_id??'').toLowerCase();if(/^[0-9a-f]{64}$/.test(id))markets.set(id,{logo:token.logo_uri,price:fresh?token.last_price_kas_per_raw_unit:null});}
+    if([...needed].every(id=>markets.has(id)))break;
+    const cursor=data.pagination?.next_cursor;if(typeof cursor!=='string'||!cursor||cursor.length>2048||cursors.has(cursor))break;
+    cursors.add(cursor);data=await get(`${KASVIO}/api/kron/v2/tokens?limit=100&cursor=${encodeURIComponent(cursor)}`).catch(()=>null);
+  }
+  return assets();
 }
 
 export async function directKronTransfer(get: JsonGet, address: string, covenantId: string, amount: number, nodeBase: string) {

@@ -3,3 +3,5 @@ dist/
 tests/generated/
 generated/
 artifacts/
+dex_engine/.dart_tool/
+dex_engine/generated/

@@ -49,7 +49,8 @@ try{
     assert(Math.abs(layout[0].x-layout[3].x)<1 && layout.every(e=>e.height>=76),theme+" grid alignment failed");
     await evaluate(reopenedWallet,'document.querySelector("#swap").click();true');
     await waitFor(reopenedWallet,'Boolean(document.querySelector("#kron-open"))');
-    assert.match(String(await evaluate(reopenedWallet,'document.querySelector(".marketplace-screen").innerText')),/KCC20 DEX Swaps.*Kron DEX/s);
+    assert.match(String(await evaluate(reopenedWallet,'document.querySelector(".marketplace-screen").innerText')),/KCC20 DEX Swaps.*Kron/si);
+    assert.deepEqual(await evaluate(reopenedWallet,'[...document.querySelectorAll(".marketplace-screen > button")].map(b=>b.id)'),['rocket-open','kasseal-open','braid-open','kforge-open','kron-open','kasforge-open']);
     assert.equal(await evaluate(reopenedWallet,'Boolean(document.querySelector("#rocket-open"))'),true);
     assert.equal(await evaluate(reopenedWallet,'Boolean(document.querySelector("#kasseal-open"))'),true);
     assert.deepEqual(await evaluate(reopenedWallet,'[...document.querySelectorAll("#rocket-open,#kasseal-open,#kron-open")].map(b=>b.id)'),['rocket-open','kasseal-open','kron-open']);

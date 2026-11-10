@@ -1,0 +1,7 @@
+name: kaspire_extension_dex_engine
+publish_to: none
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+dependencies:
+  http: 1.6.0
+  pointycastle: 4.0.0

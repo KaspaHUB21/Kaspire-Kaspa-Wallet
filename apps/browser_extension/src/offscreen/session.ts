@@ -1,3 +1,4 @@
+import './dexEngine';
 interface StoredSession {
   vault: unknown;
   password: string | null;

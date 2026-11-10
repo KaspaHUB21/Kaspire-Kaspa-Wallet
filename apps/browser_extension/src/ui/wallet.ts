@@ -7,6 +7,8 @@ import {agoraChooser, openNftMarket, nftImageFallback} from "./nftMarket";
 import {openNexus,mountNexusBell} from './nexus';
 import {openDexSelection} from './kronDex';
 import {openKasseal} from './kasseal';
+import {openSharedDex} from './dex';
+import {sellPresets,showDexMetrics,covenantTradePanel,covenantSwapReview,covenantSwapConfirmation} from './dexPresentation';
 import {openCovenantVaults} from './covenantVaults';
 import {openP2sh, receiveModeTabs} from './p2sh';
 import { sortedAssets, assetTicker, sameAsset } from "../shared/assetPresentation";
@@ -52,7 +54,7 @@ let storeUpdateRequest: Promise<any> | null = null;
 async function rawCommand(name: string, values: Record<string, unknown> = {}) {
   // Holdings discovery is a paced read across the whole catalogue, not a
   // signing review. Keep its progressive listener alive beyond 30 seconds.
-  const holdings = name === 'assetCategory' && values.category === 'kcc20';
+  const holdings = name === 'assetCategory' && ['kcc20','kforge','kasforge'].includes(String(values.category));
   let timer: number | undefined;
   try {
     const response = await Promise.race([
@@ -89,7 +91,7 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}, s
     const port = chrome.runtime.connect({ name: "wallet-operation" });
     let finished = false;
     const kcc20 = name === 'prepareAsset' && values.kind === 'kcc20';
-    const long = name.startsWith('kasseal') || name.startsWith('kronDex') || name.toLowerCase().includes('rocket') || name.startsWith('covenantVault') || name.startsWith('p2sh') || ["resumeInscription", "nftMarketOperation", "confirmPreparedAsset", "resumeKcc20Plan"].includes(name);
+    const long = name==='dex' || name.startsWith('kasseal') || name.startsWith('kronDex') || name.toLowerCase().includes('rocket') || name.startsWith('covenantVault') || name.startsWith('p2sh') || ["resumeInscription", "nftMarketOperation", "confirmPreparedAsset", "resumeKcc20Plan"].includes(name);
     const deadline = operationDeadline(() => {
       if(finished)return;
       finished=true; signal?.removeEventListener('abort',abort); port.disconnect();
@@ -107,7 +109,7 @@ function persistentCommand(name: string, values: Record<string, unknown> = {}, s
       if(finished)return;
       if(response?.progress) {
         if(kcc20)deadline.progress();
-        if(name.startsWith('p2sh'))document.dispatchEvent(new CustomEvent('kaspire-operation-progress',{detail:response.progress}));
+        if(name==='dex'||name.startsWith('p2sh'))document.dispatchEvent(new CustomEvent('kaspire-operation-progress',{detail:response.progress}));
         const button=document.querySelector<HTMLButtonElement>(kcc20?'#review, #confirm-asset':['confirmPreparedAsset','resumeKcc20Plan'].includes(name)?'#confirm-asset, .warning-box button':'#review');
         if(button)button.textContent=response.progress;
         const reveal=document.querySelector<HTMLElement>('#reveal-progress');
@@ -1378,7 +1380,7 @@ function privateKeyResult(result: {
 function network() {
   const l2 = isL2();
   shell(
-    `<section class="network-screen"><p class="eyebrow">NETWORK</p><h1>${l2 ? `${networkLabel()} Layer 2` : status.network === "testnet-10" ? "Kaspa TN10" : "Kaspa Layer 1"}</h1><div class="endpoint-card"><b>${l2 ? "EVM RPC endpoint" : "Kaspa endpoint"}</b><code>${status.network === "kasplex" ? "https://evmrpc.kasplex.org" : status.network === "igra" ? "https://rpc.igralabs.com:8545" : status.network === "testnet-10" ? "https://api-tn10.kaspa.org" : "https://kaspire.kaslab.space/api"}</code><small>${l2 ? "Live Layer 2 RPC" : "Kaspire node gateway"}</small></div><div class="network-list">${l2 ? `<div><span>Assets & activity</span><b>Verified L2 explorer API</b></div><div><span>Transaction signer</span><b>Native Rust EVM core</b></div>` : `<div><span>KRC-20 / KNS / KRC-721</span><b>KaspaToken + fallbacks</b></div><div><span>KCC20</span><b>kcc20.info + KasCOV</b></div>`}<div><span>Connection</span><b>Encrypted browser provider</b></div><div><span>Connected dApps</span><b>${Object.keys(status.permissions).length}</b></div></div><button id="diagnostics">RUN NETWORK DIAGNOSTICS</button><div id="results"></div></section>`,
+    `<section class="network-screen"><p class="eyebrow">NETWORK</p><h1>${l2 ? `${networkLabel()} Layer 2` : status.network === "testnet-10" ? "Kaspa TN10" : "Kaspa Layer 1"}</h1><div class="endpoint-card"><b>${l2 ? "EVM RPC endpoint" : "Kaspa endpoint"}</b><code>${status.network === "kasplex" ? "https://evmrpc.kasplex.org" : status.network === "igra" ? "https://rpc.igralabs.com:8545" : status.network === "testnet-10" ? "https://api-tn10.kaspa.org" : "https://kaspire.kaslab.space/api"}</code><small>${l2 ? "Live Layer 2 RPC" : "Kaspire node gateway"}</small></div><div class="network-list">${l2 ? `<div><span>Assets & activity</span><b>Verified L2 explorer API</b></div><div><span>Transaction signer</span><b>Native Rust EVM core</b></div>` : `<div><span>KRC-20 / KNS / KRC-721</span><b>KaspaToken + fallbacks</b></div><div><span>KCC20</span><b>Kasvio V4 · Kascov fallback</b></div>`}<div><span>Connection</span><b>Encrypted browser provider</b></div><div><span>Connected dApps</span><b>${Object.keys(status.permissions).length}</b></div></div><button id="diagnostics">RUN NETWORK DIAGNOSTICS</button><div id="results"></div></section>`,
     "NETWORK",
     true,
   );
@@ -1639,13 +1641,15 @@ async function loadHome() {
           " · " + fmt(core.utxoCount, 0) + " UTXOs";
       addCompound(core);
     }).catch(() => undefined);
-    const assets: any = {tokens: [], domains: [], krc721: [], kcc20: [], dotk: [], rocket: [], kasseal: []};
+    const assets: any = {tokens: [], domains: [], krc721: [], kcc20: [], dotk: [], rocket: [], kasseal: [],kforge:[],kasforge:[]};
     const failures: string[] = [];
     let kcc20Warning='';
     const covenantProgress=(message:any)=>{
-      if(message?.kind!=='wallet-covenant-assets-progress'||message.address!==status.selectedAddress||!stillHome()||!Array.isArray(message.items))return;
-      assets.kcc20=message.items;
-      const visible={...assets,kcc20:mergeRocketAssets(mergeRocketAssets(assets.kcc20,assets.rocket),assets.kasseal)};
+      if(message.address!==status.selectedAddress||!stillHome()||!Array.isArray(message.items))return;
+      if(message.kind==='wallet-dex-assets-progress'&&message.network===status.network&&['kforge','kasforge'].includes(message.venue))assets[message.venue]=message.items;
+      else if(message.kind==='wallet-covenant-assets-progress')assets.kcc20=message.items;
+      else return;
+      const visible={...assets,kcc20:mergeRocketAssets(mergeRocketAssets(mergeRocketAssets(mergeRocketAssets(assets.kcc20,assets.rocket),assets.kasseal),assets.kforge),assets.kasforge)};
       snapshot={...snapshot,assets:visible};renderAssetGroups(visible);
     };
     chrome.runtime.onMessage.addListener(covenantProgress);
@@ -1658,7 +1662,7 @@ async function loadHome() {
       }
       catch { failures.push(category === "tokens" ? "KRC20" : category.toUpperCase()); }
       if (!stillHome()) return;
-      const visible = {...assets, kcc20: mergeRocketAssets(mergeRocketAssets(assets.kcc20, assets.rocket),assets.kasseal)};
+      const visible = {...assets, kcc20: mergeRocketAssets(mergeRocketAssets(mergeRocketAssets(mergeRocketAssets(assets.kcc20, assets.rocket),assets.kasseal),assets.kforge),assets.kasforge)};
       snapshot = { ...snapshot, assets: visible };
       renderAssetGroups(visible);
     }));
@@ -1787,9 +1791,10 @@ async function dotkDetail(listing: any) {
 function assetDetail(asset: any) {
   if (asset.kind === "dotk") return dotkDetail(asset.raw);
   if (asset.kind === "krc721") return nftGallery(asset);
+  if(asset.kind==='kcc20'&&['kforge-kcc20','kasforge-kcc20'].includes(asset.raw?.standard))return openSharedDex({command,shell,address:()=>String(status.selectedAddress)},asset.raw.standard==='kforge-kcc20'?'kforge':'kasforge',status.network,asset.raw.covenantId);
   if (asset.kind === "kcc20" && asset.raw?.standard === "kron-native")
     return kronDetail(asset);
-  if(asset.kind==='kcc20'&&asset.raw?.standard==='kasseal-kcc20')return openKasseal({command,shell,address:()=>String(status.selectedAddress)},asset.raw.covenantId);
+  if(asset.kind==='kcc20'&&asset.raw?.standard==='kasseal-kcc20')return rocketAssetDetail(asset);
   if (
     asset.kind === "kcc20" &&
     asset.raw?.standard === "kasparocket-kcc20"
@@ -1840,7 +1845,7 @@ function rocketAssetDetail(asset:any){
   const price=asset.raw?.priceKas,balance=Number(String(asset.balance).replaceAll(',',''));
   shell(`<section class="token-detail"><div class="token-logo">${asset.raw?.image_url?`<img src="${esc(asset.raw.image_url)}" alt="">`:esc(asset.symbol.slice(0,2))}</div><h1 data-preserve-case>${esc(asset.symbol)}</h1><p>${esc(asset.balance)} ${esc(asset.symbol)}</p><div class="price-grid"><div><small>Price per token</small><b>${price==null?'—':`${fmt(price)} KAS`}</b></div><div><small>Balance value</small><b>${price==null?'—':`${fmt(price*balance)} KAS`}</b></div></div><div class="approval-actions"><button id="rocket-send">Send Asset</button><button id="rocket-swap">Swap</button></div><button id="rocket-explorer" class="outline">Check on explorer</button></section>`,'Token details',true);
   document.querySelector<HTMLButtonElement>('#rocket-send')!.onclick=()=>send(asset);
-  document.querySelector<HTMLButtonElement>('#rocket-swap')!.onclick=()=>void rocketMarketplace(id);
+  document.querySelector<HTMLButtonElement>('#rocket-swap')!.onclick=()=>void (asset.raw?.standard==='kasseal-kcc20'?openKasseal({command,shell,address:()=>String(status.selectedAddress)},id):rocketMarketplace(id));
   document.querySelector<HTMLButtonElement>('#rocket-explorer')!.onclick=()=>void chrome.tabs.create({url:`https://kaspatoken.kaslab.space/kcc20/${id}`});
 }
 function kronDetail(asset: any) {
@@ -2154,7 +2159,7 @@ async function activity() {
   let feed=activityFeeds.get(key);
   if(!feed){if(activityFeeds.size>=8)activityFeeds.clear();feed=new ActivityFeed();activityFeeds.set(key,feed);}
   const currentFeed=feed;
-  const sources=isL2()?['L2 history']:['Saved activity','KAS history',...(status.network==='mainnet'?['KRC20 history','KRON history','NFT/name history','Legacy covenant history','Covenant history']:[])];
+  const sources=isL2()?['L2 history']:['Saved activity','KAS history',...(status.network==='mainnet'?['KRC20 history','KRON history','NFT/name history','Covenant history']:[])];
   const active=()=>document.querySelector('#history')===host;
   const group=(text:any)=>String(text??'').replace(/^(-?\d+)(?=\.| |$)/,whole=>whole.replace(/\B(?=(\d{3})+(?!\d))/g,','));
   const draw=()=>{
@@ -2464,6 +2469,7 @@ function paintRocket() {
         : '<div class="empty">No KaspaRocket swaps yet.</div>';
   }
   host.innerHTML = `${tabs}${rocket.error ? `<p class="error">${esc(rocket.error)}</p>` : ""}${body}`;
+  host.querySelectorAll<HTMLElement>('[data-rocket-token]').forEach(button=>{const token=rocket.tokens.find(t=>t.tokenId===button.dataset.rocketToken),em=button.querySelector<HTMLElement>('em');if(em&&token)void showDexMetrics(em,{capKas:token.marketCapKas,priceKas:token.priceKas,volumeKas:token.volume24hKas});});
   host.querySelectorAll<HTMLButtonElement>("[data-rocket-tab]").forEach(
     (button) =>
       (button.onclick = () => {
@@ -2526,13 +2532,25 @@ function paintRocketTrade(host: HTMLElement) {
     : rocket.side === "buy"
       ? `${fmt(Number(context.balanceKas ?? 0))} KAS`
       : `${context.holdingDisplay ?? "0"} ${String(token.ticker).toUpperCase()}`;
-  host.innerHTML = `<button id="rocket-back" class="outline">← Back to swaps</button><section class="token-detail rocket-detail"><div class="token-logo">${token.image ? `<img src="${esc(token.image)}" alt="">` : "◈"}</div><h1>${esc(String(token.ticker).toUpperCase())}</h1><p>${esc(token.name)}</p><section class="copy-detail"><label>Token covenant</label><code>${esc(token.tokenId)}</code></section><section class="copy-detail"><label>Pool covenant</label><code>${esc(context?.poolId ?? "Loading…")}</code></section><div class="price-grid"><div><small>Price</small><b>${esc(rocketKas(token.priceKas))}</b></div><div><small>24h volume</small><b>${esc(rocketKas(token.volume24hKas))}</b></div><div><small>Pool</small><b>${esc(rocketKas(token.poolValueKas))}</b></div></div><div class="segmented rocket-side"><button data-rocket-side="buy" class="${rocket.side === "buy" ? "active" : ""}">Buy</button><button data-rocket-side="sell" class="${rocket.side === "sell" ? "active" : ""}">Sell</button></div><div class="form"><label>${rocket.side === "buy" ? "KAS trade amount (DEX fees added)" : "Token amount"}<small class="available">Available: ${esc(available)}</small><div class="amount"><input id="rocket-amount" inputmode="decimal" value="${esc(rocket.amount)}"><span>${rocket.side === "buy" ? "KAS" : esc(String(token.ticker).toUpperCase())}</span></div></label><button id="rocket-quote" class="outline" ${context ? "" : "disabled"}>Get live quote</button>${quote ? `<section class="tx-meta rocket-quote">${detailRow("Token amount", `${quote.amountTokensDisplay ?? "\u2014"} ${String(token.ticker).toUpperCase()}`)}${detailRow(rocket.side === "buy" ? "KAS into swap" : "Gross KAS returned", sompiMagnitude(quote.kas_flow_sompi))}${detailRow(rocket.side === "buy" ? "Total KAS spent" : "Net KAS received", sompiMagnitude(quote.net_kas_sompi))}${detailRow("Treasury fee", sompiMagnitude(quote.platform_fee_sompi))}${detailRow("Partner fee", sompiMagnitude(quote.partner_fee_sompi))}</section>` : ""}<p class="error">${esc(rocket.error)}</p><button id="rocket-review" ${context ? "" : "disabled"}>Review swap</button></div></section>`;
+  host.innerHTML = covenantTradePanel({
+    prefix:'rocket', name:token.name, ticker:String(token.ticker).toUpperCase(), image:token.image,
+    tokenId:token.tokenId, marketId:context?.poolId ?? 'Loading…', marketLabel:'Pool covenant',
+    price:rocketKas(token.priceKas), volume:rocketKas(token.volume24hKas), marketValue:rocketKas(token.poolValueKas),
+    side:rocket.side, buyLabel:'KAS trade amount (DEX fees added)', amount:rocket.amount, available,
+    quoteLabel:'Get live quote', quoteDisabled:!context, reviewDisabled:!context, error:rocket.error,
+    quoteHtml:quote ? detailRow('Token amount', `${quote.amountTokensDisplay ?? '—'} ${String(token.ticker).toUpperCase()}`)
+      + detailRow(rocket.side==='buy'?'KAS into swap':'Gross KAS returned',sompiMagnitude(quote.kas_flow_sompi))
+      + detailRow(rocket.side==='buy'?'Total KAS spent':'Net KAS received',sompiMagnitude(quote.net_kas_sompi))
+      + detailRow('Treasury fee',sompiMagnitude(quote.platform_fee_sompi))
+      + detailRow('Partner fee',sompiMagnitude(quote.partner_fee_sompi)) : undefined,
+  });
   host.querySelector<HTMLButtonElement>("#rocket-back")!.onclick = () => {
     rocket.selected = null;
     rocket.quote = null;
     rocket.error = "";
     paintRocket();
   };
+  if(rocket.side==='sell')host.querySelector('.form label')?.before(sellPresets(context?.holdingRaw,3,value=>{rocket.amount=value;rocket.quote=null;paintRocketTrade(host);},rocket.busy));
   host.querySelectorAll<HTMLButtonElement>("[data-rocket-side]").forEach(
     (button) =>
       (button.onclick = () => {
@@ -2627,7 +2645,15 @@ function rocketReview(prepared: any) {
   );
   const overlay = document.createElement("div");
   overlay.className = "kaspire-modal approval-modal";
-  overlay.innerHTML = `<section class="approval-sheet"><p class="eyebrow">SECURE REVIEW · MAINNET</p><h1>${esc(String(prepared.side).toUpperCase())} ${esc(String(prepared.token.ticker).toUpperCase())}</h1><div class="approval-details">${detailRow("Token covenant", prepared.token.tokenId)}${detailRow("Pool covenant", prepared.poolId)}${detailRow("Token amount", `${summary.amountTokensDisplay ?? "\u2014"} ${String(prepared.token.ticker).toUpperCase()}`)}${detailRow("KAS flow", sompiMagnitude(summary.kasFlowSompi))}${detailRow("Treasury fee", sompiMagnitude(summary.platformFeeSompi))}${detailRow("Partner fee", sompiMagnitude(summary.partnerFeeSompi))}${detailRow("Network fees", sompiLabel(fees))}${detailRow("Transactions", prepared.transactionCount)}</div><p class="warning-box">Ticker symbols are not unique. Verify both covenant IDs.</p><details class="raw-json"><summary>Raw plan JSON</summary><pre>${esc(prettyJson(prepared.rawPlan))}</pre></details><p id="rocket-submit-error" class="error"></p><div class="approval-actions"><button id="rocket-cancel" class="outline">Cancel</button><button id="rocket-submit">Authorize & swap</button></div></section>`;
+  overlay.innerHTML = covenantSwapReview({
+    prefix:'rocket', network:'MAINNET', title:`${String(prepared.side).toUpperCase()} ${String(prepared.token.ticker).toUpperCase()}`,
+    details:detailRow('Token covenant',prepared.token.tokenId)+detailRow('Pool covenant',prepared.poolId)
+      +detailRow('Token amount',`${summary.amountTokensDisplay ?? '—'} ${String(prepared.token.ticker).toUpperCase()}`)
+      +detailRow('KAS flow',sompiMagnitude(summary.kasFlowSompi))+detailRow('Treasury fee',sompiMagnitude(summary.platformFeeSompi))
+      +detailRow('Partner fee',sompiMagnitude(summary.partnerFeeSompi))+detailRow('Network fees',sompiLabel(fees))
+      +detailRow('Transactions',prepared.transactionCount),
+    warning:'Ticker symbols are not unique. Verify both covenant IDs.',raw:prepared.rawPlan,
+  });
   document.body.append(overlay);
   overlay.querySelector<HTMLButtonElement>("#rocket-cancel")!.onclick = () =>
     overlay.remove();
@@ -2653,7 +2679,7 @@ function rocketReview(prepared: any) {
 
 function rocketReceipt(result: any) {
   shell(
-    `<section class="receipt-screen"><div class="receipt-check">✓</div><p class="eyebrow">MAINNET SWAP CONFIRMED</p><h1>KaspaRocket swap sent</h1><details class="raw-json" open><summary>Receipt and transaction details</summary><pre>${esc(prettyJson(result))}</pre></details><button id="rocket-done">Return to KaspaRocket</button></section>`,
+    covenantSwapConfirmation({name:'KaspaRocket',network:'MAINNET',buttonId:'rocket-done',raw:result}),
     "KaspaRocket",
   );
   document.querySelector<HTMLButtonElement>("#rocket-done")!.onclick = () => {
@@ -2783,7 +2809,7 @@ function detailRow(label: string, value: any) {
   return `<div class="detail-row"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
 }
 async function command(name: string, values: Record<string, unknown> = {}, signal?: AbortSignal) {
-  const guarded = [
+  const guarded = name==='dex'&&['submit','resume','recover'].includes(String(values.action)) || [
     "sendKas",
     "sendAsset",
     "confirmPreparedAsset",
@@ -2807,7 +2833,7 @@ async function command(name: string, values: Record<string, unknown> = {}, signa
   ].includes(name);
   return guarded
     ? withInAppApprovals(persistentCommand(name, values, signal))
-    : name.startsWith('kasseal') || name.startsWith('covenantVault') || name.startsWith('p2sh') ? persistentCommand(name, values, signal) : rawCommand(name, values);
+    : name==='dex' || name.startsWith('kasseal') || name.startsWith('covenantVault') || name.startsWith('p2sh') ? persistentCommand(name, values, signal) : rawCommand(name, values);
 }
 async function withInAppApprovals<T>(task: Promise<T>) {
   const completed = new AbortController();

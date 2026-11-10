@@ -1,4 +1,5 @@
 import {kassealDetails,kassealDisplay,kassealImage} from '../background/kasseal';
+import {sellPresets,kassealMetrics,showDexMetrics} from './dexPresentation';
 type Hooks={command(name:string,values?:Record<string,unknown>):Promise<any>;shell(content:string,title?:string,back?:boolean):void;address():string};
 const esc=(v:any)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const logo=(t:any)=>kassealImage(t)?`<img src="${esc(kassealImage(t))}" alt="">`:'◈';
@@ -55,6 +56,8 @@ export async function openKasseal(hooks:Hooks,tokenId?:string){
       }
     }
     host.innerHTML=`${error?`<p class="error">${esc(error)}</p>`:''}${notice?`<p class="hint" role="status">${esc(notice)}</p>`:''}${loading?'<div class="loading">Loading Kasseal…</div>':''}${html}`;
+    host.querySelectorAll<HTMLElement>('[data-seal-token]').forEach(button=>{const token=tokens.find(t=>t.meta.covenantId===button.dataset.sealToken),em=button.querySelector<HTMLElement>('em');if(em&&token)void showDexMetrics(em,kassealMetrics(token));});
+    if(selected&&side==='sell'&&!receipt){const holding=context?.holdings?.find((h:any)=>h.covenantId===selected.meta.covenantId);host.querySelector('.form label')?.before(sellPresets(Array.isArray(context?.holdings)?String(holding?.rawBalance??'0'):null,0,value=>{amount=value;quote=null;paint();},loading));}
     host.querySelectorAll<HTMLImageElement>('img').forEach(img=>img.onerror=()=>img.replaceWith(document.createTextNode('◈')));
     host.querySelectorAll<HTMLButtonElement>('button').forEach(b=>{if(loading)b.disabled=true;});
     host.querySelectorAll<HTMLButtonElement>('[data-seal-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.sealTab!;paint();});

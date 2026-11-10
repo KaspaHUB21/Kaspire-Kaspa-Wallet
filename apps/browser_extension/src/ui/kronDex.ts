@@ -1,5 +1,7 @@
 import { kronDisplay, kronSwapDetails, type KronToken } from '../background/kronDex';
 import {openKasseal} from './kasseal';
+import {openSharedDex} from './dex';
+import {sellPresets} from './dexPresentation';
 type Hooks = { command(name: string, values?: Record<string, unknown>): Promise<any>; shell(content: string, title?: string, back?: boolean): void; address(): string };
 const esc = (v: any) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const kas = (raw: any) => kronDisplay(raw, 8) + ' KAS';
@@ -8,14 +10,13 @@ const logo = (token: KronToken) => safeImage(token.image) ? `<img src="${safeIma
 const details = (summary: any, token: KronToken) => kronSwapDetails(summary, token).map(line => { const colon = line.indexOf(':'); return `<div class="kron-detail-row"><span>${esc(line.slice(0, colon))}</span><b>${esc(line.slice(colon + 1).trim())}</b></div>`; }).join('');
 
 export function openDexSelection(hooks: Hooks, network: string, rocket: () => void) {
-  if (network === 'testnet-10') { rocket(); return; }
-  if (network !== 'mainnet') { hooks.shell('<article class="review-card"><h1>KCC20 DEX Swaps</h1><p>Switch to Kaspa Mainnet to use Kron DEX.</p></article>', 'Swap', true); return; }
-  hooks.shell(`<section class="marketplace-screen"><h1>KCC20 DEX Swaps</h1><button id="rocket-open" class="rocket-token market-offer"><span class="rocket-logo"><img src="https://kasparocket.fun/icon.jpeg" alt="KaspaRocket"></span><span><b>KaspaRocket</b><small>Kaspa Mainnet · DEX & Launchpad</small></span><i>›</i></button><button id="kron-open" class="rocket-token market-offer"><span class="rocket-logo"><img src="https://kron.technology/icon-512.png" alt="Kron"></span><span><b>Kron DEX</b><small>Kaspa Mainnet · DEX & Launchpad</small></span><i>›</i></button><p class="kron-coming">More KCC20 DEXes are coming soon.</p></section>`, 'Swap', true);
-  const kasseal=document.createElement('button');kasseal.id='kasseal-open';kasseal.className='rocket-token market-offer';
-  kasseal.innerHTML='<span class="rocket-logo"><img src="kasseal.png" alt="Kasseal"></span><span><b>Kasseal DEX</b><small>Kaspa Mainnet · DEX & Launchpad</small></span><i>›</i>';
-  document.querySelector('#kron-open')!.before(kasseal);kasseal.onclick=()=>void openKasseal(hooks);
-  document.querySelector<HTMLButtonElement>('#rocket-open')!.onclick = () => rocket();
-  document.querySelector<HTMLButtonElement>('#kron-open')!.onclick = () => void openKronDex(hooks);
+  if(!['mainnet','testnet-10'].includes(network)){hooks.shell('<article class="review-card"><h1>KCC20 DEX Swaps</h1><p>Switch to a Kaspa network.</p></article>','Swap',true);return;}
+  const rows=network==='mainnet'?[['rocket','KaspaRocket','https://kasparocket.fun/icon.jpeg'],['kasseal','Kasseal','kasseal.png'],['braid','Braid','braid.svg'],['kforge','KForge','kforge.svg'],['kron','KRON','https://kron.technology/icon-512.png'],['kasforge','KasForge','kasforge.png']]:[['braid','Braid','braid.svg'],['kforge','KForge','kforge.svg'],['kasforge','KasForge','kasforge.png']];
+  hooks.shell(`<section class="marketplace-screen"><h1>KCC20 DEX Swaps</h1>${rows.map(([id,name,image])=>`<button id="${id}-open" class="rocket-token market-offer"><span class="rocket-logo"><img src="${image}" alt="${name}"></span><span><b>${name}</b><small>${network==='mainnet'?'Kaspa Mainnet':'Testnet 10'} · ${id==='braid'?'Aggregator':'DEX & Launchpad'}</small></span><i>›</i></button>`).join('')}</section>`,'Swap',true);
+  document.querySelector<HTMLButtonElement>('#rocket-open')?.addEventListener('click',rocket);
+  document.querySelector<HTMLButtonElement>('#kasseal-open')?.addEventListener('click',()=>void openKasseal(hooks));
+  document.querySelector<HTMLButtonElement>('#kron-open')?.addEventListener('click',()=>void openKronDex(hooks));
+  for(const venue of ['braid','kforge','kasforge'] as const)document.querySelector<HTMLButtonElement>(`#${venue}-open`)!.onclick=()=>void openSharedDex(hooks,venue,network);
 }
 export async function openKronDex(hooks: Hooks) {
   const address = hooks.address();
@@ -44,6 +45,7 @@ export async function openKronDex(hooks: Hooks) {
       html = `<button id="kron-back" class="outline">← Back to swaps</button><section class="token-detail rocket-detail"><div class="token-logo">${logo(t)}</div><h1 data-preserve-case>${esc(t.ticker.toUpperCase())}</h1><p>${esc(t.name)} · ${t.phase === 'pool' ? 'DEX' : 'Launchpad'}</p><section class="copy-detail"><label>Token covenant</label><code>${esc(t.covenantId)}</code></section><p>Price ${esc(t.priceKas ?? '—')} KAS</p>${context?.pending ? `<article class="review-card kron-recovery"><h2>Swap incomplete — action required</h2><p>Signed swap saved. Resume submits the exact same bytes; do not start a second trade.</p><code>${esc(context.pending.transactionId)}</code><button id="kron-resume">Resume saved swap</button></article>` : ''}<div class="segmented rocket-side"><button data-kron-side="buy" class="${side === 'buy' ? 'active' : ''}">Buy</button><button data-kron-side="sell" class="${side === 'sell' ? 'active' : ''}">Sell</button></div><div class="form"><label>${side === 'buy' ? 'KAS trade amount (protocol fees added)' : 'Token amount'}<small class="available">Available: ${context ? side === 'buy' ? esc(kas(context.balanceSompi)) : `${esc(context.holdingDisplay)} ${esc(t.ticker)}` : 'Loading…'}</small><div class="amount"><input id="kron-amount" inputmode="decimal" value="${esc(amount)}"><span>${side === 'buy' ? 'KAS' : esc(t.ticker)}</span></div></label><button id="kron-quote" class="outline" ${!context || loading || context.pending ? 'disabled' : ''}>Get live quote</button>${quote ? `<article class="review-card">${details(quote, t)}</article>` : ''}<button id="kron-review" ${!quote || loading || context?.pending ? 'disabled' : ''}>Review swap</button></div></section>`;
     }
     host.innerHTML = `${error ? `<p class="error">${esc(error)}</p>` : ''}${loading ? '<div class="loading">Loading KRON…</div>' : ''}${html}`;
+    if(selected&&side==='sell'&&!receipt)host.querySelector('.form label')?.before(sellPresets(context?.holdingRaw,selected.decimals,value=>{amount=value;quote=null;paint();},loading));
     host.querySelectorAll<HTMLButtonElement>('[data-kron-token], #kron-back, #kron-resume').forEach(button => button.disabled = loading);
     const amountInput = host.querySelector<HTMLInputElement>('#kron-amount');
     if (amountInput) amountInput.disabled = loading;
@@ -56,7 +58,7 @@ export async function openKronDex(hooks: Hooks) {
     host.querySelector<HTMLInputElement>('#kron-amount')?.addEventListener('input', e => { amount = (e.target as HTMLInputElement).value; quote = null; host.querySelector('.form .review-card')?.remove(); host.querySelector<HTMLButtonElement>('#kron-review')!.disabled = true; });
     host.querySelector<HTMLButtonElement>('#kron-quote')?.addEventListener('click', () => void run(async () => { quote = await hooks.command('kronDexQuote', { tokenId: selected!.covenantId, side, amount }); }));
     host.querySelector<HTMLButtonElement>('#kron-review')?.addEventListener('click', () => void run(async () => { const result = await hooks.command('kronDexPrepare', { quoteId: quote.quoteId }); if (active()) review(result); }));
-    host.querySelector<HTMLButtonElement>('#kron-resume')?.addEventListener('click', () => void run(async () => { receipt = await hooks.command('kronDexResume'); context = null; }));
+    host.querySelector<HTMLButtonElement>('#kron-resume')?.addEventListener('click', () => void run(async () => { try{receipt = await hooks.command('kronDexResume');}finally{if(selected)await balances(selected);} }));
   }
   function review(prepared: any) {
     const overlay = document.createElement('div'); overlay.className = 'kaspire-modal';

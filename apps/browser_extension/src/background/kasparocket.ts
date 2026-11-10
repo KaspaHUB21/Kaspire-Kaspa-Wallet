@@ -466,12 +466,12 @@ export async function rocketTransferData(address:string,tokenId:string,amount:nu
   const query=new URLSearchParams({address,tokenId,amount:String(amount),fullPlan:options.fullPlan?'1':'0'});
   const result=await request('GET',`https://kaspire.kaslab.space/dex-test-v1/kasseal-mainnet/rocket-cells?${query}`,undefined,false,options.signal);
   if(result.network!=='mainnet'||result.address!==address||result.tokenId!==tokenId||result.requestedAmount!==String(amount)||
-    result.templateId!=='argent-kcc20-c8a0871-10x10'||result.inputLimit!==10||!Number.isSafeInteger(result.requiredCells)||result.requiredCells<1||
+    result.templateId!=='argent-kcc20-c8a0871-10x10'||result.inputLimit!==10||!Number.isSafeInteger(result.requiredCells)||result.requiredCells<1||result.requiredCells>1000||options.fullPlan&&result.requiredCells>65||
     !Array.isArray(result.cells)||!result.cells.length||result.cells.length>(options.fullPlan?65:10))throw Error('Rocket verified cell identity differs.');
   const template=KCC20_PROGRAMS[1]!.template,seen=new Set<string>();
   const cells=result.cells.map((row:any)=>{
     const values=['valueSompi','blockDaaScore','tokenAmount'];
-    if(!/^[a-f0-9]{64}$/.test(row.transactionId)||!Number.isInteger(row.index)||row.index<0||
+    if(!/^[a-f0-9]{64}$/.test(row.transactionId)||!Number.isInteger(row.index)||row.index<0||row.index>0xffffffff||
       values.some(k=>!/^\d+$/.test(String(row[k]))||!Number.isSafeInteger(Number(row[k])))||Number(row.tokenAmount)<=0||Number(row.valueSompi)<=0||
       !/^aa20[a-f0-9]{64}87$/.test(row.scriptPublicKey)||typeof row.redeemScript!=='string'||
       !row.redeemScript.startsWith(template.prefix)||!row.redeemScript.endsWith(template.suffix)||seen.has(`${row.transactionId}:${row.index}`))throw Error('Invalid or duplicate Rocket token cell.');

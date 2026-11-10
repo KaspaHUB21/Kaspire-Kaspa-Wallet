@@ -1,7 +1,8 @@
-import { build } from "esbuild";
+import { build as esbuild } from "esbuild";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
+const build = (options) => esbuild({...options,external:[...(options.external??[]),'@kronsdk/kron-sdk/wasm']});
 
 const cargoTargetDir = process.env.CARGO_TARGET_DIR
   ? resolve(process.env.CARGO_TARGET_DIR)
@@ -9,6 +10,8 @@ const cargoTargetDir = process.env.CARGO_TARGET_DIR
 
 await rm("tests/generated", { recursive: true, force: true });
 await mkdir("tests/generated/wasm", { recursive: true });
+execFileSync(process.execPath,['scripts/build-dex-engine.mjs'],{stdio:'inherit'});
+for(const entry of ['background/kcc20Kascov','background/dexEngine','shared/publicCrypto','ui/dexPresentation'])await build({entryPoints:[`src/${entry}.ts`],outfile:`tests/generated/${entry.split('/').at(-1)}.mjs`,bundle:true,format:'esm',platform:'node',target:'node20'});
 for(const entry of ['shared/activityFeed','shared/walletPage','background/activity','background/sidePanelApprovals'])await build({entryPoints:[`src/${entry}.ts`],outfile:`tests/generated/${entry.split('/').at(-1)}.mjs`,bundle:true,format:'esm',platform:'node',target:'node20'});
 await build({entryPoints:["src/background/kasseal.ts"],outfile:"tests/generated/kasseal.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/shared/kcc20Metadata.ts"],outfile:"tests/generated/kcc20Metadata.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
@@ -29,7 +32,7 @@ await build({entryPoints:["src/background/api.ts"],outfile:"tests/generated/api.
 await build({entryPoints:["src/background/krc721Reads.ts"],outfile:"tests/generated/krc721Reads.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/background/kasparocket.ts"],outfile:"tests/generated/kasparocket.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 await build({entryPoints:["src/background/rocketSwaps.ts"],outfile:"tests/generated/rocketSwaps.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
-execFileSync("cargo",["build","--locked","--release","-p","kaspa_secure_core","--target","wasm32-unknown-unknown"],{cwd:"../..",stdio:"inherit"});
+execFileSync("cargo",["build","--locked","--release","--lib","-p","kaspa_secure_core","--target","wasm32-unknown-unknown"],{cwd:"../..",stdio:"inherit"});
 execFileSync("/root/.cargo/bin/wasm-bindgen",[resolve(cargoTargetDir,"wasm32-unknown-unknown/release/kaspa_secure_core.wasm"),"--target","web","--out-dir","tests/generated/wasm","--no-typescript"],{stdio:"inherit"});
 await rename("tests/generated/wasm/kaspa_secure_core.js","tests/generated/wasm/kaspa_secure_core.mjs");
 await build({entryPoints:["src/background/vault.ts"],outfile:"tests/generated/vault.mjs",bundle:true,format:"esm",platform:"node",target:"node20",alias:{"kaspire-wasm":resolve("tests/generated/wasm/kaspa_secure_core.mjs")}});

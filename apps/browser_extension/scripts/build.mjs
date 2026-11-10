@@ -11,9 +11,12 @@ await rm("dist", { recursive: true, force: true });
 await rm("generated", { recursive: true, force: true });
 await mkdir("dist/wasm", { recursive: true });
 await mkdir("generated/wasm", { recursive: true });
-execFileSync("cargo", ["build", "--locked", "--release", "-p", "kaspa_secure_core", "--target", "wasm32-unknown-unknown"], { cwd: "../..", stdio: "inherit" });
+execFileSync("cargo", ["build", "--locked", "--release", "--lib", "-p", "kaspa_secure_core", "--target", "wasm32-unknown-unknown"], { cwd: "../..", stdio: "inherit" });
 execFileSync("/root/.cargo/bin/wasm-bindgen", [resolve(cargoTargetDir, "wasm32-unknown-unknown/release/kaspa_secure_core.wasm"), "--target", "web", "--out-dir", "generated/wasm", "--no-typescript"], { stdio: "inherit" });
 await cp("generated/wasm", "dist/wasm", { recursive: true });
+execFileSync(process.execPath,['scripts/build-dex-engine.mjs'],{stdio:'inherit'});
+await mkdir('dist/dex',{recursive:true});
+for(const asset of ['engine.js','provenance.json'])await cp(`generated/dex/${asset}`,`dist/dex/${asset}`);
 await cp("node_modules/@kronsdk/kron-sdk/vendor/kaspa/kaspa_bg.wasm", "dist/wasm/kron_kaspa_bg.wasm");
 await cp("manifest.json", "dist/manifest.json");
 if (process.env.KASPIRE_TEST_BUILD === "hub21") {
@@ -28,6 +31,7 @@ const walletHtml = (await readFile('static/wallet.html', 'utf8')).replace('</hea
 await writeFile('dist/wallet.html', walletHtml);
 await writeFile('dist/sidepanel.html', walletHtml.replace('src="wallet.js"','src="sidepanel.js"'));
 await cp("../mobile_flutter/assets/browser/kasseal.png", "dist/kasseal.png");
+for(const asset of ['braid.svg','kforge.svg','kasforge.png'])await cp(`../mobile_flutter/assets/browser/${asset}`,`dist/${asset}`);
 await cp("../mobile_flutter/assets/vaults", "dist/vaults", { recursive: true });
 await cp("../mobile_flutter/assets/themes/hub21", "dist/themes/hub21", { recursive: true });
 await cp("../mobile_flutter/assets/themes/glacier", "dist/themes/glacier", { recursive: true });

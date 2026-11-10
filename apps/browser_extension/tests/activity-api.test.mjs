@@ -12,8 +12,9 @@ test('standard KCC20 holdings publish before stalled legacy AND later standard b
   t.after(()=>{release();releaseTail();stop();clearTimeout(timer);globalThis.fetch=old;});
   globalThis.fetch=async url=>{
     if(String(url).includes('kcc20.info/v1/status'))await legacy;
-    if(!String(url).startsWith('https://kasvio.network/api/kcc20/v1/'))return new Response('{}',{status:503});
+    if(!String(url).startsWith('https://kasvio.network/api/kcc20/v4/'))return new Response('{}',{status:404});
     const path=new URL(url).pathname;
+    if(path.includes('/addresses/'))return new Response('{}',{status:404});
     const other='b'.repeat(64),token={covenant_id:cid,profile_id:'KCC20PublicMint@c8a0871',recognition:'hash_proven_reference_actor_family',metadata:{binding_verified:true,ticker:'KASPIREISTHEBESTKASPAWALLET',decimals:8}};
     if(path.endsWith('/'+other+'/balance'))await tail;
     const data=path.endsWith('/status')?{status:'ready'}:path.endsWith('/tokens')?[token,{...token,covenant_id:other}]:{covenant_id:path.endsWith('/'+other+'/balance')?other:cid,owner_value:owner,owner_scheme:0,available:true,balance_raw:path.endsWith('/'+other+'/balance')?'0':'59973229',outputs:[]};

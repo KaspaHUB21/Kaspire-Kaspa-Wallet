@@ -12,7 +12,7 @@ function source({kasvioDown=false, decimals=0, duplicate=false, wrongId=false, s
     if (url.endsWith('/tokenlist')) return {result:[holding,...(duplicate?[holding]:[])]};
     if (url.startsWith('https://kasvio.network')) {
       if (kasvioDown) throw new Error('offline');
-      return {stale:false,source:{available:true},tokens:[{id,price:'0.01',logo:'https://example.org/kasm.png',balance:'0'}]};
+      return {meta:{network:'mainnet',adapter_fresh:true,source_caught_up:true},data:[{token_id:id,last_price_kas_per_raw_unit:'0.01',logo_uri:'https://example.org/kasm.png'}]};
     }
     if (url.includes('/local-node/transactions/')) return {transaction_id:txid,is_accepted:true,outputs:[{index:0,covenant_id:id,amount:'23000000',script_public_key:script,script_public_key_address:address}]};
     if (url.includes('/local-node/addresses/')) return spent ? [] : [{outpoint:{transactionId:txid,index:0},utxoEntry:{amount:nativeConflict?'1':'23000000',scriptPublicKey:{scriptPublicKey:script},isCoinbase:false}}];
@@ -55,7 +55,7 @@ test('extension keeps direct KRON assets when kcc20.info and Kascov fail', async
     assert.equal(assets.length,1); assert.equal(assets[0].rawBalance,'1000000'); assert.equal(assets[0].covenantId,id);
   } finally {globalThis.fetch = previous;}
 });
-test('legacy KCC20 lookup and node-checked transfer survive kcc20.info shutdown', async () => {
+test('retired pre-final legacy programs are not promoted to supported sending', async () => {
   const wallet = 'kaspa:qpxavn7m8d9tqhj4j3gjnpkdlnhj4c3rznnd85xps4368hhx6etlqtsmtgvwr';
   const owner = '4dd64fdb3b4ab05e5594512986cdfcef2ae22314e6d3d0c18563a3dee6d657f0';
   const legacyId = 'c'.repeat(64), previous = globalThis.fetch;
@@ -74,11 +74,7 @@ test('legacy KCC20 lookup and node-checked transfer survive kcc20.info shutdown'
     return new Response(JSON.stringify(result),{status:200});
   };
   try {
-    const assets = await walletAssetCategory(wallet,'mainnet','kcc20');
-    assert.equal(assets[0].symbol,'LEGACY'); assert.equal(assets[0].rawBalance,'1000');
-    const data = await kcc20TransferData(wallet,legacyId,1);
-    assert.equal(data.ticker,'LEGACY'); assert.equal(data.cells[0].tokenAmount,1000);
-    assert.equal(data.cells[0].valueSompi,23000000);
-    await assert.rejects(kcc20TransferData(wallet,legacyId,1001),/Insufficient/);
+    await assert.rejects(walletAssetCategory(wallet,'mainnet','kcc20'),/temporarily unavailable/);
+    await assert.rejects(kcc20TransferData(wallet,legacyId,1),/Kasvio and Kascov/);
   } finally {globalThis.fetch = previous;}
 });

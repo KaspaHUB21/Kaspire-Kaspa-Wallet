@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {standardKcc20Assets,standardKcc20TransferData,waitForStandardKcc20Cell,STANDARD_TEMPLATE,standardKcc20History,standardKcc20BorrowedReceive,standardKcc20Decimals,cachedStandardKcc20Asset} from './generated/standardKcc20.mjs';
+import {standardKcc20Assets,standardKcc20CoverageComplete,standardKcc20TransferData,waitForStandardKcc20Cell,STANDARD_TEMPLATE,standardKcc20History,standardKcc20BorrowedReceive,standardKcc20Decimals,cachedStandardKcc20Asset} from './generated/standardKcc20.mjs';
 const cid='c'.repeat(64),owner='d'.repeat(64),address='kaspa:'+'q'.repeat(61);
 const reference='c8a087117735a1f87c5c6d115fcddeaf2562c784';
 const templateHash='9703112ee6e3555107cd168858992b77d3b74f655205b2b463b1f9ec2ec73cf7';
@@ -9,6 +9,7 @@ function source({amounts=[10,10,10,10],borrow=false,spent=false,wrongOwner=false
   const seen=[];
   const get=async url=>{
     seen.push(url);const u=new URL(url),p=u.pathname;
+    if(u.hostname==='kasvio.network'&&p.includes('/addresses/')||u.hostname==='kascov.io')throw Object.assign(Error('Address endpoint not available in this compatibility fixture'),{httpStatus:404});
     const envelope=data=>({data,meta:{network,reference_commit:reference}});
     if(p.endsWith('/status'))return envelope({status:'ready'});
     if(p.endsWith('/tokens'))return envelope([{covenant_id:cid,profile_id:'KCC20PublicMint@c8a0871',recognition:'hash_proven_reference_actor_family',metadata:{binding_verified:true,ticker:'test',decimals:0}}]);
@@ -52,6 +53,7 @@ test('targeted Activity reads have priority over queued discovery with shared pa
     seen.push({path:new URL(url).pathname,time:Date.now()});active++;peak=Math.max(peak,active);
     if(seen.length===1)await first;
     active--;
+    if(new URL(url).pathname.includes('/addresses/')||new URL(url).hostname==='kascov.io')throw Object.assign(Error('No address API in catalogue fixture'),{httpStatus:404});
     if(url.endsWith('/tokens/'+cid))throw Object.assign(Error('unknown pool'),{httpStatus:404});
     const data=url.endsWith('/status')?{status:'ready'}:[];
     return {data,meta:{network:'mainnet',reference_commit:reference}};
@@ -60,8 +62,9 @@ test('targeted Activity reads have priority over queued discovery with shared pa
   const history=standardKcc20History(get,owner,new Map([[cid,new Set(['a'.repeat(64)])]]));
   await new Promise(resolve=>setTimeout(resolve,0));release();
   await Promise.all([...jobs,history]);
-  assert.equal(seen[1].path,'/api/kcc20/v1/tokens/'+cid);assert.equal(peak,1);
-  for(let i=1;i<seen.length;i++)assert.ok(seen[i].time-seen[i-1].time>=250);
+  const paced=seen.filter(r=>r.path.startsWith('/api/kcc20/'));
+  assert.equal(paced[0].path,'/api/kcc20/v4/tokens/'+cid);assert.equal(peak,1);
+  for(let i=1;i<paced.length;i++)assert.ok(paced[i].time-paced[i-1].time>=250);
 });
 test('10/10 proof controls batching; eleven cells require a two-step payment plan',async()=>{
   const hash='ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b';
@@ -88,6 +91,22 @@ test('unsupported or mixed program hashes never become a ten-input transfer',asy
 test('standard discovery is KCC20, never Last Call, and has verified decimals',async()=>{
   const s=source(),assets=await standardKcc20Assets(s.get,owner);
   assert.equal(assets[0].standard,'kcc20');assert.equal(assets[0].symbol,'TEST');assert.equal(assets[0].decimals,0);
+});
+test('stale and unrecognized rows do not surface blanket notices or establish complete coverage',async()=>{
+  const s=source(),other='b'.repeat(64);let warning;
+  const get=async url=>{
+    const path=new URL(url).pathname,meta={network:'mainnet',reference_commit:reference};
+    if(path.includes('/addresses/')){
+      const ownerAddress=decodeURIComponent(path.split('/').at(-2));
+      return {meta:{...meta,stale:true},address_context:{address:ownerAddress,network:'mainnet',owner_value:owner,owner_scheme:0,balances_complete:true},pagination:{has_more:false},data:[cid,other].map(covenant_id=>({covenant_id,owner_scheme:0,owner_value:owner,balance_raw:'40',balance_complete:true}))};
+    }
+    if(path.endsWith(`/tokens/${other}`))return {meta,data:{covenant_id:other,recognition:'unknown'}};
+    if(path.endsWith(`/tokens/${cid}`)){const list=await s.get(url.slice(0,-65));return {meta,data:list.data[0]};}
+    return s.get(url);
+  };
+  const rows=await standardKcc20Assets(get,owner,w=>{warning=w;});
+  assert.deepEqual(rows.map(r=>[r.covenantId,r.rawBalance]),[[cid,'40']]);
+  assert.equal(warning,'');assert.equal(standardKcc20CoverageComplete(get,owner),false);
 });
 test('one unavailable token never erases other standard KCC20 holdings',async()=>{
   const s=source();let warning='';
@@ -136,7 +155,7 @@ test('positive holdings publish before a later standard balance finishes; joinin
 test('429 is retried with backoff and sequentially paced catalogue/balance requests',async()=>{
   const s=source(),starts=[];let attempts=0;
   const get=async url=>{
-    starts.push(Date.now());
+    if(new URL(url).hostname==='kasvio.network')starts.push(Date.now());
     if(url.includes('/balance?') && ++attempts===1)throw Object.assign(Error('HTTP 429'),{httpStatus:429});
     return s.get(url);
   };
@@ -220,9 +239,9 @@ test('verified protocol token units override missing genesis decimals without ve
 test('the real long-ticker test token remains visible for its threshold-policy receiver',async()=>{
   const tokenCid='82f033aed87d6eb39f509b51b1c817a49e0b07c4789b619cab08d4c8fb82d18e';
   const receiver='3485c974d6e79b75c4ff130ee0cd20ab01b8118329837b2db8ed3b7275777df4';
-  const get=async url=>({meta:{network:'mainnet',reference_commit:reference},data:url.endsWith('/status')?{status:'ready'}:
+  const get=async url=>{if(url.includes('/addresses/')||url.includes('kascov.io'))throw Object.assign(Error('No address endpoint in compatibility fixture'),{httpStatus:404});return ({meta:{network:'mainnet',reference_commit:reference},data:url.endsWith('/status')?{status:'ready'}:
     url.includes('/balance?')?{covenant_id:tokenCid,owner_scheme:0,owner_value:receiver,available:true,balance_raw:'59973229',outputs:[]}:
-    [{covenant_id:tokenCid,profile_id:'KCC20PublicMint@c8a0871',recognition:'hash_proven_reference_actor_family',metadata:{binding_verified:true,ticker:'KASPIREISTHEBESTKASPAWALLET',decimals:8}}]});
+    [{covenant_id:tokenCid,profile_id:'KCC20PublicMint@c8a0871',recognition:'hash_proven_reference_actor_family',metadata:{binding_verified:true,ticker:'KASPIREISTHEBESTKASPAWALLET',decimals:8}}]});};
   const rows=await standardKcc20Assets(get,receiver);
   assert.equal(rows.length,1);assert.equal(rows[0].rawBalance,'59973229');assert.equal(rows[0].decimals,8);assert.equal(rows[0].symbol,'KASPIREISTHEBESTKASPAWALLET');
 });

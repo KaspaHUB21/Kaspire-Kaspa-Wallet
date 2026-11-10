@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseKronAmount, kronDisplay, kronSwapDetails, validateKronPlan, verifyKronInputs, getKronQuote, prepareKronSwap, submitKronSwap, resumeKronSwap, pendingKronSwap, clearKronDexReviews } from './generated/kronDex.mjs';
+import { parseKronAmount, kronDisplay, kronSwapDetails, validateKronPlan, verifyKronInputs, getKronQuote, prepareKronSwap, submitKronSwap, resumeKronSwap, pendingKronSwap, checkKronSaved, clearKronDexReviews } from './generated/kronDex.mjs';
 const address = 'kaspa:q' + 'a'.repeat(61), tokenId = 'a'.repeat(64), txid = 'b'.repeat(64);
 const token = { covenantId: tokenId, ticker: 'ROCKET', name: 'Rocket', decimals: 3, image: '', phase: 'pool' };
 const input = { transactionId: txid, index: 0, utxo: { amount: '1000000000', scriptPublicKey: '000020abac', blockDaaScore: '123', isCoinbase: false, covenantId: null } };
@@ -65,12 +65,15 @@ test('signed swaps persist before broadcast, produce token activity and clear co
 });
 test('failed swaps retain exactly the signed bytes and prohibit a second trade until resumed', async t => {
   const { context } = environment(t); const normal = context.broadcast;
+  const fetchNormally=globalThis.fetch;let accepted=true;
+  globalThis.fetch=(url,options)=>String(url).endsWith('/transactions/'+txid)&&!accepted?Promise.resolve(new Response('{}',{status:404})):fetchNormally(url,options);
   context.broadcast = async () => { throw Error('offline'); };
   const q = await getKronQuote(address, tokenId, 'buy', '1', context.balance), review = await prepareKronSwap(context, q.quoteId);
+  const signNormally=context.sign;context.sign=async(...args)=>{const r=await signNormally(...args);accepted=false;return r;};
   await assert.rejects(submitKronSwap(context, review.id), /offline/);
   const saved = await pendingKronSwap(address); assert.equal(saved.signedTxJson, '{"signed":"same-bytes"}');
   await assert.rejects(getKronQuote(address, tokenId, 'buy', '1', context.balance), /Resume the saved swap/);
-  context.broadcast = normal; await resumeKronSwap(context); assert.equal(await pendingKronSwap(address), null);
+  context.broadcast = async(...args)=>{accepted=true;return normal(...args);}; await resumeKronSwap(context); assert.equal(await pendingKronSwap(address), null);
 });
 test('lock during approval and switching accounts invalidate prepared signing', async t => {
   const { context, events } = environment(t);
@@ -146,7 +149,7 @@ test('closing after signing preserves the durable transaction and never signs a 
 });
 test('KRON commands use the visible in-app approval pump and cancellable operation port', () => {
   const ui = readFileSync(new URL('../src/ui/wallet.ts', import.meta.url), 'utf8');
-  const guarded = ui.slice(ui.indexOf('const guarded = ['), ui.indexOf('async function withInAppApprovals'));
+  const guarded = ui.slice(ui.indexOf('const guarded ='), ui.indexOf('async function withInAppApprovals'));
   for (const name of ['kronDexPrepare', 'kronDexSubmit', 'kronDexResume']) assert(guarded.includes('"' + name + '"'));
   const background = readFileSync(new URL('../src/background/index.ts', import.meta.url), 'utf8');
   assert.match(background, /port\.onDisconnect\.addListener\(\(\) => disconnected\.abort\(\)\)/);
@@ -162,7 +165,7 @@ test('an interrupted unacknowledged broadcast releases only the volatile lock, n
   const first = submitKronSwap(context, review.id);
   await waiting;
   controller.abort();
-  await assert.rejects(first, /signed swap is saved/);
+  await assert.rejects(first, /signed swap is saved|aborted/i);
   assert.equal((await pendingKronSwap(address)).signedTxJson, '{"signed":"same-bytes"}');
   await assert.rejects(getKronQuote(address, tokenId, 'buy', '1', context.balance), /Resume the saved swap/);
   // The own node confirms the original ID: no second signing/broadcast.
@@ -173,7 +176,23 @@ test('an interrupted unacknowledged broadcast releases only the volatile lock, n
   assert.deepEqual(events, ['sign', 'broadcast-start', 'record']);
   assert.equal(await pendingKronSwap(address), null);
 });
-test('extension packages and displayed version do not use a testing suffix', () => {
+test('test extension preserves store identity and numeric version alignment', () => {
   const manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url)));
-  assert.equal(manifest.version, JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).version); assert.doesNotMatch(manifest.version_name, /test/i);
+  assert.equal(manifest.version, JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).version);assert.equal(manifest.version_name,manifest.version);assert.ok(manifest.key);
+});
+test('KRON archives only a positively proven accepted conflicting spend and unblocks a fresh quote',async t=>{
+  const {context,store,events}=environment(t),origin='d'.repeat(64),conflict='e'.repeat(64);
+  const receipt={address,transactionId:txid,signedTxJson:JSON.stringify({inputs:[{previousOutpoint:{transactionId:origin,index:0},utxo:{address}}]})};
+  store['kronSwapRecoveryV1:'+address]=receipt;const ordinary=globalThis.fetch;
+  const conflicting={transaction_id:conflict,is_accepted:true,inputs:[{previous_outpoint_hash:origin,previous_outpoint_index:0}]};
+  globalThis.fetch=async(url,options)=>String(url).endsWith('/transactions/'+txid)?new Response('{}',{status:404}):String(url).includes('/full-transactions?')?new Response(JSON.stringify([conflicting])):String(url).endsWith('/transactions/'+conflict)?new Response(JSON.stringify(conflicting)):ordinary(url,options);
+  assert.equal((await checkKronSaved(context)).state,'obsolete');assert.equal(await pendingKronSwap(address),null);
+  assert.equal(store['kronSwapRecoveryV1:'+address+':obsolete'].signedTxJson,receipt.signedTxJson);assert.deepEqual(events,[]);
+  assert((await getKronQuote(address,tokenId,'buy','1',context.balance)).quoteId);
+});
+test('KRON missing history is explicit unknown and retains every signed byte',async t=>{
+  const {context,store}=environment(t),receipt={address,transactionId:txid,signedTxJson:JSON.stringify({inputs:[{previousOutpoint:{transactionId:'d'.repeat(64),index:0},utxo:{address}}]})};
+  store['kronSwapRecoveryV1:'+address]=receipt;
+  globalThis.fetch=async()=>new Response('{}',{status:404});
+  const result=await checkKronSaved(context);assert.equal(result.state,'unknown');assert.match(result.warning,/temporarily unavailable/);assert.deepEqual(await pendingKronSwap(address),receipt);assert.equal(Object.keys(store).length,1);
 });

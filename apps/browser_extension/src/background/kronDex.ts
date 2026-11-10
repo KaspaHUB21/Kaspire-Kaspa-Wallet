@@ -1,5 +1,6 @@
 import { kronBalances } from './kronHoldings';
 import { formatRawTokenAmount } from '../shared/tokenAmount';
+import {rocketAccepted,confirmedRocketConflict,rocketNodeJson} from './rocketSwaps';
 
 const base = 'https://kaspire.kaslab.space/dex-test-v1/kron';
 const node = 'https://kaspire.kaslab.space/api/local-node';
@@ -175,15 +176,44 @@ async function broadcastSavedSwap(context: KronContext, receipt: any) {
 async function submitReceipt(context: KronContext, receipt: any) {
   await context.guard();
   if (receipt.address !== context.address || !/^[a-f0-9]{64}$/.test(receipt.transactionId) || typeof receipt.signedTxJson !== 'string') throw Error('Invalid saved swap.');
+  await requireSaved(context,receipt);
   const id = await broadcastSavedSwap(context, receipt);
   if (id !== receipt.transactionId) throw Error('Node returned a mismatching swap transaction ID.');
+  let accepted=false;
+  for(let attempt=0;attempt<12;attempt++){await context.guard();if(await rocketAccepted(id,context.signal)){accepted=true;break;}await new Promise(r=>setTimeout(r,1500));}
+  if(!accepted)throw Error('KRON confirmation is pending. The exact signed swap remains saved; check its status before a new trade.');
   await context.record(context.address, { transactionId: id, blockTime: receipt.timestamp, incoming: receipt.summary.side === 'buy', assetKind: 'KCC20',
     assetSymbol: receipt.token.ticker, displayAmount: kronDisplay(receipt.summary.tokenAmount, receipt.token.decimals), covenantId: receipt.token.covenantId,
     type: 'kron-swap', standard: 'kron-native', operationLabel: receipt.summary.side === 'buy' ? 'KRON Buy' : 'KRON Sell', rawJson: receipt });
-  await chrome.storage.local.remove(pendingKey(context.address));
+  await requireSaved(context,receipt);await chrome.storage.local.remove(pendingKey(context.address));
   for (const [key, value] of quotes) if (value.address === context.address) quotes.delete(key);
   for (const [key, value] of prepared) if (value.address === context.address) prepared.delete(key);
   return receipt;
+}
+async function requireSaved(context:KronContext,receipt:any){
+  const saved=await pendingKronSwap(context.address);
+  if(!saved||saved.transactionId!==receipt.transactionId||saved.signedTxJson!==receipt.signedTxJson)throw Error('The saved KRON swap changed. Refresh status; no replacement was created.');
+}
+export async function checkKronSaved(context:KronContext){
+  await context.guard();const saved=await pendingKronSwap(context.address);if(!saved)return {state:'none'};
+  if(saved.address!==context.address||!/^[a-f0-9]{64}$/.test(saved.transactionId)||typeof saved.signedTxJson!=='string')throw Error('Invalid saved KRON swap; its data remains preserved.');
+  const accepted=()=>rocketAccepted(saved.transactionId,context.signal);
+  if(await accepted()){await submitReceipt({...context,broadcast:async()=>saved.transactionId},saved);return {state:'confirmed',receipt:saved};}
+  const deadline=Date.now()+24000;
+  const read=async(url:string,body?:any,signal?:AbortSignal)=>{
+    if(Date.now()>=deadline)throw Error('KRON status lookup is incomplete. The signed transaction remains saved.');
+    const timeout=AbortSignal.timeout(Math.max(1,Math.min(6000,deadline-Date.now())));
+    return rocketNodeJson(url,body,AbortSignal.any([timeout,...(signal?[signal]:[])]));
+  };
+  let competing:string|null;
+  try{competing=await confirmedRocketConflict(JSON.parse(saved.signedTxJson),new Set([saved.transactionId]),read,context.signal);}
+  catch(error){context.signal?.throwIfAborted();await context.guard();return {state:'unknown',receipt:saved,warning:String((error as Error).message)};}
+  if(await accepted()){await submitReceipt({...context,broadcast:async()=>saved.transactionId},saved);return {state:'confirmed',receipt:saved};}
+  if(!competing)return {state:'pending',receipt:saved};
+  await context.guard();await requireSaved(context,saved);
+  await chrome.storage.local.set({[pendingKey(context.address)+':obsolete']:{...saved,retiredReason:'confirmed-conflicting-spend',conflictingTransactionId:competing,retiredAt:Date.now()}});
+  await requireSaved(context,saved);await chrome.storage.local.remove(pendingKey(context.address));
+  return {state:'obsolete',receipt:saved};
 }
 export async function submitKronSwap(context: KronContext, id: string) {
   return exclusive(context.address, async () => {
@@ -198,17 +228,21 @@ export async function submitKronSwap(context: KronContext, id: string) {
     const receipt = { address: context.address, timestamp: Date.now(), token: saved.token, summary: saved.summary, transactionId: signed.transactionId, signedTxJson: signed.wrpcJson };
     if (!receipt.signedTxJson || receipt.transactionId !== saved.review.transactionId) throw Error('Signed swap differs from the reviewed transaction.');
     await chrome.storage.local.set({ [pendingKey(context.address)]: receipt });
-    return submitReceipt(context, receipt);
+    try{return await submitReceipt(context, receipt);}catch(error){
+      const state=await checkKronSaved(context);
+      if(state.state==='confirmed')return receipt;
+      if(state.state==='obsolete')throw Error('The old KRON swap is proven obsolete and archived. Refresh the quote for a new trade.');
+      throw error;
+    }
   });
 }
 export async function resumeKronSwap(context: KronContext) {
   return exclusive(context.address, async () => {
     const saved = await pendingKronSwap(context.address);
     if (!saved) throw Error('No saved swap for this wallet.');
-    // A successful earlier submit may have timed out. Check the own node first.
-    let confirmed = false;
-    try { const tx = await kronJson(`${node}/transactions/${saved.transactionId}`, undefined, context.signal); confirmed = tx.is_accepted === true && tx.transaction_id === saved.transactionId; }
-    catch { /* Otherwise rebroadcast exactly the durable signed bytes. */ }
-    return submitReceipt(confirmed ? { ...context, broadcast: async () => saved.transactionId } : context, saved);
+    const state=await checkKronSaved(context);
+    if(state.state==='confirmed')return saved;
+    if(state.state==='obsolete')throw Error('The old KRON swap is proven obsolete and archived. Refresh the quote for a new trade.');
+    return submitReceipt(context,saved);
   });
 }
