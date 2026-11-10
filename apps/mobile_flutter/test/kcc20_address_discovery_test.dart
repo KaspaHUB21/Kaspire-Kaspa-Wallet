@@ -164,6 +164,22 @@ void main() {
     expect(value.warning, isEmpty);
     expect(paths, hasLength(1));
   });
+  test('stale or retained evidence is silent but never complete zero', () async {
+    for (final flag in ['stale', 'retained_snapshot']) {
+      for (final rows in [<Object?>[], <Object?>[holding()]]) {
+        final value = await Kcc20StandardService(source(
+          addressResponse: reply(rows,
+              context: context(),
+              pagination: {'has_more': false},
+              meta: {flag: true}),
+        )).load(address, historyLimit: 0);
+        expect(value.assets.length, rows.length);
+        if (rows.isNotEmpty) expect(value.assets.single.rawBalance, '1250000');
+        expect(value.warning, isEmpty);
+        expect(value.coverageComplete, false);
+      }
+    }
+  });
   test('non-attributable global gaps are not wallet errors or complete zero',
       () async {
     for (final rows in [
@@ -228,7 +244,8 @@ void main() {
         'market': {'venue': 'kforge'},
         ...override,
       }))).load(address, historyLimit: 0);
-      expect(value.warning, contains('could not be verified'));
+      expect(value.assets, isEmpty);
+      expect(value.warning, isEmpty);
       expect(value.coverageComplete, false);
     }
   });
@@ -248,7 +265,8 @@ void main() {
         final mismatch = await Kcc20StandardService(source(
                 tokenResponse: reply({...detail, 'covenant_id': 'd' * 64})))
             .load(address, historyLimit: 0);
-        expect(mismatch.warning, isNotEmpty);
+        expect(mismatch.warning, isEmpty);
+        expect(mismatch.coverageComplete, false);
       }
     }
   });
@@ -385,7 +403,7 @@ void main() {
           await Kcc20StandardService(source(tokenResponse: reply(invalid)))
               .load(address, historyLimit: 0);
       expect(value.assets, isEmpty);
-      expect(value.warning, contains('could not be verified'));
+      expect(value.warning, isEmpty);
     }
   });
   test('later page failure preserves already published holdings', () async {
@@ -447,7 +465,8 @@ void main() {
       {...holding(), 'balance_raw': '-1'},
     ]))).load(address, historyLimit: 0);
     expect(value.assets.single.balance, 1.25);
-    expect(value.warning, isNotEmpty);
+    expect(value.warning, isEmpty);
+    expect(value.coverageComplete, false);
   });
   test('KRON-imported standard rows cannot replace the standard-token identity',
       () async {

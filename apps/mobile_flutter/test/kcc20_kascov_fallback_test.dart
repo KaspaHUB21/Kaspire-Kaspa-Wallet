@@ -288,7 +288,7 @@ void main() {
         .load(address, historyLimit: 0);
     expect(wallet.assets, isNotEmpty);
     expect(wallet.coverageComplete, false);
-    expect(wallet.warning, contains('stale'));
+    expect(wallet.warning, isEmpty);
   });
   test('spent cell and node/covenant mismatch remain blocked', () async {
     for (final client in [

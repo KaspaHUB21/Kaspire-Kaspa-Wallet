@@ -379,8 +379,8 @@ class Kcc20StandardService {
           }
         }
         if (meta['stale'] == true || meta['retained_snapshot'] == true) {
-          warnings.add(
-              'Standard KCC20 indexer data is stale; live outputs are rechecked before sending.');
+          // A retained snapshot cannot establish a verified zero balance.
+          coverageComplete = false;
         }
       } catch (_) {
         if (page == 0) rethrow;
@@ -494,8 +494,6 @@ class Kcc20StandardService {
             publish();
           } catch (_) {
             coverageComplete = false;
-            warnings.add(
-                'Some standard KCC20 holdings could not be verified. Refresh to retry.');
           }
         }));
       }
@@ -697,14 +695,15 @@ class Kcc20StandardService {
         } catch (_) {/* Optional historical coverage, never spend authority. */}
       }));
     }
+    final meta = map(status['meta']);
     return StandardKcc20Wallet(
         alphabeticalWalletAssets(assets),
         transactions..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
         failures > 0
             ? 'Some standard KCC20 balances could not be loaded. Refresh to retry.'
-            : map(status['meta'])['stale'] == true
-                ? 'Standard KCC20 indexer data is stale; live outputs are rechecked before sending.'
-                : '');
+            : '',
+        coverageComplete: meta['stale'] != true &&
+            meta['retained_snapshot'] != true);
   }
 
   static WalletTransaction? transaction(
