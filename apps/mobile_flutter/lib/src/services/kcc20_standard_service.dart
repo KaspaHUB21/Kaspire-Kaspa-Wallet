@@ -7,6 +7,7 @@ import '../kaspa_address.dart';
 import '../models/wallet_snapshot.dart';
 import '../number_format.dart';
 import 'kcc20_compound.dart';
+import 'kcc20_kascov_source.dart';
 
 // Shared by discovery and send preparations, including service instances created
 // by KaspaApi getters. Only read requests are queued; signing is never retried.
@@ -73,7 +74,8 @@ class StandardKcc20Wallet {
 }
 
 class Kcc20ReadError extends StateError {
-  Kcc20ReadError(this.status) : super('KCC20 data unavailable ($status).');
+  Kcc20ReadError(this.status, {String source = 'KCC20'})
+      : super('$source data unavailable ($status).');
   final int status;
 }
 
@@ -83,9 +85,14 @@ class Kcc20ReadError extends StateError {
 class Kcc20StandardService {
   Kcc20StandardService(this.client,
       {this.base = 'https://kasvio.network/api/kcc20/v1',
+      this.kascovBase = 'https://kascov.io/data/mainnet',
       this.node = 'https://kaspire.kaslab.space/api/local-node'});
   final http.Client client;
-  final String base, node;
+  final String base, node, kascovBase;
+  static final _fallbacks = Expando<Map<String, Kcc20KascovSource>>();
+  static final _unavailableUntil = Expando<Map<String, DateTime>>();
+  Kcc20KascovSource get _fallback => (_fallbacks[client] ??= {}).putIfAbsent(
+      kascovBase, () => Kcc20KascovSource(client, kascovBase, reference));
   static const standard = 'kcc20';
   static bool isStandard(String? value) =>
       value == standard ||
@@ -155,25 +162,73 @@ class Kcc20StandardService {
   Future<Map<String, dynamic>> get(String url,
       {bool Function()? isCancelled, bool priority = false}) async {
     final uri = Uri.parse(url);
-    final r = url.startsWith('$base/')
-        ? await (_queues[client] ??= _KasvioReadQueue())
-            .read(client, uri, isCancelled, priority: priority)
-        : await client.get(uri).timeout(const Duration(seconds: 8));
-    if (isCancelled?.call() == true) {
-      throw StateError('KCC20 preparation cancelled.');
+    final primary = url.startsWith('$base/');
+    final path = primary
+        ? uri.pathSegments.skip(Uri.parse(base).pathSegments.length).toList()
+        : <String>[];
+    if (path.length == 3 && path.first == 'tokens' && path.last == 'balance') {
+      _fallback.rememberOwner(path[1], uri.queryParameters['owner'] ?? '');
     }
-    if (r.statusCode != 200) {
-      throw Kcc20ReadError(r.statusCode);
-    }
-    final value = map(jsonDecode(r.body));
-    if (url.startsWith(base)) {
-      final meta = map(value['meta']);
-      if (meta['network'] != 'mainnet' ||
-          meta['reference_commit'] != reference) {
-        throw StateError('Kasvio KCC20 network or reference revision differs.');
+    final supported = primary &&
+        (path.firstOrNull == 'addresses' || path.firstOrNull == 'tokens') &&
+        path.length >= 2;
+    try {
+      final until = (_unavailableUntil[client] ?? {})[base];
+      if (supported && until != null && until.isAfter(DateTime.now())) {
+        throw Kcc20ReadError(503, source: 'Kasvio KCC20');
+      }
+      final r = primary
+          ? await (_queues[client] ??= _KasvioReadQueue())
+              .read(client, uri, isCancelled, priority: priority)
+          : await client.get(uri).timeout(const Duration(seconds: 8));
+      if (isCancelled?.call() == true) {
+        throw StateError('KCC20 preparation cancelled.');
+      }
+      if (r.statusCode != 200) {
+        throw Kcc20ReadError(r.statusCode,
+            source: primary ? 'Kasvio KCC20' : 'Own-node KCC20');
+      }
+      final value = map(jsonDecode(r.body));
+      if (url.startsWith(base)) {
+        final meta = map(value['meta']);
+        if (meta['network'] != 'mainnet' ||
+            meta['reference_commit'] != reference) {
+          throw StateError(
+              'Kasvio KCC20 network or reference revision differs.');
+        }
+      }
+      return value;
+    } catch (error) {
+      if (isCancelled?.call() == true) rethrow;
+      final unavailable = error is TimeoutException ||
+          error is http.ClientException ||
+          error is FormatException ||
+          (error is Kcc20ReadError &&
+              (error.status == 404 ||
+                  error.status == 405 ||
+                  error.status == 408 ||
+                  error.status == 429 ||
+                  error.status >= 500));
+      if (!supported || !unavailable) rethrow;
+      if (error is! Kcc20ReadError ||
+          (error.status != 404 && error.status != 405)) {
+        (_unavailableUntil[client] ??= {})[base] =
+            DateTime.now().add(const Duration(seconds: 15));
+      }
+      try {
+        final value = await _fallback.read(path, uri.queryParameters);
+        if (isCancelled?.call() == true)
+          throw StateError('KCC20 preparation cancelled.');
+        return value;
+      } catch (fallbackError) {
+        // Preserve the original 404/405 compatibility path only if neither
+        // source exposes it. Never reinterpret an unavailable lookup as zero.
+        if (error is Kcc20ReadError &&
+            (error.status == 404 || error.status == 405)) throw error;
+        throw StateError(
+            'Kasvio and Kascov could not provide this KCC20 read. $fallbackError');
       }
     }
-    return value;
   }
 
   Future<List<Map<String, dynamic>>> directory() async {
@@ -394,14 +449,20 @@ class Kcc20StandardService {
                 rawBalance: rawText,
                 id: cid,
                 covenantId: cid,
-                standard: standard,
+                standard: token['wallet_standard'] == 'kasseal-kcc20'
+                    ? 'kasseal-kcc20'
+                    : standard,
                 templateHash: program,
                 validationStatus: 'observed',
                 discoveryComplete: false,
                 imageUrl: metadata['image_bytes_verified'] == true &&
                         _hex64.hasMatch(hash)
                     ? '$base/images/$hash'
-                    : null);
+                    : metadata['binding_verified'] == true &&
+                            Uri.tryParse('${metadata['image_uri']}')?.scheme ==
+                                'https'
+                        ? metadata['image_uri'].toString()
+                        : null);
             publish();
           } catch (_) {
             coverageComplete = false;
@@ -918,7 +979,10 @@ class Kcc20StandardService {
       throw StateError('Insufficient spendable KCC20 token balance.');
     }
     final seen = <String>{};
-    final outputs = (b['outputs'] as List? ?? []).whereType<Map>().toList();
+    final outputs = (b['outputs'] as List? ?? [])
+        .whereType<Map>()
+        .where((r) => r['balance_raw'].toString() != '0')
+        .toList();
     for (final raw in outputs) {
       final id = raw['txid']?.toString() ?? '',
           index = int.tryParse(raw['output_index'].toString()),

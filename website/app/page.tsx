@@ -10,7 +10,7 @@ const highlights = [
   {
     number: "01",
     title: "One wallet. Every Kaspa asset.",
-    copy: "Hold and move KAS, KRC20, KRC721, KNS, KCC20, and Kasplex/Igra L2 assets. Android and the browser extension support the pinned KCC20 reference profile, with own-node cell checks and independent local covenant validation. Android loads standard KCC20 holdings primarily from Kasvio, using Kascov only when fallback data is needed; known unsupported pre-final token contracts do not produce wallet error notices.",
+    copy: "Hold and move KAS, KRC20, KRC721, KNS, KCC20, and Kasplex/Igra L2 assets. Android and the browser extension support the pinned KCC20 reference profile, with own-node cell checks and independent local covenant validation. Android uses Kasvio first and can fall back to Kascov for both standard KCC20 discovery and transfers. Fallback programs must match the bundled contract and P2SH commitment, with live own-node verification before signing. Unsupported pre-final token contracts are excluded; unavailable or partial data is never treated as a verified zero balance.",
     tags: ["KAS", "KRC-20", "KRC-721", "KNS", "KCC20"],
   },
   {
@@ -46,7 +46,7 @@ const highlights = [
   {
     number: "07",
     title: "Kaspa L2 networks, one familiar wallet.",
-    copy: "Switch between Kaspa Mainnet, TN10, Kasplex and Igra while keeping the same wallet identity, receive flow, asset layout and native review model.",
+    copy: "Switch between Kaspa Mainnet, TN10, Kasplex and Igra while keeping the same wallet identity, receive flow, asset layout and native review model. Android's L2 send scanner accepts plain 0x-address QR codes for the selected Kasplex or Igra network; Layer 1 keeps its separate Kaspa payment validation.",
     tags: ["Kasplex L2", "Igra L2", "EVM", "Native review"],
   },
   {

@@ -11,14 +11,12 @@ import 'krc721_reads.dart';
 import 'kron_holdings.dart';
 import 'kcc20_standard_service.dart';
 import 'kcc20_compound.dart';
-import 'kcc20_metadata.dart';
 import 'activity_store.dart';
 
 import 'package:http/http.dart' as http;
 
 import '../models/wallet_snapshot.dart';
 import '../models/network_diagnostics.dart';
-import '../kaspa_address.dart';
 import '../number_format.dart';
 import 'network_settings.dart';
 import 'app_settings.dart';
@@ -45,7 +43,6 @@ class KaspaApi {
         'https://krc721-cache.kaspa.com/krc721/mainnet/optimized',
     this.kaspaComBaseUrl = 'https://api.kaspa.com',
     this.nftMetadataBaseUrl = 'https://api.kaspa.com',
-    this.kcc20IndexerBaseUrl = 'https://kcc20.info',
     this.kascovBaseUrl = 'https://kascov.io/data/mainnet',
     this.kronIndexerBaseUrl = 'https://idx.kron.technology/v1/kcc20',
     this.kasvioBaseUrl = 'https://kasvio.network',
@@ -70,14 +67,15 @@ class KaspaApi {
   final String krc721CacheBaseUrl;
   final String kaspaComBaseUrl;
   final String nftMetadataBaseUrl;
-  final String kcc20IndexerBaseUrl;
   final String kascovBaseUrl;
   final String kronIndexerBaseUrl;
   final String kasvioBaseUrl;
   KronHoldings get kronHoldings =>
       KronHoldings(_client, indexer: kronIndexerBaseUrl, kasvio: kasvioBaseUrl);
   Kcc20StandardService get standardKcc20 => Kcc20StandardService(_client,
-      base: '$kasvioBaseUrl/api/kcc20/v1', node: '$baseUrl/local-node');
+      base: '$kasvioBaseUrl/api/kcc20/v1',
+      node: '$baseUrl/local-node',
+      kascovBase: kascovBaseUrl);
   Future<Kcc20CellRecord?> loadKcc20BorrowedReceive(String recipient,
           String cid, int amount, Kcc20CellRecord first, String templateId,
           {bool Function()? isCancelled}) =>
@@ -1405,57 +1403,26 @@ class KaspaApi {
     int historyLimit = 20,
     void Function(_Kcc20Wallet)? onProgress,
   }) async {
-    _Kcc20Wallet? fallbackProgress;
-    _Kcc20Wallet? kronProgress;
-    _Kcc20Wallet? standardProgress;
+    _Kcc20Wallet? kron, standard;
     void publish() {
-      var value = fallbackProgress;
-      if (kronProgress != null) value = _withKronHoldings(value, kronProgress!);
-      if (standardProgress != null) {
-        value = _withStandardHoldings(value, standardProgress!);
-      }
+      final value =
+          standard == null ? kron : _withStandardHoldings(kron, standard!);
       if (value != null) onProgress?.call(value);
-    }
-
-    // Kasvio is primary. Global coverage gaps not attributable to this wallet
-    // do not justify a competing legacy scan. Preserve its partial-state flag,
-    // but only consult Kascov on actual account read/verification failures.
-    Future<void> loadFallback() async {
-      try {
-        fallbackProgress = await _loadKcc20WalletFromKascov(address);
-        publish();
-      } catch (_) {
-        // Unavailable is not an empty wallet.
-      }
-      if (fallbackProgress == null ||
-          fallbackProgress!.signingIssues.isNotEmpty) {
-        try {
-          // Last-resort compatibility only; the retiring KCC20.info API is
-          // neither a primary source nor a dependency of healthy Kasvio reads.
-          final legacy = await _loadKcc20WalletFromIndexer(address);
-          fallbackProgress = fallbackProgress == null
-              ? legacy
-              : _mergeKcc20Wallets(fallbackProgress!, legacy);
-          publish();
-        } catch (_) {
-          // Keep any positive fallback data; never convert a failure to zero.
-        }
-      }
     }
 
     await Future.wait<void>([
       kronHoldings.load(address, onProgress: (assets) {
-        kronProgress =
+        kron =
             _Kcc20Wallet(assets: assets, transactions: const [], warning: '');
         publish();
       }).then<void>((assets) {
-        kronProgress =
+        kron =
             _Kcc20Wallet(assets: assets, transactions: const [], warning: '');
         publish();
       }).catchError((_) {}),
       () async {
         void accept(StandardKcc20Wallet result) {
-          standardProgress = _Kcc20Wallet(
+          standard = _Kcc20Wallet(
               assets: result.assets,
               transactions: result.transactions,
               coverageComplete: result.coverageComplete,
@@ -1464,25 +1431,22 @@ class KaspaApi {
         }
 
         try {
+          // The same reader now falls back per read, including send-time cell
+          // and policy proofs. No obsolete legacy decoder or API participates.
           accept(await standardKcc20.load(address,
               historyLimit: historyLimit, onProgress: accept));
         } catch (_) {
-          // Retain progressive results if a later read failed.
-          standardProgress = _Kcc20Wallet(
-              assets: standardProgress?.assets ?? const [],
-              transactions: standardProgress?.transactions ?? const [],
+          standard = _Kcc20Wallet(
+              assets: standard?.assets ?? const [],
+              transactions: standard?.transactions ?? const [],
               coverageComplete: false,
               warning:
-                  'Kasvio KCC20 data is temporarily unavailable. Loaded balances are retained; refresh to retry.');
+                  'KCC20 account data is temporarily unavailable from Kasvio and Kascov. Loaded balances are retained; refresh to retry.');
           publish();
         }
-        if (standardProgress!.warning.isNotEmpty) await loadFallback();
       }(),
     ]);
-    final combined = kronProgress != null
-        ? _withKronHoldings(fallbackProgress, kronProgress!)
-        : fallbackProgress;
-    return _withStandardHoldings(combined, standardProgress!);
+    return _withStandardHoldings(kron, standard!);
   }
 
   _Kcc20Wallet _withStandardHoldings(
@@ -1501,21 +1465,6 @@ class KaspaApi {
         if (existing?.warning.isNotEmpty == true) existing!.warning,
         if (standard.warning.isNotEmpty) standard.warning
       ].join(' '),
-    );
-  }
-
-  _Kcc20Wallet _withKronHoldings(_Kcc20Wallet? existing, _Kcc20Wallet kron) {
-    final ids = kron.assets.map((asset) => asset.covenantId).toSet();
-    return _Kcc20Wallet(
-      coverageComplete: existing?.coverageComplete ?? false,
-      signingIssues: {...?existing?.signingIssues}..removeAll(ids),
-      assets: [
-        ...?existing?.assets.where((asset) =>
-            asset.standard != 'kron-native' && !ids.contains(asset.covenantId)),
-        ...kron.assets,
-      ],
-      transactions: existing?.transactions ?? const [],
-      warning: existing?.warning ?? '',
     );
   }
 
@@ -1563,662 +1512,6 @@ class KaspaApi {
     }
     await verifyKcc20CellsOnOwnNode(cells, covenantId);
     return cells;
-  }
-
-  _Kcc20Wallet _mergeKcc20Wallets(
-    _Kcc20Wallet primary,
-    _Kcc20Wallet fallback,
-  ) {
-    final assets = <String, WalletAsset>{};
-    String assetKey(WalletAsset asset) =>
-        (asset.covenantId ?? asset.id ?? asset.symbol).toLowerCase();
-
-    for (final asset in primary.assets) {
-      assets[assetKey(asset)] = asset;
-    }
-    for (final asset in fallback.assets) {
-      final key = assetKey(asset);
-      final current = assets[key];
-      // Prefer the primary result when both are complete. Use Kascov whenever
-      // it can supply signing-complete cells for an incomplete primary entry.
-      if (current == null ||
-          (!current.discoveryComplete && asset.discoveryComplete)) {
-        assets[key] = asset;
-      }
-    }
-
-    final transactions = <String, WalletTransaction>{};
-    for (final transaction in [
-      ...primary.transactions,
-      ...fallback.transactions,
-    ]) {
-      transactions.putIfAbsent(
-          '${transaction.id}|${transaction.assetKind}|${transaction.assetSymbol}|${transaction.tokenId}|${transaction.incoming}',
-          () => transaction);
-    }
-    final mergedTransactions = transactions.values.toList()
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    final issues = {
-      ...primary.signingIssues,
-      ...fallback.signingIssues
-    }..removeWhere((id) =>
-        assets[id]?.discoveryComplete == true || _isObsoleteLegacy(assets[id]));
-
-    return _Kcc20Wallet(
-      assets: assets.values.toList(),
-      transactions: mergedTransactions,
-      signingIssues: issues,
-      warning: '',
-    );
-  }
-
-  Future<_Kcc20Wallet> _loadKcc20WalletFromIndexer(String address) async {
-    final pubkey = kaspaOwnerIdFromAddress(address);
-    if (pubkey.isEmpty) {
-      throw KaspaApiException('The wallet is not a valid Kaspa P2PK address.');
-    }
-    final status = _map(await _kcc20IndexerGet('/v1/status'));
-    final capabilities = _map(status['capabilities']);
-    if (capabilities['balances'] != true ||
-        capabilities['owner_history'] != true ||
-        capabilities['signing_data'] != true) {
-      throw KaspaApiException(
-        'The primary KCC20 indexer does not expose complete owner data.',
-      );
-    }
-    if (_asInt(status['max_daa']) <= 0) {
-      throw KaspaApiException(
-        'The primary KCC20 indexer returned an invalid chain tip.',
-      );
-    }
-    final balances = await _loadKcc20OwnerBalances(pubkey);
-    final cellData = _map(await _kcc20IndexerGet(
-      '/v1/owners/$pubkey/cells?signing_ready=true&limit=1000',
-    ));
-    final historyData = _map(
-      await _kcc20IndexerGet('/v1/owners/$pubkey/history?limit=200'),
-    );
-    final history = (historyData['history'] as List? ?? const [])
-        .whereType<Map>()
-        .map((item) => item.cast<String, Object?>())
-        .toList();
-    final tipDaa = _asInt(status['max_daa']);
-    final tipAtMs = DateTime.now().millisecondsSinceEpoch;
-    final details = await Future.wait(balances.map((balanceRow) async {
-      final primary = await _tryLoadKcc20TokenFromIndexer(
-        balanceRow,
-        pubkey,
-        address: address,
-        cellData: cellData,
-        history: history,
-        tipDaa: tipDaa,
-        tipAtMs: tipAtMs,
-      );
-      if (primary.asset != null && !primary.discoveryLimited) return primary;
-      final tokenId = balanceRow['token_id']?.toString().toLowerCase() ?? '';
-      final fallback = await _tryLoadKcc20Token(
-        {
-          'covenant_id': tokenId,
-          'status': 'verified',
-          'claimed_ticker': primary.asset?.symbol,
-          'claimed_image': primary.asset?.imageUrl,
-        },
-        pubkey,
-        tipDaa: tipDaa,
-        tipAtMs: tipAtMs,
-        expectedRawBalance: _asInt(balanceRow['balance']),
-      );
-      return fallback.asset != null && !fallback.sourceMismatch
-          ? fallback
-          : primary;
-    }));
-    final issues = <String>{
-      for (var i = 0; i < details.length; i++)
-        if ((details[i].asset == null ||
-                details[i].discoveryLimited ||
-                details[i].sourceMismatch) &&
-            !_isObsoleteLegacy(details[i].asset))
-          balances[i]['token_id'].toString(),
-    };
-    return _Kcc20Wallet(
-      assets:
-          details.map((item) => item.asset).whereType<WalletAsset>().toList(),
-      transactions: details.expand((item) => item.transactions).toList()
-        ..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
-      signingIssues: issues,
-      warning: '',
-    );
-  }
-
-  Future<List<Map<String, Object?>>> _loadKcc20OwnerBalances(
-    String pubkey,
-  ) async {
-    final balances = <Map<String, Object?>>[];
-    String? cursor;
-    for (var page = 0; page < 8; page++) {
-      final suffix = cursor == null
-          ? '?limit=1000'
-          : '?limit=1000&after_token_id=${Uri.encodeQueryComponent(cursor)}';
-      final response = _map(
-        await _kcc20IndexerGet('/v1/owners/$pubkey/balances$suffix'),
-      );
-      balances.addAll(
-        (response['balances'] as List? ?? const [])
-            .whereType<Map>()
-            .map((item) => item.cast<String, Object?>())
-            .where((item) =>
-                const {'verified', 'template_verified'}
-                    .contains(item['validation_status']?.toString()) &&
-                _asInt(item['unresolved_cells']) == 0 &&
-                _asInt(item['balance']) > 0),
-      );
-      final next = response['next_cursor']?.toString();
-      if (next == null || next.isEmpty || next == cursor) return balances;
-      cursor = next;
-    }
-    throw KaspaApiException(
-      'The primary KCC20 owner-balance pagination limit was exceeded.',
-    );
-  }
-
-  Future<_Kcc20TokenResult> _tryLoadKcc20TokenFromIndexer(
-    Map<String, Object?> balanceRow,
-    String pubkey, {
-    required String address,
-    required Map<String, Object?> cellData,
-    required List<Map<String, Object?>> history,
-    required int tipDaa,
-    required int tipAtMs,
-  }) async {
-    try {
-      final tokenId = balanceRow['token_id']?.toString().toLowerCase() ?? '';
-      final rawBalance = _asInt(balanceRow['balance']);
-      if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(tokenId) || rawBalance <= 0) {
-        return const _Kcc20TokenResult();
-      }
-      final token = _map(await _kcc20IndexerGet('/v1/tokens/$tokenId'));
-      final validation = token['validation_status']?.toString();
-      if (!const {'verified', 'template_verified'}.contains(validation) ||
-          _asInt(token['unresolved_cells']) > 0) {
-        return const _Kcc20TokenResult(discoveryLimited: true);
-      }
-      final decimals =
-          _asInt(token['decimals'] ?? token['claimed_decimals'] ?? 8);
-      final ticker = (token['ticker'] ??
-              token['claimed_name'] ??
-              token['name'] ??
-              token['fallback_name'] ??
-              'KCC20')
-          .toString()
-          .toUpperCase();
-      final cells = <Kcc20CellRecord>[];
-      var templateHash =
-          (token['template_hash'] ?? token['kcc1_template_hash'] ?? '')
-              .toString()
-              .toLowerCase();
-      for (final raw
-          in (cellData['cells'] as List? ?? const []).whereType<Map>()) {
-        final item = raw.cast<String, Object?>();
-        final covenantId =
-            (item['token_id'] ?? item['covenant_id'] ?? '').toString();
-        if (covenantId != tokenId || item['signing_ready'] == false) continue;
-        final state = _map(item['state']);
-        final stateFields = (state['state_fields'] as List? ??
-                item['state_fields'] as List? ??
-                const [])
-            .whereType<Map>()
-            .map((field) => field.cast<String, Object?>())
-            .toList();
-        String? stateField(String name) {
-          for (final field in stateFields) {
-            if (field['name']?.toString() == name) {
-              return field['value']?.toString();
-            }
-          }
-          return null;
-        }
-
-        final owner = (item['owner'] ??
-                state['owner'] ??
-                state['owner_identifier'] ??
-                stateField('owner_identifier'))
-            ?.toString()
-            .toLowerCase();
-        if (owner != null && owner != pubkey) continue;
-        final txid = (item['outpoint_tx_id'] ??
-                item['transaction_id'] ??
-                item['txid'] ??
-                '')
-            .toString();
-        final index = _nullableInt(
-          item['outpoint_index'] ?? item['index'] ?? item['output_index'],
-        );
-        final script = _normalizeScriptPublicKey(
-          item['script_public_key'] ?? item['script_hex'],
-        );
-        final redeemScript = (item['redeem_script'] ?? '').toString();
-        final amount = _nullableInt(
-                item['token_amount'] ?? item['amount'] ?? state['amount']) ??
-            _littleEndianHexInt(stateField('amount'));
-        final candidateTemplate =
-            (item['kcc1_template_hash'] ?? item['template_hash'] ?? '')
-                .toString()
-                .toLowerCase();
-        if (templateHash.isEmpty && candidateTemplate.isNotEmpty) {
-          templateHash = candidateTemplate;
-        }
-        if (txid.isEmpty ||
-            index == null ||
-            amount == null ||
-            amount <= 0 ||
-            !RegExp(r'^[0-9a-fA-F]+$').hasMatch(script)) {
-          continue;
-        }
-        cells.add(Kcc20CellRecord(
-          covenantId: covenantId,
-          transactionId: txid,
-          index: index,
-          valueSompi: _asInt(item['value']),
-          blockDaaScore: _asInt(item['created_daa']),
-          scriptPublicKey: script,
-          tokenAmount: amount,
-          isMinter: item['is_minter'] == true || state['is_minter'] == true,
-          redeemScript: redeemScript.isEmpty ? null : redeemScript,
-        ));
-      }
-      final isKron = validation == 'template_verified' ||
-          token['standard']?.toString() == 'kron-native' ||
-          token['contract_type']?.toString() == 'kron-native';
-      final unmapped = (cellData['unmapped'] as List? ?? const [])
-          .whereType<Map>()
-          .any((item) => item['token_id']?.toString() == tokenId);
-      final complete = !unmapped &&
-          cells.isNotEmpty &&
-          cells.fold<int>(0, (sum, cell) => sum + cell.tokenAmount) ==
-              rawBalance &&
-          (isKron
-              ? cells.every((cell) =>
-                  cell.redeemScript != null && cell.redeemScript!.isNotEmpty)
-              : RegExp(r'^[0-9a-f]{64}$').hasMatch(templateHash));
-      final asset = WalletAsset(
-        symbol: ticker,
-        balance: rawBalance / _pow10(decimals),
-        kind: 'KCC20',
-        imageUrl: _absoluteImageUrl(token['image']?.toString()),
-        id: tokenId,
-        decimals: decimals,
-        rawBalance: rawBalance.toString(),
-        covenantId: tokenId,
-        templateHash: templateHash,
-        validationStatus: 'verified',
-        kcc20Cells: cells,
-        discoveryComplete: complete,
-        standard: isKron ? 'kron-native' : 'legacy-kcc20',
-      );
-      final transactions = history
-          .where((item) =>
-              (item['token_id'] ?? item['covenant_id'])?.toString() == tokenId)
-          .map((item) {
-        final delta =
-            int.tryParse(item['balance_delta']?.toString() ?? '') ?? 0;
-        final incoming = delta >= 0;
-        final daa = _asInt(item['daa'] ?? item['accepting_daa']);
-        final milliseconds = _asInt(item['timestamp_ms']);
-        final estimatedMilliseconds =
-            tipAtMs > 0 && tipDaa >= daa ? tipAtMs - ((tipDaa - daa) * 100) : 0;
-        final ownerFrom = item['owner_from']?.toString().toLowerCase() ?? '';
-        final ownerTo = item['owner_to']?.toString().toLowerCase() ?? '';
-        final fromAddress = kaspaAddressFromOwnerId(ownerFrom);
-        final toAddress = kaspaAddressFromOwnerId(ownerTo);
-        return WalletTransaction(
-          id: item['tx_id']?.toString() ?? 'kcc20-$tokenId-$daa',
-          timestamp: DateTime.fromMillisecondsSinceEpoch(
-            milliseconds > 0 ? milliseconds : estimatedMilliseconds,
-          ),
-          amountSompi: 0,
-          incoming: incoming,
-          assetKind: 'KCC20',
-          assetSymbol: ticker,
-          tokenId: tokenId,
-          displayAmount: formatRawTokenAmount(
-            BigInt.from(delta.abs()),
-            decimals,
-          ),
-          counterparty: incoming
-              ? (fromAddress.isEmpty ? ownerFrom : fromAddress)
-              : (toAddress.isEmpty ? ownerTo : toAddress),
-          from: [
-            if (ownerFrom.isNotEmpty)
-              TransactionParty(address: fromAddress, ownerId: ownerFrom),
-            if (ownerFrom.isEmpty && !incoming)
-              TransactionParty(address: address, ownerId: pubkey),
-          ],
-          to: [
-            if (ownerTo.isNotEmpty)
-              TransactionParty(address: toAddress, ownerId: ownerTo),
-            if (ownerTo.isEmpty && incoming)
-              TransactionParty(address: address, ownerId: pubkey),
-          ],
-          status: TransactionStatus.confirmed,
-        );
-      }).toList();
-      return _Kcc20TokenResult(
-        asset: asset,
-        transactions: transactions,
-        discoveryLimited: !complete,
-      );
-    } catch (_) {
-      return const _Kcc20TokenResult(discoveryLimited: true);
-    }
-  }
-
-  Future<_Kcc20Wallet> _loadKcc20WalletFromKascov(
-    String address, {
-    String warning = '',
-  }) async {
-    final addressData = _map(await _kascovGet(
-      '/addr/${Uri.encodeComponent(address)}.json',
-    ));
-    final pubkey = (addressData['pubkey'] ?? '').toString().toLowerCase();
-    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(pubkey)) {
-      throw KaspaApiException('Kascov did not resolve the wallet public key.');
-    }
-    // Only inspect tokens held by this address, not the global catalogue.
-    final rows = (addressData['token_holdings'] as List? ?? const [])
-        .whereType<Map>()
-        .map((item) => item.cast<String, Object?>())
-        .where((item) => item['status']?.toString() == 'verified')
-        .map((item) => <String, Object?>{
-              ...item,
-              'covenant_id': item['token_id'] ?? item['covenant_id']
-            })
-        .toList();
-    final tipDaa = _asInt(addressData['tip_daa']);
-    final tipAtMs = _asInt(addressData['tip_at_ms']);
-    final details = await Future.wait(
-      rows.map((row) => _tryLoadKcc20Token(
-            row,
-            pubkey,
-            tipDaa: tipDaa,
-            tipAtMs: tipAtMs,
-          )),
-    );
-    final assets =
-        details.map((item) => item.asset).whereType<WalletAsset>().toList();
-    final transactions = details.expand((item) => item.transactions).toList()
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    final issues = <String>{
-      for (var i = 0; i < details.length; i++)
-        if (details[i].discoveryLimited && !_isObsoleteLegacy(details[i].asset))
-          rows[i]['covenant_id'].toString(),
-    };
-    return _Kcc20Wallet(
-      assets: assets,
-      transactions: transactions,
-      signingIssues: issues,
-      warning: warning,
-    );
-  }
-
-  Future<_Kcc20TokenResult> _tryLoadKcc20Token(
-    Map<String, Object?> directoryRow,
-    String pubkey, {
-    required int tipDaa,
-    required int tipAtMs,
-    int? expectedRawBalance,
-  }) async {
-    try {
-      return await _loadKcc20Token(
-        directoryRow,
-        pubkey,
-        tipDaa: tipDaa,
-        tipAtMs: tipAtMs,
-        expectedRawBalance: expectedRawBalance,
-      );
-    } catch (_) {
-      return const _Kcc20TokenResult(discoveryLimited: true);
-    }
-  }
-
-  Future<_Kcc20TokenResult> _loadKcc20Token(
-    Map<String, Object?> directoryRow,
-    String pubkey, {
-    required int tipDaa,
-    required int tipAtMs,
-    int? expectedRawBalance,
-  }) async {
-    final covenantId = directoryRow['covenant_id']?.toString() ?? '';
-    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(covenantId)) {
-      return const _Kcc20TokenResult();
-    }
-    final detail = _map(await _kascovGet('/token/$covenantId'));
-    final token = _map(detail['token']);
-    if ((token['status'] ?? directoryRow['status'])?.toString() != 'verified') {
-      return const _Kcc20TokenResult();
-    }
-    final balances = (detail['balances'] as List? ?? const [])
-        .whereType<Map>()
-        .map((item) => item.cast<String, Object?>())
-        .toList();
-    Map<String, Object?>? balanceRow;
-    for (final item in balances) {
-      if (item['owner']?.toString().toLowerCase() == pubkey) {
-        balanceRow = item;
-        break;
-      }
-    }
-    final rawBalance = _asInt(balanceRow?['balance']);
-    if (expectedRawBalance != null && rawBalance != expectedRawBalance) {
-      return const _Kcc20TokenResult(sourceMismatch: true);
-    }
-    if (rawBalance <= 0) {
-      return _Kcc20TokenResult(discoveryLimited: balances.length >= 100);
-    }
-
-    final coin = _map(await _kascovGet('/c/$covenantId.json'));
-    final events = (detail['events'] as List? ?? const [])
-        .whereType<Map>()
-        .map((item) => item.cast<String, Object?>())
-        .toList();
-    final amountsByOutpoint = <String, int>{};
-    for (final event in events) {
-      if (event['owner_to']?.toString().toLowerCase() != pubkey) continue;
-      final txid = event['txid']?.toString() ?? '';
-      final index = _nullableInt(
-        event['delta_idx'] ?? event['output_index'] ?? event['index'],
-      );
-      final amount = _asInt(
-        event['balance_to'] ?? event['state_amount'] ?? event['amount'],
-      );
-      if (txid.isNotEmpty && index != null && amount > 0) {
-        amountsByOutpoint['$txid:$index'] = amount;
-      }
-    }
-    // Kascov's current coin response uses `live_utxos` as a numeric count and
-    // stores the actual cell records in `utxos`. Older responses used a list
-    // under `live_utxos`/`live_outputs`, so select the first list instead of
-    // blindly casting the first non-null value.
-    final liveRows = [
-          coin['live_utxos'],
-          coin['live_outputs'],
-          coin['utxos'],
-        ].whereType<List>().firstOrNull ??
-        const [];
-    final cells = <Kcc20CellRecord>[];
-    for (final raw in liveRows.whereType<Map>()) {
-      final item = raw.cast<String, Object?>();
-      if (item['live'] == false) continue;
-      final outpoint = _map(item['outpoint']);
-      final outpointText =
-          item['outpoint'] is String ? item['outpoint'].toString() : '';
-      final outpointParts = outpointText.split(':');
-      final txid = (outpoint['transaction_id'] ??
-              outpoint['transactionId'] ??
-              item['transaction_id'] ??
-              item['txid'] ??
-              (outpointParts.length == 2 ? outpointParts[0] : null) ??
-              '')
-          .toString();
-      final index = _nullableInt(
-        outpoint['index'] ??
-            item['index'] ??
-            item['output_index'] ??
-            (outpointParts.length == 2 ? outpointParts[1] : null),
-      );
-      if (txid.isEmpty || index == null) continue;
-      final stateFields = (item['state_fields'] as List? ?? const [])
-          .whereType<Map>()
-          .map((field) => field.cast<String, Object?>())
-          .toList();
-      String? stateField(String name) {
-        for (final field in stateFields) {
-          if (field['name']?.toString() == name) {
-            return field['value']?.toString();
-          }
-        }
-        return null;
-      }
-
-      final stateOwner = stateField('owner_identifier')?.toLowerCase();
-      if (stateOwner != null && stateOwner != pubkey) continue;
-      final tokenAmount = amountsByOutpoint['$txid:$index'] ??
-          _littleEndianHexInt(stateField('amount'));
-      if (tokenAmount == null || tokenAmount <= 0) continue;
-      final script = (item['script_hex'] ??
-              _map(item['script_public_key'])['script'] ??
-              _map(item['scriptPublicKey'])['scriptPublicKey'] ??
-              '')
-          .toString();
-      if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(script)) continue;
-      cells.add(Kcc20CellRecord(
-        covenantId: covenantId,
-        transactionId: txid,
-        index: index,
-        valueSompi: _asInt(item['value'] ?? item['amount']),
-        blockDaaScore: _asInt(item['created_daa'] ?? item['block_daa_score']),
-        scriptPublicKey: script,
-        tokenAmount: tokenAmount,
-        isMinter: item['is_minter'] == true,
-      ));
-    }
-    final fields = _map(token['fields'] ?? directoryRow['fields']);
-    final declaration = verifiedKascovDeclaration(covenantId, token) ??
-        verifiedKascovDeclaration(covenantId, coin);
-    final decimals = _asInt(declaration?['decimals'] ??
-        token['claimed_decimals'] ??
-        fields['decimals'] ??
-        8);
-    final ticker = (declaration?['ticker'] ??
-            token['claimed_ticker'] ??
-            directoryRow['claimed_ticker'] ??
-            fields['tick'] ??
-            token['name'] ??
-            'KCC20')
-        .toString()
-        .toUpperCase();
-    final templateHash = (coin['kcc1_template_hash'] ??
-            token['template_hash'] ??
-            directoryRow['template_hash'] ??
-            '')
-        .toString()
-        .toLowerCase();
-    final complete = cells.isNotEmpty &&
-        coin['lineage_complete'] != false &&
-        cells.fold<int>(0, (sum, cell) => sum + cell.tokenAmount) ==
-            rawBalance &&
-        RegExp(r'^[0-9a-f]{64}$').hasMatch(templateHash);
-    final divisor = _pow10(decimals);
-    final asset = WalletAsset(
-      symbol: ticker,
-      balance: rawBalance / divisor,
-      kind: 'KCC20',
-      imageUrl: _absoluteImageUrl(
-        (token['claimed_image'] ?? directoryRow['claimed_image'])?.toString(),
-      ),
-      id: covenantId,
-      decimals: decimals,
-      rawBalance: rawBalance.toString(),
-      covenantId: covenantId,
-      templateHash: templateHash,
-      validationStatus: 'verified',
-      kcc20Cells: cells,
-      discoveryComplete: complete,
-    );
-    final transactions = events
-        .where((event) =>
-            event['owner_from']?.toString().toLowerCase() == pubkey ||
-            event['owner_to']?.toString().toLowerCase() == pubkey)
-        .map((event) {
-      final incoming = event['owner_to']?.toString().toLowerCase() == pubkey;
-      final daa = _asInt(event['accepting_daa']);
-      final milliseconds = _asInt(event['timestamp_ms']);
-      final estimatedMilliseconds =
-          tipAtMs > 0 && tipDaa >= daa ? tipAtMs - ((tipDaa - daa) * 100) : 0;
-      final ownerFrom = event['owner_from']?.toString().toLowerCase() ?? '';
-      final ownerTo = event['owner_to']?.toString().toLowerCase() ?? '';
-      final fromAddress = kaspaAddressFromOwnerId(ownerFrom);
-      final toAddress = kaspaAddressFromOwnerId(ownerTo);
-      return WalletTransaction(
-        id: event['txid']?.toString() ?? 'kcc20-$covenantId-$daa',
-        timestamp: DateTime.fromMillisecondsSinceEpoch(
-          milliseconds > 0 ? milliseconds : estimatedMilliseconds,
-        ),
-        amountSompi: 0,
-        incoming: incoming,
-        assetKind: 'KCC20',
-        assetSymbol: ticker,
-        tokenId: covenantId,
-        displayAmount: formatRawTokenAmount(
-          BigInt.from(_asInt(event['amount'])),
-          decimals,
-        ),
-        counterparty: incoming
-            ? (fromAddress.isEmpty ? ownerFrom : fromAddress)
-            : (toAddress.isEmpty ? ownerTo : toAddress),
-        from: [
-          if (ownerFrom.isNotEmpty)
-            TransactionParty(
-              address: fromAddress,
-              ownerId: ownerFrom,
-            ),
-        ],
-        to: [
-          if (ownerTo.isNotEmpty)
-            TransactionParty(
-              address: toAddress,
-              ownerId: ownerTo,
-            ),
-        ],
-        status: TransactionStatus.confirmed,
-      );
-    }).toList();
-    return _Kcc20TokenResult(
-      asset: asset,
-      transactions: transactions,
-      discoveryLimited: balances.length >= 100 || !complete,
-    );
-  }
-
-  Future<Object?> _kascovGet(String path) async {
-    final response = await _client
-        .get(Uri.parse('$kascovBaseUrl$path'))
-        .timeout(const Duration(seconds: 20));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw KaspaApiException('Kascov returned ${response.statusCode}');
-    }
-    return jsonDecode(response.body);
-  }
-
-  Future<Object?> _kcc20IndexerGet(String path) async {
-    final response = await _client
-        .get(Uri.parse('$kcc20IndexerBaseUrl$path'))
-        .timeout(const Duration(seconds: 20));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw KaspaApiException(
-        'Primary KCC20 indexer returned ${response.statusCode}',
-      );
-    }
-    return jsonDecode(response.body);
   }
 
   Future<Map<String, Object?>> preflightKcc20(String transactionJson) async {
@@ -2906,19 +2199,28 @@ class KaspaApi {
     );
     await _diagnosticProbe(
       checks,
-      'KCC20 primary indexer',
-      kcc20IndexerBaseUrl,
-      () => _kcc20IndexerGet('/v1/status').then((value) {
-        final status = _map(value);
-        final capabilities = _map(status['capabilities']);
-        if (capabilities['balances'] != true ||
-            capabilities['owner_history'] != true ||
-            capabilities['signing_data'] != true) {
-          throw KaspaApiException('Required signing capabilities are missing');
-        }
-        return 'Complete owner and signing data available';
+      'KCC20 primary · Kasvio',
+      '$kasvioBaseUrl/api/kcc20/v1',
+      () =>
+          standardKcc20.get('$kasvioBaseUrl/api/kcc20/v1/status').then((value) {
+        if (_map(value['data'])['status'] != 'ready')
+          throw KaspaApiException('Kasvio is not ready');
+        return 'KCC20 API available';
       }),
     );
+    await _diagnosticProbe(checks, 'KCC20 fallback · Kascov', kascovBaseUrl,
+        () async {
+      final response = await _client
+          .get(Uri.parse(
+              '$kascovBaseUrl/addr/${Uri.encodeComponent(address)}.json'))
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200 ||
+          _map(jsonDecode(response.body))['network'] != 'mainnet') {
+        throw KaspaApiException(
+            'Kascov account API unavailable (${response.statusCode})');
+      }
+      return 'KCC20 fallback API available';
+    });
     return checks;
   }
 
@@ -3273,19 +2575,6 @@ class KaspaApi {
     return result;
   }
 
-  static int? _littleEndianHexInt(String? value) {
-    if (value == null ||
-        value.length.isOdd ||
-        !RegExp(r'^[0-9a-fA-F]+$').hasMatch(value)) {
-      return null;
-    }
-    final bytes = <String>[];
-    for (var index = 0; index < value.length; index += 2) {
-      bytes.add(value.substring(index, index + 2));
-    }
-    return int.tryParse(bytes.reversed.join(), radix: 16);
-  }
-
   String? _absoluteImageUrl(String? value) {
     if (value == null || value.isEmpty || value.endsWith('.svg')) return null;
     if (value.startsWith('https://') || value.startsWith('http://')) {
@@ -3341,20 +2630,4 @@ class _Kcc20Wallet {
         if (signingIssues.isNotEmpty) signingWarning,
         _warning.replaceAll(signingWarning, '').trim(),
       ].where((s) => s.isNotEmpty).join(' ');
-}
-
-bool _isObsoleteLegacy(WalletAsset? asset) =>
-    Kcc20StandardService.obsoleteTemplateHashes.contains(asset?.templateHash);
-
-class _Kcc20TokenResult {
-  const _Kcc20TokenResult({
-    this.asset,
-    this.transactions = const [],
-    this.discoveryLimited = false,
-    this.sourceMismatch = false,
-  });
-  final WalletAsset? asset;
-  final List<WalletTransaction> transactions;
-  final bool discoveryLimited;
-  final bool sourceMismatch;
 }

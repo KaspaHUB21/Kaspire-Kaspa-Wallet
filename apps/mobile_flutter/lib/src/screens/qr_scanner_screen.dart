@@ -1,14 +1,29 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:qr_code_scanner_plus/qr_code_scanner_plus.dart';
 
 import '../models/kaspa_payment_request.dart';
+import '../models/evm_address.dart';
 import '../theme.dart';
 import '../services/app_settings.dart';
 import '../platform.dart';
 import '../widgets/desktop_qr_input.dart';
 
 class QrScannerScreen extends StatefulWidget {
-  const QrScannerScreen({super.key});
+  const QrScannerScreen({super.key}) : evmNetworkName = null;
+
+  const QrScannerScreen.evm({super.key, required String networkName})
+      : evmNetworkName = networkName;
+
+  final String? evmNetworkName;
+
+  bool _accepts(String value) => evmNetworkName != null
+      ? EvmAddress.tryParse(value) != null
+      : KaspaPaymentRequest.tryParse(value) != null;
+
+  String get _title =>
+      evmNetworkName == null ? 'Kaspa payment' : '$evmNetworkName address';
 
   @override
   State<QrScannerScreen> createState() => _QrScannerScreenState();
@@ -20,19 +35,23 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   bool _torchOn = false;
   String? _error;
   QRViewController? _controller;
+  StreamSubscription<Barcode>? _scans;
 
   void _onScannerCreated(QRViewController controller) {
     _controller = controller;
-    controller.scannedDataStream.listen((barcode) {
+    _scans?.cancel();
+    _scans = controller.scannedDataStream.listen((barcode) {
       if (_handled || !mounted) return;
       final value = barcode.code;
-      if (value != null && KaspaPaymentRequest.tryParse(value) != null) {
+      if (value != null && widget._accepts(value)) {
         _handled = true;
         controller.pauseCamera();
         Navigator.pop(context, value);
         return;
       }
-      setState(() => _error = 'This is not a Kaspa payment QR code.');
+      setState(() => _error = widget.evmNetworkName == null
+          ? 'This is not a Kaspa payment QR code.'
+          : 'Scan a ${widget.evmNetworkName} 0x address QR code.');
     });
   }
 
@@ -43,16 +62,15 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
 
   @override
   void dispose() {
+    _scans?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => isWindowsDesktop
-      ? DesktopQrInput(
-          title: 'Kaspa payment',
-          validate: (value) => KaspaPaymentRequest.tryParse(value) != null)
+      ? DesktopQrInput(title: widget._title, validate: widget._accepts)
       : Scaffold(
-          appBar: AppBar(title: const Text('Scan Kaspa payment')),
+          appBar: AppBar(title: Text('Scan ${widget._title}')),
           body: Stack(
             fit: StackFit.expand,
             children: [

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import '../widgets/hub21_material.dart';
 
 import '../decimal_input_formatter.dart';
+import '../models/evm_address.dart';
 import '../services/app_settings.dart';
 import '../services/evm_api.dart';
 import '../services/native_security.dart';
+import '../services/network_settings.dart';
 import '../theme.dart';
 import '../number_format.dart';
 import 'qr_scanner_screen.dart';
@@ -169,12 +171,14 @@ class _EvmSendPanelState extends State<_EvmSendPanel> {
   }
 
   Future<void> _scan() async {
-    final value = await Navigator.of(context).push<String>(
-        MaterialPageRoute(builder: (_) => const QrScannerScreen()));
-    if (value != null &&
-        RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(value.trim())) {
-      _recipient.text = value.trim();
-    }
+    final network = EvmNetworkConfig.current;
+    final value = await Navigator.of(context).push<String>(MaterialPageRoute(
+        builder: (_) => QrScannerScreen.evm(networkName: network.name)));
+    if (!mounted || value == null) return;
+    if (!NetworkSettings.isEvm ||
+        EvmNetworkConfig.current.chainId != network.chainId) return;
+    final address = EvmAddress.tryParse(value);
+    if (address != null) _recipient.text = address;
   }
 
   Future<void> _max() async {
@@ -196,7 +200,7 @@ class _EvmSendPanelState extends State<_EvmSendPanel> {
     });
     try {
       final to = _recipient.text.trim();
-      if (!RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(to)) {
+      if (EvmAddress.tryParse(to) == null) {
         throw const FormatException('Enter a valid 0x address.');
       }
       final amount = parseUnits(_amount.text, _decimals);

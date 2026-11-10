@@ -768,77 +768,55 @@ void main() {
     expect(snapshot.assetWarning, isNot(contains('unusable KNS')));
   });
 
-  test('only proven pre-final legacy mapping gaps suppress signing warnings',
+  test('Kascov pre-final holdings are excluded without legacy signing notices',
       () async {
+    const wallet =
+        'kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh';
     const owner =
-        '1111111111111111111111111111111111111111111111111111111111111111';
-    const covenant =
-        '2222222222222222222222222222222222222222222222222222222222222222';
-    for (final template in [
-      '9bf2df2cd4a05b8124082c868e79c52eb4d719362af2e1a75c025cfb50a2844e',
-      '36205a78ae657a7f1db798f6c52925ca82aca7361df71ef6a8202ce05aa7ec5f',
-      'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
-    ]) {
-      final client = MockClient((r) async {
-        if (r.url.host == 'kascov.io') {
-          if (r.url.path.contains('/addr/'))
-            return http.Response(
-                jsonEncode({
-                  'pubkey': owner,
-                  'tip_daa': 200,
-                  'token_holdings': [
-                    {
-                      'token_id': covenant,
-                      'status': 'verified',
-                      'claimed_ticker': 'OLD'
-                    }
-                  ]
-                }),
-                200);
-          if (r.url.path.endsWith('/token/$covenant'))
-            return http.Response(
-                jsonEncode({
-                  'token': {
-                    'status': 'verified',
-                    'claimed_ticker': 'OLD',
-                    'claimed_decimals': 0
-                  },
-                  'balances': [
-                    {'owner': owner, 'balance': 1000}
-                  ],
-                  'events': []
-                }),
-                200);
-          if (r.url.path.endsWith('/c/$covenant.json'))
-            return http.Response(
-                jsonEncode({
-                  'kcc1_template_hash': template,
-                  'lineage_complete': false,
-                  'utxos': []
-                }),
-                200);
-        }
-        if (r.url.path.endsWith('/balance'))
-          return http.Response('{"balance":0}', 200);
-        if (r.url.path.endsWith('/info/price'))
-          return http.Response('{"price":0.1}', 200);
-        if (r.url.host == 'kaspatoken.kaslab.space')
-          return http.Response('{}', 503);
-        return http.Response('[]', 200);
-      });
-      final snapshot = await KaspaApi(client: client).loadWallet(address);
-      final asset = snapshot.kcc20Tokens.single;
-      expect(asset.balance, 1000);
-      expect(asset.discoveryComplete, false);
-      expect(asset.templateHash, template);
-      final message = snapshot.assetWarning ?? '';
-      expect(message, isNot(contains('top 100')));
-      if (!template.startsWith('ffff')) {
-        expect(message, isNot(contains('mapped to complete signing')));
-      } else {
-        expect(message, contains('mapped to complete signing'));
+        '1bacea84ca721c95d67ecace19bc499a77c03726bc8739af637bcd89abaaf058';
+    final id = 'd' * 64, urls = <String>[];
+    final client = MockClient((r) async {
+      urls.add(r.url.toString());
+      if (r.url.host == 'kascov.io' && r.url.path.contains('/addr/')) {
+        return http.Response(
+            jsonEncode({
+              'network': 'mainnet',
+              'address': wallet,
+              'pubkey': owner,
+              'tip_daa': 100,
+              'token_holdings': [
+                {'token_id': id, 'status': 'verified', 'balance_str': '1000'}
+              ]
+            }),
+            200);
       }
-    }
+      if (r.url.host == 'kascov.io' && r.url.path.endsWith(id)) {
+        return http.Response(
+            jsonEncode({
+              'network': 'mainnet',
+              'token': {
+                'covenant_id': id,
+                'status': 'verified',
+                'layout': 'kcc20-46'
+              }
+            }),
+            200);
+      }
+      if (r.url.path.endsWith('/balance'))
+        return http.Response('{"balance":0}', 200);
+      if (r.url.path == '/info/price')
+        return http.Response('{"price":0.1}', 200);
+      if (r.url.host == 'kasvio.network' || r.url.host == 'kascov.io')
+        return http.Response('{}', 503);
+      return http.Response('[]', 200);
+    });
+    final snapshot = await KaspaApi(client: client).loadWallet(wallet);
+    expect(snapshot.kcc20Tokens, isEmpty);
+    expect(
+        snapshot.assetWarning, isNot(contains('mapped to complete signing')));
+    expect(snapshot.assetWarning,
+        isNot(contains('standard KCC20 holdings could not be verified')));
+    expect(urls.any((u) => u.contains('kcc20.info')), false);
   });
 
   test(
@@ -898,76 +876,45 @@ void main() {
     expect(value.activityOrigins, ['a' * 64]);
   });
 
-  test('loads KCC20 cells when live_utxos is a numeric count', () async {
-    const owner =
-        '1111111111111111111111111111111111111111111111111111111111111111';
-    const covenant =
-        '2222222222222222222222222222222222222222222222222222222222222222';
-    const txid =
-        '3333333333333333333333333333333333333333333333333333333333333333';
-    const template =
-        '36205a78ae657a7f1db798f6c52925ca82aca7361df71ef6a8202ce05aa7ec5f';
-    final client = MockClient((request) async {
-      if (request.url.host == 'kascov.io') {
-        if (request.url.path.contains('/addr/')) {
-          return http.Response(
-              '{"pubkey":"$owner","tip_daa":200,"tip_at_ms":1780000000000,"token_holdings":[{"token_id":"$covenant","status":"verified","claimed_ticker":"COIN","claimed_decimals":2}]}',
-              200);
-        }
-        if (request.url.path.endsWith('/tokens.json')) {
-          return http.Response(
-            '{"tip_daa":200,"tip_at_ms":1780000000000,"note":"verified means every event matched","tokens":[{"covenant_id":"$covenant","status":"verified","claimed_ticker":"COIN","claimed_decimals":2}]}',
-            200,
-          );
-        }
-        if (request.url.path.endsWith('/token/$covenant')) {
-          return http.Response(
-            '{"token":{"covenant_id":"$covenant","status":"verified","claimed_ticker":"COIN","claimed_decimals":2},"balances":[{"owner":"$owner","balance":1000}],"events":[{"txid":"$txid","delta_idx":0,"accepting_daa":190,"token_kind":"mint","amount":1000,"owner_to":"$owner"}],"validation":{"checked":1}}',
-            200,
-          );
-        }
+  test('old event-only cells cannot be relabelled as supported standard cells',
+      () async {
+    const wallet =
+        'kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh';
+    final calls = <String>[];
+    final client = MockClient((r) async {
+      calls.add(r.url.toString());
+      if (r.url.host == 'kascov.io')
         return http.Response(
-          '{"lineage_complete":true,"live_utxos":1,"kcc1_template_hash":"$template","utxos":[{"outpoint":"$txid:0","value":50000000,"live":true,"created_daa":190,"script_hex":"aa","state_fields":[{"name":"program_hash","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}]}',
-          200,
-        );
-      }
-      if (request.url.path.endsWith('/balance')) {
+            jsonEncode({
+              'network': 'mainnet',
+              'pubkey':
+                  '1bacea84ca721c95d67ecace19bc499a77c03726bc8739af637bcd89abaaf058',
+              'address': wallet,
+              'token_holdings': [],
+              'live_utxos': 1,
+              'utxos': [
+                {
+                  'outpoint': '${'a' * 64}:0',
+                  'value': 100000000,
+                  'script_hex': 'aa'
+                }
+              ],
+            }),
+            200);
+      if (r.url.path.endsWith('/balance'))
         return http.Response('{"balance":0}', 200);
-      }
-      if (request.url.path == '/info/price') {
+      if (r.url.path == '/info/price')
         return http.Response('{"price":0.1}', 200);
-      }
-      if (request.url.host == 'kaspatoken.kaslab.space') {
+      if (r.url.host == 'kasvio.network' || r.url.host == 'kascov.io')
         return http.Response('{}', 503);
-      }
       return http.Response('[]', 200);
     });
-
-    final snapshot = await KaspaApi(client: client).loadWallet(address);
-    final token = snapshot.kcc20Tokens.single;
-    expect(token.symbol, 'COIN');
-    expect(token.balance, 10);
-    expect(token.discoveryComplete, isTrue);
-    expect(token.kcc20Cells.single.tokenAmount, 1000);
-    expect(token.templateHash, template);
-    expect(snapshot.assetWarning, isNot(contains('verified means')));
-    expect(
-      snapshot.withTransactions(const []).kcc20Tokens,
-      same(snapshot.kcc20Tokens),
-    );
-    final activity =
-        snapshot.transactions.singleWhere((item) => item.id == txid);
-    expect(activity.assetKind, 'KCC20');
-    expect(activity.amountLabel, '10 COIN');
-    expect(
-      activity.to.single.address,
-      'kaspa:qqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zng5quzmq',
-    );
-    expect(activity.to.single.ownerId, owner);
+    final snapshot = await KaspaApi(client: client).loadWallet(wallet);
+    expect(snapshot.kcc20Tokens, isEmpty);
+    expect(calls.any((u) => u.contains('kcc20.info')), false);
   });
 
-  test('retiring legacy API is used only after Kasvio and Kascov fail',
-      () async {
+  test('retired API is never used even when Kasvio and Kascov fail', () async {
     const owner =
         '1bacea84ca721c95d67ecace19bc499a77c03726bc8739af637bcd89abaaf058';
     const wallet =
@@ -1041,16 +988,13 @@ void main() {
     });
 
     final snapshot = await KaspaApi(client: client).loadWallet(wallet);
-    expect(usedPrimary, isTrue);
-    expect(resolvedThroughKascov, isTrue);
-    expect(snapshot.kcc20Tokens.single.symbol, 'COIN');
-    expect(snapshot.kcc20Tokens.single.rawBalance, '1000');
-    expect(snapshot.kcc20Tokens.single.discoveryComplete, isTrue);
-    expect(snapshot.transactions.any((item) => item.id == txid), isTrue);
+    expect(usedPrimary, isFalse);
+    expect(resolvedThroughKascov, isFalse);
+    expect(snapshot.kcc20Tokens, isEmpty);
+    expect(snapshot.transactions.any((item) => item.id == txid), isFalse);
   });
 
-  test('marks KRON signing cells complete without a legacy template hash',
-      () async {
+  test('retired API cannot inject KRON signing cells', () async {
     const owner =
         '1bacea84ca721c95d67ecace19bc499a77c03726bc8739af637bcd89abaaf058';
     const wallet =
@@ -1099,14 +1043,8 @@ void main() {
       return http.Response('[]', 200);
     });
 
-    final token =
-        (await KaspaApi(client: client).loadWallet(wallet)).kcc20Tokens.single;
-    expect(token.standard, 'kron-native');
-    expect(token.templateHash, isEmpty);
-    expect(token.discoveryComplete, isTrue);
-    expect(token.kcc20Cells.single.tokenAmount, 16569);
-    expect(token.kcc20Cells.single.redeemScript, isNotEmpty);
-    expect(token.kcc20Cells.single.scriptPublicKey, startsWith('aa20'));
+    expect((await KaspaApi(client: client).loadWallet(wallet)).kcc20Tokens,
+        isEmpty);
   });
 
   test('resolves an exact KNS domain owner', () async {

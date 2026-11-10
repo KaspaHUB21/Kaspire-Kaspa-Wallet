@@ -321,7 +321,7 @@ void main() {
         includeNativeTransactions: false,
         includeMarketData: false);
     expect(result.assetWarning,
-        contains('Kasvio KCC20 data is temporarily unavailable'));
+        contains('KCC20 account data is temporarily unavailable from Kasvio and Kascov'));
     expect(result.assetDiscoveryComplete, false);
   });
   test('verified 0, 3 and 8 decimal units remain exact on the address path',
@@ -355,8 +355,10 @@ void main() {
                 paths: paths,
                 addressResponse: http.Response('unavailable', 503)))
             .load(address),
-        throwsA(isA<Kcc20ReadError>()));
-    expect(paths, hasLength(1));
+        throwsStateError);
+    expect(paths, hasLength(2));
+    expect(paths.last, contains('/addr/'));
+    expect(paths.contains('/api/kcc20/v1/tokens'), false);
   });
   test('wrong address, owner, chain and revision are rejected', () async {
     for (final response in [
