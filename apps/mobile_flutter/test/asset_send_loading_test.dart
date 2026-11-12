@@ -45,6 +45,45 @@ class SlowApi extends KaspaApi {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets('KRC20 Max excludes PSKT-locked amounts', (tester) async {
+    const lockedSnapshot = WalletSnapshot(
+        balanceSompi: 100000000,
+        kasUsd: null,
+        transactions: [],
+        krc20Tokens: [
+          WalletAsset(
+              symbol: 'TEST',
+              balance: 12,
+              rawBalance: '1200',
+              rawLockedBalance: '10000',
+              decimals: 2,
+              kind: 'KRC-20')
+        ],
+        krc721Collections: [],
+        knsDomains: [],
+        kcc20Tokens: []);
+    final api = SlowApi();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: AssetSendScreen(
+                address: 'kaspa:test',
+                onDone: () {},
+                api: api,
+                initialAsset: const AssetSendIntent.krc20('TEST',
+                    wallet: lockedSnapshot)))));
+    await tester.pump();
+    expect(find.text('+100 TEST locked'), findsOneWidget);
+    await tester.ensureVisible(find.text('Max'));
+    await tester.tap(find.text('Max'));
+    await tester.pump();
+    final amount = tester.widget<TextField>(find.byWidgetPredicate(
+        (w) => w is TextField && w.decoration?.labelText == 'Amount'));
+    expect(amount.controller!.text, '12');
+    api.result.complete(lockedSnapshot);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
   testWidgets(
       'pending KCC20 compound survives closing the view without implying recipient payment',
       (tester) async {

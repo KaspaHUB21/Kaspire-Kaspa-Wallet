@@ -12,6 +12,7 @@ html.side-panel #app { width:100%; min-width:0; height:100%; }
 html.side-panel .app { width:100%; min-width:0; height:100dvh; max-height:none; }
 .asset-row { grid-template-columns:42px minmax(0,1fr) minmax(0,auto) 12px; }
 .asset-row > span, .asset-row b, .asset-row small { min-width:0; overflow-wrap:anywhere; }
+.locked-balance { color:var(--muted); overflow-wrap:anywhere; white-space:normal; }
 .asset-row strong { max-width:125px; overflow-wrap:anywhere; }
 .activity-row { grid-template-columns:38px minmax(0,1fr) minmax(0,118px) 12px; gap:8px; }
 .activity-row :is(b,small,em,strong), .token-detail :is(h1,p,strong), .tx-detail-head b { min-width:0; overflow-wrap:anywhere; }

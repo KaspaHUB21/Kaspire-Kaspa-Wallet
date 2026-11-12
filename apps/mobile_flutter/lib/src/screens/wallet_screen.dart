@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../widgets/krc20_locked_balance.dart';
 import '../widgets/asset_discovery_notice.dart';
 import 'covenant_vault_screen.dart';
 import '../widgets/hub21_material.dart';
@@ -54,6 +55,7 @@ class WalletScreen extends StatefulWidget {
     required this.onSettings,
     this.desktopNavigator,
     this.refreshRevision = 0,
+    this.api,
   });
   final String address;
   final VoidCallback onSend;
@@ -64,6 +66,7 @@ class WalletScreen extends StatefulWidget {
   final VoidCallback onSettings;
   final GlobalKey<NavigatorState>? desktopNavigator;
   final int refreshRevision;
+  final KaspaApi? api;
 
   @override
   State<WalletScreen> createState() => _WalletScreenState();
@@ -71,10 +74,11 @@ class WalletScreen extends StatefulWidget {
 
 class _WalletScreenState extends State<WalletScreen> {
   String _desktopSection = 'assets';
-  final KaspaApi _api = KaspaApi();
+  late KaspaApi _api;
   late Future<HdAccountScope> _account;
   late Future<WalletSnapshot> _snapshot;
   WalletSnapshot? _progress;
+  WalletSnapshot? _lastSnapshot;
   int _loadGeneration = 0;
   late Future<WalletSnapshot> _balance;
   late Future<int> _kasBalance;
@@ -116,6 +120,7 @@ class _WalletScreenState extends State<WalletScreen> {
   @override
   void initState() {
     super.initState();
+    _api = widget.api ?? KaspaApi();
     ActivityStore.changes.addListener(_reloadLocalActivity);
     NftMarketService.changes.addListener(_refresh);
     KForgeTrading.changes.addListener(_refresh);
@@ -195,7 +200,7 @@ class _WalletScreenState extends State<WalletScreen> {
 
   Future<WalletSnapshot> _loadSnapshot() async {
     final generation = ++_loadGeneration;
-    _progress = null;
+    _progress = _lastSnapshot;
     final account = await _account;
     final results = await Future.wait([
       _api.loadWallet(
@@ -205,7 +210,11 @@ class _WalletScreenState extends State<WalletScreen> {
         includeAssetHistory: false,
         onProgress: (snapshot) {
           if (mounted && generation == _loadGeneration) {
-            setState(() => _progress = snapshot);
+            setState(() {
+              _progress =
+                  _lastSnapshot?.withFreshHoldings(snapshot) ?? snapshot;
+              _lastSnapshot = _progress;
+            });
             if (_activityStarted) {
               _activity.seed('Legacy covenant history', snapshot.transactions);
             }
@@ -219,11 +228,16 @@ class _WalletScreenState extends State<WalletScreen> {
     final snapshot = results[0] as WalletSnapshot;
     final balance = results[1] as int;
     final utxoCount = (jsonDecode(results[2] as String) as List).length;
-    final combined = snapshot.withAccountData(
+    final combined = (_lastSnapshot?.withFreshHoldings(snapshot) ?? snapshot)
+        .withAccountData(
       balanceSompi: balance,
       utxoCount: utxoCount,
       transactions: snapshot.transactions,
     );
+    if (mounted && generation == _loadGeneration) {
+      _lastSnapshot = combined;
+      _progress = combined;
+    }
     return combined;
   }
 
@@ -246,13 +260,27 @@ class _WalletScreenState extends State<WalletScreen> {
     });
   }
 
-  void _refresh() => setState(() {
-        _account = HdAccountService().resolve(widget.address);
-        _kasBalance = _loadAccountBalance();
-        _balance = _loadAccountBalanceSnapshot();
-        _snapshot = _loadSnapshot();
-        if (_activityStarted) unawaited(_loadActivity());
-      });
+  Future<void> _refresh() async {
+    if (!mounted) return;
+    setState(() {
+      _api = widget.api ?? KaspaApi();
+      _account = HdAccountService().resolve(widget.address);
+      _kasBalance = _loadAccountBalance();
+      _balance = _loadAccountBalanceSnapshot();
+      _snapshot = _loadSnapshot();
+      _walletName = _loadWalletName();
+    });
+    try {
+      await Future.wait<Object?>([
+        _snapshot,
+        _kasBalance,
+        _balance,
+        if (_activityStarted) _loadActivity()
+      ]);
+    } catch (_) {
+      /* FutureBuilder/source warnings retain readable cached data. */
+    }
+  }
 
   Future<List<WalletTransaction>> _loadLocalActivity() async {
     final account = await _account;
@@ -453,7 +481,7 @@ class _WalletScreenState extends State<WalletScreen> {
       valueListenable: PrivacySettings.hideAmounts,
       builder: (context, hideAmounts, _) => SafeArea(
         child: RefreshIndicator(
-          onRefresh: () async => _refresh(),
+          onRefresh: _refresh,
           child: FutureBuilder<WalletSnapshot>(
             future: _snapshot,
             builder: (context, snapshot) => WalletResponsiveLayout(
@@ -545,7 +573,8 @@ class _WalletScreenState extends State<WalletScreen> {
                       : const UpcomingFeatureScreen(vaults: true)),
                   onSwap: () async {
                     await _openFeature<void>(DexSelectionScreen(
-                        address: NetworkSettings.addressForNetwork(widget.address)));
+                        address:
+                            NetworkSettings.addressForNetwork(widget.address)));
                     if (mounted) _refresh();
                   },
                   onBrowser: () => Navigator.of(context).push(
@@ -581,7 +610,7 @@ class _WalletScreenState extends State<WalletScreen> {
                   )),
                   const SizedBox(height: 12),
                   _AssetOverview(
-                    data: snapshot.data ?? _progress!,
+                    data: _progress ?? snapshot.data!,
                     loading: snapshot.connectionState != ConnectionState.done,
                     address: widget.address,
                     onSendAsset: widget.onSendAsset,
@@ -965,25 +994,27 @@ class _AssetSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          key: PageStorageKey(title),
-          tilePadding: EdgeInsets.zero,
-          childrenPadding: const EdgeInsets.only(bottom: 10),
-          leading: Icon(
-            Icons.layers_outlined,
-            color: KasVaultTheme.mint,
-          ),
-          title: Text(
-            displayLabel(title),
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-              letterSpacing: .7,
-            ),
-          ),
-          subtitle: Text('$count asset${count == 1 ? '' : 's'}'),
-          children: children,
-        ),
+        child: Material(
+            type: MaterialType.transparency,
+            child: ExpansionTile(
+              key: PageStorageKey(title),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 10),
+              leading: Icon(
+                Icons.layers_outlined,
+                color: KasVaultTheme.mint,
+              ),
+              title: Text(
+                displayLabel(title),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: .7,
+                ),
+              ),
+              subtitle: Text('$count asset${count == 1 ? '' : 's'}'),
+              children: children,
+            )),
       );
 }
 
@@ -1032,6 +1063,7 @@ class WalletAssetRow extends StatelessWidget {
                         ),
                       ),
                     ),
+                    Krc20LockedBalance(asset: asset, hideAmount: hideAmount),
                   ],
                 ),
               ),

@@ -636,7 +636,7 @@ async function walletCommand(
       void chrome.runtime.sendMessage({kind:'wallet-covenant-assets-progress',address:state.selectedAddress,items}).catch(()=>{});
     }):()=>{};
     try {
-      const items=await walletAssetCategory(state.selectedAddress, state.network, String(message.category));
+      const items=await walletAssetCategory(state.selectedAddress, state.network, String(message.category),message.refresh===true);
       if(message.category==='kcc20'&&state.network==='mainnet')void chrome.runtime.sendMessage({kind:'wallet-activity-origins-ready',address:state.selectedAddress}).catch(()=>{});
       return String(message.category)==='kcc20' ? {items,warning:kcc20DiscoveryWarning(state.selectedAddress)} : items;
     } finally {stop();}

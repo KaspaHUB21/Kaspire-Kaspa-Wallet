@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../widgets/hub21_material.dart';
+import '../widgets/krc20_locked_balance.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/wallet_snapshot.dart';
@@ -26,6 +27,7 @@ class Krc20TokenDetailScreen extends StatefulWidget {
     required this.fiatSymbol,
     required this.onSend,
     this.onSwap,
+    this.api,
   });
 
   final WalletAsset asset;
@@ -34,6 +36,7 @@ class Krc20TokenDetailScreen extends StatefulWidget {
   final String fiatSymbol;
   final VoidCallback onSend;
   final VoidCallback? onSwap;
+  final KaspaApi? api;
 
   @override
   State<Krc20TokenDetailScreen> createState() => _Krc20TokenDetailScreenState();
@@ -51,11 +54,12 @@ class _Krc20TokenDetailScreenState extends State<Krc20TokenDetailScreen> {
   @override
   void initState() {
     super.initState();
-    KaspaApi().loadSelectedFiatRate().then((value) {
+    final api = widget.api ?? KaspaApi();
+    api.loadSelectedFiatRate().then((value) {
       if (mounted) setState(() => _rate = value);
     }).catchError((_) {});
     // The user can open a token before background market enrichment completes.
-    KaspaApi().loadTokenMarket(widget.asset).then((value) {
+    api.loadTokenMarket(widget.asset).then((value) {
       if (mounted) setState(() => _enriched = value);
     });
   }
@@ -126,6 +130,13 @@ class _Krc20TokenDetailScreenState extends State<Krc20TokenDetailScreen> {
                 fontWeight: FontWeight.w700,
               ),
             )),
+            Hub21Readable(
+              child: Krc20LockedBalance(
+                asset: asset,
+                textAlign: TextAlign.center,
+                fontSize: 14,
+              ),
+            ),
             const SizedBox(height: 28),
             _PricePanel(
               title: widget.onSwap == null ? 'Floor price' : 'Price per token',

@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import {lockedTokenLabel} from '../shared/tokenAmount';
 import {mountSidePanel} from './sidePanel';
 import {ActivityFeed} from '../shared/activityFeed';
 import {startSidePanelApprovals} from './sidePanelApprovals';
@@ -673,7 +674,12 @@ function home() {
     go("marketplace");
   document.querySelector<HTMLButtonElement>("#app-promo")!.onclick = () =>
     chrome.tabs.create({ url: "https://kaspire.kaslab.space/" });
-  void loadHome();
+  document.querySelector('#asset-count')?.insertAdjacentHTML('afterend','<button id="wallet-refresh" class="icon" aria-label="Refresh wallet" title="Refresh wallet">↻</button>');
+  document.querySelector<HTMLButtonElement>('#wallet-refresh')!.onclick=async()=>{
+    const button=document.querySelector<HTMLButtonElement>('#wallet-refresh')!;
+    button.disabled=true;try{await loadHome(true);}finally{if(button.isConnected)button.disabled=false;}
+  };
+  void loadHome((performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming|undefined)?.type==='reload');
 }
 
 function mountPendingCompound() {
@@ -1602,18 +1608,22 @@ async function legacyActivity() {
       `<p class="error">${esc((error as Error).message)}</p>`;
   }
 }
-async function loadHome() {
+let homeLoadGeneration=0;
+async function loadHome(refresh=false) {
+  const generation=++homeLoadGeneration;
   const homeElement = document.querySelector("#asset-list");
-  const stillHome = () => homeElement != null && document.querySelector("#asset-list") === homeElement;
+  const stillHome = () => generation===homeLoadGeneration && homeElement != null && document.querySelector("#asset-list") === homeElement;
+  const retained=snapshot?.address===status.selectedAddress?snapshot?.assets:undefined;
   try {
     if (isL2()) return await loadEvmHome();
     const balance = await command("balanceSnapshot");
     if (!stillHome()) return;
     snapshot = {
       ...balance,
+      address: status.selectedAddress,
       utxoCount: 0,
       utxos: [],
-      assets: { tokens: [], domains: [], krc721: [], kcc20: [] },
+      assets: retained ?? { tokens: [], domains: [], krc721: [], kcc20: [] },
     };
     if (!document.querySelector("#balance")) return;
     document.querySelector("#balance")!.textContent = status.settings
@@ -1641,7 +1651,7 @@ async function loadHome() {
           " · " + fmt(core.utxoCount, 0) + " UTXOs";
       addCompound(core);
     }).catch(() => undefined);
-    const assets: any = {tokens: [], domains: [], krc721: [], kcc20: [], dotk: [], rocket: [], kasseal: [],kforge:[],kasforge:[]};
+    const assets: any = {tokens: [], domains: [], krc721: [], kcc20: [], dotk: [], rocket: [], kasseal: [],kforge:[],kasforge:[],...retained};
     const failures: string[] = [];
     let kcc20Warning='';
     const covenantProgress=(message:any)=>{
@@ -1656,7 +1666,7 @@ async function loadHome() {
     try {
     await Promise.all(Object.keys(assets).map(async category => {
       try {
-        const result=await command("assetCategory", {category});
+        const result=await command("assetCategory", {category,refresh});
         assets[category]=Array.isArray(result)?result:result.items;
         if(category==='kcc20' && !Array.isArray(result))kcc20Warning=String(result.warning??'');
       }
@@ -1751,9 +1761,15 @@ function renderAssetGroups(assets: any) {
     document
       .querySelectorAll<HTMLButtonElement>(`[data-group="${group.key}"]`)
       .forEach(
-        (button) =>
-          (button.onclick = () =>
-            assetDetail(group.items[Number(button.dataset.index)])),
+        (button) => {
+          const item=group.items[Number(button.dataset.index)];
+          if(!item)return;
+          button.onclick=()=>assetDetail(item);
+          if(item.kind==='krc20'){
+            const label=lockedTokenLabel(item.raw,status.settings.hideBalances);
+            if(label)button.querySelector('span:nth-child(2)')?.insertAdjacentHTML('beforeend',`<small class="locked-balance">${esc(label)}</small>`);
+          }
+        },
       );
   const tokens = groups.find((group) => group.key === "krc20")?.items ?? [];
   tokens.forEach(
@@ -1808,6 +1824,9 @@ function assetDetail(asset: any) {
   );
   document.querySelector<HTMLButtonElement>("#send-token")!.onclick = () =>
     send(asset);
+  const locked=lockedTokenLabel(asset.raw??{},status.settings.hideBalances);
+  if(status.settings.hideBalances){const line=document.querySelector('.token-detail > p');if(line)line.textContent='•••••• '+asset.symbol;}
+  if(locked)document.querySelector('.token-detail > p')?.insertAdjacentHTML('afterend',`<p class="locked-balance">${esc(locked)}</p>`);
   const apply = (market: any) => {
     const balance = Number(asset.balance.replaceAll(",", ""));
     document.querySelector("#floor-kas")!.textContent =
@@ -1946,6 +1965,10 @@ function send(asset: any) {
     "Send",
     true,
   );
+  if(asset.kind==='krc20'){
+    const label=lockedTokenLabel(asset.raw??{},status.settings.hideBalances);
+    if(label)document.querySelector('.available')?.insertAdjacentHTML('afterend',`<small class="locked-balance">${esc(label)}</small>`);
+  }
   const amount = document.querySelector<HTMLInputElement>("#amount");
   if (amount)
     amount.oninput = () => {

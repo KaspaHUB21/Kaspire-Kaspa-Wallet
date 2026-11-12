@@ -88,20 +88,22 @@ async function balance(get: Get, cid: string, owner: string) {
     throw Error('KCC20 owner balance unavailable or mismatched.');
   return data;
 }
-export async function standardKcc20Assets(get: Get, owner: string, onWarning:(warning:string)=>void = ()=>{}, onProgress:HoldingsProgress = ()=>{}) {
+export async function standardKcc20Assets(get: Get, owner: string, onWarning:(warning:string)=>void = ()=>{}, onProgress:HoldingsProgress = ()=>{}, refresh=false) {
   let cache=holdings.get(get);if(!cache){cache=new Map();holdings.set(get,cache);}
   const saved=cache.get(owner);
-  if(saved && Date.now()-saved.at<15_000){onWarning(saved.warning);return saved.assets;}
+  if(!refresh && saved && Date.now()-saved.at<15_000){onWarning(saved.warning);return saved.assets;}
   let jobs=pending.get(get);if(!jobs){jobs=new Map();pending.set(get,jobs);}
   let job=jobs.get(owner);
+  if(refresh && job){job.observers.clear();jobs.delete(owner);job=undefined;}
   if(!job) {
     const current:HoldingsJob={task:Promise.resolve([]),assets:[],observers:new Set()};
     current.task=discover(get,owner,assets=>{
       current.assets=assets;
       for(const observer of current.observers)try{observer([...assets]);}catch{/* A display subscriber cannot interrupt discovery. */}
     }).then(result=>{
+      if(jobs!.get(owner)!==current)throw Error('A newer holdings refresh replaced this read.');
       cache.set(owner,{at:Date.now(),...result});return result.assets;
-    }).finally(()=>jobs!.delete(owner));
+    }).finally(()=>{if(jobs!.get(owner)===current)jobs!.delete(owner);});
     jobs.set(owner,current);job=current;
   }
   job.observers.add(onProgress);

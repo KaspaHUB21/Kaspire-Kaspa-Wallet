@@ -18,12 +18,17 @@ function command(webSocketDebuggerUrl,method,params={}){return new Promise((reso
 async function observe(webSocketDebuggerUrl){const events=[];const socket=new WebSocket(webSocketDebuggerUrl);await new Promise((resolveReady,reject)=>{socket.onerror=reject;socket.onopen=()=>{socket.send(JSON.stringify({id:1,method:"Runtime.enable"}));socket.send(JSON.stringify({id:2,method:"Log.enable"}));socket.send(JSON.stringify({id:3,method:"Network.enable",params:{maxPostDataSize:1048576}}));resolveReady()}});socket.onmessage=event=>events.push(JSON.parse(event.data));return{events,close:()=>socket.close()}}
 const delay=milliseconds=>new Promise(resolveDelay=>setTimeout(resolveDelay,milliseconds));
 const securityObservers=[];
+async function offlineReads(worker){
+ if(process.env.KASPIRE_OFFLINE_TEST!=='1')return;
+ await evaluate(worker,`(()=>{const original=globalThis.fetch;globalThis.fetch=async(input,options={})=>{const url=String(input);if(url.startsWith('chrome-extension:')||url.startsWith('http://127.0.0.1:'))return original(input,options);if((options.method??'GET')!=='GET')return new Response('{}',{status:503});if(url.endsWith('/balance'))return Response.json({balance:0});if(url.endsWith('/utxos')||url.includes('/full-transactions'))return Response.json([]);if(url.endsWith('/info/fee-estimate'))return Response.json({priorityBucket:{feerate:100}});if(url.endsWith('/info/price'))return Response.json({price:0.03});return new Response('{}',{status:503});};return true;})()`);
+}
 async function waitFor(page,expression){for(let attempt=0;attempt<60;attempt++){try{if(await evaluate(page,expression))return}catch{}await delay(100)}throw new Error(`Browser condition did not become true: ${expression}`)}
 
 try{
   console.log("Chromium smoke: onboarding and theme checks");
   let worker;for(let attempt=0;attempt<80&&!worker;attempt++){worker=(await targets()).find(target=>target.type==="service_worker");if(!worker)await delay(100)}assert(worker,"Extension service worker did not load.");const extensionId=new URL(worker.url).host;const browserTarget=await(await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json();
   securityObservers.push(await observe(worker.webSocketDebuggerUrl));
+  await offlineReads(worker.webSocketDebuggerUrl);
   const wallet=await open(`chrome-extension://${extensionId}/wallet.html`);await waitFor(wallet,'Boolean(document.querySelector("#first-create"))');assert.match(String(await evaluate(wallet,"document.body.innerText")),/Your Kaspa[.]?\s+Your Control/i);await evaluate(wallet,'document.querySelector("#first-create").click();true');await waitFor(wallet,'Boolean(document.querySelector("#password"))');
   await evaluate(wallet,'document.querySelector("#password").value="browser smoke test password 2026";document.querySelector("#password-confirm").value="browser smoke test password 2026";document.querySelector("#submit").click();true');await delay(3000);
   assert.match(String(await evaluate(wallet,"document.body.innerText")),/Recovery Phrase/i);const words=await evaluate(wallet,'JSON.stringify([...document.querySelectorAll("[data-word]")].map(input=>input.value))');const walletTarget=(await targets()).find(target=>target.url===`chrome-extension://${extensionId}/wallet.html`);assert(walletTarget,"Wallet target disappeared.");await command(browserTarget.webSocketDebuggerUrl,"Target.closeTarget",{targetId:walletTarget.id});const reopenedWallet=await open(`chrome-extension://${extensionId}/wallet.html`);await waitFor(reopenedWallet,'Boolean(document.querySelector("#verify"))');assert.match(String(await evaluate(reopenedWallet,"document.body.innerText")),/Recovery Phrase/i);await evaluate(reopenedWallet,'document.querySelector("#verify").click();true');await waitFor(reopenedWallet,'document.querySelectorAll("[data-check]").length===3');await evaluate(reopenedWallet,`(()=>{const words=${words};for(const input of document.querySelectorAll("[data-check]"))input.value=words[Number(input.dataset.check)];document.querySelector("#finish").click();return true})()`);await delay(1200);assert.match(String(await evaluate(reopenedWallet,"document.body.innerText")),/Assets & Names/i);
@@ -34,12 +39,14 @@ try{
   // Its P2SH public metadata must live in the encrypted vault, not plain storage.
   const storedP2sh=await evaluate(reopenedWallet,'chrome.storage.local.get(null).then(value=>JSON.stringify(value))');assert.equal(storedP2sh.includes(p2shReceiving.result.address.address),false);
   // Public reads only: exercise the actual worker command routing, not a UI mock.
+  if(process.env.KASPIRE_OFFLINE_TEST!=='1'){
   const liveKasseal=await evaluate(reopenedWallet,'chrome.runtime.sendMessage({channel:"wallet",command:"kassealTokens",search:"unnachod"})');
   assert(!liveKasseal.error,JSON.stringify(liveKasseal.error));
   assert(liveKasseal.result.tokens.some(t=>t.meta.ticker==='UNNACHOD'&&t.verification==='verified'));
   const liveKassealContext=await evaluate(reopenedWallet,'chrome.runtime.sendMessage({channel:"wallet",command:"kassealContext"})');
   assert(!liveKassealContext.error,JSON.stringify(liveKassealContext.error));
   assert.equal(liveKassealContext.result.pending,undefined);
+  }
   for (const theme of ["midnight","hub21","glacier","neptune"]) {
     await evaluate(reopenedWallet, `(async()=>{await chrome.runtime.sendMessage({channel:"wallet",command:"setSettings",settings:{theme:"${theme}"}});location.reload();return true})()`);
     await waitFor(reopenedWallet, 'Boolean(document.querySelector("#swap"))');
@@ -94,6 +101,7 @@ try{
   const restoredP2sh=await evaluate(reopenedWallet,'chrome.runtime.sendMessage({channel:"wallet",command:"p2shState"})');assert.equal(restoredP2sh.result.receiveCount,1);assert.deepEqual(restoredP2sh.result.exposed,[]);
   console.log("Chromium smoke: dApp connection and signing checks");
   const hardenedWorker=(await targets()).find(target=>target.type==='service_worker');
+  await offlineReads(hardenedWorker.webSocketDebuggerUrl);
   securityObservers.push(await observe(hardenedWorker.webSocketDebuggerUrl));
   const deniedPage=await open(`chrome-extension://${extensionId}/approval.html?id=security-origin-probe`);
   await waitFor(deniedPage,'Boolean(globalThis.chrome?.runtime?.id)');

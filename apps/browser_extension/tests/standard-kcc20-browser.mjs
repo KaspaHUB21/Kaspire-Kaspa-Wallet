@@ -7,6 +7,7 @@ import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 const scratch=await mkdtemp(join(tmpdir(),'kaspire-standard-holdings-'));
+const walletPage=process.env.KASPIRE_TEST_PANEL==='1'?'sidepanel.html':'wallet.html';
 const extension=process.argv[2]?join(scratch,'extension'):resolve('dist');
 if(process.argv[2])execFileSync('unzip',['-q',resolve(process.argv[2]),'-d',extension]);
 const output=resolve('artifacts/standard-kcc20-browser');await mkdir(output,{recursive:true});
@@ -25,10 +26,16 @@ try {
     const original=globalThis.fetch,base='https://kasvio.network/api/kcc20/v4';
     const cid='82f033aed87d6eb39f509b51b1c817a49e0b07c4789b619cab08d4c8fb82d18e',slow='b'.repeat(64),late='e'.repeat(64),owner='3485c974d6e79b75c4ff130ee0cd20ab01b8118329837b2db8ed3b7275777df4';
     let release;const blocked=new Promise(resolve=>{release=resolve;});
-    const fixture=globalThis.holdingsFixture={release,calls:[],started:0};
+    const fixture=globalThis.holdingsFixture={release,calls:[],started:0,locked:'2100000000',tokenReads:0};
     const envelope=(data,extra={})=>new Response(JSON.stringify({data,meta:{network:'mainnet',reference_commit:null,adapter:'kcc20',source_run:'v4:browser-fixture',source_fingerprint:'1'.repeat(64),decoder_fingerprint:'2'.repeat(64),snapshot_id:'fixed'},...extra}),{headers:{'content-type':'application/json'}});
     globalThis.fetch=async(input,options)=>{
-      const url=String(input);if(!url.startsWith(base+'/'))return original(input,options);
+      const url=String(input);
+      if(url.startsWith('chrome-extension:')||url.startsWith('http://127.0.0.1:'))return original(input,options);
+      if(url.startsWith('https://api.kasplex.org/v1/krc20/address/')&&url.includes('/tokenlist')){fixture.tokenReads++;return Response.json({result:[{tick:'KASBTC',balance:'100000000',locked:fixture.locked,dec:8},{tick:'FULLYLOCKED',balance:'0',locked:'200000000000',dec:8}]});}
+      if(url.includes('/addresses/')&&url.endsWith('/balance'))return Response.json({balance:0});
+      if(url.endsWith('/utxos'))return Response.json([]);
+      if(url.endsWith('/info/price'))return Response.json({price:0.03});
+      if(!url.startsWith(base+'/'))return new Response('{}',{status:503});
       fixture.calls.push(url);fixture.started||=Date.now();
       const u=new URL(url),path=u.pathname;
       if(path.includes('/addresses/'))return envelope([cid,slow,late].map((id,i)=>({covenant_id:id,owner_scheme:0,owner_value:owner,balance_raw:['59973229','1','123000000'][i],balance_complete:true})),{address_context:{network:'mainnet',address:decodeURIComponent(path.split('/').at(-2)),owner_scheme:0,owner_value:owner,balances_complete:true},pagination:{has_more:false}});
@@ -42,7 +49,7 @@ try {
       return new Response('{}',{status:404});
     };return true;
   })()`);
-  let page=await open(new URL('wallet.html',worker.url).href),ws=page.webSocketDebuggerUrl;
+  let page=await open(new URL(walletPage,worker.url).href),ws=page.webSocketDebuggerUrl;
   await until(()=>evaluate(ws,'!!document.querySelector("#first-watch")'),'watch onboarding');
   await evaluate(ws,`document.querySelector('#first-watch-address').value='kaspa:qq6gtjt56mnekawylufsacxdyz4srwq3sv5cx7edhrknkun4wa7lgt8fklfu0';document.querySelector('#first-watch-name').value='Public holdings fixture';document.querySelector('#first-watch-password').value='Disposable-watch-fixture-2026';document.querySelector('#first-watch-confirm').value='Disposable-watch-fixture-2026';document.querySelector('#first-watch').click();true`);
   const positive=`document.querySelector('#asset-list')?.textContent.includes('KASPIREISTHEBESTKASPAWALLET0.59973229')`;
@@ -53,7 +60,7 @@ try {
   assert(first.elapsed<10000,'A positive holding must not wait for the catalogue tail');
   console.log('Early exact balance:',JSON.stringify(first));
   await cdp(ws,'Page.close');
-  page=await open(new URL('wallet.html',worker.url).href);ws=page.webSocketDebuggerUrl;
+  page=await open(new URL(walletPage,worker.url).href);ws=page.webSocketDebuggerUrl;
   await until(()=>evaluate(ws,positive),'reopened view replays the active discovery snapshot');
   // Keep the subsequent positive blocked past the original per-command timeout.
   const elapsed=await evaluate(worker.webSocketDebuggerUrl,'Date.now()-holdingsFixture.started');
@@ -65,6 +72,17 @@ try {
   await until(()=>evaluate(worker.webSocketDebuggerUrl,'holdingsFixture.calls.filter(url=>url.includes("/balance?")).length===3'),'activity origins complete');
   const counts=await evaluate(worker.webSocketDebuggerUrl,`({addresses:holdingsFixture.calls.filter(url=>url.includes('/addresses/')).length,balances:holdingsFixture.calls.filter(url=>url.includes('/balance?')).length})`);
   assert.deepEqual(counts,{addresses:1,balances:3},'Reopened views share the same address-scoped scan');
+  await until(()=>evaluate(ws,`document.querySelector('#asset-list')?.textContent.includes('+21 KASBTC locked')`),'initial locked amount');
+  await evaluate(worker.webSocketDebuggerUrl,`holdingsFixture.locked='9000000000';true`);
+  await evaluate(ws,`document.querySelector('#wallet-refresh').click();true`);
+  await until(()=>evaluate(ws,`document.querySelector('#asset-list')?.textContent.includes('+90 KASBTC locked')`),'locked amount updated without popup/worker restart');
+  assert(await evaluate(ws,`document.querySelector('#asset-list')?.textContent.includes('+2,000 FULLYLOCKED locked')`));
+  await evaluate(ws,`document.querySelector('details[data-category="krc20"]').open=true;[...document.querySelectorAll('[data-group="krc20"]')].find(n=>n.textContent.includes('KASBTC')).click();true`);
+  await until(()=>evaluate(ws,`document.querySelector('.token-detail')?.textContent.includes('+90 KASBTC locked')`),'detail locked amount');
+  await evaluate(ws,`document.querySelector('#send-token').click();true`);
+  await until(()=>evaluate(ws,`document.querySelector('.send-screen')?.textContent.includes('+90 KASBTC locked')`),'send locked amount');
+  await evaluate(ws,`document.querySelector('#max').click();true`);
+  assert.equal(await evaluate(ws,`document.querySelector('#amount').value`),'1','Max excludes the 90 locked KASBTC');
   await shot(ws,'reopened-and-complete');
   assert.equal(await evaluate(ws,`[...document.querySelectorAll('#asset-list .error')].some(el=>/KCC20/.test(el.textContent))`),false);
   console.log('Packaged Chromium holdings: early positive, reopen replay, post-30s progress, exact units and request coalescing passed.');

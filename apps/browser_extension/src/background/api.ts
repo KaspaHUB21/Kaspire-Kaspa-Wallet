@@ -16,7 +16,7 @@ async function request(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, cache: 'no-store', signal: controller.signal });
     if (!response.ok) {
       const parsed = new URL(url);
       const error = new Error(
@@ -258,7 +258,7 @@ export async function marketPrice(currency: string) {
   return { kasUsd, rate, currency };
 }
 const marketCache = new Map<string, { at: number; value: any }>();
-export async function tokenMarket(tokenId: string, symbol: string) {
+export async function tokenMarket(tokenId: string, symbol: string, refresh=false) {
   if (
     !/^[a-z0-9_-]{1,128}$/i.test(tokenId) ||
     !/^[a-z0-9_-]{1,32}$/i.test(symbol)
@@ -268,7 +268,7 @@ export async function tokenMarket(tokenId: string, symbol: string) {
     ? tokenId.toLowerCase()
     : `krc20-${tokenId.toLowerCase()}`;
   const cached = marketCache.get(normalized);
-  if (cached && Date.now() - cached.at < 300_000) return cached.value;
+  if (!refresh && cached && Date.now() - cached.at < 300_000) return cached.value;
   const value = await get(
     `https://kaspatoken.kaslab.space/api/token/${encodeURIComponent(normalized)}`,
   );
@@ -449,20 +449,22 @@ export function observeCovenantAssets(address:string,publish:(items:any[])=>void
   return ()=>{observers!.delete(publish);if(!observers!.size)covenantAssetObservers.delete(address);};
 }
 export function kcc20DiscoveryWarning(address:string) {return kcc20Warnings.get(address)??'';}
-async function loadKcc20Assets(address:string){
+const covenantReadRevision=new Map<string,number>();
+async function loadKcc20Assets(address:string,refresh=false){
+  const revision=(covenantReadRevision.get(address)??0)+1;covenantReadRevision.set(address,revision);
   const previous=categoryCache.get(`mainnet:${address}:kcc20`)?.value??[],owner=ownerId(address);
   const retained=(rows:any[])=>rows.map(a=>({...a,retainedBalance:true}));
   const previousKron=retained(previous.filter(a=>a.standard==='kron-native')),previousStandard=retained(previous.filter(a=>a.standard!=='kron-native'));
   const merge=(old:any[],current:any[])=>[...new Map([...old,...current].map(a=>[a.covenantId,a])).values()];
   let warning='',kronRows=previousKron,standardRows=previousStandard;
-  const publish=()=>{const rows=[...kronRows,...standardRows];covenantAssetProgress.set(address,rows);for(const observer of covenantAssetObservers.get(address)??[])try{observer([...rows]);}catch{/* Display only. */}};
+  const publish=()=>{if(covenantReadRevision.get(address)!==revision)return;const rows=[...kronRows,...standardRows];covenantAssetProgress.set(address,rows);for(const observer of covenantAssetObservers.get(address)??[])try{observer([...rows]);}catch{/* Display only. */}};
   const [kron,standard]=await Promise.allSettled([
     directKronAssets(url=>request(url,{headers:{accept:'application/json'}},5000),address,rows=>{kronRows=merge(previousKron,rows);publish();}).then(rows=>{kronRows=rows;publish();return rows;}),
-    standardKcc20Assets(get,owner,value=>{warning=value;},rows=>{standardRows=merge(previousStandard,rows);publish();}).catch(e=>{warning='KCC20 account data is temporarily unavailable from Kasvio and Kascov. Loaded balances are retained.';throw e;}).then(rows=>{standardRows=standardKcc20CoverageComplete(get,owner)?rows:merge(previousStandard,rows);publish();return rows;})
+    standardKcc20Assets(get,owner,value=>{warning=value;},rows=>{standardRows=merge(previousStandard,rows);publish();},refresh).catch(e=>{warning='KCC20 account data is temporarily unavailable from Kasvio and Kascov. Loaded balances are retained.';throw e;}).then(rows=>{standardRows=standardKcc20CoverageComplete(get,owner)?rows:merge(previousStandard,rows);publish();return rows;})
   ]);
   if(kron.status==='rejected'&&previousKron.length)warning+=`${warning?' ':''}KRON balances could not be refreshed. Previously loaded holdings are retained.`;
   if(!warning&&standardRows.some(row=>row.retainedBalance))warning='Some KCC20 balances could not be refreshed. Previously loaded holdings are retained.';
-  covenantAssetProgress.delete(address);kcc20Warnings.set(address,warning);
+  if(covenantReadRevision.get(address)===revision){covenantAssetProgress.delete(address);kcc20Warnings.set(address,warning);}
   if(kron.status==='rejected'&&standard.status==='rejected'&&!previous.length)throw Error(warning||'KCC20 balances are temporarily unavailable.');
   return [...kronRows,...standardRows];
 }
@@ -794,16 +796,19 @@ async function loadTokenAssets(address: string): Promise<any> {
 
 const categoryCache = new Map<string, { at: number; value: any[] }>();
 const categoryPending = new Map<string, Promise<any[]>>();
+const categoryRevision = new Map<string, number>();
 /** Independent categories: a slow NFT or covenant indexer cannot hold tokens back. */
-export async function walletAssetCategory(address: string, network: KaspaNetwork, category: string): Promise<any[]> {
+export async function walletAssetCategory(address: string, network: KaspaNetwork, category: string, refresh = false): Promise<any[]> {
   if (category === "dotk") return network === "mainnet" ? dotkNamesOf(address) : [];
   if (!["tokens", "domains", "krc721", "kcc20"].includes(category)) throw new Error("Unknown asset category.");
   if (network !== "mainnet") return [];
   const key = `${network}:${address}:${category}`;
+  if(refresh) categoryRevision.set(key,(categoryRevision.get(key)??0)+1);
+  const revision=categoryRevision.get(key)??0;
   const cached = categoryCache.get(key);
-  if (cached && Date.now() - cached.at < 30_000) return cached.value;
+  if (!refresh && cached && Date.now() - cached.at < 30_000) return cached.value;
   const pending = categoryPending.get(key);
-  if (pending) return pending;
+  if (!refresh && pending) return pending;
   const task = (async () => {
     let rows: any[];
     try {
@@ -811,7 +816,7 @@ export async function walletAssetCategory(address: string, network: KaspaNetwork
         () => loadKasplexTokens(address, "https://kaspire.kaslab.space/api/krc20-fallback"),
       ) : category === "domains" ? await loadKnsDomains(address)
         : category === "krc721" ? await loadKrc721Collections(address)
-        : await loadKcc20Assets(address);
+        : await loadKcc20Assets(address,refresh);
     } catch (error) {
       if (category === "kcc20" || category === "krc721") throw error;
       const fallback = await get(`https://kaspatoken.kaslab.space/api/wallet/krc20/${encodeURIComponent(address)}`);
@@ -820,14 +825,14 @@ export async function walletAssetCategory(address: string, network: KaspaNetwork
     }
     if (["tokens", "krc721", "kcc20"].includes(category)) rows = rows.map(item => ({...item, symbol: String(item.symbol).toUpperCase(), ...(category==='tokens'?{image_url:`${MAINNET}/token-logos/krc20/${String(item.symbol).toLowerCase()}`}:{})}))
       .sort((a,b) => a.symbol.localeCompare(b.symbol, "en"));
-    categoryCache.set(key, {at: Date.now(), value: rows});
+    if((categoryRevision.get(key)??0)===revision) categoryCache.set(key, {at: Date.now(), value: rows});
     return rows;
   })();
   categoryPending.set(key, task);
-  try { return await task; } finally { categoryPending.delete(key); }
+  try { return await task; } finally { if(categoryPending.get(key)===task) categoryPending.delete(key); }
 }
 async function loadKasplexTokens(address: string, endpoint = "https://api.kasplex.org/v1/krc20") {
-  const values: any[] = [];
+  const values = new Map<string,any>();
   let next = "";
   for (let page = 0; page < 20; page++) {
     const value = await get(
@@ -845,20 +850,23 @@ async function loadKasplexTokens(address: string, endpoint = "https://api.kasple
         item?.tick ?? item?.ticker ?? item?.symbol ?? "",
       ).toUpperCase();
       const decimals = Number(item?.dec ?? item?.decimals ?? 8);
-      const raw = String(item?.balance ?? item?.amount ?? "0");
+      const raw = String(item?.balance ?? item?.amount ?? "");
+      const reportedLocked=String(item?.locked??'');
+      const locked=/^[0-9]{1,128}$/.test(reportedLocked)?reportedLocked:undefined;
       if (
         /^[A-Z0-9_-]{1,32}$/.test(symbol) &&
         Number.isInteger(decimals) &&
         decimals >= 0 &&
         decimals <= 18 &&
-        /^\d+$/.test(raw) &&
-        BigInt(raw) > 0n
+        /^[0-9]{1,128}$/.test(raw) &&
+        (BigInt(raw) > 0n || BigInt(locked??'0') > 0n)
       )
-        values.push({
+        values.set(symbol,{
           token_id: `krc20-${symbol.toLowerCase()}`,
           symbol,
           decimals,
           raw_balance: raw,
+          ...(locked==null?{}:{raw_locked_balance:locked}),
           image_url: `${MAINNET}/token-logos/krc20/${symbol.toLowerCase()}`,
           balance: Number(raw) / 10 ** decimals,
         });
@@ -866,7 +874,7 @@ async function loadKasplexTokens(address: string, endpoint = "https://api.kasple
     next = String(value?.next ?? value?.next_cursor ?? "");
     if (!next || !rows.length) break;
   }
-  return values.sort((a, b) => a.symbol.localeCompare(b.symbol, "en"));
+  return [...values.values()].sort((a, b) => a.symbol.localeCompare(b.symbol, "en"));
 }
 async function loadKnsDomains(address: string) {
   const values: any[] = [];

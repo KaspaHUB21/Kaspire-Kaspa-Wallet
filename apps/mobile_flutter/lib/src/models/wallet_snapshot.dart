@@ -30,6 +30,7 @@ class WalletSnapshot {
     this.assetDiscoveryComplete = true,
     this.hasMoreTransactions = false,
     this.utxoCount = 0,
+    this.loadedAssetCategories = const {},
   });
 
   final int balanceSompi;
@@ -47,6 +48,50 @@ class WalletSnapshot {
   final bool assetDiscoveryComplete;
   final bool hasMoreTransactions;
   final int utxoCount;
+
+  /// Sources actually completed in this read, including a confirmed empty list.
+  final Set<String> loadedAssetCategories;
+
+  WalletSnapshot withFreshHoldings(WalletSnapshot fresh) => WalletSnapshot(
+        balanceSompi: fresh.balanceSompi,
+        kasUsd: fresh.kasUsd ?? kasUsd,
+        usdToFiat: fresh.usdToFiat.isFinite ? fresh.usdToFiat : usdToFiat,
+        fiatCode: fresh.fiatCode,
+        fiatSymbol: fresh.fiatSymbol,
+        transactions: fresh.transactions,
+        krc20Tokens: fresh.loadedAssetCategories.contains('krc20')
+            ? fresh.krc20Tokens
+            : krc20Tokens,
+        krc721Collections: fresh.loadedAssetCategories.contains('krc721')
+            ? fresh.krc721Collections
+            : krc721Collections,
+        knsDomains: fresh.loadedAssetCategories.contains('kns')
+            ? fresh.knsDomains
+            : {
+                for (final name in knsDomains) name.assetId ?? name.name: name,
+                for (final name in fresh.knsDomains)
+                  name.assetId ?? name.name: name
+              }.values.toList(),
+        dotkNames: fresh.loadedAssetCategories.contains('dotk')
+            ? fresh.dotkNames
+            : dotkNames,
+        kcc20Tokens: fresh.loadedAssetCategories.contains('kcc20')
+            ? fresh.kcc20Tokens
+            : alphabeticalWalletAssets({
+                for (final asset in kcc20Tokens)
+                  asset.covenantId ?? asset.id ?? asset.symbol: asset,
+                for (final asset in fresh.kcc20Tokens)
+                  asset.covenantId ?? asset.id ?? asset.symbol: asset,
+              }.values),
+        assetWarning: fresh.assetWarning,
+        assetDiscoveryComplete: fresh.assetDiscoveryComplete,
+        hasMoreTransactions: fresh.hasMoreTransactions,
+        utxoCount: fresh.utxoCount,
+        loadedAssetCategories: {
+          ...loadedAssetCategories,
+          ...fresh.loadedAssetCategories
+        },
+      );
 
   double get balanceKas => balanceSompi / 100000000;
   double? get fiatValue => kasUsd == null || !usdToFiat.isFinite
@@ -74,6 +119,7 @@ class WalletSnapshot {
         assetDiscoveryComplete: assetDiscoveryComplete,
         hasMoreTransactions: hasMoreTransactions,
         utxoCount: utxoCount,
+        loadedAssetCategories: loadedAssetCategories,
       );
 
   WalletSnapshot withTransactions(List<WalletTransaction> value) =>
@@ -93,6 +139,7 @@ class WalletSnapshot {
         assetDiscoveryComplete: assetDiscoveryComplete,
         hasMoreTransactions: hasMoreTransactions,
         utxoCount: utxoCount,
+        loadedAssetCategories: loadedAssetCategories,
       );
 }
 
@@ -105,6 +152,7 @@ class WalletAsset {
     this.id,
     this.decimals = 0,
     this.rawBalance,
+    this.rawLockedBalance,
     this.priceKas,
     this.priceUsd,
     this.covenantId,
@@ -123,6 +171,10 @@ class WalletAsset {
   final String? id;
   final int decimals;
   final String? rawBalance;
+
+  /// KRC20 units held in PSKT listings, separate from the spendable balance.
+  /// Null means the balance source did not report a usable locked amount.
+  final String? rawLockedBalance;
   final double? priceKas;
   final double? priceUsd;
   final String? covenantId;

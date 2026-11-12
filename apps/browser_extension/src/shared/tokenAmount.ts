@@ -14,3 +14,9 @@ export function formatTokenDisplay(raw:string,decimals:number):string{
   const n=BigInt(raw),[whole,fraction]=formatRawTokenAmount(String(n<0n?-n:n),decimals).split('.');
   return (n<0n?'-':'')+whole!.replace(/\B(?=(\d{3})+(?!\d))/g,',')+(fraction?'.'+fraction:'');
 }
+
+export function lockedTokenLabel(asset:{raw_locked_balance?:unknown;decimals?:unknown;symbol?:unknown},hidden=false):string|null{
+ const raw=String(asset.raw_locked_balance??''),decimals=Number(asset.decimals),symbol=String(asset.symbol??'');
+ if(!/^[0-9]{1,128}$/.test(raw)||BigInt(raw)===0n||!Number.isInteger(decimals)||decimals<0||decimals>18)return null;
+ return hidden?'•••••• locked':`+${formatTokenDisplay(raw,decimals)} ${symbol} locked`;
+}

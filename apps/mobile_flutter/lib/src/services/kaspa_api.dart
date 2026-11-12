@@ -143,6 +143,18 @@ class KaspaApi {
     var progressiveUtxos = 0;
     var progressiveDotk = <DotkName>[];
     String? dotkWarning;
+    var dotkLoaded = false;
+    Set<String> loadedCategories(Object? tokens) {
+      final data = _map(_map(tokens)['data']);
+      return {
+        if (data['krc20_read_succeeded'] == true) 'krc20',
+        if (data['krc721_read_succeeded'] == true) 'krc721',
+        if (data['kns_read_succeeded'] == true) 'kns',
+        if (dotkLoaded) 'dotk',
+        if (progressiveCovenants?.coverageComplete == true) 'kcc20',
+      };
+    }
+
     void publish() {
       if (onProgress == null) return;
       final parsed = _parseAssets(progressiveTokens);
@@ -175,6 +187,7 @@ class KaspaApi {
         ].where((warning) => warning.isNotEmpty).join(' '),
         assetDiscoveryComplete: progressiveCovenants?.coverageComplete ?? false,
         utxoCount: progressiveUtxos,
+        loadedAssetCategories: loadedCategories(progressiveTokens),
       ));
     }
 
@@ -227,6 +240,7 @@ class KaspaApi {
       testnet
           ? Future<Object?>.value(null)
           : dotk.namesOf(address).then<Object?>((names) {
+              dotkLoaded = true;
               progressiveDotk = names;
               publish();
               return names;
@@ -318,6 +332,7 @@ class KaspaApi {
       hasMoreTransactions: includeNativeTransactions &&
           nativeTransactions.length >= transactionLimit,
       utxoCount: utxoCount,
+      loadedAssetCategories: loadedCategories(tokenWallet),
     );
   }
 
@@ -669,6 +684,7 @@ class KaspaApi {
 
     final progress = <String, Object?>{'address': address};
     final warnings = <String>[];
+    var knsComplete = true;
     void emit() => onProgress?.call({
           'data': Map<String, Object?>.of(progress),
           'warnings': List<String>.of(warnings),
@@ -694,15 +710,28 @@ class KaspaApi {
                   .timeout(const Duration(seconds: 8)),
             );
     final results = await Future.wait<List<Map<String, Object?>>>([
-      track('tokens', tokenList.catchError((_) => <Map<String, Object?>>[])),
+      track(
+          'tokens',
+          tokenList.then((rows) {
+            progress['krc20_read_succeeded'] = true;
+            return rows;
+          }).catchError((_) {
+            warnings.add(
+                'KRC20 balances are temporarily unavailable. Previously loaded balances are retained.');
+            return <Map<String, Object?>>[];
+          })),
       track(
           'domains',
           _loadKnsWalletDomains(address, onProgress: (rows) {
             progress['domains'] = rows;
             emit();
           }, onWarning: (warning) {
+            knsComplete = false;
             warnings.add(warning);
             emit();
+          }).then((rows) {
+            progress['kns_read_succeeded'] = knsComplete;
+            return rows;
           })),
       track(
           'krc721_tokens',
@@ -721,6 +750,8 @@ class KaspaApi {
         'domains': results[1],
         'krc721_tokens': results[2],
         'krc721_read_succeeded': progress['krc721_read_succeeded'] == true,
+        'krc20_read_succeeded': progress['krc20_read_succeeded'] == true,
+        'kns_read_succeeded': progress['kns_read_succeeded'] == true,
         'transactions': results[3],
       },
       'source_mode': 'DIRECT_REDUNDANT',
@@ -787,6 +818,9 @@ class KaspaApi {
         'domains': domains,
         'krc721_tokens': krc721,
         'transactions': transactions,
+        'krc20_read_succeeded': directData['krc20_read_succeeded'] == true,
+        'krc721_read_succeeded': directData['krc721_read_succeeded'] == true,
+        'kns_read_succeeded': directData['kns_read_succeeded'] == true,
       },
       'source_mode': direct == null ? 'EXPLORER_FALLBACK' : 'DIRECT_REDUNDANT',
       'warnings': <Object?>[
@@ -876,12 +910,18 @@ class KaspaApi {
             .toString()
             .toUpperCase();
         final decimals = _asInt(item['dec'] ?? item['decimals'] ?? 8);
-        final rawBalance =
-            (item['balance'] ?? item['amount'] ?? '0').toString();
-        final integer = BigInt.tryParse(rawBalance);
+        final rawBalance = (item['balance'] ?? item['amount'])?.toString();
+        final integer = BigInt.tryParse(rawBalance ?? '');
+        final reportedLocked = item['locked']?.toString();
+        final rawLocked = reportedLocked != null &&
+                RegExp(r'^[0-9]{1,128}$').hasMatch(reportedLocked)
+            ? reportedLocked
+            : null;
+        final locked = BigInt.tryParse(rawLocked ?? '') ?? BigInt.zero;
         if (symbol.isEmpty ||
             integer == null ||
-            integer <= BigInt.zero ||
+            integer < BigInt.zero ||
+            (integer == BigInt.zero && locked == BigInt.zero) ||
             decimals < 0 ||
             decimals > 18) {
           continue;
@@ -892,6 +932,7 @@ class KaspaApi {
           'balance': integer.toDouble() / _pow10(decimals),
           'decimals': decimals,
           'raw_balance': rawBalance,
+          if (rawLocked != null) 'raw_locked_balance': rawLocked,
         };
       }
       cursor = _externalCursor(raw);
@@ -1211,8 +1252,10 @@ class KaspaApi {
     Map<String, String>? query,
   }) async {
     final uri = Uri.parse('$base$path').replace(queryParameters: query);
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 20));
+    final response = await _client.get(uri, headers: const {
+      'cache-control': 'no-cache',
+      'pragma': 'no-cache',
+    }).timeout(const Duration(seconds: 20));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw KaspaApiException(
         '${uri.host} returned ${response.statusCode}',
@@ -1559,6 +1602,7 @@ class KaspaApi {
           id: asset.id,
           decimals: asset.decimals,
           rawBalance: asset.rawBalance,
+          rawLockedBalance: asset.rawLockedBalance,
           priceKas: tokenPrice,
           priceUsd: tokenPrice == null || price == null
               ? asset.priceUsd
@@ -1610,6 +1654,7 @@ class KaspaApi {
       id: asset.id,
       decimals: asset.decimals,
       rawBalance: asset.rawBalance,
+      rawLockedBalance: asset.rawLockedBalance,
       priceKas: priceKas,
       priceUsd: priceUsd,
     );
@@ -1757,6 +1802,13 @@ class KaspaApi {
         final balance = _asDouble(map['balance']);
         final decimals = _asInt(map['decimals']);
         final rawBalance = map['raw_balance']?.toString();
+        final reportedLocked = map['raw_locked_balance']?.toString();
+        final rawLocked = kind == 'KRC-20' &&
+                reportedLocked != null &&
+                RegExp(r'^[0-9]{1,128}$').hasMatch(reportedLocked)
+            ? reportedLocked
+            : null;
+        final locked = BigInt.tryParse(rawLocked ?? '') ?? BigInt.zero;
         if (!RegExp(r'^[A-Z0-9_-]{1,32}$').hasMatch(symbol) ||
             balance == null ||
             !balance.isFinite ||
@@ -1768,7 +1820,7 @@ class KaspaApi {
           rejected++;
           continue;
         }
-        if (balance > 0) {
+        if (balance > 0 || locked > BigInt.zero) {
           valid.add(
             WalletAsset(
               symbol: symbol,
@@ -1781,6 +1833,7 @@ class KaspaApi {
                   ?.toString(),
               decimals: decimals,
               rawBalance: rawBalance,
+              rawLockedBalance: rawLocked,
               // A stable, own-hosted image URL works in progressive holdings
               // before market enrichment finishes, including cached outages.
               imageUrl: kind == 'KRC-20'

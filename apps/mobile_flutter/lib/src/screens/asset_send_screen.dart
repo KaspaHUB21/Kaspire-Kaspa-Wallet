@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../widgets/krc20_locked_balance.dart';
 import '../services/kcc20_payment_plan.dart';
 import '../widgets/hub21_material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1366,6 +1367,7 @@ class _AssetSendScreenState extends State<AssetSendScreen> {
                       )))
                   .toList(),
               onChanged: (v) => setState(() => _token = v)),
+          if (_token != null) Krc20LockedBalance(asset: _token!),
         ],
         if (_kind == _AssetKind.kcc20) ...[
           DropdownButtonFormField<WalletAsset>(
