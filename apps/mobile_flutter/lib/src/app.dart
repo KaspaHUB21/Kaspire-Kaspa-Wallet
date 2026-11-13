@@ -13,6 +13,8 @@ import 'kaspa_address.dart';
 import 'screens/home_shell.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/dapp_session_service.dart';
+import 'services/dapp_kcc20_payment.dart';
+import 'services/kcc20_payment_plan.dart';
 import 'services/activity_store.dart';
 import 'services/kaspa_api.dart';
 import 'services/native_security.dart';
@@ -2238,38 +2240,73 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     if (!await _security.hasNativeWalletFor(address)) {
       throw const FormatException('The session wallet is watch-only.');
     }
-    final api = KaspaApi();
-    final wallet = await api.loadWallet(address);
-    final token = wallet.kcc20Tokens
-        .where((asset) => asset.covenantId == covenantId)
-        .firstOrNull;
-    final available = BigInt.tryParse(token?.rawBalance ?? '');
-    if (token == null ||
-        token.validationStatus != 'verified' ||
-        !token.discoveryComplete ||
-        token.kcc20Cells.isEmpty ||
-        available == null ||
-        amount > available) {
+    final api = widget.dappApiFactory?.call() ?? KaspaApi();
+    final prefs = await SharedPreferences.getInstance();
+    final journalKey =
+        'kaspire_pending_kcc20_compound_${address.toLowerCase()}';
+    if (prefs.getString(journalKey) != null) {
       throw const FormatException(
-        'The approved wallet has no complete, verified KCC20 balance for this covenant.',
-      );
+          'A signed KCC20 transfer is already saved. Open Send assets and use Continue KCC20 transfer before creating another payment.');
     }
-    await api.verifyKcc20CellsOnOwnNode(token.kcc20Cells, covenantId);
-    final fundingUtxos = await api.loadUtxos(address);
-    final transfer = <String, Object?>{
-      'sender': address,
-      'recipient': recipient,
-      'covenantId': covenantId,
-      'ticker': token.symbol,
-      'amount': amount.toInt(),
-      'decimals': token.decimals,
-      'feeRate': 100.0,
-      'templateHash': token.templateHash,
-      'cells': token.kcc20Cells.map((cell) => cell.toJson()).toList(),
-      'fundingUtxosJson': fundingUtxos,
-    };
-    final review = await _security.prepareKcc20Transfer(transfer);
-    final displayAmount = formatRawTokenAmount(amount, token.decimals);
+    final preparationContext = await _contextWhenReady();
+    if (preparationContext == null || !preparationContext.mounted) {
+      throw const FormatException('Wallet UI is unavailable.');
+    }
+    var cancelled = false;
+    BuildContext? loadingContext;
+    final progress = ValueNotifier('Preparing the requested KCC20 payment…');
+    final loading = showDialog<void>(
+        context: preparationContext,
+        barrierDismissible: false,
+        builder: (c) {
+          loadingContext = c;
+          return PopScope(
+              canPop: false,
+              child: AlertDialog(
+                title: const Text('Preparing KCC20 payment'),
+                content: ValueListenableBuilder<String>(
+                    valueListenable: progress,
+                    builder: (_, value, __) => Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const CircularProgressIndicator(),
+                              const SizedBox(height: 16),
+                              Text(value)
+                            ])),
+                actions: [
+                  TextButton(
+                      onPressed: () {
+                        cancelled = true;
+                        Navigator.pop(c);
+                      },
+                      child: const Text('Cancel'))
+                ],
+              ));
+        });
+    late DappKcc20Payment payment;
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      payment = await prepareDappKcc20Payment(
+          api: api,
+          security: _security,
+          sender: address,
+          recipient: recipient,
+          covenantId: covenantId,
+          amount: amount.toInt(),
+          isCancelled: () => cancelled || !mounted,
+          onProgress: (value) => progress.value = value);
+    } on StateError catch (error) {
+      throw FormatException(error.message.toString());
+    } finally {
+      if (loadingContext?.mounted == true && !cancelled)
+        Navigator.pop(loadingContext!);
+      await loading;
+      progress.dispose();
+    }
+    if (cancelled || !mounted)
+      throw const FormatException('User cancelled KCC20 preparation.');
+    final transfer = payment.request, review = payment.review;
+    final displayAmount = formatRawTokenAmount(amount, payment.decimals);
     final context = await _contextWhenReady();
     if (context == null || !context.mounted) {
       throw const FormatException('Wallet UI is unavailable.');
@@ -2285,7 +2322,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '$displayAmount ${token.symbol}',
+                '$displayAmount ${payment.ticker}',
                 style:
                     const TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
               ),
@@ -2295,6 +2332,10 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
               SelectableText(recipient),
               const SizedBox(height: 12),
               const Text('Validation: KCC20 indexer verified'),
+              Text(
+                  'Recipient token cell: ${payment.recipientCellStatus == 'reused' ? 'existing cell reused' : 'new cell required'}'),
+              Text(
+                  'Transactions: ${review['transactionCount']} (including any self-consolidation)'),
               Text('Covenant ID: $covenantId'),
               Text('Template: ${review['templateHash']}'),
               Text(
@@ -2348,34 +2389,87 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       await _dapps.respondError(request, 'User rejected.', code: 4001);
       return;
     }
-    final signed = await _security.signKcc20Transfer(
+    final signed = await _security.signKcc20Plan(
       transfer,
       review['reviewHash']! as String,
-    );
-    final transactionId = signed['transactionId']! as String;
-    await api.broadcastKcc20(
-      signed['wrpcJson']! as String,
-      expectedTransactionId: transactionId,
     );
     final operation = <String, Object?>{
       'kind': 'kcc20',
       'sender': address,
       'recipient': recipient,
-      'ticker': token.symbol,
+      'ticker': payment.ticker,
       'amount': amount.toString(),
       'displayAmount': displayAmount,
       'covenantId': covenantId,
+      'standard': 'kcc20',
+      'intendedRecipient': recipient,
+      'paymentPlan': true,
+      'dappTopic': request.topic,
+      'recipientCellStatus': payment.recipientCellStatus,
     };
-    await ActivityStore().recordAssetTransfer(
-      wallet: address,
-      operation: operation,
-      transactionId: transactionId,
-      timestamp: DateTime.now(),
-    );
+    final steps = review['steps'] as List;
+    final transactions =
+        (signed['transactions'] as List).asMap().entries.map((e) {
+      final summary = (((steps[e.key] as Map)['psktRequest']
+          as Map)['tradeSummary'] as Map);
+      final compound = e.key + 1 < steps.length;
+      return {
+        ...(e.value as Map),
+        'feeSompi': (steps[e.key] as Map)['feeSompi'],
+        'operation': {
+          ...operation,
+          'recipient': compound ? address : recipient,
+          'amount': summary['amount'].toString(),
+          'displayAmount': formatRawTokenAmount(
+              BigInt.parse(summary['amount'].toString()), payment.decimals),
+          'compound': compound,
+          if (compound) 'operationLabel': 'KCC20 auto-compound'
+        }
+      };
+    }).toList();
+    final plan = <String, Object?>{
+      'sender': address,
+      'operation': operation,
+      'reviewHash': signed['reviewHash'],
+      'totalFeeSompi': signed['totalFeeSompi'],
+      'transactions': transactions,
+      'nextStep': 0,
+      'createdAt': DateTime.now().millisecondsSinceEpoch
+    };
+    late Map finalTx;
+    try {
+      finalTx = await runKcc20PaymentPlan(plan, address,
+          save: (saved) async {
+            if (!await prefs.setString(journalKey,
+                jsonEncode({'operation': operation, 'signedPlan': saved}))) {
+              throw StateError(
+                  'Could not save KCC20 payment. No new transaction will be sent.');
+            }
+          },
+          accepted: api.kcc20PlanTransactionAccepted,
+          broadcast: (bytes, id) async {
+            await api.broadcastKcc20(bytes, expectedTransactionId: id);
+          },
+          record: (tx) => ActivityStore().recordAssetTransfer(
+              wallet: address,
+              operation: (tx['operation'] as Map).cast<String, Object?>(),
+              transactionId: tx['transactionId'] as String,
+              timestamp: DateTime.now()),
+          check: () {
+            if (!mounted)
+              throw StateError(
+                  'KCC20 payment saved. Continue it from Send assets.');
+          });
+    } catch (_) {
+      throw const FormatException(
+          'The KCC20 payment was signed. Its recovery plan is saved when storage is available. Check GothDAG payment status before paying again; use Continue KCC20 transfer in Send assets if needed.');
+    }
+    final transactionId = finalTx['transactionId'] as String;
+    await prefs.remove(journalKey);
     await _dapps.respondResult(request, <String, Object?>{
       'transactionId': transactionId,
       'covenantId': covenantId,
-      'ticker': token.symbol,
+      'ticker': payment.ticker,
       'amount': amount.toString(),
       'feeSompi': review['feeSompi'],
       'mass': review['mass'],
