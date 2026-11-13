@@ -6,14 +6,11 @@ Public Android build: **254**.
 
 ## Native KCC20 payments from dApps
 
-- Fixes KCC20 requests such as GothDAG's 21 Kaspire PunkyAI entry waiting
-  without reaching the wallet approval dialog. The old handler scanned the
-  entire wallet and expected discovery results to already contain verified
-  signing cells. Current discovery deliberately resolves signing cells only
-  when a specific transfer is prepared.
+- Updates KCC20 requests. The old handler scanned the entire wallet and expected discovery results to already contain verified
+  signing cells. Current discovery deliberately resolves signing cells only when a specific transfer is prepared.
 - Resolves only the requested, pinned reference KCC20 covenant, verifies its
   token units and current spendable cells, and prepares the complete native
-  transfer plan. No full-wallet, NFT, price or unrelated token-history scan is
+  transfer plan. No full-wallet, price or unrelated token-history scan is
   required before approval.
 - Shows a cancellable preparation dialog with progress before the explicit
   transaction review. Cancelling or rejecting does not sign or send tokens.
