@@ -53,6 +53,13 @@ ProposalData proposal(int id, String host) => ProposalData(
 
 class FakeKit implements ReownWalletKit {
   @override
+  Future<PairingInfo> pair({required Uri uri}) async => PairingInfo(
+      topic: uri.path.split('@').first,
+      expiry: DateTime.now().millisecondsSinceEpoch ~/ 1000 + 300,
+      relay: Relay('irn'),
+      active: false);
+
+  @override
   final onSessionProposal = Event<SessionProposalEvent>();
   @override
   final onSessionRequest = Event<SessionRequestEvent>();
@@ -285,6 +292,26 @@ void main() {
               }))),
           contains('unsupported'));
     }
+  });
+  test('KasPass browser pairing must match KasPass, never its parent Vision',
+      () async {
+    final service = DappSessionService.forTesting(() async => FakeKit());
+    await service.pair('wc:${'c' * 64}@2?relay-protocol=irn&symKey=${'b' * 64}',
+        browserOrigin: Uri.parse('https://pass.kaspa.vision/?offer=fixture'));
+    expect(service.proposalProblem(
+        SessionProposalEvent(1, proposal(1, 'pass.kaspa.vision'))), isNull);
+    for (final host in [
+      'kaspa.vision', 'other.kaspa.vision',
+      'pass.kaspa.vision.evil.example', 'kaspa.news',
+    ]) {
+      expect(service.proposalProblem(SessionProposalEvent(1, proposal(1, host))),
+          contains('does not belong'));
+    }
+    final scam = SessionProposalEvent(1, proposal(1, 'pass.kaspa.vision'),
+        const VerifyContext(origin: 'https://pass.kaspa.vision',
+            validation: Validation.SCAM,
+            verifyUrl: 'https://verify.walletconnect.org', isScam: true));
+    expect(service.proposalProblem(scam), contains('scam'));
   });
   testWidgets(
       'GothDAG KRC20 reaches approval without any full-wallet scan or signing',

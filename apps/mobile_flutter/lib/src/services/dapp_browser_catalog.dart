@@ -14,18 +14,21 @@ const browserDapps = [
       'assets/browser/kasseal-browser.png'),
   BrowserDapp(
       'GothDAG', 'https://gothdag.kaslab.space/', 'assets/browser/gothdag.png'),
-  BrowserDapp('Braid', 'https://app.braidswap.com/', 'assets/browser/braid.svg'),
+  BrowserDapp(
+      'Braid', 'https://app.braidswap.com/', 'assets/browser/braid.svg'),
   BrowserDapp('dot.k', 'https://dotk.name/', 'assets/browser/dotk.png'),
   BrowserDapp(
-      'Kaspa News', 'https://kaspa.news/', 'assets/browser/kaspa-news.png',
-      walletConnectEnabled: false),
+      'Kaspa News', 'https://kaspa.news/', 'assets/browser/kaspa-news.png'),
+  BrowserDapp('Kaspa Vision', 'https://kaspa.vision/',
+      'assets/browser/kaspa-vision.png'),
   BrowserDapp('Kaspa Dev Tools', 'https://devtools.kaslab.space/',
       'assets/browser/devtools.png'),
   BrowserDapp('KasForge', 'https://kaspa.pumpforge.tech/',
       'assets/browser/kasforge.png'),
   BrowserDapp('KasForge Vaults', 'https://vault.pumpforge.tech/',
       'assets/browser/kasforge-vaults.svg'),
-  BrowserDapp('Jeetslab',
+  BrowserDapp(
+      'Jeetslab',
       'https://jeetslab-staging.kaspajeets.workers.dev/wallet',
       'assets/browser/jeetslab.jpg'),
   BrowserDapp('ANTX Universe', 'https://universe.antx.world/',

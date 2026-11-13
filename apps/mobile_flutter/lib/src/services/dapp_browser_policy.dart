@@ -9,6 +9,7 @@ class DappBrowserPolicy {
     'devtools.kaslab.space',
     'dotk.name',
     'kaspa.news',
+    'kaspa.vision',
     'vaults.kaslab.space',
     'jeetslab-staging.kaspajeets.workers.dev',
     'kaspa.pumpforge.tech',
@@ -24,6 +25,16 @@ class DappBrowserPolicy {
 
   static bool sameDapp(Uri uri, Uri home) =>
       approvedPage(uri) && uri.host == home.host;
+
+  /// Vision delegates membership checkout to this exact KasPass origin.
+  /// This is a browsing allowance, not an alias for WalletConnect identity.
+  static bool allowedPage(Uri uri, Uri home) =>
+      sameDapp(uri, home) ||
+      (sameDapp(home, Uri.https('kaspa.vision', '/')) &&
+          uri.scheme == 'https' &&
+          uri.host == 'pass.kaspa.vision' &&
+          uri.port == 443 &&
+          uri.userInfo.isEmpty);
 
   // GothDAG renders its banner twice in these skins: an <img> plus a
   // background on the containing topbar. Remove only the mobile duplicate.
@@ -95,5 +106,17 @@ class DappBrowserPolicy {
       return null;
     }
     return uri;
+  }
+}
+
+/// Onboarding only: a website may close its session after signing in.
+/// Never use this visit-local state to authorize connections or signatures.
+class DappBrowserConnectionHint {
+  bool _seenSession = false;
+
+  bool get visible => !_seenSession;
+
+  void observeSession(bool active) {
+    _seenSession = _seenSession || active;
   }
 }

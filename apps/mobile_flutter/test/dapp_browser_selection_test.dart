@@ -19,6 +19,7 @@ void main() {
       'Braid',
       'dot.k',
       'Kaspa News',
+      'Kaspa Vision',
       'Kaspa Dev Tools',
       'KasForge',
       'KasForge Vaults',
@@ -30,28 +31,43 @@ void main() {
     expect(browserDapps[1].walletConnectEnabled, isTrue);
     expect(browserDapps[1].logo, 'assets/browser/kasseal-browser.png');
   });
-  test('Kaspa News retains its local logo and read-only role', () {
+  test('Kaspa News retains its local logo and permits mobile connect', () {
     final news =
         browserDapps.indexWhere((site) => site.home.host == 'kaspa.news');
     expect(news, greaterThanOrEqualTo(0));
     expect(browserDapps[news].url, 'https://kaspa.news/');
     expect(browserDapps[news].logo, 'assets/browser/kaspa-news.png');
-    expect(browserDapps[news].walletConnectEnabled, isFalse);
+    expect(browserDapps[news].walletConnectEnabled, isTrue);
     expect(browserDapps.last.name, 'KasCoven Vaults');
   });
+  test('Kaspa Vision follows News with its official bundled logo and sign-in',
+      () {
+    final news =
+        browserDapps.indexWhere((site) => site.home.host == 'kaspa.news');
+    final vision = browserDapps[news + 1];
+    expect(vision.name, 'Kaspa Vision');
+    expect(vision.url, 'https://kaspa.vision/');
+    expect(vision.logo, 'assets/browser/kaspa-vision.png');
+    expect(vision.walletConnectEnabled, isTrue);
+    expect(vision.home.resolve('/signin').host, vision.home.host);
+  });
   test('Jeetslab retains the supplied image and exact wallet URL', () {
-    final jeetslab = browserDapps[9];
+    final jeetslab = browserDapps[10];
     expect(jeetslab.name, 'Jeetslab');
-    expect(jeetslab.url,
-        'https://jeetslab-staging.kaspajeets.workers.dev/wallet');
+    expect(
+        jeetslab.url, 'https://jeetslab-staging.kaspajeets.workers.dev/wallet');
     expect(jeetslab.logo, 'assets/browser/jeetslab.jpg');
     expect(jeetslab.walletConnectEnabled, isTrue);
   });
   test('new dApps use exact official origins and bundled official icons', () {
     for (final entry in [
-      (7, 'https://kaspa.pumpforge.tech/', 'assets/browser/kasforge.png'),
-      (8, 'https://vault.pumpforge.tech/', 'assets/browser/kasforge-vaults.svg'),
-      (10, 'https://universe.antx.world/', 'assets/browser/antx-universe.svg'),
+      (8, 'https://kaspa.pumpforge.tech/', 'assets/browser/kasforge.png'),
+      (
+        9,
+        'https://vault.pumpforge.tech/',
+        'assets/browser/kasforge-vaults.svg'
+      ),
+      (11, 'https://universe.antx.world/', 'assets/browser/antx-universe.svg'),
     ]) {
       final dapp = browserDapps[entry.$1];
       expect(dapp.url, entry.$2);
@@ -76,6 +92,8 @@ void main() {
       expect(find.text('GothDAG'), findsOneWidget);
       expect(find.text('Kasvio'), findsOneWidget);
       expect(find.text('Kasseal'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Kaspa Vision'), 160);
+      expect(find.text('Kaspa Vision'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Kaspa Dev Tools'), 160);
       expect(find.text('Kaspa Dev Tools'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('KasForge'), 160);

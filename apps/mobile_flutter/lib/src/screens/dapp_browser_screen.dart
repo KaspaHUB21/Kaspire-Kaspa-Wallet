@@ -27,7 +27,8 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
   bool _trustedPage = false;
   int _progress = 0;
   String? _error;
-  bool _connected = false;
+  final _connectionHint = DappBrowserConnectionHint();
+  Uri? _pageOrigin;
   String? _exportCapability;
   bool _savingRecovery = false;
   StreamSubscription<void>? _sessionChanges;
@@ -53,10 +54,10 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
     final connected =
         DappSessionService.instance.activeSessions().values.any((session) {
       final peer = Uri.tryParse(session.peer.metadata.url);
-      return peer != null && DappBrowserPolicy.sameDapp(peer, widget.dapp.home);
+      return peer != null && DappBrowserPolicy.allowedPage(peer, widget.dapp.home);
     });
-    if (mounted && connected != _connected) {
-      setState(() => _connected = connected);
+    if (mounted && connected && _connectionHint.visible) {
+      setState(() => _connectionHint.observeSession(true));
     }
   }
 
@@ -88,7 +89,8 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
           _exportCapability = null;
           final uri = Uri.tryParse(url);
           _trustedPage =
-              uri != null && DappBrowserPolicy.sameDapp(uri, widget.dapp.home);
+              uri != null && DappBrowserPolicy.allowedPage(uri, widget.dapp.home);
+          _pageOrigin = _trustedPage ? uri : null;
           if (!_trustedPage) {
             unawaited(_controller.loadRequest(widget.dapp.home));
           }
@@ -221,13 +223,14 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
           ? NavigationDecision.navigate
           : NavigationDecision.prevent;
     }
-    if (uri != null && DappBrowserPolicy.sameDapp(uri, widget.dapp.home)) {
+    if (uri != null && DappBrowserPolicy.allowedPage(uri, widget.dapp.home)) {
       return NavigationDecision.navigate;
     }
     final link = DappBrowserPolicy.walletLink(request.url);
-    if (_trustedPage && widget.dapp.walletConnectEnabled && link != null) {
+    final origin = _pageOrigin;
+    if (_trustedPage && origin != null && widget.dapp.walletConnectEnabled && link != null) {
       // Do not await a relay operation while WebView is deciding navigation.
-      unawaited(_handleWalletLink(link));
+      unawaited(_handleWalletLink(link, origin));
     } else if (mounted) {
       setState(() => _error =
           'External navigation was blocked. Return to the dApp selection to open another approved dApp.');
@@ -235,7 +238,7 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
     return NavigationDecision.prevent;
   }
 
-  Future<void> _handleWalletLink(Uri link) async {
+  Future<void> _handleWalletLink(Uri link, Uri origin) async {
     final wake = link.host == 'dapp';
     String? topic;
     try {
@@ -248,7 +251,9 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
       if (wake) {
         await service.handleAppLink(link);
       } else {
-        await service.pair(pairing!, browserOrigin: widget.dapp.home);
+        // KasPass remains a distinct peer. Its proposal must match the page
+        // that initiated pairing, not Vision's catalog/home origin.
+        await service.pair(pairing!, browserOrigin: origin);
       }
       if (mounted) setState(() => _error = null);
     } catch (_) {
@@ -295,7 +300,7 @@ class _DappBrowserScreenState extends State<DappBrowserScreen> {
         ),
         body: SafeArea(
             child: Column(children: [
-          if (widget.dapp.walletConnectEnabled && !_connected)
+          if (widget.dapp.walletConnectEnabled && _connectionHint.visible)
             ListTile(
                 dense: true,
                 leading: const Icon(Icons.lock_outline),

@@ -35,8 +35,9 @@ void main() {
     }
   });
 
-  test('catalog is limited to twelve approved browser sites, Braid fourth', () {
-    expect(browserDapps, hasLength(12));
+  test('catalog is limited to thirteen approved browser sites, Braid fourth',
+      () {
+    expect(browserDapps, hasLength(13));
     expect(browserDapps[3].name, 'Braid');
     expect(browserDapps[3].url, 'https://app.braidswap.com/');
     expect(browserDapps.map((d) => d.home.host).toSet(),
@@ -81,6 +82,11 @@ void main() {
       'https://www.kaspa.news/',
       'http://kaspa.news/',
       'https://kaspa.news:444/',
+      'https://kaspa.vision.evil.example/signin',
+      'https://www.kaspa.vision/signin',
+      'http://kaspa.vision/signin',
+      'https://kaspa.vision:444/signin',
+      'https://user@kaspa.vision/signin',
       'http://jeetslab-staging.kaspajeets.workers.dev/wallet',
       'https://jeetslab-staging.kaspajeets.workers.dev.evil.example/wallet',
       'https://other.kaspajeets.workers.dev/wallet',
@@ -88,6 +94,26 @@ void main() {
       'https://user@jeetslab-staging.kaspajeets.workers.dev/wallet',
     ]) {
       expect(DappBrowserPolicy.approvedPage(Uri.parse(value)), isFalse);
+    }
+  });
+  test(
+      'Vision signin and News mail/subscription routes remain same-origin dApps',
+      () {
+    for (final host in ['kaspa.vision', 'kaspa.news']) {
+      final dapp = browserDapps.singleWhere((site) => site.home.host == host);
+      expect(dapp.walletConnectEnabled, isTrue);
+      for (final path in [
+        '/signin',
+        '/pro/kas-subscription',
+        '/auth/callback'
+      ]) {
+        expect(DappBrowserPolicy.sameDapp(dapp.home.resolve(path), dapp.home),
+            isTrue);
+      }
+      final link = DappBrowserPolicy.walletLink(app);
+      expect(link, isNotNull);
+      expect(
+          DappSessionService.pairingUriFromQrPayload(link.toString()), pairing);
     }
   });
 
@@ -98,6 +124,50 @@ void main() {
       expect(
           DappSessionService.pairingUriFromQrPayload(link.toString()), pairing);
     }
+  });
+
+  test('Vision checkout permits only its exact HTTPS KasPass companion', () {
+    final home = Uri.parse('https://kaspa.vision/');
+    for (final value in [
+      'https://pass.kaspa.vision/',
+      'https://pass.kaspa.vision/?offer=example&return=https%3A%2F%2Fkaspa.vision',
+      'https://pass.kaspa.vision/club#renew',
+      'https://kaspa.vision/signin',
+    ]) {
+      expect(DappBrowserPolicy.allowedPage(Uri.parse(value), home), isTrue);
+    }
+    for (final value in [
+      'http://pass.kaspa.vision/',
+      'https://pass.kaspa.vision:444/',
+      'https://user@pass.kaspa.vision/',
+      'https://pass.kaspa.vision.evil.example/',
+      'https://evil.example/?return=https://pass.kaspa.vision',
+      'https://other.kaspa.vision/',
+      'https://www.pass.kaspa.vision/',
+      'https://kaspa.news/',
+    ]) {
+      expect(DappBrowserPolicy.allowedPage(Uri.parse(value), home), isFalse,
+          reason: value);
+    }
+    final checkout = Uri.parse('https://pass.kaspa.vision/');
+    expect(DappBrowserPolicy.sameDapp(checkout, home), isFalse);
+    expect(DappBrowserPolicy.approvedPage(checkout), isFalse);
+    for (final site in browserDapps.where((d) => d.home != home)) {
+      expect(DappBrowserPolicy.allowedPage(checkout, site.home), isFalse);
+    }
+  });
+
+  test('connection onboarding stays hidden after a short-lived login session', () {
+    final hint = DappBrowserConnectionHint();
+    expect(hint.visible, isTrue);
+    hint.observeSession(false);
+    expect(hint.visible, isTrue);
+    hint.observeSession(true);
+    expect(hint.visible, isFalse);
+    hint.observeSession(false);
+    expect(hint.visible, isFalse);
+    // No login state is persisted or treated as signing permission.
+    expect(DappBrowserConnectionHint().visible, isTrue);
   });
 
   test('GothDAG wake remains inside the wallet', () {
