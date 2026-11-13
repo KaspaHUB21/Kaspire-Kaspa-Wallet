@@ -25,9 +25,13 @@ void main() {
       Future<bool> Function()? auth,
       Future<({bool biometrics, bool pin})> Function()? methods,
       Future<void> Function()? activate,
-      VoidCallback? unlocked}) async {
-    tester.view.physicalSize = const Size(390, 844);
+      VoidCallback? unlocked,
+      Size size = const Size(390, 844),
+      double textScale = 1}) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+    addTearDown(tester.view.resetPadding);
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     AppSettings.theme.value = theme;
@@ -50,6 +54,10 @@ void main() {
     }
     await tester.pumpWidget(MaterialApp(
       theme: KasVaultTheme.forTheme(theme),
+      builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!),
       home: RepaintBoundary(
         key: boundary,
         child: WalletUnlockScreen(
@@ -69,6 +77,76 @@ void main() {
     });
     await tester.pumpAndSettle();
   }
+
+  testWidgets('Narrow cover displays fit all unlock controls without scrolling',
+      (tester) async {
+    for (final size in [
+      const Size(280, 500),
+      const Size(280, 640),
+      const Size(320, 568),
+      const Size(344, 748),
+      const Size(360, 640),
+      const Size(390, 844),
+      const Size(740, 980),
+    ]) {
+      await mount(tester, size: size);
+      final position =
+          tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      expect(position.maxScrollExtent, lessThanOrEqualTo(.1), reason: '$size');
+      for (final label in ['Use Biometrics', 'Enter wallet PIN', 'Unlock']) {
+        final button = find.widgetWithText(OutlinedButton, label);
+        final rect = tester.getRect(button);
+        expect(rect.top, greaterThanOrEqualTo(24), reason: '$size $label');
+        expect(rect.bottom, lessThanOrEqualTo(size.height - 24 + .1),
+            reason: '$size $label');
+        expect(rect.height, greaterThanOrEqualTo(48));
+        expect(rect.height, lessThanOrEqualTo(54.1), reason: '$size $label');
+        expect(button.hitTestable(), findsOneWidget);
+      }
+      if (size == const Size(280, 640) &&
+          Platform.environment['LOCKSCREEN_PREVIEW_DIR'] != null) {
+        await tester.runAsync(() async {
+          final image = await tester
+              .renderObject<RenderRepaintBoundary>(find.byKey(boundary))
+              .toImage(pixelRatio: 2);
+          final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+          await File(
+                  '${Platform.environment['LOCKSCREEN_PREVIEW_DIR']}/fold-cover.png')
+              .writeAsBytes(bytes!.buffer.asUint8List());
+          image.dispose();
+        });
+      }
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets(
+      'Live errors and enlarged text consume art space, not touch targets',
+      (tester) async {
+    await mount(tester,
+        size: const Size(320, 640),
+        textScale: 1.3,
+        auth: () async => throw PlatformException(
+            code: 'SECURITY_ERROR', message: 'Incorrect PIN.'));
+    await tester.tap(find.text('Use Biometrics'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Incorrect PIN.'), findsOneWidget);
+    expect(
+        tester
+            .state<ScrollableState>(find.byType(Scrollable).first)
+            .position
+            .maxScrollExtent,
+        lessThanOrEqualTo(.1));
+    expect(find.widgetWithText(OutlinedButton, 'Unlock').hitTestable(),
+        findsOneWidget);
+    // At extreme accessibility sizes scrolling stays available; no text or
+    // interactive elements are scaled down or clipped to force a fit.
+    await mount(tester, size: const Size(280, 500), textScale: 2);
+    await tester.ensureVisible(find.text('Unlock'));
+    expect(find.widgetWithText(OutlinedButton, 'Unlock').hitTestable(),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final theme in KaspireTheme.values) {
     testWidgets('Same public mountain lockscreen in $theme', (tester) async {
