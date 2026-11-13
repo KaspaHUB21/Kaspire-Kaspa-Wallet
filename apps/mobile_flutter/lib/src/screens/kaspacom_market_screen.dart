@@ -800,6 +800,9 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
                         : 'Trait filters (${traits.length} selected)'),
                     childrenPadding: const EdgeInsets.all(12),
                     children: [
+                      const Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: Text('Only traits on currently listed PSKT NFTs are shown. Unlisted NFTs and escrow listings are not included.')),
                       if (traitWarning != null) Text(traitWarning!),
                       if (traitOptions.isEmpty && traitWarning == null)
                         const Text('No traits available for these listings.'),

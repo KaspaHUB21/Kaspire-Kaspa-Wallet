@@ -29,7 +29,7 @@ Future<DappKcc20Payment> prepareDappKcc20Payment({
 
   check();
   onProgress?.call('Verifying the requested KCC20 token…');
-  final reader = api.standardKcc20;
+  final reader = api.standardKcc20.forPayment;
   final envelope = await reader.get('${reader.base}/tokens/$covenantId',
       isCancelled: isCancelled, priority: true);
   check();

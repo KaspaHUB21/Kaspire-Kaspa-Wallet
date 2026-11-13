@@ -14,6 +14,7 @@ import 'screens/home_shell.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/dapp_session_service.dart';
 import 'services/dapp_kcc20_payment.dart';
+import 'services/dapp_pskt_request.dart';
 import 'services/kcc20_payment_plan.dart';
 import 'services/activity_store.dart';
 import 'services/kaspa_api.dart';
@@ -1430,97 +1431,13 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   ) async {
     await _requireActiveSessionAddress(address);
     final params = _paramsMap(request.params);
-    const allowedFields = {
-      'txJsonString',
-      'psktTransactionJson',
-      'options',
-      'signInputs',
-      'scripts',
-      'submitTransaction',
-    };
-    if (params.keys.any((key) => !allowedFields.contains(key))) {
-      throw const FormatException('Unknown PSKT signing field.');
-    }
-    final normalizedRequest = params.containsKey('psktTransactionJson');
-    final txJson = params['psktTransactionJson'] ?? params['txJsonString'];
-    final options = params['options'];
-    final optionsMap = options == null
-        ? <String, Object?>{}
-        : options is Map
-            ? options.map((key, value) => MapEntry(key.toString(), value))
-            : throw const FormatException('Invalid PSKT signing options.');
-    if (optionsMap.keys.any((key) => key != 'signInputs' && key != 'scripts')) {
-      throw const FormatException('Invalid PSKT signing options.');
-    }
-    final rawInputs =
-        params['signInputs'] ?? optionsMap['signInputs'] ?? const [];
-    final rawScripts = params['scripts'] ?? optionsMap['scripts'] ?? const [];
-    final submitTransaction = params['submitTransaction'] ?? false;
-    if (txJson is! String ||
-        txJson.isEmpty ||
-        txJson.length > 512 * 1024 ||
-        rawInputs is! List ||
-        rawScripts is! List ||
-        submitTransaction is! bool) {
-      throw const FormatException('Invalid PSKT signing request.');
-    }
-    if (submitTransaction) {
-      throw const FormatException(
-        'Wallet-side PSKT broadcast is not enabled. Request sign-only and broadcast the returned PSKT through the dApp backend.',
-      );
-    }
-    if (rawInputs.length > 256 ||
-        rawScripts.length > 256 ||
-        (rawInputs.isEmpty && rawScripts.isEmpty)) {
-      throw const FormatException('Invalid PSKT input selection.');
-    }
-    final signInputs = <Map<String, Object?>>[];
-    for (final raw in rawInputs) {
-      if (raw is! Map) {
-        throw const FormatException('Invalid PSKT input selection.');
-      }
-      final item = raw.map((key, value) => MapEntry(key.toString(), value));
-      if (item.keys.any((key) =>
-          key != 'index' && key != 'sighashType' && key != 'expectedSighash')) {
-        throw const FormatException('Unknown PSKT input field.');
-      }
-      final index = item['index'];
-      final sighash = item['sighashType'] ?? 1;
-      final expectedSighash = item['expectedSighash'];
-      if (index is! int ||
-          index < 0 ||
-          index > 255 ||
-          sighash is! int ||
-          !const {1, 2, 4, 129, 130, 132}.contains(sighash) ||
-          (expectedSighash != null &&
-              (expectedSighash is! String ||
-                  !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(expectedSighash)))) {
-        throw const FormatException('Invalid PSKT input selection.');
-      }
-      signInputs.add({
-        'index': index,
-        'sighashType': sighash,
-        if (expectedSighash != null) 'expectedSighash': expectedSighash,
-      });
-    }
-    final scripts = <Map<String, Object?>>[];
-    for (final raw in rawScripts) {
-      if (raw is! Map) {
-        throw const FormatException('Invalid PSKT script selection.');
-      }
-      scripts.add(raw.map((key, value) => MapEntry(key.toString(), value)));
-    }
+    final normalized = normalizeDappPsktRequest(params, address);
     if (!await _security.hasNativeWalletFor(address)) {
       throw const FormatException('The session wallet is watch-only.');
     }
     final selectedAddressBeforeApproval = await _preferences.getAddress();
     final networkBeforeApproval = NetworkSettings.network.value;
-    final psktRequest = <String, Object?>{
-      'sender': address,
-      'txJsonString': txJson,
-      'signInputs': signInputs,
-      'scripts': scripts,
-    };
+    final psktRequest = normalized.request;
     final review = await _security.preparePskt(psktRequest);
     final context = await _contextWhenReady();
     if (context == null || !context.mounted) {
@@ -1653,7 +1570,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
     // normalized sign-only adapter contract.
     await _dapps.respondResult(
       request,
-      normalizedRequest || params.containsKey('submitTransaction')
+      normalized.normalizedResponse
           ? <String, Object?>{
               'psktTransactionJson': signed['signedTxJson'],
             }

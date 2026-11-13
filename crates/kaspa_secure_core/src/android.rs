@@ -9,7 +9,7 @@ use crate::{
     sign_kcc20_transfer, sign_personal_message, sign_policy_transaction, sign_pskt, sign_reveal,
     sign_transaction, sign_wyrm_genesis, sign_wyrm_transition, tangem_address,
     EvmTransactionRequest, InscriptionRequest, Kcc20TransferRequest, KronTransferRequest,
-    PolicyTransactionRequest, PsktRequest, RevealRequest, SendRequest, TangemCommitRequest,
+    PolicyTransactionRequest, RevealRequest, SendRequest, TangemCommitRequest,
     TangemRevealRequest, WyrmGenesisRequest, WyrmTransitionRequest,
 };
 
@@ -303,8 +303,7 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_preparePskt(
 ) -> jstring {
     let result = read(&mut env, &request_json)
         .and_then(|raw| {
-            serde_json::from_str::<PsktRequest>(&raw)
-                .map_err(|_| "invalid PSKT request".to_string())
+            crate::pskt::parse_pskt_request(&raw).map_err(|error| error.to_string())
         })
         .and_then(|request| prepare_pskt(&request).map_err(|e| e.to_string()))
         .and_then(|prepared| {
@@ -353,8 +352,8 @@ pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signPskt(
         let secret = read_secret(&mut env, &secret)?;
         let request_json = read(&mut env, &request_json)?;
         let review_hash = read(&mut env, &review_hash)?;
-        let request: PsktRequest =
-            serde_json::from_str(&request_json).map_err(|_| "invalid PSKT request".to_string())?;
+        let request = crate::pskt::parse_pskt_request(&request_json)
+            .map_err(|error| error.to_string())?;
         let signed = sign_pskt(&secret, &request, &review_hash).map_err(|e| e.to_string())?;
         serde_json::to_string(&signed).map_err(|_| "serialization failed".to_string())
     })();

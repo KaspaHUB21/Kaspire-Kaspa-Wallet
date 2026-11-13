@@ -86,9 +86,18 @@ class Kcc20StandardService {
   Kcc20StandardService(this.client,
       {this.base = 'https://kasvio.network/api/kcc20/v4',
       this.kascovBase = 'https://kascov.io/data/mainnet',
-      this.node = 'https://kaspire.kaslab.space/api/local-node'});
+      this.node = 'https://kaspire.kaslab.space/api/local-node',
+      this.paymentReads = false});
   final http.Client client;
   final String base, node, kascovBase;
+  final bool paymentReads;
+
+  /// Background discovery/history may be slow. Selected payments get a
+  /// separate bounded, paced queue, still shared between payment instances.
+  Kcc20StandardService get forPayment => paymentReads
+      ? this
+      : Kcc20StandardService(client,
+          base: base, node: node, kascovBase: kascovBase, paymentReads: true);
   static final _fallbacks = Expando<Map<String, Kcc20KascovSource>>();
   static final _unavailableUntil = Expando<Map<String, DateTime>>();
   Kcc20KascovSource get _fallback => (_fallbacks[client] ??= {}).putIfAbsent(
@@ -136,6 +145,7 @@ class Kcc20StandardService {
 
   static final _hex64 = RegExp(r'^[0-9a-f]{64}$');
   static final _queues = Expando<_KasvioReadQueue>();
+  static final _paymentQueues = Expando<_KasvioReadQueue>();
   static final _historyCaches =
       Expando<Map<String, Future<Map<String, dynamic>>>>();
   Future<Map<String, dynamic>> _historyGet(String path) {
@@ -178,7 +188,8 @@ class Kcc20StandardService {
         throw Kcc20ReadError(503, source: 'Kasvio KCC20');
       }
       final r = primary
-          ? await (_queues[client] ??= _KasvioReadQueue())
+          ? await ((paymentReads ? _paymentQueues : _queues)[client] ??=
+                  _KasvioReadQueue())
               .read(client, uri, isCancelled, priority: priority)
           : await client.get(uri).timeout(const Duration(seconds: 8));
       if (isCancelled?.call() == true) {
@@ -702,8 +713,8 @@ class Kcc20StandardService {
         failures > 0
             ? 'Some standard KCC20 balances could not be loaded. Refresh to retry.'
             : '',
-        coverageComplete: meta['stale'] != true &&
-            meta['retained_snapshot'] != true);
+        coverageComplete:
+            meta['stale'] != true && meta['retained_snapshot'] != true);
   }
 
   static WalletTransaction? transaction(

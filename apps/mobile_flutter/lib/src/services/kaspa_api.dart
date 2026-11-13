@@ -79,12 +79,13 @@ class KaspaApi {
   Future<Kcc20CellRecord?> loadKcc20BorrowedReceive(String recipient,
           String cid, int amount, Kcc20CellRecord first, String templateId,
           {bool Function()? isCancelled}) =>
-      standardKcc20.borrowedReceive(recipient, cid, amount, first, templateId,
+      standardKcc20.forPayment.borrowedReceive(
+          recipient, cid, amount, first, templateId,
           isCancelled: isCancelled);
   Future<List<Kcc20CellRecord>> loadStandardKcc20SigningCells(
           String address, String covenantId, int amount,
           {bool allowCompound = false}) =>
-      standardKcc20.signingCells(address, covenantId, amount,
+      standardKcc20.forPayment.signingCells(address, covenantId, amount,
           allowCompound: allowCompound);
   Future<Kcc20Step> loadStandardKcc20SigningBatch(
           String address, String covenantId, int amount,
@@ -98,7 +99,7 @@ class KaspaApi {
               isCancelled: isCancelled,
               onProgress: onProgress,
               fullPlan: fullPlan)
-          : standardKcc20.signingBatch(address, covenantId, amount,
+          : standardKcc20.forPayment.signingBatch(address, covenantId, amount,
               isCancelled: isCancelled,
               onProgress: onProgress,
               kassealOwnerOnly: sourceStandard == 'kasseal-kcc20',
@@ -112,7 +113,8 @@ class KaspaApi {
           ? KaspaRocketService(client: _client, mainnet: true).waitForCell(
               address, covenantId, transactionId,
               isCancelled: isCancelled, onProgress: onProgress)
-          : standardKcc20.waitForCell(address, covenantId, transactionId,
+          : standardKcc20.forPayment.waitForCell(
+              address, covenantId, transactionId,
               isCancelled: isCancelled, onProgress: onProgress);
   final String toccataBroadcastUrl;
   Future<Map<String, double>>? _floorPrices;

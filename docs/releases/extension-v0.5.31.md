@@ -1,5 +1,9 @@
 # Kaspire Extension 0.5.31 — Toccata PSKT integration
 
+Full shared Android 0.11.107 and Extension 0.5.31 release notes:
+[Combined release](https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/v0.11.107).
+The extension ZIP and checksum are unchanged by the Android release.
+
 ## New in 0.5.31
 
 - Normalized `signPskt` supports redeem scripts up to 64 KiB, including the
