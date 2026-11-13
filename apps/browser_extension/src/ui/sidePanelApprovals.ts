@@ -11,6 +11,11 @@ export function startSidePanelApprovals(present:(view:PanelApproval,signal:Abort
     current.onMessage.addListener(message=>{
       if(current!==port)return;
       if(message?.kind==='ready'){document.documentElement.dataset.panelApprovalReady='true';return;}
+      if(message?.kind==='progress'&&active?.id===message.id&&Array.isArray(message.details)){
+        const target=document.querySelector<HTMLElement>('[data-preparation-id]');
+        if(target&&target.dataset.preparationId===message.id)target.textContent=message.details.join('\n');
+        return;
+      }
       if(message?.kind==='cancel'&&active&&message.id===active.id){active.cancel.abort();active=undefined;return;}
       if(message?.kind!=='approval'||typeof message.view?.id!=='string')return;
       active?.cancel.abort();

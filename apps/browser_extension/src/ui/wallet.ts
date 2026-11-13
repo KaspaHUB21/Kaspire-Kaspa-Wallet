@@ -2952,6 +2952,15 @@ async function presentPanelApproval(item:PanelApproval,signal:AbortSignal):Promi
     if(signal.aborted)return false;
     if(item.unlockOnly)return true;
   }
+  if(item.preparing)return approvalDialog(()=>new Promise<boolean>(resolve=>{
+    if(signal.aborted){resolve(false);return;}
+    const overlay=document.createElement('div');overlay.className='kaspire-modal approval-modal';
+    overlay.innerHTML=`<section class="approval-sheet"><p class="eyebrow">NATIVE KCC20</p><h1>${esc(item.title)}</h1><h2>${esc(item.origin)}</h2><p>${esc(item.description)}</p><progress aria-label="Preparing payment"></progress><p data-preparation-id="${esc(item.id)}" role="status">${item.details.map(esc).join('<br>')}</p><button class="outline" id="cancel-kcc20-preparation">CANCEL</button><small>Cancelling does not sign or send tokens.</small></section>`;
+    document.body.append(overlay);
+    const finish=()=>{signal.removeEventListener('abort',finish);overlay.remove();resolve(false);};
+    signal.addEventListener('abort',finish,{once:true});
+    overlay.querySelector<HTMLButtonElement>('#cancel-kcc20-preparation')!.onclick=finish;
+  }));
   return approvalModal(item,signal);
 }
 function kaspaTransactionReceipt(result: any, details: any) {

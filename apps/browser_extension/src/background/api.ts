@@ -2,7 +2,7 @@ import type { KaspaNetwork } from "../shared/protocol";
 import {rocketWalletAssets, mergeRocketAssets,cachedRocketAsset} from './kasparocket';
 import {kassealHoldings,cachedKassealAsset} from './kasseal';
 import {directKronAssets, directKronTransfer} from './kronHoldings';
-import {standardKcc20Assets, standardKcc20TransferData, cachedStandardKcc20Asset, standardKcc20Token, waitForStandardKcc20Cell, standardKcc20History,standardKcc20BorrowedReceive,standardKcc20HistoryMetadata,standardKcc20CoverageComplete} from './standardKcc20';
+import {standardKcc20Assets, standardKcc20TransferData, cachedStandardKcc20Asset, standardKcc20Token, waitForStandardKcc20Cell, standardKcc20History,standardKcc20BorrowedReceive,standardKcc20HistoryMetadata,standardKcc20CoverageComplete,standardKcc20PaymentReader} from './standardKcc20';
 import {formatRawTokenAmount} from '../shared/tokenAmount';
 import {dotkNamesOf, resolveDotkName} from "./dotk";
 import { nftWalletPage, nftMetadata, nftImage, requireUnlistedNft } from "./krc721Reads";
@@ -469,13 +469,15 @@ async function loadKcc20Assets(address:string,refresh=false){
   return [...kronRows,...standardRows];
 }
 
-export async function selectedKcc20Asset(address:string,covenantId:string) {
+export async function selectedKcc20Asset(address:string,covenantId:string,payment=false) {
   const venue=cachedRocketAsset(address,covenantId)??cachedKassealAsset(address,covenantId);if(venue)return venue;
   const category=categoryCache.get(`mainnet:${address}:kcc20`);
   const cached=category && Date.now()-category.at<300_000 ? category.value.find(row=>row.covenantId===covenantId) : undefined;
   const known=cached??cachedStandardKcc20Asset(get,ownerId(address),covenantId);
   if(known)return known; // Display metadata only; signing state is always fresh.
-  try{return await standardKcc20Token(get,covenantId);}catch(error) {
+  try{return await standardKcc20Token(payment?standardKcc20PaymentReader(get):get,covenantId);}catch(error) {
+    // Source failure is not evidence of another protocol or zero holdings.
+    if((error as any)?.httpStatus===429 || (error as any)?.httpStatus>=500 || /unavailable|could not provide|timed out|failed to fetch/i.test((error as Error).message))throw error;
     const direct=await Promise.allSettled([rocketWalletAssets(address),kassealHoldings(address)]);
     for(const source of direct)if(source.status==='fulfilled'){
       const asset=source.value.find((row:any)=>row.covenantId===covenantId);if(asset)return asset;
@@ -485,14 +487,19 @@ export async function selectedKcc20Asset(address:string,covenantId:string) {
   }
 }
 export async function standardKcc20SigningData(address: string, covenantId: string, amount: number, options:{signal?:AbortSignal;progress?:(stage:string)=>void;fullPlan?:boolean}={}) {
-  const token=await standardKcc20Token(get,covenantId);
-  return standardKcc20TransferData(get,covenantId,ownerId(address),amount,{...options,kassealOwnerOnly:token.standard==='kasseal-kcc20'});
+  const reader=standardKcc20PaymentReader(get);
+  options.signal?.throwIfAborted();
+  const token=await standardKcc20Token(reader,covenantId);
+  options.signal?.throwIfAborted();
+  const data=await standardKcc20TransferData(reader,covenantId,ownerId(address),amount,{...options,kassealOwnerOnly:token.standard==='kasseal-kcc20'});
+  if(data.templateHash!==token.templateHash)throw Error('KCC20 signing cells differ from the verified token program.');
+  return {...data,ticker:token.symbol,decimals:token.decimals,standard:token.standard};
 }
 export async function kcc20BorrowedReceive(recipient:string,cid:string,amount:number,cell:{redeemScript:string},templateId:string,options:{signal?:AbortSignal;progress?:(stage:string)=>void}={}) {
-  return standardKcc20BorrowedReceive(get,cid,ownerId(recipient),amount,cell,templateId,options);
+  return standardKcc20BorrowedReceive(standardKcc20PaymentReader(get),cid,ownerId(recipient),amount,cell,templateId,options);
 }
 export async function waitForStandardKcc20Output(address:string,covenantId:string,txid:string,options:{signal?:AbortSignal;progress?:(stage:string)=>void}={}) {
-  return waitForStandardKcc20Cell(get,covenantId,ownerId(address),txid,options);
+  return waitForStandardKcc20Cell(standardKcc20PaymentReader(get),covenantId,ownerId(address),txid,options);
 }
 
 export function mapKcc20Cells(

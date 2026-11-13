@@ -36,6 +36,9 @@ const MAX_INPUTS: usize = 256;
 const MAX_OUTPUTS: usize = 256;
 const MAX_PAYLOAD_BYTES: usize = 64 * 1024;
 const MAX_SCRIPT_REQUEST_BYTES: usize = 256 * 1024;
+// Toccata fee-holder unwrap programs can exceed 32 KiB (~56,899 bytes).
+// Keep a per-program bound as well as the unchanged aggregate request bound.
+const MAX_REDEEM_SCRIPT_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -214,6 +217,11 @@ struct BuiltPskt {
 
 pub fn prepare_pskt(request: &PsktRequest) -> Result<PreparedPskt> {
     Ok(build_pskt(request)?.review)
+}
+
+pub(crate) fn parse_pskt_request(raw: &str) -> Result<PsktRequest> {
+    serde_json::from_str(raw)
+        .map_err(|error| CoreError::InvalidRequest(format!("invalid PSKT request: {error}")))
 }
 
 pub fn sign_pskt(
@@ -1194,13 +1202,15 @@ fn validate_script_argument(argument: &PsktScriptArgument) -> Result<()> {
 }
 
 fn decode_redeem_script(raw: &str) -> Result<Vec<u8>> {
+    // Reject before allocating the decoded buffer. Do not relax argument-data,
+    // prebuilt-witness, aggregate-script or transaction limits alongside this.
+    if raw.is_empty() || raw.len() > MAX_REDEEM_SCRIPT_BYTES * 2 {
+        return Err(CoreError::InvalidRequest(format!(
+            "invalid covenant script size (maximum {MAX_REDEEM_SCRIPT_BYTES} bytes)"
+        )));
+    }
     let script = hex::decode(raw)
         .map_err(|_| CoreError::InvalidRequest("invalid covenant script encoding".into()))?;
-    if script.is_empty() || script.len() > 32 * 1024 {
-        return Err(CoreError::InvalidRequest(
-            "invalid covenant script size".into(),
-        ));
-    }
     Ok(script)
 }
 
@@ -1381,6 +1391,101 @@ fn sighash_label(value: SigHashType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fee_holder_unwrap_regression() -> PsktRequest {
+        // Sized like the reported fee-holder unwrap. This is deliberately a
+        // synthetic signature-checking program, not a claim of validating the
+        // production fee market's business rules.
+        let fixture: Value = serde_json::from_str(include_str!(
+            "fixtures/kaspacom-fee-holder-unwrap-regression.json"
+        )).unwrap();
+        let sender = derive_address(SECRET).unwrap();
+        let size = fixture["redeemScriptBytes"].as_u64().unwrap() as usize;
+        let padding = size - 40;
+        let mut redeem = vec![0x00, 0x63, 0x4d]; // false, if, PUSHDATA2
+        redeem.extend_from_slice(&(padding as u16).to_le_bytes());
+        redeem.resize(redeem.len() + padding, 0);
+        redeem.extend_from_slice(&[0x68, 0x20]); // endif, PUSH32
+        redeem.extend_from_slice(sender.payload.as_slice());
+        redeem.push(0xac); // CHECKSIG
+        assert_eq!(redeem.len(), size);
+        let mut request = request();
+        let mut tx: Value = serde_json::from_str(&request.tx_json_string).unwrap();
+        tx["version"] = json!(1);
+        tx["inputs"][0]["computeBudget"] = fixture["computeBudget"].clone();
+        tx["inputs"][0]["utxo"]["covenantId"] = fixture["covenantId"].clone();
+        tx["inputs"][0]["utxo"]["amount"] = fixture["inputSompi"].clone();
+        tx["inputs"][0]["utxo"]["scriptPublicKey"] = json!(script_json(&pay_to_script_hash_script(&redeem)));
+        tx["outputs"][0]["value"] = fixture["releasedSompi"].clone();
+        request.tx_json_string = tx.to_string();
+        request.scripts = vec![PsktScriptInput {
+            input_index: 0, script_hex: hex::encode(redeem), sign_type: Some(1),
+            signature_script: None, prebuilt_signature_script: None,
+            signature_offsets: vec![], expected_sighash: None,
+        }];
+        request
+    }
+
+    #[test]
+    fn fee_holder_unwrap_56899_byte_program_reviews_signs_and_executes() {
+        let request = fee_holder_unwrap_regression();
+        let review = prepare_pskt(&request).unwrap();
+        assert_eq!(review.selected_input_count, 1);
+        assert!(review.inputs[0].script_aware);
+        assert!(review.warnings.iter().any(|w| w.contains("cannot verify")));
+        let signed = sign_pskt(SECRET, &request, &review.review_hash).unwrap();
+        let tx: Value = serde_json::from_str(&signed.signed_tx_json).unwrap();
+        let signature = hex::decode(tx["inputs"][0]["signatureScript"].as_str().unwrap()).unwrap();
+        assert!(signature.ends_with(&hex::decode(&request.scripts[0].script_hex).unwrap()));
+        let mut built = build_pskt(&request).unwrap();
+        built.tx.inputs[0].signature_script = signature;
+        built.tx.finalize();
+        crate::kcc20::simulate_all(&built.tx, &built.entries).unwrap();
+        built.tx.inputs[0].signature_script[1] ^= 1;
+        assert!(crate::kcc20::simulate_all(&built.tx, &built.entries).is_err());
+        assert!(matches!(sign_pskt(SECRET, &request, "wrong"), Err(CoreError::ReviewMismatch)));
+        let mut mismatched = request.clone();
+        mismatched.scripts[0].script_hex.replace_range(0..2, "51");
+        assert!(prepare_pskt(&mismatched).is_err());
+    }
+
+    #[test]
+    fn redeem_script_size_stays_bounded_at_64kib_before_decode() {
+        assert_eq!(decode_redeem_script(&"00".repeat(56899)).unwrap().len(), 56899);
+        assert_eq!(decode_redeem_script(&"00".repeat(MAX_REDEEM_SCRIPT_BYTES)).unwrap().len(), MAX_REDEEM_SCRIPT_BYTES);
+        for raw in [String::new(), "00".repeat(MAX_REDEEM_SCRIPT_BYTES + 1)] {
+            assert!(decode_redeem_script(&raw).unwrap_err().to_string().contains("covenant script size"));
+        }
+        assert!(decode_redeem_script("0g").unwrap_err().to_string().contains("encoding"));
+        assert!(decode_redeem_script("0").unwrap_err().to_string().contains("encoding"));
+    }
+
+    #[test]
+    fn large_redeem_support_does_not_relax_aggregate_or_transaction_limits() {
+        let mut request = fee_holder_unwrap_regression();
+        request.scripts = vec![request.scripts[0].clone(); 3];
+        assert!(prepare_pskt(&request).unwrap_err().to_string().contains("script request exceeds size limit"));
+        request.scripts.truncate(1);
+        request.tx_json_string = " ".repeat(MAX_PSKT_BYTES + 1);
+        assert!(prepare_pskt(&request).unwrap_err().to_string().contains("PSKT exceeds size limit"));
+    }
+
+    #[test]
+    fn strict_pskt_schema_errors_preserve_unknown_fields_and_wrong_types() {
+        let original = serde_json::to_value(request()).unwrap();
+        for (changed, expected) in [
+            ({let mut v=original.clone(); v["unexpectedIntegrationField"]=json!(1); v}, "unknown field `unexpectedIntegrationField`"),
+            ({let mut v=original.clone(); v["signInputs"][0]["index"]=json!("zero"); v}, "expected usize"),
+            ({let mut v=original.clone(); v["scripts"]=json!([{"inputIndex":0,"scriptHex":"51","wrongField":true}]); v}, "unknown field `wrongField`"),
+            ({let mut v=original.clone(); v.as_object_mut().unwrap().remove("txJsonString"); v}, "missing field `txJsonString`"),
+        ] {
+            let error = parse_pskt_request(&changed.to_string()).unwrap_err().to_string();
+            assert!(error.contains(expected), "{error}");
+            assert!(error.contains("line 1 column"), "{error}");
+        }
+        let error = parse_pskt_request("{").unwrap_err().to_string();
+        assert!(error.contains("EOF"), "{error}");
+    }
 
     #[test]
     fn kasparocket_mainnet_buy_signs_and_executes_all_covenants_with_synthetic_funding() {

@@ -44,6 +44,10 @@ test('packaged WASM reuses a receiver cell without signing it for both pinned co
     const redeem=t.prefix+'08881300000000000020'+recipientOwner+'0100010120'+'0'.repeat(64)+'20'+'0'.repeat(64)+t.suffix;
     const script=payToScriptHashScript(redeem),scriptPublicKey=script.script;script.free();
     r.borrowedReceive={transactionId:'dd'.repeat(32),index:0,valueSompi:500000000,blockDaaScore:123,scriptPublicKey,tokenAmount:5000,redeemScript:redeem};
+    const plan=JSON.parse(core.prepareKcc20Plan(JSON.stringify(r)));
+    assert.equal(plan.transactionCount,1);
+    const planSigned=JSON.parse(core.signKcc20Plan(secret,JSON.stringify(r),plan.reviewHash));
+    assert.equal(planSigned.transactions.length,1,'Simple borrowed receive uses the same durable plan as Android');
     const prepared=JSON.parse(core.prepareKronTransfer(JSON.stringify(r))),review=JSON.parse(core.preparePskt(JSON.stringify(prepared.psktRequest)));
     assert.equal(review.outputs[0].amountSompi,500000000);
     assert(prepared.psktRequest.scripts.every(s=>s.inputIndex!==0));
@@ -115,21 +119,21 @@ test('standard routing never bypasses ownership, live-script, template or input-
   assert.throws(()=>core.prepareKronTransfer(JSON.stringify(request(4))),/standard KCC20/);
 });
 test('one whole-plan approval binds every dependency, fee, amount and recipient and executes all covenant VMs',()=>{
-  for(const count of [4,7]) {
+  for(const count of [1,4,7]) {
     const terms=request(count);terms.amount=count*1000-1;
     const plan=JSON.parse(core.prepareKcc20Plan(JSON.stringify(terms)));
-    assert.equal(plan.transactionCount,Math.ceil((count-1)/2));
+    assert.equal(plan.transactionCount,Math.max(1,Math.ceil((count-1)/2)));
     const signed=JSON.parse(core.signKcc20Plan(secret,JSON.stringify(terms),plan.reviewHash));
     assert.equal(signed.transactions.length,plan.transactionCount);
     assert.equal(signed.totalFeeSompi,plan.steps.reduce((sum,s)=>sum+s.feeSompi,0));
     signed.transactions.forEach((tx,i)=>assert.equal(tx.transactionId,plan.steps[i].transactionId));
-    for(const mutate of [r=>r.amount--,r=>r.recipient=sender,r=>r.feeRate=101,r=>r.cells.reverse()]) {
+    for(const mutate of [r=>r.amount--,r=>r.recipient=sender,r=>r.feeRate=101,...(count>1?[r=>r.cells.reverse()]:[])]) {
       const other=structuredClone(terms);mutate(other);
       assert.throws(()=>core.signKcc20Plan(secret,JSON.stringify(other),plan.reviewHash));
     }
     assert.throws(()=>core.signKcc20Plan('private:'+'22'.repeat(32),JSON.stringify(terms),plan.reviewHash));
-    const duplicate=structuredClone(terms);duplicate.cells[3]=duplicate.cells[0];
-    assert.throws(()=>core.prepareKcc20Plan(JSON.stringify(duplicate)));
+    if(count>1){const duplicate=structuredClone(terms);duplicate.cells[3]=duplicate.cells[0];
+    assert.throws(()=>core.prepareKcc20Plan(JSON.stringify(duplicate)));}
   }
 });
 test('full-plan discovery verifies seven original cells with shared origin and live proofs',async()=>{

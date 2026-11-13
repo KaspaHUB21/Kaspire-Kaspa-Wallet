@@ -12,6 +12,18 @@ function port({documentId='panel-doc',windowId=1,contextType='SIDE_PANEL',url=ro
     context:{contextType,documentId,documentUrl:url,windowId}};
 }
 const view=(id='one',origin='https://dapp.example')=>({id,origin,title:'Review request',description:'Native review',details:['To: verified recipient','Fee: 0.01 KAS']});
+test('preparation progress updates only the matching panel request and cannot leak to another window',async()=>{
+  const p=port(),r=new SidePanelApprovals(root,async()=>[p.context]);await r.connect(p,1);
+  await r.inRequestWindow('https://dapp.example',1,async()=>{
+    r.present({...view(),preparing:true},()=>{});
+    r.update({...view('unknown'),preparing:true,details:['Wrong request']});
+    assert.equal(p.messages.at(-1).kind,'approval');
+    r.update({...view(),preparing:true,details:['Verifying cell 1 of 3']});
+    assert.deepEqual(p.messages.at(-1),{kind:'progress',id:'one',details:['Verifying cell 1 of 3']});
+    r.cancel('one');r.update({...view(),details:['Late result']});
+    assert.equal(p.messages.at(-1).kind,'cancel');
+  });
+});
 test('only an actual verified SIDE_PANEL document can register as a presenter',async()=>{
   for(const opts of [{contextType:'TAB'},{contextType:'POPUP'},{url:root+'approval.html'},{url:'https://evil.example/sidepanel.html'}]){
     const p=port(opts),r=new SidePanelApprovals(root,async()=>[p.context]);

@@ -1,10 +1,37 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {standardKcc20Assets,standardKcc20CoverageComplete,standardKcc20TransferData,waitForStandardKcc20Cell,STANDARD_TEMPLATE,standardKcc20History,standardKcc20BorrowedReceive,standardKcc20Decimals,cachedStandardKcc20Asset} from './generated/standardKcc20.mjs';
+import {standardKcc20Assets,standardKcc20CoverageComplete,standardKcc20TransferData,waitForStandardKcc20Cell,STANDARD_TEMPLATE,standardKcc20History,standardKcc20BorrowedReceive,standardKcc20Decimals,cachedStandardKcc20Asset,standardKcc20PaymentReader,standardKcc20Token} from './generated/standardKcc20.mjs';
 const cid='c'.repeat(64),owner='d'.repeat(64),address='kaspa:'+'q'.repeat(61);
 const reference='c8a087117735a1f87c5c6d115fcddeaf2562c784';
 const templateHash='9703112ee6e3555107cd168858992b77d3b74f655205b2b463b1f9ec2ec73cf7';
 const id=i=>i.toString(16).padStart(64,'0');
+test('one bounded payment lane bypasses a stalled display read without bypassing fresh proofs',async()=>{
+  let release,entered;const ready=new Promise(r=>{entered=r;});const blocked=new Promise(r=>{release=r;});
+  const fixture=source({amounts:[100]});let active=0,peak=0;
+  const get=async url=>{
+    active++;peak=Math.max(peak,active);
+    try{
+      if(url.includes('/addresses/')&&url.includes('/tokens?')){entered();await blocked;throw Object.assign(Error('Unavailable display'),{httpStatus:404});}
+      return await fixture.get(url);
+    }finally{active--;}
+  };
+  const scan=standardKcc20Assets(get,owner);await ready;
+  const payment=standardKcc20PaymentReader(get);
+  assert.equal(standardKcc20PaymentReader(get),payment,'Repeated payments share a single paced lane');
+  try{
+    const verified=await Promise.race([standardKcc20TransferData(payment,cid,owner,21,{fullPlan:true}),new Promise((_,reject)=>setTimeout(()=>reject(Error('Payment blocked by display')),2500))]);
+    assert.equal(verified.cells[0].tokenAmount,100);
+    assert(fixture.seen.some(u=>u.includes('/local-node/transactions/')));
+    assert(fixture.seen.some(u=>u.endsWith('/utxos')));
+    assert(peak<=2,'Only display and bounded payment lanes run concurrently');
+  }finally{release();await scan.catch(()=>{});}
+});
+test('cancelled payment cannot complete verification when a late source result arrives',async()=>{
+  const controller=new AbortController(),fixture=source({amounts:[100]});
+  const get=async url=>{const value=await fixture.get(url);if(url.includes('/balance?'))controller.abort();return value;};
+  await assert.rejects(standardKcc20TransferData(standardKcc20PaymentReader(get),cid,owner,21,{signal:controller.signal,fullPlan:true}),{name:'AbortError'});
+  assert(!fixture.seen.some(u=>u.includes('/local-node/transactions/')));
+});
 function source({amounts=[10,10,10,10],borrow=false,spent=false,wrongOwner=false,wrongCid=false,network='mainnet',programHash=templateHash}={}) {
   const seen=[];
   const get=async url=>{

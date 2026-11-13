@@ -512,7 +512,8 @@ pub fn prepare_nft_market_js(request: &str) -> std::result::Result<String, JsErr
 
 #[wasm_bindgen(js_name = preparePskt)]
 pub fn prepare_pskt_js(request: &str) -> std::result::Result<String, JsError> {
-    let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid request"))?;
+    let request = crate::pskt::parse_pskt_request(request)
+        .map_err(|error| JsError::new(&error.to_string()))?;
     json(prepare_pskt(&request))
 }
 
@@ -530,7 +531,8 @@ pub fn sign_pskt_js(
 ) -> std::result::Result<String, JsError> {
     let owned_secret = crate::secret_input::SecretInput::new(secret).map_err(JsError::new)?;
     let secret = owned_secret.text();
-    let request = serde_json::from_str(request).map_err(|_| JsError::new("invalid request"))?;
+    let request = crate::pskt::parse_pskt_request(request)
+        .map_err(|error| JsError::new(&error.to_string()))?;
     json(sign_pskt(secret, &request, review_hash))
 }
 

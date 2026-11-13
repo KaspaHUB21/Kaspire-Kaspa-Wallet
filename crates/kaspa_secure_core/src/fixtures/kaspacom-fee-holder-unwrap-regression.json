@@ -1,0 +1,10 @@
+{
+  "description": "Synthetic fee-holder unwrap-shaped PSKT size regression, not KaspaCom's production contract or an on-chain transaction",
+  "redeemScriptBytes": 56899,
+  "scriptEncoding": "OP_FALSE OP_IF PUSHDATA2(zero padding) OP_ENDIF PUSH32(owner) OP_CHECKSIG",
+  "covenantId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "inputSompi": "200000000",
+  "releasedSompi": "199000000",
+  "computeBudget": 1000,
+  "sighashType": 1
+}

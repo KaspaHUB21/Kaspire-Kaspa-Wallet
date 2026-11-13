@@ -4,6 +4,9 @@ import { createServer } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import initKaspa,{payToScriptHashScript} from '../node_modules/@kronsdk/kron-sdk/vendor/kaspa/kaspa.js';
+import {feeHolderUnwrap} from './fixtures/kaspacom-fee-holder-unwrap.mjs';
+await initKaspa({module_or_path:await readFile('node_modules/@kronsdk/kron-sdk/vendor/kaspa/kaspa_bg.wasm')});
 
 const debugPort=9331;const sitePort=8879;const profile=await mkdtemp(join(tmpdir(),"kaspire-browser-test-"));
 const fixture=await readFile(new URL("./fixtures/dapp.html",import.meta.url));
@@ -127,6 +130,33 @@ try{
   await evaluate(dapp,`window.psktResult="pending";window.kaspire.signPskt(${JSON.stringify(marketplaceRequest)}).then(value=>window.psktResult=JSON.stringify(value)).catch(error=>window.psktResult="error:"+error.code+":"+error.message);true`);await delay(500);
   approval=(await targets()).find(target=>target.url.includes("approval.html"));assert(approval,`PSKT approval did not open: ${String(await evaluate(dapp,"window.psktResult"))}`);await waitFor(approval.webSocketDebuggerUrl,'Boolean(document.querySelector("#approve"))');assert.match(String(await evaluate(approval.webSocketDebuggerUrl,"document.body.innerText")),/Approve reviewed PSKT/);await evaluate(approval.webSocketDebuggerUrl,'setTimeout(()=>document.querySelector("#approve")?.click(),50);true');await delay(700);
   const psktResponse=JSON.parse(String(await evaluate(dapp,"window.psktResult")));const signedMarketplacePskt=JSON.parse(psktResponse.psktTransactionJson);assert.deepEqual(signedMarketplacePskt.marketplaceMetadata,marketplacePskt.marketplaceMetadata);assert.deepEqual(signedMarketplacePskt.inputs[0].marketplaceInput,marketplacePskt.inputs[0].marketplaceInput);assert.deepEqual(signedMarketplacePskt.outputs[0].marketplaceOutput,marketplacePskt.outputs[0].marketplaceOutput);assert.match(signedMarketplacePskt.inputs[0].signatureScript,/^[0-9a-f]+$/);assert(signedMarketplacePskt.inputs[0].signatureScript.endsWith(marketplaceRequest.scripts[0].scriptHex));
+  console.log('Chromium smoke: large normalized PSKT and strict schema diagnostics');
+  const awaitedAccounts=String(await evaluate(dapp,'window.connectResult'));
+  const largeFixture=bytes=>feeHolderUnwrap({sender:JSON.parse(awaitedAccounts)[0],owner:authResult.publicKey,scriptBytes:bytes,scriptPublicKey:redeem=>{const spk=payToScriptHashScript(redeem),value=spk.script;spk.free();return value;}});
+  const unwrap=largeFixture();
+  await evaluate(dapp,`window.largePskt='pending';kaspire.signPskt(${JSON.stringify(unwrap.normalized)}).then(v=>window.largePskt=v).catch(e=>window.largePskt={error:e.message});true`);
+  await delay(500);approval=(await targets()).find(t=>t.url.includes('approval.html'));
+  assert(approval,`Large PSKT approval missing: ${JSON.stringify(await evaluate(dapp,'window.largePskt'))}`);
+  await waitFor(approval.webSocketDebuggerUrl,'!!document.querySelector("#approve")');
+  assert.match(String(await evaluate(approval.webSocketDebuggerUrl,'document.body.innerText')),/cannot verify.*business rules/);
+  await evaluate(approval.webSocketDebuggerUrl,'document.querySelector("#approve").click();true');
+  await waitFor(dapp,'window.largePskt!=="pending"');
+  const largeResult=await evaluate(dapp,'window.largePskt');assert(!largeResult.error,largeResult.error);
+  const largeTx=JSON.parse(largeResult.psktTransactionJson),largeOriginal=JSON.parse(unwrap.native.txJsonString);
+  assert(largeTx.inputs[0].signatureScript.endsWith(unwrap.redeem));
+  largeTx.inputs[0].signatureScript='';assert.deepEqual(largeTx,largeOriginal);
+  for(const [mutate,expected] of [
+    [r=>{r.scripts[0].unsupportedIntegrationField=true;},/unknown field `unsupportedIntegrationField`/],
+    [r=>{r.scripts[0].inputIndex='zero';},/invalid type.*expected usize/],
+    [r=>{r.scripts[0].signType='ALL';},/invalid type.*expected u8/],
+    [r=>{r.scripts[0].scriptHex=largeFixture(65537).redeem;},/covenant script size.*65536/],
+  ]){
+    const bad=structuredClone(unwrap.normalized);mutate(bad);
+    await evaluate(dapp,`window.schemaPskt='pending';kaspire.signPskt(${JSON.stringify(bad)}).then(()=>window.schemaPskt='SIGNED').catch(e=>window.schemaPskt=e.message);true`);
+    await waitFor(dapp,'window.schemaPskt!=="pending"');
+    assert.match(String(await evaluate(dapp,'window.schemaPskt')),expected);
+  }
+  console.log('Large 56,899-byte normalized signPskt, exact transaction preservation, unchanged covenant warnings, strict nested schema diagnostics and 64-KiB bound passed through the built provider. Sign-only; no broadcast.');
   console.log("Chromium smoke: asset preparation and stale-approval checks");
   const liveWorker=(await targets()).find(target=>target.type==="service_worker");assert(liveWorker,"Asset test service worker is unavailable.");const workerObserver=await observe(liveWorker.webSocketDebuggerUrl);const prepareResponse=JSON.parse(String(await evaluate(reopenedWallet,'(async()=>{const status=(await chrome.runtime.sendMessage({channel:"wallet",command:"status"})).result;const address=status.selectedAddress;await chrome.storage.session.set({assetReviewSnapshot:{address,network:"mainnet",loadedAt:Date.now(),assets:{tokens:[{symbol:"TEST",raw_balance:"100",decimals:0}],domains:[],krc721:[],kcc20:[],transactions:[]}}});return await new Promise(resolve=>{const stages=[];const port=chrome.runtime.connect({name:"wallet-operation"});const timeout=setTimeout(()=>{port.disconnect();resolve(JSON.stringify({timedOut:true,stages}))},40000);port.onMessage.addListener(value=>{if(value.progress){stages.push(value.progress);return}clearTimeout(timeout);port.disconnect();resolve(JSON.stringify({...value,stages}))});port.onDisconnect.addListener(()=>{clearTimeout(timeout);resolve(JSON.stringify({disconnected:true,error:chrome.runtime.lastError?.message,stages}))});port.postMessage({channel:"wallet",command:"prepareAsset",kind:"krc20",to:address,ticker:"TEST",amount:"1",displayAmount:"1"})})})()')));await delay(300);workerObserver.close();assert(prepareResponse?.result||prepareResponse?.error,`Asset prepare port returned no structured response: ${JSON.stringify(prepareResponse)} worker=${JSON.stringify(workerObserver.events)}`);
   await evaluate(dapp,'window.networkEvent="pending";window.kaspire.on("networkChanged",value=>window.networkEvent=value);window.kaspire.switchNetwork("testnet-10").then(value=>window.switchResult=value).catch(error=>window.switchResult="error:"+error.message);true');await delay(500);

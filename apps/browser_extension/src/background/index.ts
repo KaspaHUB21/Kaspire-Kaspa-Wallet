@@ -267,6 +267,7 @@ interface ApprovalView {
   rawJson?: unknown;
   recoveryCode?: string;
   unlockOnly?: boolean;
+  preparing?: boolean;
 }
 const approvals = new Map<
   string,
@@ -2688,7 +2689,7 @@ async function resolveApproval(id: string, approved: boolean) {
   const validSession =
     pending.generation === null ||
     (sessionVault !== null && pending.generation === sessionGeneration);
-  pending.resolve(approved && validSession);
+  pending.resolve(approved && validSession && !pending.view.preparing);
   sidePanelApprovals.cancel(id);
 }
 
@@ -3850,7 +3851,8 @@ async function prepareWalletAsset(
     )
       throw new Error("Invalid KCC20 request.");
     // No full-wallet/token-catalogue scan while preparing a selected token.
-    const covenantAsset = await selectedKcc20Asset(sender,covenantId);
+    const covenantAsset = await selectedKcc20Asset(sender,covenantId,true);
+    signal?.throwIfAborted();
     if (covenantAsset?.standard === "kron-native") {
       prepared = await prepareKronTransfer(
         sender,
@@ -3864,8 +3866,10 @@ async function prepareWalletAsset(
       progress("Verifying KCC20 cells…");
       const standard = ['kcc20','kasparocket-kcc20','kasseal-kcc20'].includes(covenantAsset?.standard);
       const verified = standard
-        ? {...await (covenantAsset.standard==='kasparocket-kcc20'?rocketTransferData:standardKcc20SigningData)(sender,covenantId,numericAmount,{signal,progress,fullPlan:true}), ticker:covenantAsset.symbol, decimals:covenantAsset.decimals}
+        ? {ticker:covenantAsset.symbol,decimals:covenantAsset.decimals,...await (covenantAsset.standard==='kasparocket-kcc20'?rocketTransferData:standardKcc20SigningData)(sender,covenantId,numericAmount,{signal,progress,fullPlan:true})}
         : await kcc20TransferData(sender,covenantId,numericAmount);
+      if('standard' in verified && verified.standard!==covenantAsset.standard)
+        throw Error('The token classification changed. Refresh this token before preparing a payment.');
       const step = standard ? verified as any : planKcc20Step(verified.cells,numericAmount,2);
       const compound = step.compound === true;
       const stepAmount = standard ? step.stepAmount : step.amount;
@@ -3876,7 +3880,7 @@ async function prepareWalletAsset(
       if(standard && covenantAsset?.standard!=='kasseal-kcc20' && sender!==recipient && !compound) {
         progress('Checking whether an existing recipient cell can be reused…');
         try {borrowedReceive=await kcc20BorrowedReceive(recipient,covenantId,numericAmount,verified.cells[0],verified.templateHash,{signal,progress});if(borrowedReceive)recipientCellStatus='reused';}
-        catch(error) {if(signal?.aborted)throw error;recipientCellStatus='lookup-unavailable';progress('Recipient cell reuse is unavailable. Preparing a new receiving cell.');}
+        catch(error) {if(signal?.aborted)throw error;throw Error(`Recipient cell lookup unavailable. No new cell was funded and no payment was signed. Retry later. ${(error as Error).message}`);}
       }
       const request = {
         sender,
@@ -3893,7 +3897,8 @@ async function prepareWalletAsset(
       };
       progress("Preparing native KCC20 review…");
       const wasm = await core();
-      if(standard && verified.cells.length+Number(Boolean(borrowedReceive))>(step.inputLimit??3)) {
+      signal?.throwIfAborted();
+      if(standard && (covenantAsset.standard==='kcc20' || verified.cells.length+Number(Boolean(borrowedReceive))>(step.inputLimit??3))) {
         request.recipient=recipient;request.amount=numericAmount;
         const plan=JSON.parse(wasm.prepareKcc20Plan(JSON.stringify(request)));
         prepared={type:'kcc20-plan',sender,request,review:plan,createdAt:Date.now(),operation:{
@@ -4530,11 +4535,20 @@ async function confirmPreparedAsset(
       throw Error('This wallet has an approved KCC20 plan. Resume the saved plan; do not sign again.');
     const rebuilt=JSON.parse(wasm.prepareKcc20Plan(JSON.stringify(stored.request)));
     if(rebuilt.reviewHash!==stored.review.reviewHash)throw Error('KCC20 plan changed after review.');
+    const last=rebuilt.steps.at(-1);
+    const locked=stored.request.cells.reduce((sum:bigint,c:any)=>sum+BigInt(c.valueSompi),0n)+BigInt(stored.request.borrowedReceive?.valueSompi??0);
+    const lockedOut=BigInt(last.lockedKasOutputSompi);
     const generation=sessionGeneration;
     if(!await approve({origin,title:'Authorize complete KCC20 payment plan?',
       description:'One approval signs every fixed transaction in this plan. No additional or changed transaction is authorized.',
       details:[`Send: ${stored.operation.displayAmount} ${rebuilt.ticker}`,`To: ${rebuilt.recipient}`,
         `Covenant ID: ${rebuilt.covenantId}`,`${rebuilt.transactionCount} on-chain transactions`,
+        `Recipient token cell: ${stored.operation.recipientCellStatus==='reused'?'reusing existing cell':'new cell required'}`,
+        `Template: ${stored.request.templateHash}`,
+        `KAS in token inputs: ${formatSompi(locked)} KAS`,
+        `KAS in new token cells: ${formatSompi(lockedOut)} KAS`,
+        ...(lockedOut>locked?[`KAS reserve top-up: ${formatSompi(lockedOut-locked)} KAS. This keeps cells spendable; it is not a network fee.`]:[]),
+        ...(locked>lockedOut?[`KAS returned to wallet: ${formatSompi(locked-lockedOut)} KAS`]:[]),
         `TOTAL network fees: ${formatSompi(rebuilt.totalFeeSompi)} KAS`,
         'Self-consolidations pay only your wallet. The final transaction pays the recipient.',
         'An interruption preserves the exact signed transactions for recovery; fees cannot be changed.',
@@ -4552,9 +4566,11 @@ async function confirmPreparedAsset(
           amount:String(rebuilt.steps[i].psktRequest.tradeSummary.amount),
           displayAmount:formatRawTokenAmount(String(rebuilt.steps[i].psktRequest.tradeSummary.amount),rebuilt.decimals),
           compound:i+1<rebuilt.transactionCount}}))};
-    await saveKcc20Plan(plan);
-    await chrome.storage.session.remove('preparedAsset');
-    return finishKcc20Plan(plan,progress);
+    try{await saveKcc20Plan(plan);}catch{throw Error('Could not save the signed KCC20 payment. No transaction was sent.');}
+    try{
+      await chrome.storage.session.remove('preparedAsset');
+      return await finishKcc20Plan(plan,progress);
+    }catch(error){throw Error(`KCC20 payment signed and saved. Check the dApp and Continue KCC20 transfer in Send assets; do not pay again. ${(error as Error).message}`);}
   }
   if (stored.type === "kcc20") {
     const generation = sessionGeneration;
@@ -5304,7 +5320,12 @@ async function kcc20Transfer(
     const current=await loadState();
     if(current.selectedAddress!==sender || current.network!=='mainnet')
       throw rpc(4001,'Wallet or network changed during KCC20 transfer.');
-    const prepared=await prepareWalletAsset(intent,current,()=>{});
+    const preparation=dappKcc20Preparation(origin);
+    let prepared:Awaited<ReturnType<typeof prepareWalletAsset>>;
+    try {
+      prepared=await cancellableKcc20Preparation(prepareWalletAsset(intent,current,preparation.progress,preparation.signal),preparation.signal);
+      preparation.signal.throwIfAborted();
+    } finally {preparation.close();}
     const result=await confirmPreparedAsset(prepared.preparedId,current,vault,origin);
     if('continuation' in result && result.continuation) { intent=result.continuation; continue; }
     lastActivity=Date.now();
@@ -5419,7 +5440,36 @@ async function finishPendingInscription(
   };
 }
 
-async function approve(input: Omit<ApprovalView, "id">, signal?: AbortSignal) {
+// This surface can only cancel preparation. It cannot authorize signing; a
+// separate immutable transaction review always follows successful preparation.
+function cancellableKcc20Preparation<T>(task:Promise<T>,signal:AbortSignal):Promise<T> {
+  return new Promise((resolve,reject)=>{
+    const abort=()=>reject(rpc(4001,'KCC20 preparation cancelled. Nothing was signed or sent.'));
+    signal.addEventListener('abort',abort,{once:true});
+    if(signal.aborted)abort();
+    // Always consume late results/rejections. The task itself checks the same
+    // signal before saving a review; no late completion can open signing UI.
+    void task.then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort));
+  });
+}
+
+function dappKcc20Preparation(origin:string) {
+  const controller=new AbortController();
+  // Internal Send assets already owns its progress/cancel UI. Do not create
+  // a second approval that its ordinary transaction modal could misinterpret.
+  if(origin==='Kaspire Wallet')return {signal:controller.signal,progress:(_stage:string)=>{},close:()=>controller.abort()};
+  let closed=false,view:ApprovalView|undefined;
+  void approve({origin,title:'Preparing native KCC20 payment',preparing:true,
+    description:'Checking only the requested token and current spendable cells. Nothing is signed or sent before your explicit review.',
+    details:['Resolving verified token units…']},controller.signal,item=>{view=item;})
+    .then(()=>{if(!closed)controller.abort();},()=>{if(!closed)controller.abort();});
+  return {signal:controller.signal,progress:(stage:string)=>{
+    controller.signal.throwIfAborted();
+    if(view){view.details=[stage];sidePanelApprovals.update(view);}
+  },close:()=>{closed=true;controller.abort();}};
+}
+
+async function approve(input: Omit<ApprovalView, "id">, signal?: AbortSignal, created?:(view:ApprovalView)=>void) {
   if (signal?.aborted) return false;
   if (approvals.size >= 4)
     throw new Error("Too many wallet approvals are already pending.");
@@ -5428,11 +5478,14 @@ async function approve(input: Omit<ApprovalView, "id">, signal?: AbortSignal) {
   const id = crypto.randomUUID();
   const view = { id, ...input };
   return new Promise<boolean>(async (resolve) => {
+    let progressWindow:number|undefined;
+    const removed=(windowId:number)=>{if(windowId===progressWindow)finish(false);};
     const finish = (approved: boolean) => {
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
       approvals.delete(id);
       sidePanelApprovals.cancel(id);
+      if(input.preparing){chrome.windows.onRemoved.removeListener(removed);if(progressWindow!==undefined)void chrome.windows.remove(progressWindow).catch(()=>{});}
       resolve(approved);
     };
     const abort = () => finish(false);
@@ -5445,6 +5498,7 @@ async function approve(input: Omit<ApprovalView, "id">, signal?: AbortSignal) {
       timer,
       generation: sessionVault ? sessionGeneration : null,
     });
+    created?.(view);
     signal?.addEventListener('abort', abort, { once: true });
     if (input.origin === "Kaspire Wallet") return;
     const pending=approvals.get(id)!;
@@ -5457,7 +5511,8 @@ async function approve(input: Omit<ApprovalView, "id">, signal?: AbortSignal) {
     }))return;
     pending.panel=false;
     try {
-      await chrome.windows.create({
+      if(input.preparing)chrome.windows.onRemoved.addListener(removed);
+      const window=await chrome.windows.create({
         url: chrome.runtime.getURL(
           `approval.html?id=${encodeURIComponent(id)}`,
         ),
@@ -5466,6 +5521,7 @@ async function approve(input: Omit<ApprovalView, "id">, signal?: AbortSignal) {
         height: 650,
         focused: true,
       });
+      if(input.preparing){progressWindow=window.id;if(!approvals.has(id)&&progressWindow!==undefined)void chrome.windows.remove(progressWindow).catch(()=>{});}
     } catch {
       finish(false);
     }

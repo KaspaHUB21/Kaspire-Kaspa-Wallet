@@ -22,8 +22,15 @@ export function standardKcc20Decimals(token:any) {
   return Number.isInteger(decimals)&&decimals>=0&&decimals<=18?decimals:undefined;
 }
 type Get = (url: string) => Promise<any>;
-// Share pacing between holdings and signing reads. Snapshot caching is only
-// used for display: signing still fetches current balance and own-node proofs.
+// Display scans share one paced lane. Payments use one separate, equally paced
+// lane: an unrelated slow catalogue read / Retry-After must not block approval.
+// At most these two lanes run; neither bypasses pacing or fresh own-node proofs.
+const paymentReaders = new WeakMap<Get,Get>();
+export function standardKcc20PaymentReader(get:Get):Get {
+  let reader=paymentReaders.get(get);
+  if(!reader){reader=url=>get(url);paymentReaders.set(get,reader);}
+  return reader;
+}
 type Queue = {urgent:Array<()=>Promise<void>>; ordinary:Array<()=>Promise<void>>; running:boolean; next:number};
 const queues = new WeakMap<Get, Queue>();
 const holdings = new WeakMap<Get, Map<string, {at:number; assets:any[]; warning:string; complete:boolean}>>();
@@ -276,6 +283,7 @@ export async function standardKcc20Token(get:Get,cid:string) {
   const program=kcc20TokenProgram(t);
   if(t?.covenant_id!==cid||!program||!['hash_proven_reference_actor_family','hash_proven_program_artifact'].includes(t?.recognition))
     throw Error('Token is not the pinned standard KCC20 actor.');
+  if(m.binding_verified===true&&m.covenant_id!=null&&m.covenant_id!==cid)throw Error('KCC20 metadata covenant differs.');
   const symbol=String(m.binding_verified===true?(m.ticker??m.symbol??'KCC20_RAW'):'KCC20_RAW').toUpperCase();
   const decimals=standardKcc20Decimals(t);
   if(!/^[A-Z0-9_.-]{1,32}$/.test(symbol)||decimals===undefined)throw Error('Invalid KCC20 metadata.');

@@ -1,0 +1,7 @@
+/* Approval windows are resizable browser windows, not the fixed 420px popup. */
+html, body { width:100%!important; min-width:0!important; height:100%; max-height:none; overflow-x:hidden; overflow-y:auto; }
+body > #app > main:not(.app) { width:100%; min-width:0; height:auto; min-height:100dvh; max-height:none; overflow-wrap:anywhere; }
+main :is(section,p,h1,h2,details,pre,button) { min-width:0; max-width:100%; overflow-wrap:anywhere; }
+progress { display:block; width:100%; accent-color:var(--accent); }
+.actions { display:flex; flex-wrap:wrap; gap:10px; }
+.actions button { flex:1; }

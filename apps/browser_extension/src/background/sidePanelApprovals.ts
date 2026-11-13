@@ -1,7 +1,7 @@
 import {isSidePanelDocument} from '../shared/walletPage';
 export interface PanelApproval {
   id:string; origin:string; title:string; description:string; details:string[];
-  rawJson?:unknown; recoveryCode?:string; unlockOnly?:boolean; locked?:boolean;
+  rawJson?:unknown; recoveryCode?:string; unlockOnly?:boolean; locked?:boolean; preparing?:boolean;
 }
 type Decision=(approved:boolean)=>Promise<void>|void;
 type Request={view:PanelApproval;decide:Decision};
@@ -65,6 +65,15 @@ export class SidePanelApprovals {
       panel.active=undefined;
       try{panel.port.postMessage({kind:'cancel',id});}catch{this.detach(panel);continue;}
       this.advance(panel);
+    }
+  }
+
+  update(view:PanelApproval) {
+    for(const panel of this.panels.values()) {
+      const request=panel.active?.view.id===view.id?panel.active:panel.queue.find(r=>r.view.id===view.id);
+      if(!request)continue;
+      request.view={...request.view,...view};
+      if(panel.active===request)try{panel.port.postMessage({kind:'progress',id:view.id,details:view.details});}catch{this.detach(panel);}
     }
   }
 
