@@ -67,6 +67,30 @@ class NativeSecurity {
   static const _channel = SecurityChannel();
   final LocalAuthentication _auth = LocalAuthentication();
 
+  /// Lock-screen shortcuts use the same native checks without a second chooser.
+  /// No PIN or biometric material crosses into Flutter.
+  Future<({bool biometrics, bool pin})> walletUnlockMethods() async =>
+      (biometrics: await _hasBiometrics(), pin: await hasPin());
+
+  Future<bool> authenticateWalletPin(String reason) async {
+    if (!await hasPin()) return false;
+    return await _channel.invokeMethod<bool>('verifyPin', {'reason': reason}) ??
+        false;
+  }
+
+  Future<bool> authenticateWalletBiometrics(String reason) async {
+    try {
+      if (!await _hasBiometrics()) return false;
+      return await _auth.authenticate(
+        localizedReason: reason,
+        options: const AuthenticationOptions(
+            biometricOnly: true, stickyAuth: true, useErrorDialogs: true),
+      );
+    } on PlatformException {
+      return false;
+    }
+  }
+
   Future<bool> authenticate(BuildContext context, String reason) async {
     if (isWindowsDesktop) {
       return await _channel.invokeMethod<bool>('verifyPin', {

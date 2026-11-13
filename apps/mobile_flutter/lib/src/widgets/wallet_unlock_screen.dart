@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
 import '../platform.dart';
 import '../services/app_settings.dart';
+import 'android_wallet_lock.dart';
 
 /// Public UI only. Authentication and secret input remain in the native host.
 String? authenticationErrorMessage(Object error) {
@@ -34,8 +36,14 @@ class WalletUnlockScreen extends StatefulWidget {
       {super.key,
       required this.authenticate,
       required this.activateSession,
-      required this.onUnlocked});
+      required this.onUnlocked,
+      this.availableMethods,
+      this.authenticateBiometrics,
+      this.authenticatePin});
   final Future<bool> Function() authenticate;
+  final Future<({bool biometrics, bool pin})> Function()? availableMethods;
+  final Future<bool> Function()? authenticateBiometrics;
+  final Future<bool> Function()? authenticatePin;
   final Future<void> Function() activateSession;
   final VoidCallback onUnlocked;
 
@@ -46,15 +54,18 @@ class WalletUnlockScreen extends StatefulWidget {
 class _WalletUnlockScreenState extends State<WalletUnlockScreen> {
   bool _busy = false;
   String? _error;
+  late final Future<({bool biometrics, bool pin})> _methods =
+      widget.availableMethods?.call() ??
+          Future.value((biometrics: true, pin: true));
 
-  Future<void> _unlock() async {
+  Future<void> _unlock([Future<bool> Function()? authenticate]) async {
     if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      if (!await widget.authenticate() || !mounted) return;
+      if (!await (authenticate ?? widget.authenticate)() || !mounted) return;
       await widget.activateSession();
       if (mounted) widget.onUnlocked();
     } catch (error) {
@@ -65,42 +76,54 @@ class _WalletUnlockScreenState extends State<WalletUnlockScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-      body: SafeArea(
-          child: Center(
-              child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.lock_rounded, size: 58),
-                    const SizedBox(height: 18),
-                    const Text('Kaspire is locked',
-                        style: TextStyle(
-                            fontSize: 24, fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 8),
-                    const Text('Authenticate to restore your wallet session.',
-                        textAlign: TextAlign.center),
-                    if (_error != null)
-                      Padding(
-                          padding: const EdgeInsets.only(top: 16),
-                          child: Semantics(
-                              liveRegion: true,
-                              child: Text(_error!,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .error)))),
-                    const SizedBox(height: 24),
-                    FilledButton.icon(
-                        onPressed: _busy ? null : _unlock,
-                        icon: _busy
-                            ? const SizedBox.square(
-                                dimension: 18,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2))
-                            : Icon(isWindowsDesktop
-                                ? Icons.password_rounded
-                                : Icons.fingerprint_rounded),
-                        label: Text(buttonLabel('UNLOCK KASPIRE'))),
-                  ])))));
+  Widget build(BuildContext context) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidWalletLock(
+        methods: _methods,
+        busy: _busy,
+        error: _error,
+        onBiometrics: () => _unlock(widget.authenticateBiometrics),
+        onPin: () => _unlock(widget.authenticatePin),
+        onDeviceUnlock: _unlock,
+      );
+    }
+    return Scaffold(
+        body: SafeArea(
+            child: Center(
+                child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.lock_rounded, size: 58),
+                      const SizedBox(height: 18),
+                      const Text('Kaspire is locked',
+                          style: TextStyle(
+                              fontSize: 24, fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 8),
+                      const Text('Authenticate to restore your wallet session.',
+                          textAlign: TextAlign.center),
+                      if (_error != null)
+                        Padding(
+                            padding: const EdgeInsets.only(top: 16),
+                            child: Semantics(
+                                liveRegion: true,
+                                child: Text(_error!,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .error)))),
+                      const SizedBox(height: 24),
+                      FilledButton.icon(
+                          onPressed: _busy ? null : _unlock,
+                          icon: _busy
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2))
+                              : Icon(isWindowsDesktop
+                                  ? Icons.password_rounded
+                                  : Icons.fingerprint_rounded),
+                          label: Text(buttonLabel('UNLOCK KASPIRE'))),
+                    ])))));
+  }
 }

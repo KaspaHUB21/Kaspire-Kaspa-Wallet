@@ -96,6 +96,7 @@ void main() {
   }
   testWidgets('Disposed unlock screen never activates a late session',
       (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     final result = Completer<bool>();
     var activated = false;
     await tester.pumpWidget(MaterialApp(
@@ -111,6 +112,7 @@ void main() {
     await tester.pump();
     expect(activated, false);
     expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
   });
   testWidgets('Password eye sends visibility only and new dialog starts masked',
       (tester) async {

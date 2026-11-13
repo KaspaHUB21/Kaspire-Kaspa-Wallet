@@ -2479,6 +2479,11 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
               final address = snapshot.data;
               if (address != null && _locked) {
                 return WalletUnlockScreen(
+                  availableMethods: _security.walletUnlockMethods,
+                  authenticateBiometrics: () =>
+                      _security.authenticateWalletBiometrics('Unlock Kaspire'),
+                  authenticatePin: () =>
+                      _security.authenticateWalletPin('Unlock Kaspire'),
                   authenticate: () => _security.authenticate(
                       _navigatorKey.currentContext!, 'Unlock Kaspire'),
                   activateSession: () =>
