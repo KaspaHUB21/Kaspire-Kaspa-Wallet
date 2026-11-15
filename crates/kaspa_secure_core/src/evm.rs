@@ -211,6 +211,15 @@ fn unsigned_rlp(request: &EvmTransactionRequest) -> Result<Vec<u8>> {
     Ok(stream.out().to_vec())
 }
 
+// secp256k1 compact signatures use fixed-width scalars. Ethereum RLP encodes
+// r and s as integers, whose representation must not contain leading zeroes.
+fn scalar_rlp_bytes(value: &[u8]) -> &[u8] {
+    &value[value
+        .iter()
+        .position(|byte| *byte != 0)
+        .unwrap_or(value.len())..]
+}
+
 pub fn sign_evm_transaction(
     secret: &str,
     request: &EvmTransactionRequest,
@@ -241,8 +250,8 @@ pub fn sign_evm_transaction(
     stream.append(&parse_uint(&request.value_wei)?);
     stream.append(&data_bytes(&request.data)?);
     stream.append(&v);
-    stream.append(&compact[..32].to_vec());
-    stream.append(&compact[32..].to_vec());
+    stream.append(&scalar_rlp_bytes(&compact[..32]));
+    stream.append(&scalar_rlp_bytes(&compact[32..]));
     let raw = stream.out().to_vec();
     Ok(SignedEvmTransaction {
         raw_transaction: format!("0x{}", hex::encode(&raw)),
@@ -254,6 +263,134 @@ pub fn sign_evm_transaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn transfer(chain_id: u64, nonce: u64) -> (String, EvmTransactionRequest) {
+        let secret = format!("private:{}", "42".repeat(32));
+        let request = EvmTransactionRequest {
+            wallet_address: "kaspa:fixture".into(),
+            from: derive_evm_address(&secret).unwrap(),
+            to: format!("0x{}", "22".repeat(20)),
+            recipient: format!("0x{}", "22".repeat(20)),
+            value_wei: "1".into(),
+            nonce,
+            gas_limit: 21_000,
+            gas_price_wei: "2000000000000".into(),
+            chain_id,
+            data: String::new(),
+            token_symbol: "iKAS".into(),
+            display_amount: "0.000000000000000001".into(),
+        };
+        (secret, request)
+    }
+
+    #[test]
+    fn igra_leading_zero_signature_regression() {
+        let (secret, request) = transfer(IGRA_CHAIN_ID, 83);
+        let prepared = prepare_evm_transaction(&request).unwrap();
+        let signed = sign_evm_transaction(&secret, &request, &prepared.review_hash).unwrap();
+        // Old code emits a0002157... (32-byte string with a leading zero).
+        // The valid integer encoding is 9f2157... (31 bytes).
+        assert_eq!(signed.raw_transaction, "0xf867538601d1a94a2000825208942222222222222222222222222222222222222222018083012f86a087f6a5ca0a4ed16e5cde799ab9dab7bcb57ecf65f8922c3be823a7453a860d329f2157f6b4827ec6494bf2d0c1c0358628c5794f833f92c38bba728037277cb8");
+    }
+
+    #[test]
+    fn signatures_are_canonical_and_recover_sender_on_both_supported_chains() {
+        use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
+        for chain in [IGRA_CHAIN_ID, KASPLEX_CHAIN_ID] {
+            let mut short_r = false;
+            let mut short_s = false;
+            for nonce in 0..1024 {
+                let (secret, request) = transfer(chain, nonce);
+                let prepared = prepare_evm_transaction(&request).unwrap();
+                let signed =
+                    sign_evm_transaction(&secret, &request, &prepared.review_hash).unwrap();
+                let bytes = hex::decode(&signed.raw_transaction[2..]).unwrap();
+                assert!(
+                    bytes[0] >= 0xc0,
+                    "legacy transactions have no type-0 prefix"
+                );
+                let tx = rlp::Rlp::new(&bytes);
+                assert_eq!(tx.item_count().unwrap(), 9);
+                let r = tx.at(7).unwrap().data().unwrap();
+                let s = tx.at(8).unwrap().data().unwrap();
+                assert!(!r.is_empty() && r.len() <= 32 && r[0] != 0);
+                assert!(!s.is_empty() && s.len() <= 32 && s[0] != 0);
+                short_r |= r.len() < 32;
+                short_s |= s.len() < 32;
+                let v: u64 = tx.val_at(6).unwrap();
+                assert!([chain * 2 + 35, chain * 2 + 36].contains(&v));
+                let mut compact = [0u8; 64];
+                compact[32 - r.len()..32].copy_from_slice(r);
+                compact[64 - s.len()..].copy_from_slice(s);
+                let recovery = RecoveryId::from_i32((v - chain * 2 - 35) as i32).unwrap();
+                let signature = RecoverableSignature::from_compact(&compact, recovery).unwrap();
+                let message =
+                    Message::from_digest_slice(&keccak(&unsigned_rlp(&request).unwrap())).unwrap();
+                let public = secp256k1::SECP256K1
+                    .recover_ecdsa(&message, &signature)
+                    .unwrap()
+                    .serialize_uncompressed();
+                assert_eq!(
+                    format!("0x{}", hex::encode(&keccak(&public[1..])[12..])),
+                    request.from
+                );
+                assert_eq!(
+                    signed.transaction_hash,
+                    format!("0x{}", hex::encode(keccak(&bytes)))
+                );
+            }
+            assert!(
+                short_r && short_s,
+                "exercise both leading-zero scalar cases"
+            );
+        }
+    }
+
+    #[test]
+    fn eip155_reference_signing_payload_is_unchanged() {
+        let (_, mut request) = transfer(1, 9);
+        request.to = format!("0x{}", "35".repeat(20));
+        request.gas_price_wei = "20000000000".into();
+        request.value_wei = "1000000000000000000".into();
+        let bytes = unsigned_rlp(&request).unwrap();
+        assert_eq!(hex::encode(&bytes), "ec098504a817c800825208943535353535353535353535353535353535353535880de0b6b3a764000080018080");
+        assert_eq!(
+            hex::encode(keccak(&bytes)),
+            "daf5a779ae972f972197303d7b574746c7ef83eadac0f2791ad23db92e4c8e53"
+        );
+        assert!(
+            prepare_evm_transaction(&request).is_err(),
+            "reference vector does not authorize Ethereum mainnet"
+        );
+    }
+
+    #[test]
+    fn erc20_calldata_and_authorization_remain_bound_to_review() {
+        let (secret, mut request) = transfer(IGRA_CHAIN_ID, 83);
+        request.value_wei = "0".into();
+        request.gas_limit = 65_000;
+        request.data = format!("0xa9059cbb{}{}", "00".repeat(32), "00".repeat(31) + "01");
+        let prepared = prepare_evm_transaction(&request).unwrap();
+        let signed = sign_evm_transaction(&secret, &request, &prepared.review_hash).unwrap();
+        let bytes = hex::decode(&signed.raw_transaction[2..]).unwrap();
+        let tx = rlp::Rlp::new(&bytes);
+        assert_eq!(
+            tx.at(5).unwrap().data().unwrap(),
+            data_bytes(&request.data).unwrap()
+        );
+        assert_eq!(tx.at(4).unwrap().data().unwrap(), &[] as &[u8]);
+        let mut changed = request.clone();
+        changed.value_wei = "1".into();
+        assert!(sign_evm_transaction(&secret, &changed, &prepared.review_hash).is_err());
+        assert!(sign_evm_transaction(
+            &format!("private:{}", "43".repeat(32)),
+            &request,
+            &prepared.review_hash
+        )
+        .is_err());
+        assert_eq!(scalar_rlp_bytes(&[0, 0, 1]), &[1]);
+        assert!(scalar_rlp_bytes(&[0; 32]).is_empty());
+    }
 
     #[test]
     fn derives_stable_evm_address_and_rejects_wrong_chain() {
