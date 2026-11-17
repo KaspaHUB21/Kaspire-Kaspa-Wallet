@@ -60,6 +60,12 @@ void main() {
                 'selectedInputCount': 1,
                 'inputCount': 1,
                 'outputCount': 1,
+                'tokenReviews': [{
+                  'ticker':'kUSDT','covenantId':'50b3477e7368d0c5bfbd64483b4607350ec411377972f33e40b2d4b6d1513fd3',
+                  'decimals':6,'complete':true,'outputsBound':true,'walletNetRaw':'-1234567',
+                  'inputs':[{'index':0,'amountRaw':'2000000','walletOwned':true,'reserveSompi':'150000000'}],
+                  'outputs':[{'index':0,'amountRaw':'1234567','walletOwned':false,'reserveSompi':'150000000','signatureBound':true}],
+                }],
                 'inputs': [],
                 'outputs': [],
                 'warnings': [
@@ -111,6 +117,7 @@ void main() {
             .broadcast(SessionRequestEvent.fromSessionRequest(request));
         await tester.pumpAndSettle();
         expect(find.text('GothDAG requests PSKT signing'), findsOneWidget);
+        expect(find.text('Draft token balance change: -1.234567 kUSDT'), findsOneWidget);
         expect(find.text('Important Warnings'), findsOneWidget);
         expect(methods.contains('signPskt'), false);
         await tester.tap(approve

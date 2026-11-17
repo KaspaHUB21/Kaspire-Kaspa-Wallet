@@ -1,4 +1,5 @@
 import { loadState, saveState } from "./state";
+import {psktTokenDetails} from '../shared/psktTokenReview';
 import {runDexEngine,sharedDexAssets,type DexContext,type DexVenue} from './dexEngine';
 import {kassealTokens,kassealHoldings,kassealQuote,prepareKasseal,submitKasseal,resumeKasseal,clearKassealReviews,type KassealContext,type KassealState} from './kasseal';
 import { core } from "./core";
@@ -3667,6 +3668,7 @@ async function handle(
         description:
           "Kaspire will sign only the selected inputs shown by the Rust security core.",
         details: [
+          ...psktTokenDetails(review),
           `Transaction: ${review.transactionId}`,
           review.finalFeeKnown && review.feeSompi != null
             ? `Network fee: ${formatSompi(review.feeSompi)} KAS`

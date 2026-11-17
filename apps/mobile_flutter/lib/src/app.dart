@@ -15,6 +15,7 @@ import 'screens/onboarding_screen.dart';
 import 'services/dapp_session_service.dart';
 import 'services/dapp_kcc20_payment.dart';
 import 'services/dapp_pskt_request.dart';
+import 'services/pskt_token_review.dart';
 import 'services/kcc20_payment_plan.dart';
 import 'services/activity_store.dart';
 import 'services/kaspa_api.dart';
@@ -1465,6 +1466,10 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
                   'Kaspire verified the Kaspa transaction structure and will sign only the selected inputs. You must decide whether the dApp action and any covenant rules are trustworthy.',
                 ),
                 const SizedBox(height: 14),
+                ...psktTokenDetails(review).map((line) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(line, style: const TextStyle(fontWeight: FontWeight.w700)),
+                )),
                 Text(
                   'Draft wallet balance change: ${walletNet <= 0 ? '−' : '+'}${formatSompi(walletNet.abs())} KAS',
                   style: const TextStyle(

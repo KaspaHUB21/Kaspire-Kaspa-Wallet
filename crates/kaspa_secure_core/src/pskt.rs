@@ -162,6 +162,8 @@ pub struct PsktOutputReview {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedPskt {
+    #[serde(default)]
+    pub token_reviews: Vec<crate::pskt_tokens::TokenReview>,
     pub profile: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_id: Option<String>,
@@ -715,7 +717,17 @@ fn build_pskt_inner(request: &PsktRequest) -> Result<BuiltPskt> {
                 .any(|ch| ch.is_control() && !ch.is_whitespace())
         })
         .map(ToOwned::to_owned);
+    let mut placeholder = vec![0;66]; placeholder[0]=65;
+    let witnesses = tx.inputs.iter().enumerate().map(|(i,input)| {
+        match scripts.get(&i) {
+            Some(s) if s.prebuilt_signature_script.is_some() => hex::decode(s.prebuilt_signature_script.as_ref().unwrap()).map_err(|_|CoreError::Serialization),
+            Some(s) => assemble_p2sh_signature_script(s,&placeholder),
+            None => Ok(input.signature_script.clone()),
+        }
+    }).collect::<Result<Vec<_>>>()?;
+    let token_reviews=crate::pskt_tokens::review(&tx,&entries,&witnesses,&sender,&output_reviews.iter().map(|o|o.signature_bound).collect::<Vec<_>>());
     let review_data = json!({
+        "tokenReviews": token_reviews,
         "profile": request.profile.as_deref().unwrap_or("generic-pskt-v2"),
         "tokenId": request.token_id,
         "lpCovenantId": request.lp_covenant_id,
@@ -750,6 +762,7 @@ fn build_pskt_inner(request: &PsktRequest) -> Result<BuiltPskt> {
         sighashes,
         scripts,
         review: PreparedPskt {
+            token_reviews,
             profile: request
                 .profile
                 .clone()

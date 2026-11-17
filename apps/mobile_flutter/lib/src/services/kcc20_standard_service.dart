@@ -107,13 +107,21 @@ class Kcc20StandardService {
       value == standard ||
       value == 'kcc20-last-call' ||
       value == 'kasparocket-kcc20' ||
-      value == 'kasseal-kcc20';
+      value == 'kasseal-kcc20' ||
+      value == 'kusdt-kcc20';
   static bool supportsBorrowedReceive(String? value) =>
-      isStandard(value) && value != 'kasseal-kcc20';
+      isStandard(value) && value != 'kasseal-kcc20' && value != 'kusdt-kcc20';
   static const templateId = 'argent-kcc20-c8a0871';
   // Separate native mode: pinned reference bytes, owner signatures only,
   // whole tokens, borrow=0 and Kasseal's 5 KAS output reserve.
   static const kassealOwnerTemplateId = 'kasseal-kcc20-owner-v1';
+  // Mainnet deployment pinned by kusdt-open b70707cd496dc46de4db64d363ccd8e10a029770.
+  // SPEC sections 2/5: six decimals, reference actor, plain owner states and
+  // 1.5 KAS reserve. Bridge, burns, pool swaps and other owner schemes are not
+  // enabled by this transfer-only integration.
+  static const kusdtCovenantId =
+      '50b3477e7368d0c5bfbd64483b4607350ec411377972f33e40b2d4b6d1513fd3';
+  static const kusdtOwnerTemplateId = 'kusdt-mainnet-owner-v1';
   static const reference = 'c8a087117735a1f87c5c6d115fcddeaf2562c784';
   static const templateHash =
       '9703112ee6e3555107cd168858992b77d3b74f655205b2b463b1f9ec2ec73cf7';
@@ -135,13 +143,68 @@ class Kcc20StandardService {
 
   static String? tokenTemplate(Map row) {
     final hash = _templateHash(row);
+    final kusdt = rowId(row) == kusdtCovenantId;
     if (hash != null) {
-      if (hash == templateHash) return templateId;
+      if (hash == templateHash) {
+        return kusdt ? kusdtOwnerTemplateId : templateId;
+      }
       if (hash == tenTemplateHash) return tenTemplateId;
       return null;
     }
-    return row['profile_id'] == 'KCC20PublicMint@c8a0871' ? templateId : null;
+    return row['profile_id'] == 'KCC20PublicMint@c8a0871'
+        ? (kusdt ? kusdtOwnerTemplateId : templateId)
+        : null;
   }
+
+  static Map<String, dynamic> _pinToken(Map input) {
+    final row = map(input);
+    if (rowId(row) != kusdtCovenantId ||
+        tokenTemplate(row) != kusdtOwnerTemplateId ||
+        !const [
+          'hash_proven_reference_actor_family',
+          'hash_proven_program_artifact'
+        ].contains(row['recognition'])) {
+      return row;
+    }
+    final metadata = map(row['metadata']), units = map(row['token_units']);
+    for (final reported in [
+      if (metadata['binding_verified'] == true) metadata['decimals'],
+      if (units['status'] == 'verified') units['decimals'],
+    ]) {
+      if (reported != null && reported.toString() != '6') {
+        throw StateError('kUSDT units differ from the pinned deployment.');
+      }
+    }
+    if (metadata['binding_verified'] == true &&
+        metadata['covenant_id'] != null &&
+        metadata['covenant_id'] != kusdtCovenantId) {
+      throw StateError('kUSDT metadata covenant differs.');
+    }
+    return {
+      ...row,
+      'wallet_standard': 'kusdt-kcc20',
+      'metadata': {
+        ...metadata,
+        'covenant_id': kusdtCovenantId,
+        'name': 'kUSDT',
+        'ticker': 'KUSDT',
+        'symbol': 'kUSDT',
+        'decimals': 6,
+        'binding_verified': true,
+        'identity_source': 'wallet-pinned-kusdt-mainnet',
+      }
+    };
+  }
+
+  static Map<String, dynamic> _pinResponse(Map<String, dynamic> value) => {
+        ...value,
+        if (value['data'] is List)
+          'data': (value['data'] as List)
+              .map((row) => row is Map ? _pinToken(row) : row)
+              .toList()
+        else if (value['data'] is Map)
+          'data': _pinToken(value['data'] as Map),
+      };
 
   static final _hex64 = RegExp(r'^[0-9a-f]{64}$');
   static final _queues = Expando<_KasvioReadQueue>();
@@ -226,7 +289,8 @@ class Kcc20StandardService {
               tokenTemplate(token) == null &&
               token['profile_id'] == null &&
               _templateHash(token) == null) {
-            return await _fallback.read(path, uri.queryParameters);
+            return _pinResponse(
+                await _fallback.read(path, uri.queryParameters));
           }
           if (rowId(token) == path[1] &&
               tokenTemplate(token) == templateId &&
@@ -236,7 +300,7 @@ class Kcc20StandardService {
           }
         }
       }
-      return value;
+      return _pinResponse(value);
     } catch (error) {
       if (isCancelled?.call() == true) rethrow;
       final unavailable = error is TimeoutException ||
@@ -258,7 +322,7 @@ class Kcc20StandardService {
         final value = await _fallback.read(path, uri.queryParameters);
         if (isCancelled?.call() == true)
           throw StateError('KCC20 preparation cancelled.');
-        return value;
+        return _pinResponse(value);
       } catch (fallbackError) {
         // Preserve the original 404/405 compatibility path only if neither
         // source exposes it. Never reinterpret an unavailable lookup as zero.
@@ -488,9 +552,11 @@ class Kcc20StandardService {
                 rawBalance: rawText,
                 id: cid,
                 covenantId: cid,
-                standard: token['wallet_standard'] == 'kasseal-kcc20'
-                    ? 'kasseal-kcc20'
-                    : standard,
+                standard: token['wallet_standard'] == 'kusdt-kcc20'
+                    ? 'kusdt-kcc20'
+                    : token['wallet_standard'] == 'kasseal-kcc20'
+                        ? 'kasseal-kcc20'
+                        : standard,
                 templateHash: program,
                 validationStatus: 'observed',
                 discoveryComplete: false,
@@ -639,22 +705,25 @@ class Kcc20StandardService {
                 rawBalance: raw.toString(),
                 id: cid,
                 covenantId: cid,
-                standard: standard,
+                standard: token['wallet_standard'] == 'kusdt-kcc20'
+                    ? 'kusdt-kcc20'
+                    : standard,
                 templateHash: tokenProgram,
                 validationStatus: 'observed',
                 discoveryComplete: false,
-                activityOrigins:
-                    ((b['outputs'] as List? ?? []).whereType<Map>().toList()
-                          ..sort((a, b) =>
-                              (BigInt.tryParse(b['acceptance_id'].toString()) ??
-                                      BigInt.zero)
-                                  .compareTo(BigInt.tryParse(
-                                          a['acceptance_id'].toString()) ??
+                activityOrigins: ((b['outputs'] as List? ?? [])
+                        .whereType<Map>()
+                        .toList()
+                      ..sort((a, b) =>
+                          (BigInt.tryParse(b['acceptance_id'].toString()) ??
+                                  BigInt.zero)
+                              .compareTo(
+                                  BigInt.tryParse(a['acceptance_id'].toString()) ??
                                       BigInt.zero)))
-                        .map((row) => row['txid']?.toString() ?? '')
-                        .where(_hex64.hasMatch)
-                        .take(512)
-                        .toList(),
+                    .map((row) => row['txid']?.toString() ?? '')
+                    .where(_hex64.hasMatch)
+                    .take(512)
+                    .toList(),
                 imageUrl: metadata['image_bytes_verified'] == true &&
                         _hex64.hasMatch(hash)
                     ? '$base/images/$hash'
@@ -883,6 +952,9 @@ class Kcc20StandardService {
   Future<Kcc20CellRecord?> borrowedReceive(String recipient, String cid,
       int amount, Kcc20CellRecord first, String programId,
       {bool Function()? isCancelled}) async {
+    if (cid == kusdtCovenantId) {
+      return null;
+    }
     final owner = kaspaOwnerIdFromAddress(recipient);
     if (!_hex64.hasMatch(owner) || amount <= 0)
       throw StateError('Invalid borrowed receive request.');
@@ -1078,17 +1150,23 @@ class Kcc20StandardService {
     }
     final programHash = firstStates.single['template_hash'];
     final ten = programHash == tenTemplateHash;
+    final kusdt = cid == kusdtCovenantId;
     if (!ten && programHash != templateHash) {
       throw StateError('Unsupported KCC20 program configuration.');
     }
     if (kassealOwnerOnly && ten) {
       throw StateError('Unsupported Kasseal token program.');
     }
-    final programId = kassealOwnerOnly
-        ? kassealOwnerTemplateId
-        : ten
-            ? tenTemplateId
-            : templateId;
+    if (kusdt && (ten || kassealOwnerOnly)) {
+      throw StateError('kUSDT program differs from the pinned deployment.');
+    }
+    final programId = kusdt
+        ? kusdtOwnerTemplateId
+        : kassealOwnerOnly
+            ? kassealOwnerTemplateId
+            : ten
+                ? tenTemplateId
+                : templateId;
     final limit = ten ? 10 : 3;
     final template = map(jsonDecode(await rootBundle.loadString(ten
         ? 'assets/kcc20_reference_10_template.json'
@@ -1161,6 +1239,9 @@ class Kcc20StandardService {
                 extension != '0' * 64 ||
                 units > BigInt.from(1200000000))) {
           throw StateError('Unsupported Kasseal token policy.');
+        }
+        if (kusdt && extension != '0' * 64) {
+          throw StateError('Unsupported kUSDT owner policy.');
         }
         final bytes = <int>[
           8,

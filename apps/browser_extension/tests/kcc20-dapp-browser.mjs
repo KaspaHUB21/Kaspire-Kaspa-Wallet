@@ -99,6 +99,24 @@ try{
     for(const t of (await targets()).filter(t=>t.url.includes('/approval.html')))console.log('Approval:',await evaluate(t.webSocketDebuggerUrl,'document.body.innerText').catch(()=>''));
     throw error;
   });
+  // Actual packaged generic dApp signing: token amounts are decoded by WASM,
+  // not provided in the public signPskt envelope. Every theme stays readable.
+  const kusdt='50b3477e7368d0c5bfbd64483b4607350ec411377972f33e40b2d4b6d1513fd3';
+  const kusdtRedeem=template.prefix+'0880841e000000000020'+owner+'0100010020'+'0'.repeat(64)+'20'+'0'.repeat(64)+template.suffix;
+  const ks=payToScriptHashScript(kusdtRedeem),kusdtSpk=ks.script;ks.free();
+  const native=JSON.parse(core.prepareKronTransfer(JSON.stringify({sender,recipient,covenantId:kusdt,ticker:'KUSDT',amount:1234567,decimals:6,feeRate:100,templateHash:'kusdt-mainnet-owner-v1',cells:[{transactionId:'ab'.repeat(32),index:0,valueSompi:150000000,blockDaaScore:123,scriptPublicKey:kusdtSpk,tokenAmount:2000000,redeemScript:kusdtRedeem}],fundingUtxosJson:JSON.stringify([{address:sender,outpoint:{transactionId:'bb'.repeat(32),index:0},utxoEntry:{amount:2000000000,scriptPublicKey:{version:0,scriptPublicKey:'20'+owner+'ac'},blockDaaScore:123,isCoinbase:false}}])})));
+  for(const theme of ['midnight','hub21','glacier','neptune']){
+    await evaluate(wallet,`chrome.runtime.sendMessage({channel:'wallet',command:'setSettings',settings:{theme:${JSON.stringify(theme)}}})`);
+    const r=native.psktRequest;
+    await evaluate(dapp,`window.payment='pending';kaspire.signPskt(${JSON.stringify({txJsonString:r.txJsonString,signInputs:r.signInputs,scripts:r.scripts})}).then(v=>window.payment={ok:v}).catch(e=>window.payment={error:e.message});true`);
+    const ui=await popup('#approve');
+    const text=await evaluate(ui,'document.body.innerText');assert.match(text,/-1\.234567 kUSDT/);assert.match(text,/1\.5 KAS \(not token amount\)/);assert.match(text,/0\.765433 kUSDT/);
+    await cdp(ui,'Emulation.setDeviceMetricsOverride',{width:320,height:720,deviceScaleFactor:1,mobile:false});
+    assert(await evaluate(ui,'document.documentElement.scrollWidth<=innerWidth+1'),theme+' kUSDT narrow review');
+    await evaluate(ui,'document.querySelector("#approve").click();true');
+    assert.equal(typeof await until(()=>evaluate(dapp,'window.payment.ok'),'kUSDT signature'),'string');
+    assert.equal(await evaluate(ws,'kcc20Fixture.broadcasts.length'),0,'PSKT signing must not broadcast');
+  }
   // Cancellation while a source is stalled; late completion cannot sign.
   await evaluate(ws,'kcc20Fixture.blockPayment=true;true');await start(500);
   let ui=await popup('#cancel-preparation');assert.equal(await evaluate(ui,'!!document.querySelector("#approve")'),false);

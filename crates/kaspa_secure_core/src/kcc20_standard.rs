@@ -16,13 +16,18 @@ pub const TEMPLATE_10_ID: &str = "argent-kcc20-c8a0871-10x10";
 // The complete program outside its 112-byte state has the already pinned
 // KasSeal SDK 0.3.0 SHA256 77d1bf0010f639e881c8d56ffe5bb78c2d2bc9b883365959e84cdbc2744c7ba7.
 pub const KASSEAL_OWNER_ID: &str = "kasseal-kcc20-owner-v1";
-pub fn is_template(id:&str)->bool { matches!(id,TEMPLATE_ID|TEMPLATE_10_ID|KASSEAL_OWNER_ID) }
-pub fn input_limit(id:&str)->Result<usize> { match id {TEMPLATE_ID|KASSEAL_OWNER_ID=>Ok(3),TEMPLATE_10_ID=>Ok(10),_=>Err(bad("Unsupported KCC20 program configuration"))} }
+// kUSDT uses the exact reference actor. Its official wallet accepts plain
+// owner-authorized states only; never create borrowed-receive states for it.
+pub const KUSDT_OWNER_ID: &str = "kusdt-mainnet-owner-v1";
+pub const KUSDT_COVENANT_ID: &str = "50b3477e7368d0c5bfbd64483b4607350ec411377972f33e40b2d4b6d1513fd3";
+pub fn is_template(id:&str)->bool { matches!(id,TEMPLATE_ID|TEMPLATE_10_ID|KASSEAL_OWNER_ID|KUSDT_OWNER_ID) }
+pub fn input_limit(id:&str)->Result<usize> { match id {TEMPLATE_ID|KASSEAL_OWNER_ID|KUSDT_OWNER_ID=>Ok(3),TEMPLATE_10_ID=>Ok(10),_=>Err(bad("Unsupported KCC20 program configuration"))} }
 const DEPOSIT:u64=100_000_000;
-fn deposit(id:&str)->u64 {if id==KASSEAL_OWNER_ID {500_000_000} else {DEPOSIT}}
+fn owner_only(id:&str)->bool {matches!(id,KASSEAL_OWNER_ID|KUSDT_OWNER_ID)}
+fn deposit(id:&str)->u64 {match id {KASSEAL_OWNER_ID=>500_000_000,KUSDT_OWNER_ID=>150_000_000,_=>DEPOSIT}}
 fn bad(message:&str)->CoreError {CoreError::InvalidRequest(message.into())}
 fn template_for(id:&str)->Result<(Vec<u8>,Vec<u8>)>{
-    let source=match id {TEMPLATE_ID|KASSEAL_OWNER_ID=>include_str!("kcc20_standard_template.json"),TEMPLATE_10_ID=>include_str!("kcc20_reference_10_template.json"),_=>return Err(bad("Unsupported KCC20 program configuration"))};
+    let source=match id {TEMPLATE_ID|KASSEAL_OWNER_ID|KUSDT_OWNER_ID=>include_str!("kcc20_standard_template.json"),TEMPLATE_10_ID=>include_str!("kcc20_reference_10_template.json"),_=>return Err(bad("Unsupported KCC20 program configuration"))};
     let v:Value=serde_json::from_str(source).map_err(|_|CoreError::Serialization)?;
     Ok((hex::decode(v["prefix"].as_str().unwrap()).map_err(|_|CoreError::Serialization)?,hex::decode(v["suffix"].as_str().unwrap()).map_err(|_|CoreError::Serialization)?))
 }
@@ -34,6 +39,9 @@ fn owner(address:&str)->Result<[u8;32]>{
 #[derive(Clone)]
 struct State{amount:u64,owner:[u8;32],borrow:u8,guard:[u8;32],extension:[u8;32]}
 fn validate_owner_policy(request:&KronTransferRequest,s:&State)->Result<()> {
+    if request.template_hash==KUSDT_OWNER_ID && (request.covenant_id!=KUSDT_COVENANT_ID || request.decimals!=6 || request.borrowed_receive.is_some() || s.extension!=[0;32]) {
+        return Err(bad("kUSDT requires the pinned Mainnet covenant, six decimals, owner signatures and unextended states"));
+    }
     if request.template_hash==KASSEAL_OWNER_ID && (request.decimals!=0 || request.borrowed_receive.is_some() || s.borrow!=0 || s.guard!=[0;32] || s.extension!=[0;32] || s.amount>1_200_000_000) {
         return Err(bad("KasSeal owner transfer requires whole tokens, owner signatures, disabled borrowing and no extension"));
     }
@@ -88,12 +96,20 @@ fn borrowed_state(request:&KronTransferRequest)->Result<Option<State>> {
 }
 pub fn prepare(request:&KronTransferRequest)->Result<PreparedKronTransfer>{
     let limit=input_limit(&request.template_hash)?;
+    // Prevent the generic reference profile from accidentally creating states
+    // that the kUSDT reference wallet cannot discover or spend.
+    if request.covenant_id==KUSDT_COVENANT_ID && request.template_hash!=KUSDT_OWNER_ID {
+        return Err(bad("kUSDT transfers require the dedicated interoperable owner profile"));
+    }
     if request.template_hash==KASSEAL_OWNER_ID && (request.decimals!=0 || request.borrowed_receive.is_some()) {
         return Err(bad("KasSeal owner transfer does not enable borrowed receive or fractional tokens"));
     }
     let borrowed=borrowed_state(request)?;
     if request.amount==0||request.cells.is_empty()||request.cells.len()+usize::from(borrowed.is_some())>limit||request.decimals>18||!request.fee_rate.is_finite()||!(100.0..=10_000.0).contains(&request.fee_rate){return Err(bad("Invalid standard KCC20 transfer parameters"));}
     let sender=owner(&request.sender)?;let recipient=owner(&request.recipient)?;
+    if request.template_hash==KUSDT_OWNER_ID && secp256k1::XOnlyPublicKey::from_slice(&recipient).is_err() {
+        return Err(bad("kUSDT recipient does not identify a spendable Schnorr key"));
+    }
     let cid=Hash::from_str(&request.covenant_id).map_err(|_|bad("Invalid covenant ID"))?;
     let mut seen=HashSet::new();let mut states=Vec::new();let mut scripts=Vec::new();let mut entries=Vec::new();let mut total=0u64;let mut locked=0u64;
     let all_cells:Vec<_>=request.borrowed_receive.iter().chain(request.cells.iter()).collect();
@@ -116,11 +132,11 @@ pub fn prepare(request:&KronTransferRequest)->Result<PreparedKronTransfer>{
     if total<request.amount {return Err(bad("Insufficient KCC20 token balance"));}
     if request.template_hash==KASSEAL_OWNER_ID && total>1_200_000_000 {return Err(bad("KasSeal token total exceeds fixed supply"));}
     let change=total-request.amount;
-    let mut destination=borrowed.clone().unwrap_or(State{amount:0,owner:recipient,borrow:if request.template_hash==KASSEAL_OWNER_ID {0}else{1},guard:[0;32],extension:states[0].extension});
+    let mut destination=borrowed.clone().unwrap_or(State{amount:0,owner:recipient,borrow:if owner_only(&request.template_hash) {0}else{1},guard:[0;32],extension:states[0].extension});
     destination.amount=destination.amount.checked_add(request.amount).ok_or_else(||bad("Borrowed KCC20 amount overflow"))?;
     total.checked_add(borrowed.as_ref().map_or(0,|s|s.amount)).filter(|v|*v<=i64::MAX as u64).ok_or_else(||bad("KCC20 token total overflow"))?;
     let mut next=vec![destination];
-    if change>0{let mut s=states[usize::from(borrowed.is_some())].clone();s.amount=change;if s.borrow==0 && request.template_hash!=KASSEAL_OWNER_ID{s.borrow=1;s.guard=[0;32];}next.push(s);}
+    if change>0{let mut s=states[usize::from(borrowed.is_some())].clone();s.amount=change;if request.template_hash==KUSDT_OWNER_ID{s.borrow=0;s.guard=[0;32];}else if s.borrow==0 && !owner_only(&request.template_hash){s.borrow=1;s.guard=[0;32];}next.push(s);}
     // A borrowed deposit belongs to the receiver: never release it as sender change.
     let cell_deposit=deposit(&request.template_hash);
     let mut values=vec![request.borrowed_receive.as_ref().map_or(cell_deposit,|c|c.value_sompi.max(cell_deposit))];
@@ -191,7 +207,7 @@ pub(crate) fn validate_plan_cells(request:&KronTransferRequest)->Result<()> {
 }
 pub(crate) fn plan_output(first:&crate::KronCell,txid:&str,amount:u64,id:&str)->Result<crate::KronCell> {
     let mut s=decode_for(&hex::decode(&first.redeem_script).map_err(|_|bad("Malformed KCC20 script"))?,id)?;
-    s.amount=amount;s.borrow=if id==KASSEAL_OWNER_ID {0}else{1};s.guard=[0;32];
+    s.amount=amount;s.borrow=if owner_only(id) {0}else{1};s.guard=[0;32];
     let script=redeem_for(&s,id)?;
     Ok(crate::KronCell {transaction_id:txid.into(),index:0,value_sompi:deposit(id),block_daa_score:0,
         script_public_key:hex::encode(pay_to_script_hash_script(&script).script()),token_amount:amount,redeem_script:hex::encode(script)})
@@ -208,6 +224,88 @@ pub(crate) fn validate(request:&PsktRequest)->Result<()> {
 }
 #[cfg(test)] mod tests {
     use super::*;
+    use serde_json::json;
+    fn kusdt_request(count:usize)->(String,KronTransferRequest) {
+        let (secret,mut r)=ten_request(count);
+        r.covenant_id=KUSDT_COVENANT_ID.into();r.template_hash=KUSDT_OWNER_ID.into();r.ticker="KUSDT".into();r.decimals=6;r.amount=count as u64*1_000_000-1;
+        let state=State{amount:1_000_000,owner:owner(&r.sender).unwrap(),borrow:0,guard:[0;32],extension:[0;32]};
+        let script=redeem_for(&state,KUSDT_OWNER_ID).unwrap();
+        for cell in &mut r.cells {cell.token_amount=state.amount;cell.value_sompi=150_000_000;cell.redeem_script=hex::encode(&script);cell.script_public_key=hex::encode(pay_to_script_hash_script(&script).script());}
+        (secret,r)
+    }
+    #[test] fn kusdt_transfers_and_compound_execute_reference_vm_with_plain_six_decimal_states() {
+        for count in [1,3,7] {
+            let(secret,r)=kusdt_request(count);
+            let plan=crate::prepare_kcc20_plan(&r).unwrap();
+            assert_eq!(plan.decimals,6);assert_eq!(plan.amount,count as u64*1_000_000-1);
+            for step in &plan.steps {
+                let terms:KronTransferRequest=serde_json::from_value(step.pskt_request.trade_summary.clone().unwrap()).unwrap();
+                assert_eq!(terms.template_hash,KUSDT_OWNER_ID);assert_eq!(terms.covenant_id,KUSDT_COVENANT_ID);
+                assert!(step.covenant_input_count<=3);assert!(step.covenant_output_count<=2);
+                let review=crate::prepare_pskt(&step.pskt_request).unwrap();
+                let token=&review.token_reviews[0];
+                assert!(token.complete);assert!(token.outputs_bound);assert_eq!(token.decimals,6);
+                assert_eq!(token.ticker,"kUSDT");assert_eq!(token.covenant_id,KUSDT_COVENANT_ID);
+                assert!(token.inputs.iter().all(|c|c.wallet_owned));
+                for output in review.outputs.iter().filter(|o|o.covenant_id.is_some()) {assert_eq!(output.amount_sompi,150_000_000);}
+                let projected=plan_output(&terms.cells[0],&step.transaction_id,terms.amount,KUSDT_OWNER_ID).unwrap();
+                let state=decode_for(&hex::decode(projected.redeem_script).unwrap(),KUSDT_OWNER_ID).unwrap();assert_eq!(state.borrow,0);assert_eq!(state.guard,[0;32]);assert_eq!(state.extension,[0;32]);
+            }
+            let signed=crate::sign_kcc20_plan(&secret,&r,&plan.review_hash).unwrap();assert_eq!(signed.transactions.len(),plan.steps.len());
+            if count==7 {assert!(plan.steps.len()>1);}else{assert_eq!(plan.steps.len(),1);}
+            let mut changed=r.clone();changed.amount-=1;assert!(crate::sign_kcc20_plan(&secret,&changed,&plan.review_hash).is_err());
+        }
+    }
+    #[test] fn kusdt_generic_pskt_review_proves_amounts_without_trusting_dapp_terms() {
+        let(secret,mut source)=kusdt_request(1);source.amount=1;
+        let mut request=prepare(&source).unwrap().pskt_request;
+        request.profile=None;request.trade_summary=None;request.token_id=None;request.ticker=None;
+        let r=crate::prepare_pskt(&request).unwrap();let token=&r.token_reviews[0];
+        assert!(token.complete);assert_eq!(token.wallet_input_raw.as_deref(),Some("1000000"));
+        assert_eq!(token.wallet_output_raw.as_deref(),Some("999999"));
+        assert_eq!(token.wallet_net_raw.as_deref(),Some("-1"));
+        assert_eq!(token.outputs[0].amount_raw,"1");assert!(!token.outputs[0].wallet_owned);
+        assert_eq!(token.outputs[0].reserve_sompi,"150000000");
+        let signed=crate::sign_pskt(&secret,&request,&r.review_hash).unwrap();
+        assert!(!signed.signed_tx_json.is_empty());
+        // An unrecognized output preimage must remain unknown, not zero.
+        let mut tx:Value=serde_json::from_str(&request.tx_json_string).unwrap();
+        tx["outputs"][0]["scriptPublicKey"]=json!(format!("0000{}",hex::encode(pay_to_script_hash_script(&[42]).script())));
+        let mut bad=request.clone();bad.tx_json_string=tx.to_string();
+        assert!(crate::prepare_pskt(&bad).is_err());
+        assert!(crate::sign_pskt(&secret,&bad,&r.review_hash).is_err());
+        // Unknown/mismatched input scripts cannot manufacture a state proof.
+        let mut bad=request.clone();bad.scripts[0].prebuilt_signature_script=Some("00".into());
+        let mut tx:Value=serde_json::from_str(&bad.tx_json_string).unwrap();tx["inputs"][0]["signatureScript"]=json!("00");bad.tx_json_string=tx.to_string();
+        bad.scripts[0].signature_offsets=vec![];
+        assert!(crate::prepare_pskt(&bad).is_err());
+        // Similar token names do not promote another covenant to kUSDT.
+        let mut bad=request.clone();let mut tx:Value=serde_json::from_str(&bad.tx_json_string).unwrap();
+        tx["inputs"][0]["utxo"]["covenantId"]=json!("aa".repeat(32));
+        for output in tx["outputs"].as_array_mut().unwrap(){if output["covenant"].is_object(){output["covenant"]["covenantId"]=json!("aa".repeat(32));}}
+        bad.tx_json_string=tx.to_string();assert!(crate::prepare_pskt(&bad).is_err());
+    }
+    #[test] fn kusdt_profile_rejects_spoofed_identity_units_policy_and_unspendable_recipient() {
+        let(_,r)=kusdt_request(1);
+        let mut changed=r.clone();changed.covenant_id="cc".repeat(32);assert!(prepare(&changed).is_err());
+        let mut changed=r.clone();changed.decimals=8;assert!(prepare(&changed).is_err());
+        let mut changed=r.clone();changed.template_hash=TEMPLATE_ID.into();assert!(prepare(&changed).is_err());
+        let mut changed=r.clone();changed.recipient=Address::new(Prefix::Mainnet,Version::PubKey,&[255;32]).to_string();assert!(prepare(&changed).is_err());
+        let mut changed=r.clone();let mut state=decode_for(&hex::decode(&changed.cells[0].redeem_script).unwrap(),KUSDT_OWNER_ID).unwrap();state.extension=[1;32];let script=redeem_for(&state,KUSDT_OWNER_ID).unwrap();changed.cells[0].redeem_script=hex::encode(&script);changed.cells[0].script_public_key=hex::encode(pay_to_script_hash_script(&script).script());assert!(prepare(&changed).is_err());
+        let mut changed=r.clone();changed.borrowed_receive=Some(r.cells[0].clone());assert!(prepare(&changed).is_err());
+        let mut changed=r.clone();changed.cells.push(r.cells[0].clone());assert!(prepare(&changed).is_err());
+    }
+    #[test] fn kusdt_owner_can_spend_other_wallet_policies_but_every_output_is_plain() {
+        let(secret,r)=kusdt_request(1);
+        for borrow in 0..=3 {
+            let mut request=r.clone();let mut input=decode_for(&hex::decode(&r.cells[0].redeem_script).unwrap(),KUSDT_OWNER_ID).unwrap();input.borrow=borrow;input.guard=[7;32];let script=redeem_for(&input,KUSDT_OWNER_ID).unwrap();request.cells[0].redeem_script=hex::encode(&script);request.cells[0].script_public_key=hex::encode(pay_to_script_hash_script(&script).script());
+            let prepared=prepare(&request).unwrap();let review=crate::prepare_pskt(&prepared.pskt_request).unwrap();
+            for (index,(who,amount)) in [(&request.recipient,request.amount),(&request.sender,1)].into_iter().enumerate() {
+                let state=State{amount,owner:owner(who).unwrap(),borrow:0,guard:[0;32],extension:[0;32]};let script=redeem_for(&state,KUSDT_OWNER_ID).unwrap();assert_eq!(review.outputs[index].script_public_key,format!("0000{}",hex::encode(pay_to_script_hash_script(&script).script())));
+            }
+            crate::sign_pskt(&secret,&prepared.pskt_request,&review.review_hash).unwrap();
+        }
+    }
     fn ten_request(count:usize)->(String,KronTransferRequest) {
         let secret=format!("private:{}","11".repeat(32));
         let sender=crate::derive_address(&secret).unwrap();

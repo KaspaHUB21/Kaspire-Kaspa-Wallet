@@ -22,6 +22,7 @@ mod kasforge;
 mod kforge;
 mod policy_transaction;
 mod pskt;
+mod pskt_tokens;
 mod tangem_rescue;
 mod transaction;
 mod secret_input;

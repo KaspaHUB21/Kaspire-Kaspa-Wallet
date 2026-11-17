@@ -85,7 +85,7 @@ class SendApi extends KaspaApi {
     final cells = List.generate(
         3,
         (i) => Kcc20CellRecord(
-            covenantId: cid,
+            covenantId: initialSnapshot?.kcc20Tokens.single.covenantId ?? cid,
             transactionId: 'a' * 64,
             index: i,
             valueSompi: 100000000,
@@ -96,9 +96,11 @@ class SendApi extends KaspaApi {
     return Kcc20Step(cells, count > 1 ? 30 : amount, count > 1,
         requiredCells: count > 1 ? 10 : 1,
         transactionCount: count,
-        templateId: sourceStandard == 'kasseal-kcc20'
-            ? Kcc20StandardService.kassealOwnerTemplateId
-            : null);
+        templateId: sourceStandard == 'kusdt-kcc20'
+            ? Kcc20StandardService.kusdtOwnerTemplateId
+            : sourceStandard == 'kasseal-kcc20'
+                ? Kcc20StandardService.kassealOwnerTemplateId
+                : null);
   }
 
   @override
@@ -229,7 +231,9 @@ void main() {
                 address: address,
                 onDone: () {},
                 api: api,
-                initialAsset: AssetSendIntent.kcc20('TEST.K', cid,
+                initialAsset: AssetSendIntent.kcc20(
+                    api.initialSnapshot?.kcc20Tokens.single.symbol ?? 'TEST.K',
+                    api.initialSnapshot?.kcc20Tokens.single.covenantId ?? cid,
                     wallet: api.initialSnapshot ?? snapshot)))));
     await tester.pumpAndSettle();
   }
@@ -244,6 +248,52 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets(
+      'kUSDT six-decimal balance opens native owner review without borrowing or signing',
+      (tester) async {
+    final api = SendApi(1,
+        initialSnapshot: const WalletSnapshot(
+          balanceSompi: 1000000000,
+          kasUsd: null,
+          transactions: [],
+          krc20Tokens: [],
+          krc721Collections: [],
+          knsDomains: [],
+          kcc20Tokens: [
+            WalletAsset(
+              symbol: 'KUSDT',
+              balance: 2,
+              rawBalance: '2000000',
+              decimals: 6,
+              kind: 'KCC20',
+              covenantId: Kcc20StandardService.kusdtCovenantId,
+              standard: 'kusdt-kcc20',
+              templateHash: Kcc20StandardService.kusdtOwnerTemplateId,
+              discoveryComplete: false,
+            )
+          ],
+        ));
+    await open(tester, api);
+    expect(find.text('Sending disabled: cell discovery is incomplete.'),
+        findsNothing);
+    await tester.enterText(find.byType(TextField).at(0), 'kaspa:recipient');
+    await tester.enterText(find.byType(TextField).at(1), '1.234567');
+    await tester.scrollUntilVisible(
+        find.text(buttonLabel('REVIEW ASSET TRANSFER')), 400,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text(buttonLabel('REVIEW ASSET TRANSFER')));
+    await tester.pumpAndSettle();
+    expect(api.proofs, 1);
+    expect(requests, hasLength(1));
+    expect(requests.single['covenantId'], Kcc20StandardService.kusdtCovenantId);
+    expect(requests.single['templateHash'],
+        Kcc20StandardService.kusdtOwnerTemplateId);
+    expect(requests.single['amount'], 1234567);
+    expect(requests.single['decimals'], 6);
+    expect(requests.single['borrowedReceive'], isNull);
+    expect(api.broadcasts, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
       'Rocket display-only balance reaches native transfer review without legacy discovery gate',
       (tester) async {

@@ -14,6 +14,22 @@ type ReadOptions = {signal?:AbortSignal;progress?:(stage:string)=>void;fullPlan?
 const HASH = '9703112ee6e3555107cd168858992b77d3b74f655205b2b463b1f9ec2ec73cf7';
 const hex64 = /^[0-9a-f]{64}$/;
 const recognized = ['hash_proven_reference_actor_family','hash_proven_program_artifact','hash_proven_parameterized_actor_family'];
+export const KUSDT_COVENANT_ID='50b3477e7368d0c5bfbd64483b4607350ec411377972f33e40b2d4b6d1513fd3';
+export const KUSDT_TEMPLATE='kusdt-mainnet-owner-v1';
+export function pinKusdtToken(token:any):any {
+  if(token?.covenant_id!==KUSDT_COVENANT_ID)return token;
+  if(kcc20TokenProgram(token)?.id!==STANDARD_TEMPLATE||!['hash_proven_reference_actor_family','hash_proven_program_artifact'].includes(token.recognition))return token;
+  const m=token.metadata??{},u=token.token_units??{};
+  for(const d of [m.binding_verified===true?m.decimals:null,u.status==='verified'?u.decimals:null])
+    if(d!=null&&String(d)!=='6')throw Error('kUSDT units differ from the pinned deployment.');
+  if(m.binding_verified===true&&m.covenant_id!=null&&m.covenant_id!==KUSDT_COVENANT_ID)throw Error('kUSDT metadata covenant differs.');
+  return {...token,wallet_standard:'kusdt-kcc20',metadata:{...m,covenant_id:KUSDT_COVENANT_ID,name:'kUSDT',ticker:'KUSDT',symbol:'kUSDT',decimals:6,binding_verified:true,identity_source:'wallet-pinned-kusdt-mainnet'},token_units:{...u,status:'verified',decimals:6}};
+}
+function pinResponse(v:any){return {...v,data:Array.isArray(v.data)?v.data.map(pinKusdtToken):pinKusdtToken(v.data)};}
+function transferProfile(t:any,program:{id:string}) {
+  if(t?.covenant_id===KUSDT_COVENANT_ID){if(program.id!==STANDARD_TEMPLATE)throw Error('Unsupported kUSDT program.');return KUSDT_TEMPLATE;}
+  return t.wallet_standard==='kasseal-kcc20'?'kasseal-kcc20-owner-v1':program.id;
+}
 export function standardKcc20Decimals(token:any) {
   const units=token?.token_units,metadata=token?.metadata;
   const value=units?.status==='verified'?units.decimals:metadata?.binding_verified===true?metadata.decimals:null;
@@ -81,12 +97,12 @@ async function primaryRead(get:Get,path:string,priority=false,ownerHint?:string)
       if(t?.covenant_id===parts[1]&&!kcc20TokenProgram(t)&&t.profile_id==null&&hash==null)return fallback(get).read(path);
       if(t?.covenant_id===parts[1]&&kcc20TokenProgram(t)?.id===STANDARD_TEMPLATE&&t.market?.venue==='kasseal'&&standardKcc20Decimals(t)===0)v.data={...t,wallet_standard:'kasseal-kcc20'};
     }
-    return v;
+    return pinResponse(v);
   }catch(e){
     const s=status(e),temporary=[404,405,408,429].includes(s)||s>=500||e instanceof TypeError||e instanceof SyntaxError||/timed out|timeout|failed to fetch/i.test((e as Error)?.message??'');
     if(!supported||!temporary)throw e;
     if(s!==404&&s!==405)unavailable.set(get,Date.now()+15000);
-    try{return await fallback(get).read(path,ownerHint);}catch(failure){if(s===404||s===405)throw e;throw Error(`Kasvio and Kascov could not provide this KCC20 read. ${(failure as Error).message}`);}
+    try{return pinResponse(await fallback(get).read(path,ownerHint));}catch(failure){if(s===404||s===405)throw e;throw Error(`Kasvio and Kascov could not provide this KCC20 read. ${(failure as Error).message}`);}
   }
 }
 async function balance(get: Get, cid: string, owner: string) {
@@ -157,7 +173,7 @@ async function discoverAddress(get:Get,owner:string,publish:HoldingsProgress){
         if(decimals===undefined||!/^[A-Z0-9_.-]{1,32}$/.test(symbol))throw Error('Unverified KCC20 units.');
         if(row.balance_complete!==true){complete=false;warnings.add('Some standard KCC20 balances have incomplete coverage.');}
         assets.set(cid,{covenantId:cid,symbol,name:String(m.name??symbol),rawBalance:raw,decimals,
-          standard:t.wallet_standard==='kasseal-kcc20'?'kasseal-kcc20':'kcc20',templateHash:t.wallet_standard==='kasseal-kcc20'?'kasseal-kcc20-owner-v1':program.id,
+          standard:t.wallet_standard==='kasseal-kcc20'?'kasseal-kcc20':'kcc20',templateHash:transferProfile(t,program),
           validationStatus:'observed',directTransfer:true,discoveryComplete:false,
           image_url:m.image_bytes_verified===true&&hex64.test(m.image_hash??'')?`${BASE}/images/${m.image_hash}`:m.binding_verified===true&&/^https:\/\//.test(m.image_uri??'')?m.image_uri:'',
           explorerUrl:`https://kaspatoken.kaslab.space/kcc20/${cid}`});publish([...assets.values()]);
@@ -197,7 +213,7 @@ async function discoverCatalogue(get: Get, owner: string, publish:HoldingsProgre
       if(!/^\d+$/.test(raw))throw Error('Invalid KCC20 balance.');
       if(BigInt(raw)<=0n)return;
       assets.push({covenantId:t.covenant_id,symbol,name:verified?String(m.name??symbol):symbol,
-        rawBalance:raw,decimals,standard:'kcc20',templateHash:program.id,
+        rawBalance:raw,decimals,standard:'kcc20',templateHash:transferProfile(t,program),
         validationStatus:'observed',directTransfer:true,
         activityOrigins:(Array.isArray(b.outputs)?[...b.outputs]:[])
           .sort((a,b)=>Number(b.acceptance_id??0)-Number(a.acceptance_id??0))
@@ -287,7 +303,7 @@ export async function standardKcc20Token(get:Get,cid:string) {
   const symbol=String(m.binding_verified===true?(m.ticker??m.symbol??'KCC20_RAW'):'KCC20_RAW').toUpperCase();
   const decimals=standardKcc20Decimals(t);
   if(!/^[A-Z0-9_.-]{1,32}$/.test(symbol)||decimals===undefined)throw Error('Invalid KCC20 metadata.');
-  return {covenantId:cid,symbol,decimals,standard:t.wallet_standard==='kasseal-kcc20'?'kasseal-kcc20':'kcc20',templateHash:t.wallet_standard==='kasseal-kcc20'?'kasseal-kcc20-owner-v1':program.id};
+  return {covenantId:cid,symbol,decimals,standard:t.wallet_standard==='kasseal-kcc20'?'kasseal-kcc20':'kcc20',templateHash:transferProfile(t,program)};
 }
 export async function waitForStandardKcc20Cell(get:Get,cid:string,owner:string,txid:string,options:ReadOptions={}) {
   const deadline=Date.now()+90_000;
@@ -327,6 +343,7 @@ export async function standardKcc20TransferData(get: Get, cid: string, owner: st
   const firstStates=(firstDetail?.outputs??[]).filter((r:any)=>r.io_index===first.output_index&&r.covenant_id===cid&&r.actor==='KCC20');
   if(firstDetail?.txid!==first.txid||firstStates.length!==1||firstStates[0].state_hash_verified!==true)throw Error('Missing KCC20 program proof.');
   const program=kcc20Program(firstStates[0].template_hash),limit=program.maxInputs;
+  if(cid===KUSDT_COVENANT_ID&&program.id!==STANDARD_TEMPLATE)throw Error('Unsupported kUSDT program.');
   if(options.kassealOwnerOnly&&program.id!==STANDARD_TEMPLATE)throw Error('Unsupported Kasseal token program.');
   const transactionCount=kcc20TransactionCount(requiredCells,limit);
   if(options.fullPlan && requiredCells>65)throw Error('This payment needs more than 65 token cells. Split the amount into smaller payments.');
@@ -352,6 +369,7 @@ export async function standardKcc20TransferData(get: Get, cid: string, owner: st
       !Number.isSafeInteger(units)||units<=0||String(s.token_amount)!==String(raw.balance_raw)||!hex64.test(s.extension_commitment))
       throw Error('KCC20 reconstructed state differs.');
     if(!Number.isInteger(s.borrow_scheme)||s.borrow_scheme<0||s.borrow_scheme>3||!hex64.test(s.borrow_guard))throw Error('Invalid KCC20 borrowing policy.');
+    if(cid===KUSDT_COVENANT_ID&&s.extension_commitment!=='0'.repeat(64))throw Error('Unsupported extended kUSDT identity.');
     if(options.kassealOwnerOnly&&(s.borrow_scheme!==0||s.borrow_guard!=='0'.repeat(64)||s.extension_commitment!=='0'.repeat(64)||BigInt(s.token_amount)>1200000000n))throw Error('Unsupported Kasseal token policy.');
     const little=Array.from({length:8},(_,i)=>Number((BigInt(units)>>BigInt(8*i))&255n).toString(16).padStart(2,'0')).join('');
     const redeemScript=`${program.template.prefix}08${little}20${owner}010001${s.borrow_scheme.toString(16).padStart(2,'0')}20${s.borrow_guard}20${s.extension_commitment}${program.template.suffix}`;
@@ -390,11 +408,13 @@ export async function standardKcc20TransferData(get: Get, cid: string, owner: st
   const total=cells.reduce((sum,c)=>sum+c.tokenAmount,0);
   if(!Number.isSafeInteger(total))throw Error('KCC20 amount exceeds safe range.');
   if(!cells.length)throw Error('No verified KCC20 cells.');
-  return {cells,templateHash:options.kassealOwnerOnly?'kasseal-kcc20-owner-v1':program.id,inputLimit:limit,compound:total<amount,stepAmount:Math.min(total,amount),requiredCells,transactionCount};
+  return {cells,templateHash:cid===KUSDT_COVENANT_ID?KUSDT_TEMPLATE:options.kassealOwnerOnly?'kasseal-kcc20-owner-v1':program.id,inputLimit:limit,compound:total<amount,stepAmount:Math.min(total,amount),requiredCells,transactionCount};
 }
 /** Permissionless threshold borrowing only. Signature/hash-chain policies are
  * not permissionless; absent recipient authorization they stay untouched. */
 export async function standardKcc20BorrowedReceive(get:Get,cid:string,recipientOwner:string,amount:number,firstCell:{redeemScript:string},templateId:string,options:ReadOptions={}) {
+  // Interoperability with the reference kUSDT wallet: only plain owner outputs.
+  if(cid===KUSDT_COVENANT_ID)return undefined;
   if(!hex64.test(cid)||!hex64.test(recipientOwner)||!Number.isSafeInteger(amount)||amount<=0)throw Error('Invalid borrowed receive request.');
   const program=kcc20Program(templateId===STANDARD_TEMPLATE?HASH:templateId==='argent-kcc20-c8a0871-10x10'?'ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b':'');
   const prefixLength=program.template.prefix.length;
