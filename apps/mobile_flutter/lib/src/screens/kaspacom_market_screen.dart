@@ -29,7 +29,7 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
   late final market = widget.service ?? KaspaComMarketService(widget.address);
   late final nfts = widget.nftService ?? NftMarketService();
   final search = TextEditingController();
-  String kind = 'krc721', tab = 'browse', sort = 'recent';
+  String kind = 'krc721', tab = 'browse', sort = 'low';
   String historyRole = 'seller';
   List<String> ownedCollections = [];
   String? ownedCollection;
@@ -68,7 +68,7 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
   Future<void> load({bool append = false, bool refreshAssets = false}) async {
     if ((kind != 'krc721' || search.text.trim().isEmpty) &&
         sort.startsWith('rank')) {
-      sort = 'recent';
+      sort = 'low';
     }
     final gen = ++revision,
         k = kind,
@@ -658,7 +658,7 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
                       : (v) {
                           setState(() {
                             kind = v.first;
-                            sort = 'recent';
+                            sort = 'low';
                             traits = {};
                             traitOptions = {};
                             metadataTicker = null;
@@ -750,13 +750,12 @@ class _KaspaComMarketScreenState extends State<KaspaComMarketScreen> {
                     }),
               if (tab == 'browse') ...[
                 const SizedBox(height: 12),
-                if (kind != 'krc20')
-                  DropdownButtonFormField<String>(
+                DropdownButtonFormField<String>(
                       key: ValueKey('sort-$kind-$sort'),
                       isExpanded: true,
                       initialValue: sort,
                       decoration:
-                          const InputDecoration(labelText: 'Sort all offers'),
+                          const InputDecoration(labelText: 'Sort offers'),
                       items: [
                         const DropdownMenuItem(
                             value: 'recent',

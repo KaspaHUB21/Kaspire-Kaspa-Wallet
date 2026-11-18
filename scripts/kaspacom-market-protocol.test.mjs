@@ -21,8 +21,23 @@ test('seller and buyer history are separated upstream before pagination',()=>{
   assert.deepEqual(historyFilters('sales'),{isSeller:true,isBuyer:false,statuses:['COMPLETED']});
   assert.throws(()=>historyFilters('invalid'));
 });
-test('KRC20 unit-price order is global and independent of requested sort',()=>{
-  for(const sort of ['recent','low','high']) assert.deepEqual(browseBody('krc20',new URLSearchParams({sort,offset:'20'})).sort,{direction:'asc',field:'pricePerToken'});
+test('KRC20 honours newest and both unit-price sorts upstream before pagination',()=>{
+  for(const [sort,expected] of [
+    ['recent',{direction:'desc',field:'createdAt'}],
+    ['low',{direction:'asc',field:'pricePerToken'}],
+    ['high',{direction:'desc',field:'pricePerToken'}],
+  ])for(const offset of ['0','20','150']){
+    const body=browseBody('krc20',new URLSearchParams({sort,offset}));
+    assert.deepEqual(body.sort,expected);assert.deepEqual(body.pagination,{limit:10,offset:Number(offset)});
+    assert.equal(body.completedOrders,false);assert.equal(body.onlyDecentralize,true);
+  }
+  assert.deepEqual(browseBody('krc20',new URLSearchParams()).sort,{direction:'desc',field:'createdAt'});
+  assert.throws(()=>browseBody('krc20',new URLSearchParams({sort:'unknown'})));
+});
+test('KRC20 sort fix does not change NFT or KNS total-price ordering',()=>{
+  for(const kind of ['krc721','kns'])for(const [sort,expected]of [
+    ['recent',{direction:'desc',field:'createdAt'}],['low',{direction:'asc',field:'totalPrice'}],['high',{direction:'desc',field:'totalPrice'}],
+  ])assert.deepEqual(browseBody(kind,new URLSearchParams({sort})).sort,expected);
 });
 test('NFT transport restores only original seller DAA metadata without touching signatures',()=>{
   const input={transactionId:'a'.repeat(64),index:0,signatureScript:'signed',utxo:{amount:'105000000',scriptPublicKey:'script',blockDaaScore:'555484350',isCoinbase:false}};
