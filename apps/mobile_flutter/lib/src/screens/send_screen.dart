@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../widgets/hub21_material.dart';
+import '../widgets/transaction_fact_row.dart';
 import 'package:flutter/services.dart';
 
 import '../models/asset_send_intent.dart';
@@ -741,19 +742,7 @@ class _ReviewRow extends StatelessWidget {
   final String label;
   final String value;
   @override
-  Widget build(BuildContext context) => Row(
-        children: [
-          Text(label, style: const TextStyle(color: KasVaultTheme.muted)),
-          const Spacer(),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
-        ],
-      );
+  Widget build(BuildContext context) => TransactionFactRow(label, value);
 }
 
 class _SendFact extends StatelessWidget {

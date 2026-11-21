@@ -11,7 +11,8 @@ enum KaspireTheme {
   cypherpunk,
   glacier,
   neptune,
-  hub21;
+  hub21,
+  cosmic;
 
   String get label => switch (this) {
         hub21 => 'HUB21',

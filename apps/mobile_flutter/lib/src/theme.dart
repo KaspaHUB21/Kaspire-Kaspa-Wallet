@@ -27,24 +27,37 @@ class KasVaultTheme {
   static bool get isHub21 => AppSettings.theme.value == KaspireTheme.hub21;
   static bool get isGlacier => AppSettings.theme.value == KaspireTheme.glacier;
   static bool get isNeptune => AppSettings.theme.value == KaspireTheme.neptune;
-  static bool get isDecorative => isHub21 || isGlacier || isNeptune;
+  static bool get isCosmic => AppSettings.theme.value == KaspireTheme.cosmic;
+  static bool get isDecorative => isHub21 || isGlacier || isNeptune || isCosmic;
   static Color get detailText => isHub21
       ? const Color(0xFFE0DACB)
       : isGlacier
           ? const Color(0xFF344E5C)
           : isNeptune
               ? const Color(0xFFBAE3E6)
-              : muted;
+              : isCosmic
+                  ? const Color(0xFFBECDE5)
+                  : muted;
   static Color get filledButtonText => isHub21
       ? const Color(0xFFFFEDC7)
       : isGlacier
           ? const Color(0xFF173A47)
           : isNeptune
               ? const Color(0xFFE4FFFF)
-              : ink;
+              : isCosmic
+                  ? const Color(0xFFF1FCFF)
+                  : ink;
 
   static _KaspirePalette _palette(KaspireTheme theme) => switch (theme) {
         KaspireTheme.midnight => _midnight,
+        KaspireTheme.cosmic => const _KaspirePalette(
+            accent: Color(0xFF85E5EF),
+            secondary: Color(0xFFE084FF),
+            background: Color(0xFF020415),
+            panel: Color(0xF0080B21),
+            line: Color(0xFF8C52C0),
+            muted: Color(0xFFB4BED5),
+          ),
         KaspireTheme.neptune => const _KaspirePalette(
             accent: Color(0xFF7EF4E7),
             secondary: Color(0xFF56CDE3),
@@ -123,7 +136,8 @@ class KasVaultTheme {
     final hub21 = theme == KaspireTheme.hub21;
     final glacier = theme == KaspireTheme.glacier;
     final neptune = theme == KaspireTheme.neptune;
-    final decorative = hub21 || glacier || neptune;
+    final cosmic = theme == KaspireTheme.cosmic;
+    final decorative = hub21 || glacier || neptune || cosmic;
     final palette = _palette(theme);
     final accent = palette.accent;
     final scheme = ColorScheme.fromSeed(
@@ -134,7 +148,7 @@ class KasVaultTheme {
       surface: palette.panel,
     );
     final shape = decorative
-        ? Hub21CardShape(glacier: glacier, neptune: neptune)
+        ? Hub21CardShape(glacier: glacier, neptune: neptune, cosmic: cosmic)
         : RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
             side: BorderSide(color: palette.line),
@@ -170,7 +184,7 @@ class KasVaultTheme {
       ),
       dialogTheme: DialogThemeData(
         shape: decorative
-            ? Hub21CardShape(glacier: glacier, neptune: neptune)
+            ? Hub21CardShape(glacier: glacier, neptune: neptune, cosmic: cosmic)
             : null,
         backgroundColor: palette.panel,
         surfaceTintColor: accent.withValues(alpha: 0.08),
@@ -203,11 +217,13 @@ class KasVaultTheme {
                   borderRadius: BorderRadius.all(Radius.circular(16))))
               : null,
           foregroundColor: decorative
-              ? WidgetStatePropertyAll(neptune
-                  ? const Color(0xFFE4FFFF)
-                  : hub21
-                      ? const Color(0xFFFFEDC7)
-                      : const Color(0xFF173A47))
+              ? WidgetStatePropertyAll(cosmic
+                  ? const Color(0xFFF1FCFF)
+                  : neptune
+                      ? const Color(0xFFE4FFFF)
+                      : hub21
+                          ? const Color(0xFFFFEDC7)
+                          : const Color(0xFF173A47))
               : null,
           backgroundBuilder: decorative
               ? (context, states, child) => Padding(
@@ -261,17 +277,21 @@ class KasVaultTheme {
               style: ButtonStyle(
                 backgroundColor: WidgetStateProperty.resolveWith(
                     (states) => states.contains(WidgetState.selected)
-                        ? (neptune
-                            ? const Color(0xFF17666D)
-                            : hub21
-                                ? const Color(0xFF6C5120)
-                                : const Color(0xB8C7F4F1))
+                        ? (cosmic
+                            ? const Color(0xFF422061)
+                            : neptune
+                                ? const Color(0xFF17666D)
+                                : hub21
+                                    ? const Color(0xFF6C5120)
+                                    : const Color(0xB8C7F4F1))
                         : palette.background),
-                foregroundColor: WidgetStatePropertyAll(neptune
-                    ? const Color(0xFFE4FFFF)
-                    : hub21
-                        ? const Color(0xFFF4E8CD)
-                        : const Color(0xFF173A47)),
+                foregroundColor: WidgetStatePropertyAll(cosmic
+                    ? const Color(0xFFB0F6FF)
+                    : neptune
+                        ? const Color(0xFFE4FFFF)
+                        : hub21
+                            ? const Color(0xFFF4E8CD)
+                            : const Color(0xFF173A47)),
               ),
             )
           : const SegmentedButtonThemeData(),

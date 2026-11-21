@@ -1289,10 +1289,30 @@ class WalletDashboardHeader extends StatelessWidget {
             const SizedBox(height: 12),
             Row(children: controls),
           ])
-        : Row(children: [
-            const Expanded(child: KaspireWordmark(height: 19)),
-            ...controls
-          ]);
+        : LayoutBuilder(builder: (context, constraints) {
+            if (KasVaultTheme.isCosmic &&
+                (constraints.maxWidth < 300 ||
+                    MediaQuery.textScalerOf(context).scale(1) > 1.3)) {
+              return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const KaspireWordmark(height: 19),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                        width: double.infinity,
+                        child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerRight,
+                            child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: controls))),
+                  ]);
+            }
+            return Row(children: [
+              const Expanded(child: KaspireWordmark(height: 19)),
+              ...controls
+            ]);
+          });
   }
 }
 
@@ -1343,7 +1363,10 @@ class WalletDashboardActions extends StatelessWidget {
             if (i > start) const SizedBox(width: 8),
             Expanded(
                 child: SizedBox(
-                    height: 76,
+                    height: KasVaultTheme.isCosmic
+                        ? (64 + MediaQuery.textScalerOf(context).scale(11))
+                            .clamp(76.0, 140.0)
+                        : 76,
                     child: _Action(
                         icon: actions[i].$1,
                         label: actions[i].$2,

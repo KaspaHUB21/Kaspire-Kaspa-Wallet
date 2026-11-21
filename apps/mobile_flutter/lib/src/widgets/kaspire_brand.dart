@@ -14,6 +14,8 @@ class KaspireWordmark extends StatelessWidget {
           label: 'Kaspire',
           image: true,
           child: switch (theme) {
+            KaspireTheme.cosmic =>
+              _image(const Color(0xFF82DEE9), imageHeight: height * 1.25),
             KaspireTheme.neptune => Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -94,10 +96,10 @@ class KaspireWordmark extends StatelessWidget {
         ),
       );
 
-  Widget _image(Color? color) => Image.asset(
+  Widget _image(Color? color, {double? imageHeight}) => Image.asset(
         'assets/branding/kaspire_wordmark.png',
         color: color,
-        height: height,
+        height: imageHeight ?? height,
         fit: BoxFit.contain,
         alignment: Alignment.centerLeft,
         filterQuality: FilterQuality.high,

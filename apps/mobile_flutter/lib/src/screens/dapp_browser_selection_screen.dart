@@ -14,8 +14,12 @@ class DappBrowserSelectionScreen extends StatelessWidget {
 
   Widget _panel(Widget child) {
     final theme = AppSettings.theme.value;
-    if ({KaspireTheme.hub21, KaspireTheme.glacier, KaspireTheme.neptune}
-        .contains(theme)) {
+    if ({
+      KaspireTheme.hub21,
+      KaspireTheme.glacier,
+      KaspireTheme.neptune,
+      KaspireTheme.cosmic
+    }.contains(theme)) {
       return Hub21Panel(
           radius: 20, padding: const EdgeInsets.all(18), child: child);
     }

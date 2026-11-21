@@ -10,10 +10,11 @@ void main() {
     expect(browserDapps.first.name, 'Kasvio');
     expect(browserDapps.first.url, 'https://kasvio.network/');
   });
-  test('Kasseal is second and the complete approved order matches the release',
+  test('Trestly is second and the complete approved order matches the release',
       () {
     expect(browserDapps.map((dapp) => dapp.name).toList(), [
       'Kasvio',
+      'Trestly',
       'Kasseal',
       'GothDAG',
       'Braid',
@@ -27,9 +28,10 @@ void main() {
       'ANTX Universe',
       'KasCoven Vaults',
     ]);
-    expect(browserDapps[1].url, 'https://app.kasseal.com/');
+    expect(browserDapps[1].url, 'https://trestly.io/');
     expect(browserDapps[1].walletConnectEnabled, isTrue);
-    expect(browserDapps[1].logo, 'assets/browser/kasseal-browser.png');
+    expect(browserDapps[1].logo, 'assets/browser/trestly.svg');
+    expect(browserDapps[2].url, 'https://app.kasseal.com/');
   });
   test('Kaspa News retains its local logo and permits mobile connect', () {
     final news =
@@ -52,7 +54,8 @@ void main() {
     expect(vision.home.resolve('/signin').host, vision.home.host);
   });
   test('Jeetslab retains the supplied image and exact wallet URL', () {
-    final jeetslab = browserDapps[10];
+    final jeetslab =
+        browserDapps.singleWhere((dapp) => dapp.name == 'Jeetslab');
     expect(jeetslab.name, 'Jeetslab');
     expect(
         jeetslab.url, 'https://jeetslab-staging.kaspajeets.workers.dev/wallet');
@@ -61,13 +64,13 @@ void main() {
   });
   test('new dApps use exact official origins and bundled official icons', () {
     for (final entry in [
-      (8, 'https://kaspa.pumpforge.tech/', 'assets/browser/kasforge.png'),
+      (9, 'https://kaspa.pumpforge.tech/', 'assets/browser/kasforge.png'),
       (
-        9,
+        10,
         'https://vault.pumpforge.tech/',
         'assets/browser/kasforge-vaults.svg'
       ),
-      (11, 'https://universe.antx.world/', 'assets/browser/antx-universe.svg'),
+      (12, 'https://universe.antx.world/', 'assets/browser/antx-universe.svg'),
     ]) {
       final dapp = browserDapps[entry.$1];
       expect(dapp.url, entry.$2);
@@ -91,6 +94,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('GothDAG'), findsOneWidget);
       expect(find.text('Kasvio'), findsOneWidget);
+      expect(find.text('Trestly'), findsOneWidget);
+      expect(tester.getTopLeft(find.text('Trestly')).dy,
+          greaterThan(tester.getTopLeft(find.text('Kasvio')).dy));
+      await tester.scrollUntilVisible(find.text('Kasseal'), 100);
       expect(find.text('Kasseal'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Kaspa Vision'), 160);
       expect(find.text('Kaspa Vision'), findsOneWidget);

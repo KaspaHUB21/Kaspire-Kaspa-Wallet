@@ -4,6 +4,7 @@ class DappBrowserPolicy {
   static const approvedHosts = {
     'gothdag.kaslab.space',
     'kasvio.network',
+    'trestly.io',
     'app.kasseal.com',
     'app.braidswap.com',
     'devtools.kaslab.space',

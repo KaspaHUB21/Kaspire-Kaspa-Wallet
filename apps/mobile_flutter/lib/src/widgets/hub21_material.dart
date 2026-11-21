@@ -5,11 +5,16 @@ import 'package:flutter/material.dart';
 
 import '../services/app_settings.dart';
 import 'neptune_material.dart';
+import 'cosmic_material.dart';
 
 bool get _isGlacier => AppSettings.theme.value == KaspireTheme.glacier;
 bool get _isNeptune => AppSettings.theme.value == KaspireTheme.neptune;
+bool get _isCosmic => AppSettings.theme.value == KaspireTheme.cosmic;
 bool get _isDecorative =>
-    AppSettings.theme.value == KaspireTheme.hub21 || _isGlacier || _isNeptune;
+    AppSettings.theme.value == KaspireTheme.hub21 ||
+    _isGlacier ||
+    _isNeptune ||
+    _isCosmic;
 
 class KaspireHeaderIconFrame extends StatelessWidget {
   const KaspireHeaderIconFrame({super.key, required this.child});
@@ -22,7 +27,8 @@ class KaspireHeaderIconFrame extends StatelessWidget {
       width: 40,
       height: 40,
       margin: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: kaspireDecorativeDecoration(radius: 14, rim: 2, gold: true),
+      decoration: kaspireDecorativeDecoration(
+          radius: _isCosmic ? 999 : 14, rim: 2, gold: true),
       child: child,
     );
   }
@@ -47,17 +53,21 @@ class Hub21Readable extends StatelessWidget {
     return Container(
         padding: padding,
         decoration: BoxDecoration(
-            color: _isNeptune
-                ? const Color(0xF0072E3B)
-                : glacier
-                    ? const Color(0xEAF5FBFD)
-                    : const Color(0xFF141611),
-            border: Border.all(
-                color: _isNeptune
-                    ? const Color(0xFF9DB5A3)
+            color: _isCosmic
+                ? const Color(0xEE06091E)
+                : _isNeptune
+                    ? const Color(0xF0072E3B)
                     : glacier
-                        ? const Color(0xCC79AEBB)
-                        : const Color(0xFF756647)),
+                        ? const Color(0xEAF5FBFD)
+                        : const Color(0xFF141611),
+            border: Border.all(
+                color: _isCosmic
+                    ? const Color(0xAA9459C4)
+                    : _isNeptune
+                        ? const Color(0xFF9DB5A3)
+                        : glacier
+                            ? const Color(0xCC79AEBB)
+                            : const Color(0xFF756647)),
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
@@ -86,11 +96,13 @@ class Hub21Backdrop extends StatelessWidget {
         child: ExcludeSemantics(
           child: RepaintBoundary(
             child: Image.asset(
-                _isNeptune
-                    ? 'assets/themes/neptune/ocean.png'
-                    : glacier
-                        ? 'assets/themes/glacier/aurora-glacier.png'
-                        : 'assets/themes/hub21/relief.png',
+                _isCosmic
+                    ? 'assets/themes/cosmic/nebula.png'
+                    : _isNeptune
+                        ? 'assets/themes/neptune/ocean.png'
+                        : glacier
+                            ? 'assets/themes/glacier/aurora-glacier.png'
+                            : 'assets/themes/hub21/relief.png',
                 fit: BoxFit.cover,
                 alignment: Alignment.topCenter,
                 filterQuality: FilterQuality.medium),
@@ -104,23 +116,29 @@ class Hub21Backdrop extends StatelessWidget {
                 gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: _isNeptune
+              colors: _isCosmic
                   ? const [
                       Color(0x00000000),
-                      Color(0x08001923),
-                      Color(0x30001923)
+                      Color(0x16020415),
+                      Color(0x40020415)
                     ]
-                  : glacier
+                  : _isNeptune
                       ? const [
-                          Color(0x14FFFFFF),
-                          Color(0x24DFF7FA),
-                          Color(0x66D2E7EF)
+                          Color(0x00000000),
+                          Color(0x08001923),
+                          Color(0x30001923)
                         ]
-                      : const [
-                          Color(0x14000000),
-                          Color(0x33000000),
-                          Color(0x99000000)
-                        ],
+                      : glacier
+                          ? const [
+                              Color(0x14FFFFFF),
+                              Color(0x24DFF7FA),
+                              Color(0x66D2E7EF)
+                            ]
+                          : const [
+                              Color(0x14000000),
+                              Color(0x33000000),
+                              Color(0x99000000)
+                            ],
               stops: const [0, .65, 1],
             )),
           ),
@@ -447,13 +465,15 @@ Decoration kaspireDecorativeDecoration({
   double rim = 4,
   bool shadow = true,
 }) =>
-    _isNeptune
-        ? NeptuneWaterDecoration(radius: radius)
-        : _isGlacier
-            ? GlacierGlassDecoration(
-                radius: radius, strong: gold, shadow: shadow)
-            : Hub21MetalDecoration(
-                radius: radius, gold: gold, rim: rim, shadow: shadow);
+    _isCosmic
+        ? CosmicSurfaceDecoration(radius: radius, strong: gold, rich: gold)
+        : _isNeptune
+            ? NeptuneWaterDecoration(radius: radius)
+            : _isGlacier
+                ? GlacierGlassDecoration(
+                    radius: radius, strong: gold, shadow: shadow)
+                : Hub21MetalDecoration(
+                    radius: radius, gold: gold, rim: rim, shadow: shadow);
 
 class Hub21Panel extends StatelessWidget {
   const Hub21Panel(
@@ -494,16 +514,21 @@ class Hub21Panel extends StatelessWidget {
 
 /// Used by Material cards and dialogs, including settings and send reviews.
 class Hub21CardShape extends RoundedRectangleBorder {
-  const Hub21CardShape({this.glacier = false, this.neptune = false})
+  const Hub21CardShape(
+      {this.glacier = false, this.neptune = false, this.cosmic = false})
       : super(borderRadius: const BorderRadius.all(Radius.circular(18)));
   final bool glacier;
   final bool neptune;
+  final bool cosmic;
   @override
   bool get preferPaintInterior => true;
   @override
   void paintInterior(Canvas canvas, Rect rect, Paint paint,
       {TextDirection? textDirection}) {
-    if (neptune) {
+    if (cosmic) {
+      CosmicSurfacePainter(18)
+          .paint(canvas, rect.topLeft, ImageConfiguration(size: rect.size));
+    } else if (neptune) {
       NeptuneWaterPainter(18)
           .paint(canvas, rect.topLeft, ImageConfiguration(size: rect.size));
     } else if (glacier) {
@@ -515,7 +540,21 @@ class Hub21CardShape extends RoundedRectangleBorder {
   }
 
   @override
-  void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {}
+  void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
+    if (!cosmic) return;
+    final frame =
+        RRect.fromRectAndRadius(rect.deflate(1), const Radius.circular(18));
+    canvas.drawRRect(
+        frame,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.3
+          ..shader = const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [cosmicCyan, cosmicViolet, cosmicCyan])
+              .createShader(rect));
+  }
 }
 
 class Hub21Action extends StatelessWidget {
@@ -530,6 +569,7 @@ class Hub21Action extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (_isCosmic) return CosmicAction(icon: icon, label: label, onTap: onTap);
     final glacier = _isGlacier;
     final foreground =
         glacier ? const Color(0xFF173A47) : const Color(0xFFF2EBDD);
@@ -551,11 +591,15 @@ class Hub21Action extends StatelessWidget {
                   Icon(
                     icon,
                     size: 29,
-                    color: _isNeptune
-                        ? const Color(0xFF8EEDEB)
-                        : glacier
-                            ? const Color(0xFF087F86)
-                            : const Color(0xFFFFE5A4),
+                    color: _isCosmic
+                        ? (icon == Icons.arrow_upward_rounded
+                            ? cosmicViolet
+                            : cosmicCyan)
+                        : _isNeptune
+                            ? const Color(0xFF8EEDEB)
+                            : glacier
+                                ? const Color(0xFF087F86)
+                                : const Color(0xFFFFE5A4),
                     shadows: [
                       Shadow(
                         color: glacier ? const Color(0x5577DDE0) : Colors.black,
@@ -611,6 +655,15 @@ class Hub21BalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (_isCosmic) {
+      return CosmicBalanceCard(
+          walletName: walletName,
+          amount: amount,
+          symbol: symbol,
+          fiat: fiat,
+          hideAmounts: hideAmounts,
+          onTogglePrivacy: onTogglePrivacy);
+    }
     if (_isNeptune) {
       return NeptuneBalanceCard(
           walletName: walletName,
@@ -786,6 +839,7 @@ class KaspireNavigationBar extends StatelessWidget {
         onDestinationSelected: onDestinationSelected,
         destinations: destinations);
     if (!_isDecorative) return navigation;
+    if (_isCosmic) return CosmicNavigationFrame(child: navigation);
     if (_isNeptune) {
       return Hub21Panel(
           radius: 0,

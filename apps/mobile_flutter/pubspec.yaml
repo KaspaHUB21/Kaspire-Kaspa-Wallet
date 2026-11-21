@@ -1,7 +1,7 @@
 name: kasvault_wallet
 description: Android-first Kaspa wallet with a native Rust signing boundary.
 publish_to: none
-version: 0.11.113+261
+version: 0.11.116+264
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
@@ -53,6 +53,9 @@ flutter:
     - assets/themes/neptune/assets-ornament.png
     - assets/themes/neptune/water-glass.png
     - assets/themes/neptune/Allura-OFL.txt
+    - assets/themes/cosmic/nebula.png
+    - assets/themes/cosmic/planet-cutout.png
+    - assets/themes/cosmic/surface-nebula.png
   fonts:
     - family: NeptuneScript
       fonts:

@@ -35,11 +35,12 @@ void main() {
     }
   });
 
-  test('catalog is limited to thirteen approved browser sites, Braid fourth',
+  test('catalog is limited to fourteen approved browser sites, Trestly second',
       () {
-    expect(browserDapps, hasLength(13));
-    expect(browserDapps[3].name, 'Braid');
-    expect(browserDapps[3].url, 'https://app.braidswap.com/');
+    expect(browserDapps, hasLength(14));
+    expect(browserDapps[1].name, 'Trestly');
+    expect(browserDapps[4].name, 'Braid');
+    expect(browserDapps[4].url, 'https://app.braidswap.com/');
     expect(browserDapps.map((d) => d.home.host).toSet(),
         DappBrowserPolicy.approvedHosts);
     for (final dapp in browserDapps) {
@@ -126,6 +127,38 @@ void main() {
     }
   });
 
+  test(
+      'Trestly uses only its exact origin and the existing wallet pairing flow',
+      () {
+    final trestly = browserDapps[1];
+    expect(trestly.walletConnectEnabled, isTrue);
+    for (final path in ['/', '/bridge', '/swap', '/?tab=swap']) {
+      expect(
+          DappBrowserPolicy.allowedPage(
+              trestly.home.resolve(path), trestly.home),
+          isTrue);
+    }
+    for (final value in [
+      'http://trestly.io/',
+      'https://www.trestly.io/',
+      'https://trestly.io.evil.example/',
+      'https://user@trestly.io/',
+      'https://trestly.io:444/',
+      'https://kasvio.network/',
+      'https://pass.kaspa.vision/'
+    ]) {
+      expect(DappBrowserPolicy.allowedPage(Uri.parse(value), trestly.home),
+          isFalse,
+          reason: value);
+    }
+    final link = DappBrowserPolicy.walletLink(fallback);
+    expect(link, isNotNull);
+    expect(
+        DappSessionService.pairingUriFromQrPayload(link.toString()), pairing);
+    expect(DappBrowserPolicy.walletLink('kaspire://dapp'),
+        Uri.parse('kaspire://dapp'));
+  });
+
   test('Vision checkout permits only its exact HTTPS KasPass companion', () {
     final home = Uri.parse('https://kaspa.vision/');
     for (final value in [
@@ -157,7 +190,8 @@ void main() {
     }
   });
 
-  test('connection onboarding stays hidden after a short-lived login session', () {
+  test('connection onboarding stays hidden after a short-lived login session',
+      () {
     final hint = DappBrowserConnectionHint();
     expect(hint.visible, isTrue);
     hint.observeSession(false);

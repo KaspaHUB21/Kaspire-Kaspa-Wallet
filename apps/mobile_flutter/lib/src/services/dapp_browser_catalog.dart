@@ -10,6 +10,7 @@ class BrowserDapp {
 
 const browserDapps = [
   BrowserDapp('Kasvio', 'https://kasvio.network/', 'assets/browser/kasvio.svg'),
+  BrowserDapp('Trestly', 'https://trestly.io/', 'assets/browser/trestly.svg'),
   BrowserDapp('Kasseal', 'https://app.kasseal.com/',
       'assets/browser/kasseal-browser.png'),
   BrowserDapp(

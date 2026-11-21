@@ -1,0 +1,27 @@
+{
+  "generator": "Built-in image_gen via imagegen skill",
+  "reference": "User-provided Cosmic Android wallet theme screenshot, 2026-11-21",
+  "assets": [
+    {
+      "file": "assets/themes/cosmic/planet-cutout.png",
+      "source": "exec-7e8299d5-8053-4319-a8a3-f68b95eeee88.png",
+      "prompt": "Use case: background-extraction. Edit target: supplied Cosmic balance background. Extract ONLY the luminous cyan-violet rim-lit dark planet and its magenta Saturn-like rings as a genuinely transparent-background PNG cutout. Remove the entire star field and nebula background and all unrelated stars outside the object. Make the planet disc geometrically ROUND, equal horizontal and vertical diameter, not an oval. Keep its center dark and completely plain: no logo, no symbols, no letters. Preserve the electric violet/cyan edge light and elegant luminous rings tilted upward to the right. Center the complete planet-plus-rings ornament with room around the glow in a square canvas. This is a game/UI ornament asset, NOT a mockup. Actual alpha transparency, not black background or a checkerboard."
+    },
+    {
+      "file": "assets/themes/cosmic/surface-nebula.png",
+      "source": "exec-ea2a3cab-d7b3-4c5c-ac5f-6dbcd08d6543.png",
+      "prompt": "Use case: stylized-concept. Asset type: premium Cosmic wallet button surface texture, square, artwork only. An intricate near-black midnight-navy star field, with rich violet-magenta nebula filaments, electric cyan plasma wisps and very fine white/cyan/violet stars. Lighting is concentrated in the corners and along the outside edges, while the central 55% is mostly dark navy so real icons and labels stay readable. A luminous cyan cluster in the top-left corner, violet nebula in the top-right and lower-left corners, delicate blue-magenta dust near the bottom edge. Detailed layered depth, refined cinematic space art, crisp tiny star glints rather than flat gradients, high contrast and saturated but NOT washed out. No planets, no galaxies or spiral shapes, no rings, no spheres, no logos, no letters, no text, no icons, no UI, no outlines or frames, no watermark. Fill the entire square with the continuous texture. The actual rounded neon border will be rendered separately in application code."
+    },
+    {
+      "file": "assets/themes/cosmic/nebula.png",
+      "source": "exec-cef85503-63e8-402d-9502-59fb7d255751.png",
+      "prompt": "Use case: precise-object-edit. Input image 1 is the user's Cosmic wallet theme reference. Produce ONLY its pure cosmic wallpaper art, no interface at all: remove all text, all numbers, wallet cards, buttons, borders, logos, icons and status/navigation bars. Reconstruct a continuous portrait 9:16 wallpaper. Preserve the reference's near-black navy space, sharp small stars, saturated violet-magenta and electric cyan diagonal nebula ribbons. A small luminous spiral galaxy occupies the upper right corner around 85% width and 8% height; a dark violet rim-lit planet peeks from the left edge around 18% height. Keep most of the canvas dark to support live UI. No UI or text."
+    },
+    {
+      "file": "assets/themes/cosmic/balance-space.png",
+      "source": "exec-1a0c478d-619f-4ccd-9678-018bc8919cc3.png",
+      "prompt": "Use case: stylized-concept. Production raster background for the Cosmic wallet balance card, matching the user's purple/cyan screenshot and generated wallpaper. Wide landscape, approximately 2.5:1. No text, letters, logo, numbers, icons, frame, UI or watermark. Nearly black navy space, small sharp stars, narrow violet-magenta nebula rising from left-mid to upper center, cyan accents. Left 70% dark for live text. Dark planet centered at x84%, y66%, diameter about 18% of width, electric cyan/violet rim and purple Saturn-like rings angled up to the right, span about 34% width. Dark empty disc center for real Kaspire mark added in code. Crisp saturated light, no washed-out haze or gold/orange, flat art not a phone mockup."
+    }
+  ],
+  "integration": "Original raster outputs copied unchanged. The former balance-space.png is retained as historical source but no longer packaged. The round, unbranded planet is now a separate transparent ornament in a capped square using BoxFit.contain, independent of card aspect ratio. It has no Kaspire logo. Surface texture, neon rims and static glints support real icons/labels; wallet data and controls remain Flutter widgets."
+}
