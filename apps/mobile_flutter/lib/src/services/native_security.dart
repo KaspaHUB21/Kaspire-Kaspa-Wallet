@@ -822,6 +822,40 @@ class NativeSecurity {
     return (jsonDecode(raw!) as Map).cast<String, Object?>();
   }
 
+  Future<Map<String, Object?>> describeTrestly(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+        'describeTrestly', {'request': jsonEncode(request)});
+    return _trestlyResult(raw);
+  }
+
+  Future<Map<String, Object?>> prepareTrestly(
+      Map<String, Object?> request) async {
+    final raw = await _channel.invokeMethod<String>(
+        'prepareTrestly', {'request': jsonEncode(request)});
+    return _trestlyResult(raw);
+  }
+
+  Map<String, Object?> _trestlyResult(String? raw) {
+    final result = (jsonDecode(raw!) as Map).cast<String, Object?>();
+    if (result['profile'] != 'trestly-mainnet-v2') {
+      throw StateError('Native swap component version mismatch. Update Kaspire before swapping.');
+    }
+    return result;
+  }
+
+  Future<Map<String, Object?>> signTrestly(
+      Map<String, Object?> request, String hash) async {
+    final token =
+        await _authorizeOperation(operation: 'signTrestly', binding: hash);
+    final raw = await _channel.invokeMethod<String>('signTrestly', {
+      'request': jsonEncode(request),
+      'reviewHash': hash,
+      'authorizationToken': token
+    });
+    return (jsonDecode(raw!) as Map).cast<String, Object?>();
+  }
+
   Future<Map<String, Object?>> prepareKronTransfer(
       Map<String, Object?> request) async {
     final raw = await _channel.invokeMethod<String>(

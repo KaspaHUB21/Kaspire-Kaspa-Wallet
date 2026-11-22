@@ -9,6 +9,7 @@ import 'kasparocket_screen.dart' show rocketListPadding, KaspaRocketScreen;
 import 'kasseal_screen.dart';
 import 'kasforge_screen.dart';
 import 'kforge_screen.dart';
+import 'trestly_swap_screen.dart';
 import 'braid_screen.dart';
 import '../services/braid_service.dart';
 import '../services/kasforge_service.dart';
@@ -24,6 +25,19 @@ class DexSelectionScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: const Text('KCC20 DEX Swaps')),
       body: ListView(padding: rocketListPadding(context), children: [
+        Card(
+            child: ListTile(
+          contentPadding: const EdgeInsets.all(18),
+          leading: SvgPicture.asset('assets/browser/trestly.svg',
+              width: 44, height: 44, semanticsLabel: 'Trestly logo'),
+          title: const Text('KAS / kUSDT'),
+          subtitle: const Text('Trestly KasPool · Native swap'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                  builder: (_) => TrestlySwapScreen(address: address))),
+        )),
         if (BraidService.enabled && NetworkSettings.isTestnet)
           Card(
               child: ListTile(

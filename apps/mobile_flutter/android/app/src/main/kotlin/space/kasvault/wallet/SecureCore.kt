@@ -48,6 +48,9 @@ object SecureCore {
     external fun preparePolicyTransaction(requestJson: String): String
     external fun signPolicyTransaction(secret: ByteArray, requestJson: String, reviewHash: String): String
     external fun preparePskt(requestJson: String): String
+    external fun describeTrestly(requestJson: String): String
+    external fun prepareTrestly(requestJson: String): String
+    external fun signTrestly(secret: ByteArray, requestJson: String, reviewHash: String): String
     external fun signPskt(secret: ByteArray, requestJson: String, reviewHash: String): String
     external fun tangemAddress(publicKeyHex: String): String
     external fun prepareTangemCommit(requestJson: String): String

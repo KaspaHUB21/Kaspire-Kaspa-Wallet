@@ -438,6 +438,13 @@ class KForgeTrading {
     final pushes = <List<int>>[];
     for (var i = 0; i < bytes.length;) {
       var n = bytes[i++];
+      // ScriptBuilder canonicalizes one-byte script numbers to OP_1..OP_16
+      // (and OP_1NEGATE). These are data pushes, not unexpected instructions.
+      // A sale with a small continuation column can legitimately contain them.
+      if (n == 79 || n >= 81 && n <= 96) {
+        pushes.add([n == 79 ? 129 : n - 80]);
+        continue;
+      }
       if (n == 76) {
         if (i >= bytes.length) throw StateError('Truncated KForge witness.');
         n = bytes[i++];

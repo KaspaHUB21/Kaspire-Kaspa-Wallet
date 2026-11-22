@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/kaspador/kusdt-open",
+  "commit": "b70707cd496dc46de4db64d363ccd8e10a029770",
+  "path": "bridge/kaspa",
+  "license": "MIT",
+  "defaultFeatures": false,
+  "localChanges": ["Remove standalone workspace and compiler-only example target", "Serialize Located state wrappers for native review hashing"],
+  "scope": "Local transaction builders, compiled pool and KCC20 artifacts; no remote executable code"
+}

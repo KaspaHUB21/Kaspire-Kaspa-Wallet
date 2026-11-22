@@ -1,0 +1,40 @@
+[package]
+name = "kusdt-kaspa"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.1"
+description = "kUSDT on Kaspa L1: the covenant contracts, their artifacts and transaction builders"
+license = "MIT"
+publish = false
+
+[features]
+# The Argent compiler: needed to (re)build the contracts and by the tests,
+# not by the transaction builders, which embed the checked-in artifacts.
+default = ["compiler"]
+compiler = ["dep:argent"]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "kusdt-tx"
+path = "src/bin/kusdt-tx.rs"
+
+[dependencies]
+blake2b_simd = "1"
+blake3 = "1.8.7"
+# Compiler, runtime and consensus revisions are the ones the KCC-20 reference
+# (argent-lang/kcc20-reference) pins, so the KCC20 actor compiles to the same
+# bytes that wallets and indexers already recognise.
+argent = { git = "https://github.com/argent-lang/argent", rev = "9a9f4b107116d0b259fae629f200fa3b663e7e9d", optional = true }
+argent-artifact = { git = "https://github.com/argent-lang/argent", rev = "9a9f4b107116d0b259fae629f200fa3b663e7e9d" }
+argent-runtime = { git = "https://github.com/argent-lang/argent", rev = "9a9f4b107116d0b259fae629f200fa3b663e7e9d" }
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "a41a333b08848f41bf737b72592e463a6011b8ac" }
+kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "a41a333b08848f41bf737b72592e463a6011b8ac" }
+kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "a41a333b08848f41bf737b72592e463a6011b8ac" }
+secp256k1 = { version = "0.29", features = ["global-context", "rand-std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+

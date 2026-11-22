@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'src/app.dart';
@@ -9,6 +10,9 @@ import 'src/platform.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(['Trestly KasPool transaction builders'],await rootBundle.loadString('assets/trestly/LICENSE'));
+  });
   // Keep system-bar handling consistent across OEM skins, gesture navigation,
   // tablets, foldables and Android's enforced edge-to-edge mode.
   if (!isWindowsDesktop) {

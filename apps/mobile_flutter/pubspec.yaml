@@ -1,7 +1,7 @@
 name: kasvault_wallet
 description: Android-first Kaspa wallet with a native Rust signing boundary.
 publish_to: none
-version: 0.11.116+264
+version: 0.11.122+270
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
@@ -36,6 +36,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/trestly/LICENSE
     - assets/vaults/
     - assets/kcc20_standard_template.json
     - assets/kcc20_reference_10_template.json

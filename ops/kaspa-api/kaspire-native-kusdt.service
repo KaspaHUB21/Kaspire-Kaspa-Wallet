@@ -1,0 +1,32 @@
+[Unit]
+Description=Kaspire native kUSDT exact wRPC relay
+After=network-online.target kaspad.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/node-v22.23.1/bin/node /usr/local/lib/kaspire-native-kusdt/native-kusdt-relay.mjs
+User=www-data
+Group=www-data
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+UMask=0077
+MemoryMax=256M
+TasksMax=32
+LimitNOFILE=256
+StandardOutput=null
+
+[Install]
+WantedBy=multi-user.target

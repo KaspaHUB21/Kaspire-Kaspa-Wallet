@@ -364,6 +364,19 @@ use jni::{
     sys::{jint, jstring},
     JNIEnv,
 };
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_describeTrestly(mut env:JNIEnv,_class:JClass,raw:JString)->jstring {
+ let result=read(&mut env,&raw).and_then(|r|crate::trestly::describe(&r).map_err(|e|e.to_string())).and_then(|v|serde_json::to_string(&v).map_err(|e|e.to_string()));output(&mut env,result.unwrap_or_else(error_json))
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_prepareTrestly(mut env:JNIEnv,_class:JClass,raw:JString)->jstring {
+ let result=read(&mut env,&raw).and_then(|r|crate::trestly::prepare(&r).map_err(|e|e.to_string())).and_then(|v|serde_json::to_string(&v).map_err(|e|e.to_string()));output(&mut env,result.unwrap_or_else(error_json))
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_space_kasvault_wallet_SecureCore_signTrestly(mut env:JNIEnv,_class:JClass,secret:JByteArray,raw:JString,hash:JString)->jstring {
+ let result=(||{let secret=read_secret(&mut env,&secret)?;let raw=read(&mut env,&raw)?;let hash=read(&mut env,&hash)?;let v=crate::trestly::sign(&secret,&raw,&hash).map_err(|e|e.to_string())?;serde_json::to_string(&v).map_err(|e|e.to_string())})();output(&mut env,result.unwrap_or_else(error_json))
+}
 use serde_json::json;
 use zeroize::{Zeroize, Zeroizing};
 

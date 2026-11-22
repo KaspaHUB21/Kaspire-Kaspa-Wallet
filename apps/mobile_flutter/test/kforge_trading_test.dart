@@ -255,6 +255,12 @@ void main() {
           ]
         }, 0),
         sig);
+    for (final opcode in ['51', '52', '60', '4f']) {
+      final canonical = opcode + leader.substring(2);
+      expect(KForgeTrading.signature({
+        'inputs': [{'signatureScript': canonical}]
+      }, 0), sig);
+    }
     for (final wrong in ['41' + '11' * 65, '41$sig' + '00', '4d00']) {
       expect(
           () => KForgeTrading.signature({

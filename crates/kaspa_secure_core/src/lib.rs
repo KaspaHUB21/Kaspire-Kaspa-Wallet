@@ -41,6 +41,7 @@ mod wasm;
 
 #[cfg(target_os = "android")]
 mod android;
+pub mod trestly;
 
 #[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
 mod desktop;

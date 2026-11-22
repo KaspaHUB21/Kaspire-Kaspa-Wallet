@@ -156,6 +156,7 @@ class BraidService {
   final EncryptedStore store;
   // Outpoints only, never cached valuations. Every reuse is checked on chain.
   final _verifiedPoolTips = <String, Map<String, dynamic>>{};
+  final _lastChainStatus = <String, int>{};
   late final BraidClock clock;
   static final _busy = <String>{};
   void guard(String address) {
@@ -1074,10 +1075,20 @@ class BraidService {
   Future<Map<String, dynamic>> status(
       String address, Map<String, dynamic> receipt) async {
     guard(address);
-    final d = await call('status', query: {
-      'ref': '${receipt['ref']}',
-      'userPk': kaspaOwnerIdFromAddress(address)
-    });
+    if (receipt['verifiedFinal'] == true) {
+      return Map<String, dynamic>.from(receipt['status'] as Map? ?? {'state': receipt['state']});
+    }
+    Map<String, dynamic> d;
+    try {
+      d = await call('status', query: {
+        'ref': '${receipt['ref']}',
+        'userPk': kaspaOwnerIdFromAddress(address)
+      });
+      receipt.remove('statusWarning');
+    } catch (e) {
+      receipt['statusWarning'] = '$e';
+      d = {'ref': receipt['ref'], 'state': receipt['state'] ?? 'unknown'};
+    }
     if (d['ref'] != receipt['ref']) {
       throw StateError('Braid returned another swap status.');
     }
@@ -1090,11 +1101,86 @@ class BraidService {
     // A server's "expired" or "missing" never erases a signed transaction.
     // Only an independently checked accepted final payout unlocks a new trade.
     if (['done', 'refunded', 'reclaimed'].contains(d['state'])) {
-      await verifyFinal(address, receipt, d);
-      receipt['verifiedFinal'] = true;
+      try {
+        await verifyFinal(address, receipt, d);
+        receipt['verifiedFinal'] = true;
+      } catch (e) {
+        receipt['statusWarning'] = '$e';
+      }
+    }
+    // The router can lose a receipt or continue reporting "deposited" after
+    // execution/refund. Discover the exact spender on OUR node, not by trusting
+    // a provider's status. Never sign or resend anything during a status read.
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final last = _lastChainStatus['${receipt['ref']}'] ?? 0;
+    if (receipt['verifiedFinal'] != true && now - last >= 15000) {
+      _lastChainStatus['${receipt['ref']}'] = now;
+      try {
+        final finalStatus = await _chainFinal(address, receipt);
+        if (finalStatus != null) {
+          d = finalStatus;
+          receipt['status'] = d;
+          receipt['state'] = d['state'];
+          receipt['verifiedFinal'] = true;
+          receipt.remove('statusWarning');
+        }
+      } catch (e) {
+        receipt['statusWarning'] = '$e';
+      }
+    }
+    if (receipt['verifiedFinal'] != true && receipt['context'] is Map) {
+      try {
+        final response = await client.get(Uri.parse('$readNode/info/blockdag'))
+            .timeout(const Duration(seconds: 10));
+        final data = jsonDecode(response.body);
+        if (response.statusCode == 200 && data is Map) {
+          final daa = integer(data['virtualDaaScore'] ?? data['virtual_daa_score']);
+          final deadline = integer(receipt['context']['terms']['deadline']);
+          receipt['recoveryAvailable'] = daa > deadline;
+        }
+      } catch (_) { /* An unavailable clock never proves expiry or finality. */ }
     }
     await retain(address, receipt);
     return d;
+  }
+
+  Future<Map<String, dynamic>?> _chainFinal(
+      String address, Map<String, dynamic> receipt) async {
+    final ctx = receipt['context'];
+    if (ctx is! Map || ctx['terms'] is! Map || ctx['router'] is! Map) return null;
+    final router = ctx['router'] as Map;
+    final original = scriptHash('${router['prefix']}${_state(ctx['terms'] as Map)}${router['suffix']}');
+    final stage = await stageCoin(address, receipt);
+    final scripts = [original, if (stage != null) '${stage['scriptPublicKey']}'];
+    for (final script in scripts) {
+      for (var offset = 0; offset < 200; offset += 50) {
+        final uri = Uri.parse('$readNode/addresses/${_addressForScript(script)}/full-transactions')
+            .replace(queryParameters: {'limit':'50','offset':'$offset','resolve_previous_outpoints':'no'});
+        final response = await client.get(uri).timeout(const Duration(seconds:15));
+        if (response.statusCode != 200 || response.bodyBytes.length > 2*1024*1024) {
+          throw StateError('Independent swap history unavailable. Saved swap retained.');
+        }
+        final rows = jsonDecode(response.body);
+        if (rows is! List) throw StateError('Incomplete independent swap history.');
+        for (final row in rows.whereType<Map>()) {
+          final inputs = row['inputs'];
+          if (row['is_accepted'] != true || inputs is! List ||
+              !inputs.whereType<Map>().any((i) =>
+                i['previous_outpoint_hash'] == (stage != null && script != original ? stage['transactionId'] : receipt['transactionId']) &&
+                '${i['previous_outpoint_index']}' == '${stage != null && script != original ? stage['index'] : receipt['depositCoinIndex']}')) continue;
+          final id = row['transaction_id'];
+          for (final state in ['refunded','done']) {
+            final candidate = <String,dynamic>{'ref':receipt['ref'],'state':state,
+              if(state=='done') 'exec':{'txid':id} else 'refund':{'txid':id},
+              'reason':state=='refunded'?'Deposit returned; independently verified on chain.':null};
+            try { await verifyFinal(address, receipt, candidate); return candidate; }
+            catch (_) { /* A spender alone is not proof of the promised payout. */ }
+          }
+        }
+        if (rows.length < 50) break;
+      }
+    }
+    return null;
   }
 
   Future<void> verifyFinal(String address, Map<String, dynamic> receipt,
@@ -1158,13 +1244,11 @@ class BraidService {
         throw StateError('Final KAS payout is below the saved guarantee.');
       }
     } else {
-      if (received is! Map && status['state'] == 'done') {
-        throw StateError('Token payout proof is not available.');
-      }
-      final amount =
-          status['state'] == 'done' ? integer(received['amount']) : minimum;
-      if (amount < minimum) {
-        throw StateError('Token payout is below the saved guarantee.');
+      final amounts = <BigInt>{minimum};
+      if (status['state'] == 'done' && received is Map) {
+        final amount = integer(received['amount']);
+        if (amount < minimum) throw StateError('Token payout is below the saved guarantee.');
+        amounts..clear()..add(amount);
       }
       var proved = false;
       for (final i in (tx['inputs'] as List).whereType<Map>()) {
@@ -1181,12 +1265,24 @@ class BraidService {
           }
           final code = redeem.sublist(offset);
           if (digest(code) != token.codeHash) continue;
-          final expected =
-              scriptHash(noteRedeem(token, owner, amount, false, code))
-                  .substring(4);
-          proved = (tx['outputs'] as List).whereType<Map>().any((o) =>
-              o['script_public_key'] == expected &&
-              o['covenant_id'] == token.id);
+          // Amount columns in a pinned token witness are discovery hints only.
+          // Prove the amount by reconstructing the exact owned output script.
+          if (status['state'] == 'done' && received is! Map) {
+            for (final push in p.take(24)) {
+              if (push.data.length > 128 || push.data.length % 8 != 0) continue;
+              for (var at=0; at<push.data.length; at+=8) {
+                var n=BigInt.zero;
+                for(var j=0;j<8;j++) { n |= BigInt.from(push.data[at+j]) << (8*j); }
+                if(n>=minimum && n<BigInt.one<<63) amounts.add(n);
+              }
+            }
+          }
+          for (final amount in amounts.where((n)=>n>=minimum)) {
+            final expected = scriptHash(noteRedeem(token, owner, amount, false, code)).substring(4);
+            proved = (tx['outputs'] as List).whereType<Map>().any((o) =>
+                o['script_public_key'] == expected && o['covenant_id'] == token.id);
+            if (proved) break;
+          }
           if (proved) break;
         } catch (_) {/* Another transaction input is not a token witness. */}
       }

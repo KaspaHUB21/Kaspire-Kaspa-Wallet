@@ -98,16 +98,23 @@ class _EvmAssetPanelState extends State<_EvmAssetPanel> {
   @override
   void initState() {
     super.initState();
-    _selected = widget.initialToken ??
-        widget.snapshot.tokens.where((t) => t.trusted).firstOrNull;
+    final available = widget.snapshot.tokens.where((t) => t.canTransfer);
+    _selected = available
+            .where((t) =>
+                t.contract.toLowerCase() ==
+                widget.initialToken?.contract.toLowerCase())
+            .firstOrNull ??
+        available.firstOrNull;
   }
 
   @override
   Widget build(BuildContext context) {
     final tokens =
-        widget.snapshot.tokens.where((token) => token.trusted).toList();
+        widget.snapshot.tokens.where((token) => token.canTransfer).toList();
     if (tokens.isEmpty) {
-      return const Center(child: Text('No supported assets found.'));
+      return const Center(
+          child:
+              Text('No ERC-20 balance with available token decimals found.'));
     }
     return Column(children: [
       Padding(

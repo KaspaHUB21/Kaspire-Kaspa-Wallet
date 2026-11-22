@@ -40,7 +40,6 @@ class _EvmWalletScreenState extends State<EvmWalletScreen> {
   Future<List<EvmActivity>>? _activity;
   bool _assetsExpanded = true;
   bool _activityExpanded = false;
-  bool _showUnknown = false;
 
   @override
   void initState() {
@@ -197,42 +196,31 @@ class _EvmWalletScreenState extends State<EvmWalletScreen> {
                                         padding: const EdgeInsets.all(16),
                                         child: Text('${snapshot.error}'))),
                               if (snapshot.hasData)
-                                ...snapshot.data!.tokens
-                                    .where((token) =>
-                                        token.trusted || _showUnknown)
-                                    .map((token) => Card(
-                                        color: KasVaultTheme.panel,
-                                        child: ListTile(
-                                          leading: token.iconUrl == null
-                                              ? const CircleAvatar(
-                                                  child:
-                                                      Icon(Icons.token_rounded))
-                                              : CircleAvatar(
-                                                  backgroundImage: NetworkImage(
-                                                      token.iconUrl!)),
-                                          title: Text(token.symbol,
-                                              style: const TextStyle(
-                                                  fontWeight: FontWeight.w900)),
-                                          subtitle: Text(token.name),
-                                          trailing: Text(hideAmounts
-                                              ? '••••'
+                                ...snapshot.data!.tokens.map((token) => Card(
+                                    color: KasVaultTheme.panel,
+                                    child: ListTile(
+                                      leading: token.iconUrl == null
+                                          ? const CircleAvatar(
+                                              child: Icon(Icons.token_rounded))
+                                          : CircleAvatar(
+                                              backgroundImage:
+                                                  NetworkImage(token.iconUrl!)),
+                                      title: Text(token.symbol,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w900)),
+                                      subtitle: Text(
+                                          '${token.name}${token.canTransfer ? '' : ' · Token decimals unavailable'}'),
+                                      trailing: Text(hideAmounts
+                                          ? '••••'
+                                          : !token.canTransfer
+                                              ? '${token.rawBalance} raw units'
                                               : formatEnglishDecimal(
                                                   formatUnits(token.rawBalance,
                                                       token.decimals))),
-                                          onTap: () => widget.onSend(token),
-                                        ))),
-                              if (snapshot.hasData &&
-                                  snapshot.data!.tokens
-                                      .any((token) => !token.trusted))
-                                TextButton.icon(
-                                    onPressed: () => setState(
-                                        () => _showUnknown = !_showUnknown),
-                                    icon: Icon(_showUnknown
-                                        ? Icons.visibility_off_outlined
-                                        : Icons.visibility_outlined),
-                                    label: Text(_showUnknown
-                                        ? 'Hide unknown tokens'
-                                        : 'Show unknown tokens (${snapshot.data!.tokens.where((token) => !token.trusted).length})')),
+                                      onTap: token.canTransfer
+                                          ? () => widget.onSend(token)
+                                          : null,
+                                    ))),
                               const SizedBox(height: 24),
                             ],
                             _SectionHeader(

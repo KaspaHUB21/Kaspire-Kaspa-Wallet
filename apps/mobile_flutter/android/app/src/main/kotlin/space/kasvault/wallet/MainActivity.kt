@@ -166,6 +166,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val operationAuthorizations = mutableMapOf<String, OperationAuthorization>()
     private val nativeReviewSummaries = mutableMapOf<String, NativeReviewSummary>()
     private val nativeReviewOperations = setOf(
+        "signTrestly",
         "signHiddenKas",
         "signTransaction",
         "signEvmTransaction",
@@ -649,6 +650,22 @@ class MainActivity : FlutterFragmentActivity() {
                             "signPolicyTransaction",
                             result,
                         )
+                    }
+                    "describeTrestly" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        resultFromCore(SecureCore.describeTrestly(request), result)
+                    }
+                    "prepareTrestly" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        resultPreparedFromCore(SecureCore.prepareTrestly(request), "signTrestly", result)
+                    }
+                    "signTrestly" -> {
+                        val request = call.argument<String>("request") ?: error("Missing request")
+                        val hash = call.argument<String>("reviewHash") ?: error("Missing review hash")
+                        requireAuthorization(call, "signTrestly", hash)
+                        resultFromCore(withDecryptedSecret(JSONObject(request).getString("sender")) {
+                            SecureCore.signTrestly(it, request, hash)
+                        }, result)
                     }
                     "preparePskt", "prepareKaspacomPskt" -> {
                         val request = call.argument<String>("request") ?: error("Missing request")
@@ -2528,6 +2545,13 @@ class MainActivity : FlutterFragmentActivity() {
                 "Recipient ${json.getString("recipient")}\n" +
                     "Amount ${json.getLong("amountSompi")} sompi · " +
                     "Fee ${json.getLong("feeSompi")} sompi"
+            "signTrestly" ->
+                "KAS / kUSDT · ${json.getString("side").uppercase()}\n" +
+                    "Pay ${java.math.BigDecimal(json.getString("amountIn")).movePointLeft(if(json.getString("side")=="buy") 8 else 6).stripTrailingZeros().toPlainString()} ${if(json.getString("side")=="buy") "KAS" else "kUSDT"}\n" +
+                    "Receive ${java.math.BigDecimal(json.getString("amountOut")).movePointLeft(if(json.getString("side")=="buy") 6 else 8).stripTrailingZeros().toPlainString()} ${if(json.getString("side")=="buy") "kUSDT" else "KAS"}\n" +
+                    "Maximum network fee ${java.math.BigDecimal(json.getString("maxFeeSompi")).movePointLeft(8).stripTrailingZeros().toPlainString()} KAS\n" +
+                    "kUSDT storage: 1.5 KAS per state (not a fee)\n" +
+                    "Pool ${json.getString("poolId")}"
             "signEvmTransaction" ->
                 "${json.getString("network")} · Chain ${json.getLong("chainId")}\n" +
                     "Recipient ${json.getString("recipient")}\n" +

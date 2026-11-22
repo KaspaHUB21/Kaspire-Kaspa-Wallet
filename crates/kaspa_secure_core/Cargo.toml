@@ -8,6 +8,7 @@ publish = false
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
+kusdt-kaspa = { path = "../../packages/trestly-kaspa", default-features = false }
 blake3 = "1.8.2"
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
 hex = "0.4.3"

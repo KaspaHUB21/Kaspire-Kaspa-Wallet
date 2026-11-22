@@ -60,6 +60,10 @@ class EvmToken {
   final BigInt rawBalance;
   final bool trusted;
   final String? iconUrl;
+  bool get canTransfer =>
+      RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(contract) &&
+      decimals >= 0 &&
+      decimals <= 255;
 }
 
 class EvmSnapshot {
@@ -125,13 +129,22 @@ class EvmApi {
   }
 
   Future<EvmSnapshot> loadWallet(String address) async {
+    final networkBefore = NetworkSettings.network.value;
     final results = await Future.wait([
       rpc('eth_getBalance', [address, 'latest']),
       _loadTokenBalances(address),
       _trustedContracts(),
     ]);
     final trusted = results[2] as Set<String>;
+    if (NetworkSettings.network.value != networkBefore)
+      throw StateError('Network changed. Reload this wallet.');
     final tokens = (results[1] as List<Map<String, Object?>>)
+        .where((row) {
+          final t = row['token'];
+          return t is Map &&
+              (t['type'] == null ||
+                  t['type'].toString().toUpperCase() == 'ERC-20');
+        })
         .map((row) {
           final token =
               (row['token'] as Map? ?? const {}).cast<String, Object?>();
@@ -141,16 +154,41 @@ class EvmApi {
             contract: contract,
             symbol: (token['symbol'] ?? 'TOKEN').toString().toUpperCase(),
             name: (token['name'] ?? 'Unknown token').toString(),
-            decimals: int.tryParse('${token['decimals'] ?? 18}') ?? 18,
+            decimals: int.tryParse('${token['decimals']}') ?? -1,
             rawBalance: BigInt.tryParse('${row['value'] ?? 0}') ?? BigInt.zero,
             trusted: trusted.contains(contract.toLowerCase()),
             iconUrl: token['icon_url']?.toString(),
           );
         })
         .where((token) =>
-            token.rawBalance > BigInt.zero && token.contract.isNotEmpty)
+            token.rawBalance > BigInt.zero &&
+            RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(token.contract))
         .toList()
       ..sort((a, b) => a.symbol.compareTo(b.symbol));
+    for (var i = 0; i < tokens.length; i++) {
+      final t = tokens[i];
+      if (t.decimals >= 0) continue;
+      try {
+        final raw = await rpc('eth_call', [
+          {'to': t.contract, 'data': '0x313ce567'},
+          'latest'
+        ]);
+        if (raw is! String || !RegExp(r'^0x[0-9a-fA-F]{64}$').hasMatch(raw))
+          continue;
+        final value = BigInt.parse(raw.substring(2), radix: 16);
+        if (value > BigInt.from(255)) continue;
+        tokens[i] = EvmToken(
+            contract: t.contract,
+            symbol: t.symbol,
+            name: t.name,
+            decimals: value.toInt(),
+            rawBalance: t.rawBalance,
+            trusted: t.trusted,
+            iconUrl: t.iconUrl);
+      } catch (_) {/* Retain visible raw units; never invent 18 decimals. */}
+    }
+    if (NetworkSettings.network.value != networkBefore)
+      throw StateError('Network changed. Reload this wallet.');
     return EvmSnapshot(
       address: address,
       nativeBalance: _hexInt(results[0]),
@@ -273,7 +311,8 @@ class EvmApi {
               BigInt.tryParse('${row['gas_used'] ?? 0}') ?? BigInt.zero;
           final gasPrice =
               BigInt.tryParse('${row['gas_price'] ?? 0}') ?? BigInt.zero;
-          final status = '${row['status'] ?? row['result'] ?? ''}'.toLowerCase();
+          final status =
+              '${row['status'] ?? row['result'] ?? ''}'.toLowerCase();
           return EvmActivity(
             hash: '${row['hash'] ?? ''}',
             from: '${(row['from'] as Map?)?['hash'] ?? row['from'] ?? ''}',

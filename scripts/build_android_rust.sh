@@ -30,6 +30,11 @@ export AR_aarch64_linux_android="$toolchain/bin/llvm-ar"
 export AR_armv7_linux_androideabi="$toolchain/bin/llvm-ar"
 
 cd "$project_root"
+# Source snapshots and restored build caches can carry misleading mtimes.
+# Rebuild the wallet crate itself for each ABI; retain the dependency cache.
+# Deleting only the copied jniLibs does not invalidate Cargo's prior .so.
+cargo clean --release --package kaspa_secure_core --target aarch64-linux-android
+cargo clean --release --package kaspa_secure_core --target armv7-linux-androideabi
 cargo build --locked --release --package kaspa_secure_core \
   --target aarch64-linux-android
 cargo build --locked --release --package kaspa_secure_core \

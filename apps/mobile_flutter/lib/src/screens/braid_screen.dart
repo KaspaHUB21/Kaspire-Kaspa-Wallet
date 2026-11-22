@@ -41,6 +41,12 @@ String braidRouteLabel(Map leg) {
 /// Display server progress only; completion still requires independent checks.
 String braidStatusLabel(Map status) {
   final parts = <String>['Swap status: ${status['state'] ?? 'unknown'}'];
+  if (status['state'] == 'deposited') {
+    parts.add('Waiting for Braid to execute the route, not a network confirmation');
+  }
+  if (status['reason'] is String && '${status['reason']}'.trim().isNotEmpty) {
+    parts.add('${status['reason']}'.substring(0, min('${status['reason']}'.length, 200)));
+  }
   if (status['stage'] is Map && (status['stage'] as Map)['txid'] is String) {
     parts.add('Step 1: token → KAS · step 2: buying destination token');
   }
@@ -492,7 +498,7 @@ class _BraidScreenState extends State<BraidScreen> {
       if (mounted) {
         setState(() => statusText = r['verifiedFinal'] == true
             ? '${result['state'] == 'done' ? 'Swap completed' : 'Funds returned'} · independently verified on chain'
-            : braidStatusLabel(result));
+            : '${braidStatusLabel(result)}${r['recoveryAvailable'] == true ? ' · Deadline passed: use Recover after deadline to return the saved deposit' : ''}');
       }
     } catch (e) {
       fail(e);
