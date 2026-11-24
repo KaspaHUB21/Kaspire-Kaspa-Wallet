@@ -1,4 +1,5 @@
 import type { KaspaNetwork } from "../shared/protocol";
+import {currencies,isDisplayCurrency} from '../shared/displayCurrency';
 export interface WalletAddress {
   address: string;
   name: string;
@@ -62,6 +63,15 @@ const defaults: WalletState = {
   locked: true,
   recoveryVerified: true,
 };
+export {currencies};
+const currencyKey='walletCurrencyPreferenceV1';
+const validCurrency=isDisplayCurrency;
+// Fiat preference is independent of a slow wallet/network/lock-state save.
+// Older snapshots must never replace a newer explicit user selection.
+export async function setCurrencyPreference(currency:string){
+  if(!validCurrency(currency))throw Error('Unsupported display currency.');
+  await chrome.storage.local.set({[currencyKey]:currency});
+}
 
 function sanitized(raw: any): WalletState {
   return {
@@ -95,21 +105,22 @@ function sanitized(raw: any): WalletState {
 }
 
 export async function loadState(): Promise<WalletState> {
-  const { walletState } = await chrome.storage.local.get("walletState");
-  if (walletState?.version !== 2) return { ...defaults };
-  const clean = sanitized(walletState);
+  const stored = await chrome.storage.local.get(['walletState',currencyKey]),walletState=stored.walletState;
+  const clean = sanitized(walletState?.version===2?walletState:{});
+  if(validCurrency(stored[currencyKey]))clean.settings.currency=stored[currencyKey];
   // Old builds could carry deprecated secret-bearing fields forward through
   // object spreading. Persist only the explicit public allow-list.
-  if ("wallets" in walletState || "secret" in walletState) {
+  if (walletState && ("wallets" in walletState || "secret" in walletState)) {
     await chrome.storage.local.set({ walletState: clean });
   }
   return clean;
 }
 
 export async function saveState(state: WalletState) {
-  const { walletState: previous } =
-    await chrome.storage.local.get("walletState");
+  const stored=await chrome.storage.local.get(['walletState',currencyKey]),previous=stored.walletState;
   const current = sanitized(state);
+  if(validCurrency(stored[currencyKey]))current.settings.currency=stored[currencyKey];
+  else if(validCurrency(previous?.settings?.currency))current.settings.currency=previous.settings.currency;
   await chrome.storage.local.set({ walletState: current });
   void chrome.tabs.query({}).then((tabs) =>
     Promise.all(

@@ -14,6 +14,11 @@ __pycache__/
 **/dist/
 target/
 artifacts/
+!packages/trestly-kaspa/artifacts/
+packages/trestly-kaspa/artifacts/*
+!packages/trestly-kaspa/artifacts/pool.json
+!packages/trestly-kaspa/artifacts/kusdt.json
+!packages/trestly-kaspa/artifacts/PROVENANCE.json
 *.jks
 *.keystore
 *.apk

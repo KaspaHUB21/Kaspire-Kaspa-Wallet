@@ -2274,6 +2274,33 @@ dependencies = [
 
 [[package]]
 name = "kaspa-bip32"
+version = "2.0.1"
+source = "git+https://github.com/kaspanet/rusty-kaspa?rev=a41a333b08848f41bf737b72592e463a6011b8ac#a41a333b08848f41bf737b72592e463a6011b8ac"
+dependencies = [
+ "borsh",
+ "bs58",
+ "getrandom 0.2.17",
+ "hmac",
+ "js-sys",
+ "kaspa-consensus-core 2.0.1",
+ "kaspa-utils 2.0.1",
+ "once_cell",
+ "pbkdf2",
+ "rand 0.8.7",
+ "rand_core 0.6.4",
+ "ripemd",
+ "secp256k1",
+ "serde",
+ "sha2",
+ "subtle",
+ "thiserror 2.0.18",
+ "wasm-bindgen",
+ "workflow-wasm",
+ "zeroize",
+]
+
+[[package]]
+name = "kaspa-bip32"
 version = "2.1.0"
 source = "git+https://github.com/kaspanet/rusty-kaspa?tag=v2.1.0#01b532e8b553523216471682649693af92f0fd16"
 dependencies = [
@@ -2745,7 +2772,7 @@ dependencies = [
  "hex",
  "jni",
  "kaspa-addresses 2.1.0",
- "kaspa-bip32",
+ "kaspa-bip32 2.1.0",
  "kaspa-consensus-core 2.1.0",
  "kaspa-hashes 2.1.0",
  "kaspa-txscript 2.1.0",
@@ -4641,6 +4668,27 @@ dependencies = [
  "thread_local",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "trestly_web_core"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "getrandom 0.4.3",
+ "hex",
+ "kaspa-addresses 2.0.1",
+ "kaspa-bip32 2.0.1",
+ "kaspa-consensus-core 2.0.1",
+ "kaspa-txscript 2.0.1",
+ "kusdt-kaspa",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "wasm-bindgen",
+ "zeroize",
 ]
 
 [[package]]

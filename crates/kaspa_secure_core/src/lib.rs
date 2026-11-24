@@ -41,6 +41,9 @@ mod wasm;
 
 #[cfg(target_os = "android")]
 mod android;
+// The browser's pinned pool SDK runs in a separate WASM instance so its SDK
+// exports cannot collide with the existing wallet core. Native builds are unchanged.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod trestly;
 
 #[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]

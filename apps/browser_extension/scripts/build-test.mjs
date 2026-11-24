@@ -10,6 +10,8 @@ const cargoTargetDir = process.env.CARGO_TARGET_DIR
 
 await rm("tests/generated", { recursive: true, force: true });
 await mkdir("tests/generated/wasm", { recursive: true });
+execFileSync(process.execPath,['scripts/build-pool-core.mjs','tests/generated/trestly'],{stdio:'inherit'});
+for(const entry of ['background/state','background/nativeSwapResponse','background/nativeSwapJournal','background/nativeSwapBackup','ui/nativeSwap'])await build({entryPoints:[`src/${entry}.ts`],outfile:`tests/generated/${entry.split('/').at(-1)}.mjs`,bundle:true,format:'esm',platform:'node',target:'node20'});
 await build({entryPoints:["src/shared/psktTokenReview.ts"],outfile:"tests/generated/psktTokenReview.mjs",bundle:true,format:"esm",platform:"node",target:"node20"});
 execFileSync(process.execPath,['scripts/build-dex-engine.mjs'],{stdio:'inherit'});
 for(const entry of ['background/kcc20Kascov','background/dexEngine','shared/publicCrypto','ui/dexPresentation'])await build({entryPoints:[`src/${entry}.ts`],outfile:`tests/generated/${entry.split('/').at(-1)}.mjs`,bundle:true,format:'esm',platform:'node',target:'node20'});

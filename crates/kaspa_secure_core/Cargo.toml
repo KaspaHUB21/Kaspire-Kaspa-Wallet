@@ -8,7 +8,6 @@ publish = false
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-kusdt-kaspa = { path = "../../packages/trestly-kaspa", default-features = false }
 blake3 = "1.8.2"
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
 hex = "0.4.3"
@@ -43,6 +42,7 @@ ml-kem = { version = "=0.3.2", features = ["zeroize", "hazmat"] }
 ml-dsa = { version = "=0.1.1", features = ["zeroize"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+kusdt-kaspa = { path = "../../packages/trestly-kaspa", default-features = false }
 silverscript-v1 = { package = "silverscript-lang", git = "https://github.com/kaspanet/silverscript", rev = "3ed973335b59269293564805cc2c58a14595ec03" }
 
 [build-dependencies]

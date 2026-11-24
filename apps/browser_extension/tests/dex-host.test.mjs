@@ -30,3 +30,15 @@ test('asset jobs coalesce, replay, and cache independently of a reopened view',a
   invoke=async m=>{started++;await request(m.capability,'assets',{items:[{covenantId:'a',rawBalance:'42'}]});await barrier;return {result:'{"ok":true,"value":[{"covenantId":"a","rawBalance":"42"}]}'};};
   const a=sharedDexAssets(c,'kforge');await new Promise(r=>setTimeout(r,1));const b=sharedDexAssets(context(),'kforge');release();assert.deepEqual(await a,await b);assert.equal(started,1);assert.deepEqual(await sharedDexAssets(context(),'kforge'),await a);assert.equal(started,1);
 });
+test('native profile cannot escape into generic signing, another relay or a different wallet',async()=>{
+ const c=context();let signs=0;
+ c.trestly={canSign:async()=>true,describe:async()=>({pinned:true}),prepare:async()=>({checked:true}),sign:async()=>{signs++;return {};},beforeSubmit:async()=>{throw Error('Not the saved bytes');}};
+ invoke=async m=>{
+  for(const [op,body]of [['prepare',{request:{sender:c.address}}],['sign',{request:{sender:c.address}}],['broadcast',{raw:'{}',id:'ab'.repeat(32)}],['socketFrame',{url:'wss://example.test'}],['trestlySign',{request:{sender:'wrong'},hash:'x'}],['http',{url:'https://gothdag.kaslab.space/api/covenant-broadcast',method:'POST'}],['http',{url:'https://kaspire.kaslab.space/api/native-kusdt/submit',method:'POST',body:btoa(JSON.stringify({transactionId:'ab'.repeat(32),transactionJson:'changed'}))}]])assert.equal((await request(m.capability,op,body)).ok,false,op);
+  assert.deepEqual(await request(m.capability,'trestlyPrepare',{request:{sender:c.address}}),{ok:true,value:{checked:true}});
+  return {result:'{"ok":true,"value":true}'};
+ };
+ await runDexEngine(c,'trestly','submit');assert.equal(signs,0);
+ invoke=async m=>{assert.equal((await request(m.capability,'trestlySign',{request:{sender:c.address},hash:'x'})).ok,false);assert.equal((await request(m.capability,'storeDelete',{key:'trestly.pending.v1.'+c.address})).ok,false);return {result:'{"ok":true,"value":true}'};};
+ await runDexEngine(c,'trestly','balance');assert.equal(signs,0);
+});

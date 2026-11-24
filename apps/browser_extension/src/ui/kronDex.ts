@@ -1,6 +1,7 @@
 import { kronDisplay, kronSwapDetails, type KronToken } from '../background/kronDex';
 import {openKasseal} from './kasseal';
 import {openSharedDex} from './dex';
+import {openNativeSwap} from './nativeSwap';
 import {sellPresets} from './dexPresentation';
 type Hooks = { command(name: string, values?: Record<string, unknown>): Promise<any>; shell(content: string, title?: string, back?: boolean): void; address(): string };
 const esc = (v: any) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -11,9 +12,10 @@ const details = (summary: any, token: KronToken) => kronSwapDetails(summary, tok
 
 export function openDexSelection(hooks: Hooks, network: string, rocket: () => void) {
   if(!['mainnet','testnet-10'].includes(network)){hooks.shell('<article class="review-card"><h1>KCC20 DEX Swaps</h1><p>Switch to a Kaspa network.</p></article>','Swap',true);return;}
-  const rows=network==='mainnet'?[['rocket','KaspaRocket','https://kasparocket.fun/icon.jpeg'],['kasseal','Kasseal','kasseal.png'],['braid','Braid','braid.svg'],['kforge','KForge','kforge.svg'],['kron','KRON','https://kron.technology/icon-512.png'],['kasforge','KasForge','kasforge.png']]:[['braid','Braid','braid.svg'],['kforge','KForge','kforge.svg'],['kasforge','KasForge','kasforge.png']];
-  hooks.shell(`<section class="marketplace-screen"><h1>KCC20 DEX Swaps</h1>${rows.map(([id,name,image])=>`<button id="${id}-open" class="rocket-token market-offer"><span class="rocket-logo"><img src="${image}" alt="${name}"></span><span><b>${name}</b><small>${network==='mainnet'?'Kaspa Mainnet':'Testnet 10'} · ${id==='braid'?'Aggregator':'DEX & Launchpad'}</small></span><i>›</i></button>`).join('')}</section>`,'Swap',true);
+  const rows=network==='mainnet'?[['trestly','KAS / kUSDT','trestly.svg'],['rocket','KaspaRocket','https://kasparocket.fun/icon.jpeg'],['kasseal','Kasseal','kasseal.png'],['braid','Braid','braid.svg'],['kforge','KForge','kforge.svg'],['kron','KRON','https://kron.technology/icon-512.png'],['kasforge','KasForge','kasforge.png']]:[['braid','Braid','braid.svg'],['kforge','KForge','kforge.svg'],['kasforge','KasForge','kasforge.png']];
+  hooks.shell(`<section class="marketplace-screen"><h1>KCC20 DEX Swaps</h1>${rows.map(([id,name,image])=>`<button id="${id}-open" class="rocket-token market-offer"><span class="rocket-logo"><img src="${image}" alt="${name}"></span><span><b>${name}</b><small>${id==='trestly'?'Trestly KasPool · Native KAS ↔ kUSDT':(network==='mainnet'?'Kaspa Mainnet':'Testnet 10')+' · '+(id==='braid'?'Aggregator':'DEX & Launchpad')}</small></span><i>›</i></button>`).join('')}</section>`,'Swap',true);
   document.querySelector<HTMLButtonElement>('#rocket-open')?.addEventListener('click',rocket);
+  document.querySelector<HTMLButtonElement>('#trestly-open')?.addEventListener('click',()=>void openNativeSwap(hooks));
   document.querySelector<HTMLButtonElement>('#kasseal-open')?.addEventListener('click',()=>void openKasseal(hooks));
   document.querySelector<HTMLButtonElement>('#kron-open')?.addEventListener('click',()=>void openKronDex(hooks));
   for(const venue of ['braid','kforge','kasforge'] as const)document.querySelector<HTMLButtonElement>(`#${venue}-open`)!.onclick=()=>void openSharedDex(hooks,venue,network);

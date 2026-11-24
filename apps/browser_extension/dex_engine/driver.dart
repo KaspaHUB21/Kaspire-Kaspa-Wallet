@@ -6,6 +6,7 @@ import 'generated/lib/services/kforge_trading.dart';
 import 'generated/lib/services/kasforge_service.dart';
 import 'generated/lib/services/kasforge_trading.dart';
 import 'generated/lib/services/braid_service.dart';
+import 'generated/lib/services/trestly_service.dart';
 import 'generated/lib/kaspa_address.dart';
 
 final _plans=<String,Map<String,dynamic>>{};
@@ -19,7 +20,7 @@ String keep(Map<String,Map<String,dynamic>> cache,Map value,Map input){
 Map<String,dynamic> take(Map<String,Map<String,dynamic>> cache,Object? id,Map input,{bool remove=false}){
   final saved=remove?cache.remove(id):cache[id];
   if(saved==null||saved['address']!=input['address']||saved['network']!=input['network']||saved['venue']!=input['venue']||
-    DateTime.now().millisecondsSinceEpoch-(saved['at'] as int)>60000)throw StateError('Quote/review expired. Refresh quote; no new payment was signed.');
+    DateTime.now().millisecondsSinceEpoch-(saved['at'] as int)>(input['venue']=='trestly'?90000:60000))throw StateError('Quote/review expired. Refresh quote; no new payment was signed.');
   return Map<String,dynamic>.from(saved['value'] as Map);
 }
 BigInt amount(String text,int decimals){
@@ -53,7 +54,22 @@ Future<Object?> execute(Map input)async{
     'wideIntegerLimit':'${BigInt.one << 52}',
     'wideState':'${webU64(webU64Bytes(BigInt.parse('9223372036854775807')),0)}',
     'publicDigest':BraidService.digest([1,2,3,255])};
-  if(venue=='kforge'){
+  if(venue=='trestly'){
+    final service=TrestlyService(address,client:client);
+    service.guard();
+    if(action=='context'||action=='saved')return {'pending':await service.pending(),'last':jsonDecode(await service.store.read('${service.key}.last')??'null')};
+    if(action=='balance'){
+      final balance=await service.sellBalance();
+      return {'verifiedRaw':balance.verifiedRaw.toString(),'maximumRaw':balance.maximumRaw.toString(),'maximumAmount':balance.maximumAmount,'complete':balance.complete,'count':balance.cells.length};
+    }
+    if(action=='quote'){
+      final plan=await service.quote('${a['side']}','${a['amount']}'),id=keep(_plans,plan,input);
+      return {'id':id,'review':plan['review'],'createdAt':plan['createdAt']};
+    }
+    if(action=='prepare'){final plan=take(_plans,a['id'],input);return {'id':a['id'],'review':plan['review']};}
+    if(action=='submit')return service.execute(take(_plans,a['id'],input,remove:true));
+    if(action=='resume')return service.resume();
+  }else if(venue=='kforge'){
     final service=KForgeService(client:client),trading=KForgeTrading(client:client);
     if(action=='tokens')return (await service.catalogue()).map(tokenK).toList();
     if(action=='assets')return (await service.walletAssets(address,onProgress:(rows){host('assets',{'items':rows.map((a)=>a.toJson()).toList()});})).map((a)=>a.toJson()).toList();

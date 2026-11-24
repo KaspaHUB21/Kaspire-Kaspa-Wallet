@@ -5,7 +5,7 @@ import {resolve} from 'node:path';
 // Copy only public, released application algorithms. No partner kits, private
 // artifacts, mobile wallet storage or Flutter runtime is bundled.
 const root=resolve('dex_engine'),source=resolve('../mobile_flutter/lib/src');
-const names=['braid_service','braid_clock','braid_pool_reader','braid_pool_pins','kforge_service','kforge_trading','kasforge_service','kasforge_trading','swap_conflict_lookup'];
+const names=['braid_service','braid_clock','braid_pool_reader','braid_pool_pins','kforge_service','kforge_trading','kasforge_service','kasforge_trading','swap_conflict_lookup','trestly_service'];
 await fs.mkdir(root+'/generated/lib/services',{recursive:true});
 const provenance={};
 for(const name of names){
@@ -13,6 +13,11 @@ for(const name of names){
   provenance[name]=createHash('sha256').update(original).digest('hex');
   let text=original.replace(/^import '(?:package:flutter\/(?:foundation|services)\.dart|dart:io|native_security\.dart|encrypted_store\.dart|network_settings\.dart|kaspa_api\.dart|\.\.\/models\/wallet_snapshot\.dart)';\n/gm,'');
   text="import '../compat.dart';\n"+text;
+  if(name==='trestly_service'){
+    const guard='NetworkSettings.network.value != KaspaNetwork.mainnet';
+    if(text.split(guard).length!==2)throw Error('Review changed Mainnet-only Trestly guard.');
+    text=text.replace(guard,'(NetworkSettings.isTestnet || !NetworkSettings.isKaspa)');
+  }
   // dart2js bitwise int operations are 32-bit; Android's are 64-bit. Keep
   // these public arithmetic bounds/decoders exact rather than truncating them.
   text=text.replace('BigInt.from(1 << 52)','(BigInt.one << 52)');

@@ -1,0 +1,38 @@
+{
+  "note": "Written by tools/check-artifacts.mjs --write after a rebuild. What the committed covenant bytecode was built from.",
+  "compiler": {
+    "repo": "https://github.com/argent-lang/argent",
+    "commit": "9a9f4b107116d0b259fae629f200fa3b663e7e9d",
+    "generator": {
+      "name": "argentc",
+      "version": "0.1.0"
+    }
+  },
+  "toolchain": "1.94.1",
+  "kcc20Reference": {
+    "repo": "https://github.com/argent-lang/kcc20-reference.git",
+    "commit": "27f8403fee55863125b044c73b2c9449d997a6ca"
+  },
+  "sources": {
+    "bridge/kaspa/contracts/kusdt.ag": "38f7ea7032b2f62b45dc6bdfb188b556172247c60a4c657c6259d4d937aee10a",
+    "bridge/kaspa/contracts/bridge_mint.ag": "59a070e531ab36a41dd76c54d876a9115db0439c006b8a042b9aeaa938f208f0",
+    "bridge/kaspa/contracts/pool.ag": "2a6ee5518d7d74fd77b630007e50f59dbd8d2502a81efa273b7a35e506b7daa7",
+    "vendor/kcc20-reference/contracts/kcc20.ag": "f6131d97368461e74b02507d5ef2d7af57c76226cf945ebbbe9735f0953414e9",
+    "vendor/kcc20-reference/contracts/token_seed.ag": "f429951f7e10356656dc24526b987abcc15131c9f6c4dce643f1f61032d0986b"
+  },
+  "artifacts": {
+    "bridge/kaspa/artifacts/kusdt.json": "0be979f43ca87fb4f9acdf165f1b6e71cffbd892d2fcb137a1151245e1bcd861",
+    "bridge/kaspa/artifacts/pool.json": "6ecab31a4cffe45ba8e9ae3cf1bb816513b3dd9dd9dc2c6916419dd90b1c114d"
+  },
+  "wasm": {
+    "bridge/packages/core/pkg-web/kusdt_wasm_bg.wasm": "a7be48e962dab57902924ea71fbad31b073cd2ba2197ebcf0de83b0f2a54fd53",
+    "bridge/packages/core/pkg-node/kusdt_wasm_bg.wasm": "b07906fe9c5dc3de963f487320ad9ebf92de0bf1bf58b4924f7193aaff958cdf"
+  },
+  "bytecode": {
+    "kusdt/BridgeMint": "7c1e6770427df880d40d7431e8748879405c8aee0d93c2d50759393a15328184",
+    "kusdt/KCC20": "71b1a97d1446bed09fa06ff2412a1b4a4de313f51770425faaeab5e657df9471",
+    "kusdt/TokenSeed": "28ed4c6b1f170bfa54c5cca33468de47985108a70073a502e6f712aab25d4f8a",
+    "pool/Pool": "58e2dd607996343327674b0c0823f819e73efd3ba024b93f469fc524756c7da4",
+    "pool/Position": "414a0aba98870ad61cc4d2603ec520b240f81bd5d8e65cef96dad1df42a853b6"
+  }
+}

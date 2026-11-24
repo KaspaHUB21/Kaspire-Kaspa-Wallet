@@ -50,7 +50,7 @@ try{
   assert(!liveKassealContext.error,JSON.stringify(liveKassealContext.error));
   assert.equal(liveKassealContext.result.pending,undefined);
   }
-  for (const theme of ["midnight","hub21","glacier","neptune"]) {
+  for (const theme of ["midnight","hub21","glacier","neptune","cosmic"]) {
     await evaluate(reopenedWallet, `(async()=>{await chrome.runtime.sendMessage({channel:"wallet",command:"setSettings",settings:{theme:"${theme}"}});location.reload();return true})()`);
     await waitFor(reopenedWallet, 'Boolean(document.querySelector("#swap"))');
     const layout=JSON.parse(String(await evaluate(reopenedWallet, 'JSON.stringify([...document.querySelectorAll(".quick-actions > button")].map(e=>{const r=e.getBoundingClientRect();return {id:e.id,x:r.x,y:r.y,width:r.width,height:r.height}}))')));
@@ -60,7 +60,7 @@ try{
     await evaluate(reopenedWallet,'document.querySelector("#swap").click();true');
     await waitFor(reopenedWallet,'Boolean(document.querySelector("#kron-open"))');
     assert.match(String(await evaluate(reopenedWallet,'document.querySelector(".marketplace-screen").innerText')),/KCC20 DEX Swaps.*Kron/si);
-    assert.deepEqual(await evaluate(reopenedWallet,'[...document.querySelectorAll(".marketplace-screen > button")].map(b=>b.id)'),['rocket-open','kasseal-open','braid-open','kforge-open','kron-open','kasforge-open']);
+    assert.deepEqual(await evaluate(reopenedWallet,'[...document.querySelectorAll(".marketplace-screen > button")].map(b=>b.id)'),['trestly-open','rocket-open','kasseal-open','braid-open','kforge-open','kron-open','kasforge-open']);
     assert.equal(await evaluate(reopenedWallet,'Boolean(document.querySelector("#rocket-open"))'),true);
     assert.equal(await evaluate(reopenedWallet,'Boolean(document.querySelector("#kasseal-open"))'),true);
     assert.deepEqual(await evaluate(reopenedWallet,'[...document.querySelectorAll("#rocket-open,#kasseal-open,#kron-open")].map(b=>b.id)'),['rocket-open','kasseal-open','kron-open']);

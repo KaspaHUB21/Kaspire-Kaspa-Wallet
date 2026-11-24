@@ -1,0 +1,34 @@
+/* Android CosmicSurfacePainter artwork and static cyan/violet rims. All labels,
+   balances, controls and approval surfaces remain native extension DOM. */
+.cosmic-planet,.cosmic-nav{display:none}
+:root[data-theme=cosmic]{color-scheme:dark;--accent:#85e5ef;--accent2:#e084ff;--text:#f8f4ff;--surface:#07091e;--surface2:#11102a;--panel:#07091eee;--line:#9c65c6;--border:#9c65c6;--muted:#c2c9dc;--danger:#ffacbe;--glow:#6a208c;--cosmic-rim:linear-gradient(135deg,#85e5ef,#e084ff 25%,#bc59ff 49%,#85e5ef 72%,#e084ff);--cosmic-face:linear-gradient(135deg,#100b28ee,#020518f7,#0d0825ee);--cosmic-art:url('themes/cosmic/surface-nebula.png')}
+:root[data-theme=cosmic] body{color:var(--text);background:#020415 url('themes/cosmic/nebula.png') center top/cover fixed no-repeat}
+:root[data-theme=cosmic] .app{background:#02041512;padding-bottom:100px}
+:root[data-theme=cosmic] :is(.balance-card,.quick-actions>button,.asset-group,.settings-link,.settings-group,.wallet-card,.price-grid>div,.review-card,.tx-meta,.address-full,.private-key-card,.detail-section,.copy-detail,.receipt-details,.app-promo,.market-offer,.market-name,.market-tabs,.market-emblem,.endpoint-card,.network-list,.diagnostic,.info-box,.seed-word,.token-detail,.approval-sheet,.recipient-sheet){background-image:linear-gradient(#030518a8,#030518a8),var(--cosmic-art),var(--cosmic-face),var(--cosmic-rim);background-origin:padding-box,padding-box,padding-box,border-box;background-clip:padding-box,padding-box,padding-box,border-box;background-size:auto,cover,auto,auto;background-color:#080b21;border:1.5px solid transparent;border-radius:18px;box-shadow:inset 0 0 0 .5px #e3c9ff70,0 0 8px #ae51ff4d;color:var(--text)}
+:root[data-theme=cosmic] .top{background:linear-gradient(#02041588,#020415d9),var(--cosmic-art) center/cover;border-bottom:1px solid #b86fe3;backdrop-filter:blur(12px)}
+:root[data-theme=cosmic] .top:not(:has(#back))>b{position:relative;color:transparent;min-height:28px}
+:root[data-theme=cosmic] .top:not(:has(#back))>b::after{content:'';position:absolute;inset:2px 0;background:#85e5ef;mask:url('kaspire-wordmark.png') center/contain no-repeat;filter:drop-shadow(0 0 5px #75eaff55)}
+:root[data-theme=cosmic] :is(.icon,.pill,.mini,.outline,button){color:var(--accent);border-color:#b682db;background-color:#080b21}
+:root[data-theme=cosmic] :is(.top .icon,.pill){background-image:var(--cosmic-face),var(--cosmic-rim);background-origin:padding-box,border-box;background-clip:padding-box,border-box;border:1.5px solid transparent;box-shadow:inset 0 0 0 .5px #e3c9ff88,0 0 7px #bc59ff66;border-radius:24px}
+:root[data-theme=cosmic] .balance-card{position:relative;isolation:isolate;container-type:inline-size;min-height:230px;padding:22px 18px 70px;border-radius:24px;background-image:linear-gradient(#03051848,#03051848),var(--cosmic-art),var(--cosmic-face),var(--cosmic-rim);box-shadow:inset 0 0 0 .5px #e3c9ff88,0 0 13px #bc59ff77,0 0 4px #85e5ef55}
+:root[data-theme=cosmic] .balance-card :is(p,strong,small,button){position:relative;z-index:1}
+:root[data-theme=cosmic] .balance-card strong{display:block;max-width:100%;font-size:clamp(20px,6vw,30px);color:#fff;text-shadow:0 1px 5px #010313;overflow-wrap:anywhere}
+:root[data-theme=cosmic] .balance-card small{color:#85e5ef;padding-right:80px}
+:root[data-theme=cosmic] .balance-card .eye{position:absolute}
+:root[data-theme=cosmic] .cosmic-planet{display:block;position:absolute;right:5px;bottom:5px;width:clamp(100px,36cqw,150px);aspect-ratio:1;pointer-events:none;z-index:0}
+.cosmic-planet img{display:block;width:100%;height:100%;object-fit:contain}
+:root[data-theme=cosmic] .quick-actions{gap:9px}
+:root[data-theme=cosmic] .quick-actions>button{position:relative;isolation:isolate;min-height:82px;padding:10px 3px;background-image:radial-gradient(ellipse 16px 3px at 15% 1px,#eaffffdc,transparent),radial-gradient(ellipse 12px 3px at 84% calc(100% - 1px),#e8baffeb,transparent),linear-gradient(#02051825,#0205186b),var(--cosmic-art),var(--cosmic-face),var(--cosmic-rim);background-origin:border-box,border-box,padding-box,padding-box,padding-box,border-box;background-clip:border-box,border-box,padding-box,padding-box,padding-box,border-box;background-size:auto,auto,auto,100% 100%,auto,auto;border:1.7px solid transparent;border-radius:17px;box-shadow:inset 0 0 0 .5px #efcfffbb,0 0 6px #bd62ff66,0 0 3px #85e5ef66}
+:root[data-theme=cosmic] .quick-actions>button:nth-child(even){background-position:0 0,0 0,0 0,bottom right,0 0,0 0}
+:root[data-theme=cosmic] .quick-actions>button:nth-child(odd) b{color:#e084ff}
+:root[data-theme=cosmic] .quick-actions :is(span,small){color:#f8f4ff;text-shadow:0 1px 4px #000}
+:root[data-theme=cosmic] :is(input,select,textarea,.password-input,.raw-json pre,.brand-verification,.address-verification){color:var(--text);background:#06091cf5;border-color:#b174d1}
+:root[data-theme=cosmic] :is(input,select,textarea,button):focus-visible{outline:2px solid #aef7ff;outline-offset:3px}
+:root[data-theme=cosmic] .cosmic-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));position:fixed;left:0;right:0;bottom:0;z-index:45;min-height:82px;padding:8px 6px 10px;gap:4px;overflow:hidden;border-top:1.5px solid #e084ff;border-radius:22px 22px 0 0;background:linear-gradient(#03051880,#030518b0),url('themes/cosmic/nebula.png') center bottom/cover;box-shadow:0 -4px 16px #bc59ff77,0 -1px 4px #85e5ef77}
+:root[data-theme=cosmic] .cosmic-nav>button{position:relative;background:transparent;border:0;box-shadow:none;color:#f8f4ff;min-width:0;padding:5px 2px;display:grid;justify-items:center;gap:4px;font-size:12px;text-transform:none}
+:root[data-theme=cosmic] .cosmic-nav svg{width:27px;height:27px;stroke-width:1.8}
+:root[data-theme=cosmic] .cosmic-nav [aria-current=page]{color:#85e5ef;background:#70d5e52a;border-radius:25px}
+:root[data-theme=cosmic] .qr{filter:none;background:#fff}
+:root[data-theme=cosmic] .native-swap-screen .market-title{flex-wrap:wrap}
+:root[data-theme=cosmic] :is(.copy-detail code,.native-recovery code){overflow-wrap:anywhere}
+@media(prefers-reduced-motion:reduce){:root[data-theme=cosmic] *{animation:none!important;transition:none!important}}

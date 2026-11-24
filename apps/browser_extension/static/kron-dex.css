@@ -1,6 +1,13 @@
 .kron-screen { padding-bottom: 28px; }
 .kron-screen .market-title { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .kron-screen .market-title h1 { min-width:0; }
+.native-swap-screen .market-title {grid-template-columns:46px minmax(0,1fr) 36px;gap:8px;}
+.native-swap-screen .market-title h1 {font-size:clamp(18px,5vw,24px);overflow-wrap:anywhere;}
+.native-swap-screen .market-title p {font-size:12px;overflow-wrap:anywhere;}
+.native-swap-screen .amount {display:flex;align-items:center;gap:8px;}
+.native-swap-screen .amount input {min-width:0;flex:1;}
+.native-swap-screen .amount button {flex:none;padding:10px;width:auto;}
+.native-swap-screen code {display:block;overflow-wrap:anywhere;}
 .kron-detail-row { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:7px 0; }
 .kron-detail-row span { flex:1; min-width:0; }
 .kron-detail-row b { flex:1; min-width:0; text-align:right; overflow-wrap:anywhere; }

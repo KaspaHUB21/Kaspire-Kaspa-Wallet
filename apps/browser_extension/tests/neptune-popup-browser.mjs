@@ -16,7 +16,7 @@ try {
   // Settings are public preferences; no vault, seed or chain transaction is used.
   const tab=await(await fetch('http://127.0.0.1:9340/json/new?'+encodeURIComponent(new URL('wallet.html',worker.url).href),{method:'PUT'})).json();
   let baseline;
-  for(const theme of ['midnight','neptune','midnight','neptune']) {
+  for(const theme of ['midnight','neptune','cosmic','midnight','cosmic']) {
     const result=await evaluate(tab.webSocketDebuggerUrl,`chrome.runtime.sendMessage({channel:'wallet',command:'setSettings',settings:{theme:${JSON.stringify(theme)}}})`);
     assert.equal(result.result?.theme,theme,JSON.stringify(result));
     await evaluate(worker.webSocketDebuggerUrl,'chrome.action.openPopup().then(()=>true)');

@@ -1,6 +1,9 @@
-import { loadState, saveState } from "./state";
+import { loadState, saveState, setCurrencyPreference } from "./state";
 import {psktTokenDetails} from '../shared/psktTokenReview';
 import {runDexEngine,sharedDexAssets,type DexContext,type DexVenue} from './dexEngine';
+import {nativeSwapContext,nativeReviewDetails,type NativeSignature} from './nativeSwap';
+import {nativePoolCore} from './nativePoolCore';
+import {nativeSwapBackup,restoreNativeSwapBackup} from './nativeSwapBackup';
 import {kassealTokens,kassealHoldings,kassealQuote,prepareKasseal,submitKasseal,resumeKasseal,clearKassealReviews,type KassealContext,type KassealState} from './kasseal';
 import { core } from "./core";
 import { exclusiveRocket, rocketPendingInfo, requireFreshRocketSwap, resumeRocketSwap,
@@ -163,6 +166,7 @@ interface VaultWallet {
   rocketSwaps?: Record<string, RocketRecoveryState>;
   kassealSwaps?: Record<string, KassealState>;
   dexEngineStore?: Record<string,string>;
+  nativeSwapSignatures?:Record<string,NativeSignature>;
 }
 interface VaultPayload {
   version: 2;
@@ -426,7 +430,9 @@ async function walletCommand(
     if(!['mainnet','testnet-10'].includes(state.network)||!state.selectedAddress)throw Error('Select a Kaspa wallet first.');
     const venue=String(message.venue) as DexVenue,action=String(message.action),address=state.selectedAddress,network=state.network as 'mainnet'|'testnet-10';
     const entry=state.addresses.find(a=>a.address===address),wallet=sessionVault?.wallets.find(w=>w.id===entry?.walletId),generation=sessionGeneration,revision=nftContextRevision;
-    const readOnly=['tokens','assets','portfolio','saved','info','notes','context'].includes(action);
+    const native=venue==='trestly';
+    if(native&&network!=='mainnet')throw Error('KAS / kUSDT native swaps require Kaspa Mainnet.');
+    const readOnly=['tokens','assets','portfolio','saved','info','notes','context','balance',...(native?['quote','prepare']:[])].includes(action);
     // Display discovery survives popup closure and can be joined by a reopened
     // view. Signing/recovery remain bound to their live approval surface.
     const dexSignal=action==='assets'?undefined:operationSignal;
@@ -441,6 +447,7 @@ async function walletCommand(
       read:async key=>{await guard();return wallet?.dexEngineStore?.[key]??null;},
       write:async(key,value)=>{await guard();if(!wallet||!sessionVault)throw Error('Unlock the recovery wallet.');
         const old=wallet.dexEngineStore?.[key];wallet.dexEngineStore??={};if(value===null)delete wallet.dexEngineStore[key];else wallet.dexEngineStore[key]=value;
+        if(native&&new TextEncoder().encode(JSON.stringify(sessionVault)).length>2_000_000){if(old===undefined)delete wallet.dexEngineStore[key];else wallet.dexEngineStore[key]=old;throw Error('Native recovery storage is full. The original signature remains preserved. Keep your encrypted backup.');}
         try{await persistVault(guard);await guard();}catch(e){if(old===undefined)delete wallet.dexEngineStore[key];else wallet.dexEngineStore[key]=old;throw e;}},
       prepare:async request=>{await guard();const review=JSON.parse((await core()).preparePskt(JSON.stringify(request)));await guard();return review;},
       sign:async(request,hash)=>{await guard();if(!wallet||!entry)throw Error('Unlock a signing wallet.');
@@ -461,6 +468,27 @@ async function walletCommand(
         for(const saved of Object.values(wallet?.dexEngineStore??{}))if(saved.includes(id)&&contains(JSON.parse(saved)))found=true;
         if(!found)throw Error('Only exact, durably saved DEX recovery bytes may be broadcast.');return broadcastKcc20(raw,id);},
     };
+    if(native){
+      const rawWrite=context.write;
+      const nativeContext=nativeSwapContext({address,guard,read:context.read,write:async(key,value)=>{
+        let confirmed:NativeSignature|undefined;
+        if(value===null&&key===`trestly.pending.v1.${address}`){const current=await context.read(key);if(current)confirmed=wallet?.nativeSwapSignatures?.[JSON.parse(current).transactionId];if(confirmed)confirmed.confirmed=true;}
+        await rawWrite(key,value);
+      },signatures:()=>wallet?.nativeSwapSignatures??{},canSign:()=>!!wallet&&!!entry&&!entry.watchOnly,
+      secret:()=>{if(!wallet||!entry||entry.watchOnly)throw Error('Unlock a signing wallet.');return signingSecret(wallet,entry);},
+      approve:async(review,request)=>approve({origin:'Kaspire Wallet',title:'KAS / kUSDT · Review swap',description:'Native Trestly KasPool swap on Kaspa Mainnet. The pinned local Rust builder reconstructs the pool, verifies these exact inputs and executes the signed scripts on this device. No dApp session or bridge.',details:['Network: Kaspa Mainnet',`Wallet: ${address}`,...nativeReviewDetails(review)],rawJson:{request,review}},operationSignal),
+      saveSignature:async(id,signature)=>{
+        await guard();if(!wallet||!sessionVault)throw Error('Unlock the signing wallet.');
+        wallet.nativeSwapSignatures??={};
+        // Retain the latest receipt for each address and every unresolved signature.
+        const retained=new Set(Object.entries(wallet.dexEngineStore??{}).filter(([key])=>key.startsWith('trestly.pending.v1.')).map(([,raw])=>{try{return JSON.parse(raw).transactionId;}catch{return null;}}));
+        for(const [key,old]of Object.entries(wallet.nativeSwapSignatures))if(old.confirmed===true&&!retained.has(key))delete wallet.nativeSwapSignatures[key];
+        wallet.nativeSwapSignatures[id]=signature;
+        if(new TextEncoder().encode(JSON.stringify(sessionVault)).length>2_000_000){delete wallet.nativeSwapSignatures[id];throw Error('Encrypted native swap recovery storage is full. Nothing was submitted. Keep your existing backup.');}
+        try{await persistVault(guard);await guard();}catch{await lockSession(await loadState());throw Error('Native signature persistence was interrupted. Unlock Kaspire and check the saved swap before creating another. Nothing was submitted by this attempt.');}
+      }});
+      context.read=nativeContext.read;context.write=nativeContext.write;context.trestly=nativeContext.trestly;
+    }
     return action==='assets'?sharedDexAssets(context,venue):runDexEngine(context,venue,action,message.args??{});
   }
   if (message.command === "storeUpdateStatus") {
@@ -1912,22 +1940,8 @@ async function walletCommand(
       state.settings.showSubwallets = next.showSubwallets;
     if (typeof next?.recipientAllowlist === "boolean")
       state.settings.recipientAllowlist = next.recipientAllowlist;
-    if (
-      [
-        "USD",
-        "EUR",
-        "GBP",
-        "AUD",
-        "CAD",
-        "JPY",
-        "CNY",
-        "CHF",
-        "INR",
-        "BRL",
-        "KRW",
-      ].includes(next?.currency)
-    )
-      state.settings.currency = next.currency;
+    if (next?.currency !== undefined)
+      { await setCurrencyPreference(next.currency); state.settings.currency = next.currency; }
     if (
       [
         "midnight",
@@ -1940,6 +1954,7 @@ async function walletCommand(
         "hub21",
         "glacier",
         "neptune",
+        "cosmic",
       ].includes(next?.theme)
     )
       state.settings.theme = next.theme;
@@ -2316,9 +2331,12 @@ async function walletCommand(
       address: mainAddress,
       addresses,
       ...(wallet.hiddenKas ? { hiddenKas: validateP2shState(wallet.hiddenKas) } : {}),
+      ...(wallet.nativeSwapSignatures ? {nativeSwapRecovery:nativeSwapBackup(wallet.nativeSwapSignatures,wallet.dexEngineStore)} : {}),
       createdAt: Date.now(),
     });
-    return JSON.stringify(backup);
+    const serialized=JSON.stringify(backup);
+    if(new TextEncoder().encode(serialized).length>2*1024*1024)throw Error('Encrypted backup exceeds the supported import size. Existing wallet and saved swaps remain preserved.');
+    return serialized;
   }
   if (message.command === "importBackup") {
     const password = String(message.password ?? "");
@@ -2515,6 +2533,10 @@ async function walletCommand(
       if (wallet.type !== 'mnemonic' && (recovered.receiveCount || recovered.changeCount || recovered.pending)) throw Error('A P2SH account requires an HD seed wallet.');
       if (recovered.pending) wasm.verifyHiddenKasRecovery(wallet.secret, JSON.stringify(recovered.pending));
       wallet.hiddenKas = recovered;
+    }
+    if(decoded.nativeSwapRecovery!=null){
+      const native=await nativePoolCore(),restored=await restoreNativeSwapBackup(decoded.nativeSwapRecovery,addresses.map(item=>wasm.addressWithPrefix(item.address,false)),async raw=>native.prepare(raw));
+      wallet.nativeSwapSignatures=restored.signatures;wallet.dexEngineStore=restored.receipts;
     }
     sessionVault = { version: 2, wallets: [wallet], createdAt: Date.now() };
     sessionPassword = password;

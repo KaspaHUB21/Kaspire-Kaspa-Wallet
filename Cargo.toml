@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/kaspa_secure_core", "crates/silverscript_lang"]
+members = ["crates/kaspa_secure_core", "crates/silverscript_lang", "crates/trestly_web_core"]
 resolver = "2"
 
 # SilverScript compiles the fixed KCC covenant template at runtime. Keeping this

@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import {currencies} from '../shared/displayCurrency';
 import {lockedTokenLabel} from '../shared/tokenAmount';
 import {mountSidePanel} from './sidePanel';
 import {ActivityFeed} from '../shared/activityFeed';
@@ -203,14 +204,14 @@ const caseWords: Record<string, string> = {
   ID: "ID",
   DAPPS: "dApps",
   DAPP: "dApp",
-  USD: "USD",
+  ...Object.fromEntries(currencies.map(code=>[code,code])),
 };
 function classicCase(container: HTMLElement) {
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   let node: Node | null;
   while ((node = walker.nextNode())) {
     if (node.parentElement?.closest(
-      "[data-preserve-case], .wallet-select b, .wallet-card-main b, .my-wallet b, .receive h1, .token-detail h1, .token-detail > p, .token-detail > strong, .token-logo, .asset-icon, .nft-screen h1, .nft-preview h2, #asset-select, .kns-chips, .receipt-details b, .detail-row b, .detail-section b, .activity-row strong, .activity-row b, .activity-row small, .tx-detail-head b, code, pre",
+      "[data-preserve-case], #fiat, .wallet-select b, .wallet-card-main b, .my-wallet b, .receive h1, .token-detail h1, .token-detail > p, .token-detail > strong, .token-logo, .asset-icon, .nft-screen h1, .nft-preview h2, #asset-select, .kns-chips, .receipt-details b, .detail-row b, .detail-section b, .activity-row strong, .activity-row b, .activity-row small, .tx-detail-head b, code, pre",
     )) continue;
     const text = node.textContent ?? "";
     if (!/[A-Z]/.test(text) || text !== text.toUpperCase()) continue;
@@ -329,8 +330,16 @@ function shell(content: string, title = "KASPIRE", back = false) {
   root.innerHTML = `<main class="app natural-case"><header class="top">${back ? '<button id="back" class="icon" aria-label="Back">‹</button>' : '<button id="brand-store" class="brand-store" aria-label="Kaspire version and Chrome Web Store"><img src="kaspire-icon.png" alt="Kaspire"><span class="brand-verification" role="tooltip"></span></button>'}<b>${esc(title)}</b>${status && !status.locked ? `<button id="top-lock" class="icon top-lock" aria-label="Lock Kaspire" title="Lock Kaspire">${lockIcon()}</button>` : '<span></span>'}</header>${content}</main>`;
   classicCase(root);
   enhanceForms(root);
+  if(status&&!status.locked){
+    const selected=root.querySelector('.send-screen')?'send':root.querySelector('.receive')?'receive':root.querySelector('.settings,.form-page')?'settings':'wallet';
+    const nav=document.createElement('nav');nav.className='cosmic-nav';nav.setAttribute('aria-label','Wallet navigation');
+    const svg=(path:string)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
+    nav.innerHTML=[['wallet','Wallet',svg('M4 5h14v3H4v12h16V8H4V5Zm10 7h6v5h-6v-5Zm2 2h1')],['send','Send',svg('M12 21V3M5 10l7-7 7 7')],['receive','Receive',svg('M12 3v18m-7-7 7 7 7-7')],['settings','Settings',settingsIcon()]].map(([id,label,icon])=>`<button type="button" data-cosmic-nav="${id}" ${id===selected?'aria-current="page"':''}>${icon}<span>${label}</span></button>`).join('');
+    root.querySelector('main')?.append(nav);nav.querySelectorAll<HTMLButtonElement>('button').forEach(button=>button.onclick=()=>{const action=button.dataset.cosmicNav;if(action==='send'){if(isL2())sendEvm();else send({kind:'kas'});}else{view=action==='wallet'?'home':action==='receive'?'receive':'settings';void render();}});
+  }
   const balance = root.querySelector(".balance-card");
   if (balance) balance.insertAdjacentHTML("beforeend", '<span class="neptune-slogan" aria-hidden="true">Deeper<br>Stronger<br>Freer ♡</span><span class="neptune-orb" aria-hidden="true"><img src="themes/neptune/orb.png" alt=""><img class="orb-logo" src="kaspire-icon.png" alt=""></span>');
+  if(balance)balance.insertAdjacentHTML('beforeend','<span class="cosmic-planet" aria-hidden="true"><img src="themes/cosmic/planet-cutout.png" alt=""></span>');
   root.querySelector(".dashboard")?.insertAdjacentHTML("beforeend", '<span class="neptune-footer" aria-hidden="true">─ ☽ ☽ ─ ♆ ─ ☾ ☾ ─<small>— KASPA LIVES —</small></span>');
   mountPendingReveal();
   mountPendingCompound();
@@ -417,8 +426,11 @@ function enhanceForms(container: HTMLElement) {
   });
 }
 
-async function render() {
-  status = await command("status");
+let renderGeneration=0;
+async function render(expectedRoot?:Element|null) {
+  const generation=++renderGeneration,next=await command("status");
+  if(generation!==renderGeneration || expectedRoot!==undefined&&root.firstElementChild!==expectedRoot)return;
+  status=next;
   document.documentElement.dataset.theme = status.settings?.theme ?? "midnight";
   if (!status.hasVault) return onboarding();
   if (status.locked) return unlock();
@@ -1204,7 +1216,7 @@ function settingsDetail() {
     );
   else if (view === "display")
     shell(
-      `<section class="form-page"><h1>Wallet display</h1><div class="form"><label>Currency<select id="currency">${["USD", "EUR", "GBP", "AUD", "CAD", "JPY", "CNY", "CHF", "INR", "BRL", "KRW"].map((code) => `<option ${status.settings.currency === code ? "selected" : ""}>${code}</option>`).join("")}</select></label><label>Kaspire design<select id="theme">${["midnight", "emerald", "amethyst", "sakura", "crimson", "phoenix", "cypherpunk", "hub21", "glacier", "neptune"].map((theme) => `<option ${status.settings.theme === theme ? "selected" : ""} value="${theme}">${theme === "hub21" ? "HUB21" : theme === "glacier" ? "Glacier" : theme === "neptune" ? "Neptune" : theme}</option>`).join("")}</select></label>${toggle("show-subwallets", "Show subwallets", status.settings.showSubwallets)}${toggle("hide", "Privacy: hide wallet amounts", status.settings.hideBalances)}</div></section>`,
+      `<section class="form-page"><h1>Wallet display</h1><div class="form"><label>Currency<select id="currency" data-preserve-case>${currencies.map((code) => `<option value="${code}" ${status.settings.currency === code ? "selected" : ""}>${code}</option>`).join("")}</select></label><p id="display-save-status" role="status" aria-live="polite"></p><label>Kaspire design<select id="theme">${["midnight", "emerald", "amethyst", "sakura", "crimson", "phoenix", "cypherpunk", "hub21", "glacier", "neptune", "cosmic"].map((theme) => `<option ${status.settings.theme === theme ? "selected" : ""} value="${theme}">${theme === "hub21" ? "HUB21" : theme === "glacier" ? "Glacier" : theme === "neptune" ? "Neptune" : theme === "cosmic" ? "Cosmic" : theme}</option>`).join("")}</select></label>${toggle("show-subwallets", "Show subwallets", status.settings.showSubwallets)}${toggle("hide", "Privacy: hide wallet amounts", status.settings.hideBalances)}</div></section>`,
       "WALLET DISPLAY",
       true,
     );
@@ -1239,12 +1251,24 @@ function settingsDetail() {
             },
           })),
     );
-    document.querySelector<HTMLSelectElement>("#currency")!.onchange = (
+    document.querySelector<HTMLSelectElement>("#currency")!.onchange = async (
       event,
-    ) =>
-      void command("setSettings", {
-        settings: { currency: (event.target as HTMLSelectElement).value },
-      });
+    ) => {
+      const select=event.currentTarget as HTMLSelectElement;
+      select.disabled=true;
+      const note=document.querySelector('#display-save-status');if(note)note.textContent='Saving currency…';
+      try{
+        await command('setSettings',{settings:{currency:select.value}});
+        // Refresh an open display/home screen, but never replace a send form
+        // or approval opened while a slow preference write was in progress.
+        if(root.querySelector('#currency,.dashboard,.settings')&&!document.querySelector('.approval-modal,.kaspire-modal'))await render(root.firstElementChild);
+        if(document.querySelector('#currency'))document.querySelector('#display-save-status')!.textContent='Currency saved';
+      }catch(error){
+        if(select.isConnected)select.value=status.settings.currency;
+        if(note?.isConnected)note.textContent='Currency could not be saved';
+        toast((error as Error).message);
+      }finally{if(select.isConnected)select.disabled=false;}
+    };
     document.querySelector<HTMLSelectElement>("#theme")!.onchange = async (
       event,
     ) => {
@@ -1641,7 +1665,7 @@ async function loadHome(refresh=false) {
       })
       .catch(() => {
         if (stillHome() && document.querySelector("#fiat"))
-          document.querySelector("#fiat")!.textContent = "Live balance";
+          document.querySelector("#fiat")!.textContent = `${status.settings.currency} value unavailable`;
       });
     void command("coreSnapshot").then((core) => {
       if (!stillHome()) return;

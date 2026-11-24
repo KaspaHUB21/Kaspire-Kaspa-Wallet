@@ -73,11 +73,24 @@ class KeystoreEncryptedStore implements EncryptedStore {
   @override Future<void> delete(String key) async{await host('storeDelete',{'key':key});}
 }
 class NativeSecurity {
+  Future<Map<String,Object?>> describeTrestly(Map request) async => Map<String,Object?>.from(await host('trestlyDescribe',{'request':request}) as Map);
+  Future<Map<String,Object?>> prepareTrestly(Map request) async => Map<String,Object?>.from(await host('trestlyPrepare',{'request':request}) as Map);
+  Future<Map<String,Object?>> signTrestly(Map request,String hash) async => Map<String,Object?>.from(await host('trestlySign',{'request':request,'hash':hash}) as Map);
+  Future<bool> hasNativeWalletFor(String address) async => await host('trestlyCanSign',{'address':address}) == true;
   Future<Map<String,Object?>> preparePskt(Map request) async => Map<String,Object?>.from(await host('prepare',{'request':request}) as Map);
   Future<Map<String,Object?>> signPskt(Map request,String hash) async => Map<String,Object?>.from(await host('sign',{'request':request,'hash':hash}) as Map);
 }
 class KaspaApi {
-  KaspaApi({http.Client? client});
+  KaspaApi({http.Client? client,this.baseUrl='https://kaspire.kaslab.space/api/local-node'}):client=client??HostClient();
+  final http.Client client; final String baseUrl;
+  Future<double> loadFeeRate() async {
+    final r=await client.get(Uri.parse('$baseUrl/info/fee-estimate'));
+    if(r.statusCode!=200)throw StateError('Kaspa fee estimate unavailable.');
+    final body=jsonDecode(r.body),priority=body is Map?body['priorityBucket']:null;
+    final rate=priority is Map?double.tryParse('${priority['feerate']}'):null;
+    if(rate==null||!rate.isFinite||rate<0||rate>100000000)throw StateError('The Kaspa endpoint returned an invalid fee estimate.');
+    return rate<100?100.0:rate;
+  }
   Future<String> broadcastKcc20(String raw,{required String expectedTransactionId}) async => '${await host('broadcast',{'raw':raw,'id':expectedTransactionId})}';
 }
 // The common Borsh framing/response checks remain in Android's BraidClock.
