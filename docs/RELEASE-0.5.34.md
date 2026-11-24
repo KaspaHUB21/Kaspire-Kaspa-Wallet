@@ -93,10 +93,13 @@ native-swap and Cosmic work from the unreleased 0.5.33 review package.
   0.5.34 adds no permissions beyond the checked 0.5.33 review package.
   Tests use isolated offline environments and synthetic fixtures; no live
   payment or physical-device test is claimed.
-- This handoff records the source commit and release notes only. The ZIP
-  remains a review package: no GitHub release, public website/update-channel
-  change or Chrome Web Store publication/approval is implied.
+- Public delivery includes the pushed source commit, signed extension release
+  tag, GitHub Release with ZIP/checksum and the website's version, download and
+  checksum. Public ZIP bytes are identical to the tested 0.5.34 review package;
+  only the download filename changes. This is not Chrome Web Store publication
+  or approval. The existing Android Latest release and signed updater remain
+  unchanged; this is an extension-only release.
 
-Review ZIP: `kaspire-extension-0.5.34-review.zip`
+Public ZIP: `kaspire-extension-0.5.34.zip`
 
 SHA-256: `e083a5c7c0d0ebb022f3df1a4b011bd8bed42a6609a7adfbe5320c4f74060413`

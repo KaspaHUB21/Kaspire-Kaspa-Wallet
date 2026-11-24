@@ -25,3 +25,11 @@ and body must cover BOTH platforms with their versions and cumulative changes.
 A separate extension release/link alone does not satisfy this requirement.
 Stage explicit relevant paths only; unrelated dirty files and private experiment
 directories must never be added wholesale. Do not add Codex co-author trailers.
+
+# Meaning of Git commit requests
+
+For this project, the user means public delivery when requesting a Git commit:
+push the relevant commits and complete the applicable release handoff above,
+unless the user explicitly excludes publication. A local-only commit is not a
+completed delivery. Preserve other platforms' channels and do not imply Chrome
+Web Store publication or approval from a public extension ZIP.
