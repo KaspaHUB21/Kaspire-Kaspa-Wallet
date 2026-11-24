@@ -264,7 +264,7 @@ void main() {
     expect(authenticated, 1);
   });
 
-  testWidgets('Verified update stays accessible while wallet is locked',
+  testWidgets('Even a verified update is not accessible while wallet is locked',
       (tester) async {
     UpdateService.instance.state.value = UpdateCheckState(
         update: KaspireUpdate(
@@ -279,9 +279,10 @@ void main() {
           'https://github.com/KaspaHUB21/Kaspire-Kaspa-Wallet/releases/tag/fixture'),
     ));
     await mount(tester);
-    await tester.tap(find.text('Update available'));
     await tester.pumpAndSettle();
-    expect(find.text('How would you like to update?'), findsOneWidget);
+    expect(find.text('Update available'), findsNothing);
+    expect(find.byIcon(Icons.system_update_alt), findsNothing);
+    expect(find.text('How would you like to update?'), findsNothing);
     expect(find.text('Wallet Locked'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

@@ -225,6 +225,8 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   }
 
   void _recordActivity() {
+    // Locked-screen touches are not authenticated wallet activity.
+    if (_locked) return;
     final now = DateTime.now();
     _lastActivity = now;
     if (_lastPersistedActivity == null ||
@@ -2400,6 +2402,7 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
   }
 
   Future<String?> _loadInitialAddress() async {
+    if (isAndroidNative) await _security.setInternalNexusUnlocked(false);
     await _security.initializeVault();
     final saved = await _preferences.getAddress();
     if (saved != null) {
@@ -2408,7 +2411,9 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       }
       final lastActive = await AppSettings.lastBackgroundedAt();
       final minutes = AppSettings.lockMinutes.value;
-      _locked = isWindowsDesktop ||
+      // The timer governs this live process, not authentication across a
+      // restart/update. Persisted timestamps must never authorize Android.
+      _locked = isAndroidNative || isWindowsDesktop ||
           minutes == 0 ||
           lastActive == null ||
           DateTime.now().difference(lastActive) >= Duration(minutes: minutes);
@@ -2416,7 +2421,9 @@ class _KasVaultAppState extends State<KasVaultApp> with WidgetsBindingObserver {
       return saved;
     }
     final nativeAddress = await _security.getNativeAddress();
-    if (isWindowsDesktop && nativeAddress != null) _locked = true;
+    if ((isAndroidNative || isWindowsDesktop) && nativeAddress != null) {
+      _locked = true;
+    }
     if (nativeAddress != null) await _preferences.setAddress(nativeAddress);
     await _security.setInternalNexusUnlocked(nativeAddress != null && !_locked);
     return nativeAddress;

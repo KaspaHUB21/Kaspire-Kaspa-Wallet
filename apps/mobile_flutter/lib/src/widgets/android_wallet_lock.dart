@@ -4,9 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
-import '../services/update_service.dart';
-import 'android_update_dialog.dart';
-
 /// Theme-independent public lock surface. PIN entry stays in the native host.
 class AndroidWalletLock extends StatelessWidget {
   const AndroidWalletLock({
@@ -63,36 +60,9 @@ class AndroidWalletLock extends StatelessWidget {
                         child: _LockLayout(
                             availableHeight: viewport.maxHeight,
                             children: [
-                              ValueListenableBuilder<UpdateCheckState>(
-                                valueListenable: UpdateService.instance.state,
-                                builder: (context, state, _) {
-                                  final update = state.update;
-                                  if (update == null) {
-                                    return SizedBox(height: compact ? 8 : 24);
-                                  }
-                                  return Padding(
-                                    padding:
-                                        const EdgeInsets.fromLTRB(26, 4, 26, 0),
-                                    child: Align(
-                                      alignment: Alignment.centerRight,
-                                      child: TextButton.icon(
-                                        onPressed: busy
-                                            ? null
-                                            : () => showAndroidUpdate(
-                                                context, update),
-                                        icon: const Icon(
-                                            Icons.system_update_alt,
-                                            size: 20),
-                                        label: const Text('Update available'),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: mint,
-                                          minimumSize: const Size(44, 44),
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
+                              // Updates are offered only inside the unlocked
+                              // wallet, never as a lock-screen action.
+                              SizedBox(height: compact ? 8 : 24),
                               const _ReferenceArt(top: 60, height: 74),
                               const _ReferenceArt(top: 134, height: 406),
                               Padding(
@@ -355,7 +325,7 @@ class _ReferenceArt extends StatelessWidget {
 }
 
 /// Measures live text/buttons before allocating any space to decoration. This
-/// avoids guessing control heights (which change with font scale, update/error
+/// avoids guessing control heights (which change with font scale and error
 /// messages and enrolled methods). Scrolling is a fallback only when the actual
 /// controls themselves exceed the safe viewport, not because the art is tall.
 class _LockLayout extends MultiChildRenderObjectWidget {
@@ -405,7 +375,7 @@ class _RenderLockLayout extends RenderBox
     assert(children.length == 5);
     final width = constraints.maxWidth;
     final natural = BoxConstraints.tightFor(width: width);
-    // Update/header, wordmark, controls: always retain their real layout and
+    // Header spacer, wordmark, controls: retain their real layout and
     // minimum touch targets. Mountain and lower landscape take what remains.
     for (final index in [0, 1, 3]) {
       children[index].layout(natural, parentUsesSize: true);
