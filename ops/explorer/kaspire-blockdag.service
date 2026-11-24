@@ -1,0 +1,30 @@
+[Unit]
+Description=Kaspire public read-only live BlockDAG observations
+After=network.target
+
+[Service]
+Type=simple
+DynamicUser=true
+ExecStart=/opt/node-v22.23.1/bin/node /usr/local/lib/kaspire-blockdag/blockdag-server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectProc=invisible
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+InaccessiblePaths=/srv /var/lib /var/www /root /home
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+CapabilityBoundingSet=
+MemoryMax=256M
+TasksMax=32
+CPUQuota=35%
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

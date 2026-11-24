@@ -1,9 +1,9 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
 import '../services/app_settings.dart';
+import '../services/glacier_glaze_cache.dart';
 import 'neptune_material.dart';
 import 'cosmic_material.dart';
 
@@ -161,13 +161,25 @@ class GlacierGlassDecoration extends Decoration {
   final bool shadow;
 
   @override
+  bool get isComplex => true;
+
+  @override
   BoxPainter createBoxPainter([VoidCallback? onChanged]) =>
-      _GlacierGlassPainter(this);
+      _GlacierGlassPainter(this, onChanged);
 }
 
 class _GlacierGlassPainter extends BoxPainter {
-  _GlacierGlassPainter(this.decoration);
+  _GlacierGlassPainter(this.decoration, [VoidCallback? onChanged]) : super(onChanged) {
+    if (onChanged != null) GlacierGlazeCache.instance.addListener(_changed);
+  }
   final GlacierGlassDecoration decoration;
+  void _changed() => onChanged?.call();
+
+  @override
+  void dispose() {
+    if (onChanged != null) GlacierGlazeCache.instance.removeListener(_changed);
+    super.dispose();
+  }
 
   @override
   void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
@@ -204,70 +216,21 @@ class _GlacierGlassPainter extends BoxPainter {
         ).createShader(rect),
     );
 
-    // Opalescent aurora veils live inside the glass rather than on top of its
-    // content, so controls remain live Flutter widgets and fully accessible.
-    canvas.save();
-    canvas.clipRRect(outer.deflate(2));
-    final veilBlur = ui.MaskFilter.blur(
-        ui.BlurStyle.normal, math.max(8, rect.shortestSide * .10));
-    canvas.drawOval(
-      Rect.fromCenter(
-          center: Offset(rect.left + rect.width * .24, rect.top),
-          width: rect.width * 1.05,
-          height: rect.height * .76),
-      Paint()
-        ..maskFilter = veilBlur
-        ..shader = const RadialGradient(colors: [
-          Color(0x8A8CF7E8),
-          Color(0x398CF7E8),
-          Color(0x008CF7E8),
-        ], stops: [
-          0,
-          .45,
-          1
-        ]).createShader(rect),
-    );
-    canvas.drawOval(
-      Rect.fromCenter(
-          center: Offset(rect.right - rect.width * .16, rect.bottom),
-          width: rect.width * 1.05,
-          height: rect.height * .88),
-      Paint()
-        ..maskFilter = veilBlur
-        ..shader = const RadialGradient(colors: [
-          Color(0x78C4A8FF),
-          Color(0x36C4A8FF),
-          Color(0x00C4A8FF),
-        ], stops: [
-          0,
-          .48,
-          1
-        ]).createShader(rect),
-    );
-    final ribbon = Path()
-      ..moveTo(rect.left - rect.width * .08, rect.top + rect.height * .72)
-      ..cubicTo(
-          rect.left + rect.width * .22,
-          rect.top + rect.height * .38,
-          rect.left + rect.width * .62,
-          rect.top + rect.height * .78,
-          rect.right + rect.width * .08,
-          rect.top + rect.height * .24);
-    canvas.drawPath(
-      ribbon,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = math.max(12, rect.height * .18)
-        ..maskFilter = ui.MaskFilter.blur(ui.BlurStyle.normal, 13)
-        ..shader = const LinearGradient(colors: [
-          Color(0x0077F7E9),
-          Color(0x6E77F7E9),
-          Color(0x5BBE9FFF),
-          Color(0x00FFFFFF),
-        ]).createShader(rect),
-    );
-    canvas.restore();
+    // Gaussian veils are decoded once, not raster-filtered for every newly
+    // visible card. Borders/facets below stay sharp at the device resolution.
+    final cache = GlacierGlazeCache.instance;
+    cache.ensure();
+    final glaze = cache.imageFor(rect.size);
+    if (glaze != null) {
+      canvas.save();
+      canvas.clipRRect(outer.deflate(2));
+      canvas.drawImageRect(
+          glaze,
+          Rect.fromLTWH(0, 0, glaze.width.toDouble(), glaze.height.toDouble()),
+          rect,
+          Paint()..filterQuality = FilterQuality.low);
+      canvas.restore();
+    }
 
     // A bright top/left edge and cool lower bevel create the cut-crystal rim.
     canvas.drawRRect(
@@ -498,13 +461,15 @@ class Hub21Panel extends StatelessWidget {
         child: content,
       );
     }
-    return DecoratedBox(
-      decoration:
-          kaspireDecorativeDecoration(radius: radius, gold: gold, rim: rim),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(math.max(0, radius - 3)),
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 11, sigmaY: 11),
+    // The painted aurora glass already provides translucency and soft veils.
+    // Per-panel backdrop blurs re-read the whole scene for every scrolling
+    // surface. Cache the static artwork instead of multiplying those passes.
+    return RepaintBoundary(
+      child: DecoratedBox(
+        decoration:
+            kaspireDecorativeDecoration(radius: radius, gold: gold, rim: rim),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(math.max(0, radius - 3)),
           child: content,
         ),
       ),

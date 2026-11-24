@@ -1,0 +1,12 @@
+import {build} from 'esbuild';
+import {execFileSync} from 'node:child_process';
+import {mkdir,copyFile,readFile,writeFile,readdir} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+const output='../../apps/mobile_flutter/assets/explorer';await mkdir(output,{recursive:true});
+execFileSync(process.execPath,['node_modules/typescript/bin/tsc','--noEmit','--pretty','false'],{stdio:'inherit'});
+execFileSync(process.execPath,['node_modules/tailwindcss/lib/cli.js','-i','src/styles.css','-o',output+'/app.css','--minify'],{stdio:'inherit'});
+await build({entryPoints:['src/main.tsx'],outfile:output+'/app.js',bundle:true,format:'iife',target:'chrome100',minify:true,define:{'import.meta.env.VITE_API_BASE_URL':JSON.stringify('https://kaspatoken.kaslab.space/api'),'process.env.NODE_ENV':JSON.stringify('production')}});
+for(const name of ['index.html','bridge.js','bricolage-grotesque-latin.woff2','OFL-Bricolage-Grotesque.txt'])await copyFile('static/'+name,output+'/'+name);
+const css=await readFile(output+'/app.css','utf8');await writeFile(output+'/app.css',css.replaceAll('/assets/fonts/','./').replaceAll('/assets/themes/','../themes/')+await readFile('src/kaspire.css','utf8'));
+const files={};async function scan(dir){for(const f of await readdir(dir,{withFileTypes:true})){const p=dir+'/'+f.name;if(f.isDirectory())await scan(p);else files[p]=createHash('sha256').update(await readFile(p)).digest('hex')}}await scan('src');await scan('static');
+await writeFile(output+'/provenance.json',JSON.stringify({name:'Kaspire Explorer',version:1,source:'Kaspire-owned Token Explorer public client with native Kaspa and Nexus read-only views',transport:'Fixed HTTPS public read allowlist; no wallet provider, signing or private credentials',files},null,2));

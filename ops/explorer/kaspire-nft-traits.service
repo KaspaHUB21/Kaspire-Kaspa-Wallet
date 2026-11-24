@@ -1,0 +1,29 @@
+[Unit]
+Description=Kaspire public read-only NFT trait catalog
+After=network.target
+
+[Service]
+Type=simple
+User=kasnftnexus
+Group=kasnftnexus
+EnvironmentFile=/etc/kaspire-nft-traits.env
+ExecStart=/opt/node-v22.23.1/bin/node /srv/kaspire/explorer-traits/nexus-traits-server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+MemoryMax=256M
+TasksMax=32
+CPUQuota=50%
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

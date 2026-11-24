@@ -1,0 +1,327 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("/assets/fonts/bricolage-grotesque-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500 800;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --kaspa-primary: 99 224 202;
+  --kaspa-background: 6 18 16;
+  --kaspa-card: 11 26 23;
+  --kaspa-border: 27 59 53;
+  --kaspa-text: 235 247 243;
+  --kaspa-muted: 148 174 168;
+  --surface-base: rgb(var(--kaspa-background));
+  --surface-raised: rgb(var(--kaspa-card));
+  --surface-soft: rgb(8 23 19);
+  --surface-hover: rgb(16 36 31);
+  --border-subtle: rgb(var(--kaspa-primary) / 0.16);
+  --border-strong: rgb(var(--kaspa-primary) / 0.4);
+  --accent: rgb(var(--kaspa-primary));
+  --text-main: rgb(var(--kaspa-text));
+  --text-muted: rgb(var(--kaspa-muted));
+  background: var(--surface-base);
+}
+
+:root[data-theme="blue"] {
+  --kaspa-primary: 0 255 208;
+  --kaspa-background: 11 15 20;
+  --kaspa-card: 17 23 34;
+  --kaspa-border: 28 42 58;
+  --kaspa-text: 230 241 255;
+  --kaspa-muted: 123 138 154;
+  --surface-soft: rgb(14 19 27);
+  --surface-hover: rgb(15 21 31);
+  --border-subtle: rgb(var(--kaspa-border));
+  --border-strong: rgb(var(--kaspa-primary) / 0.45);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --kaspa-primary: 8 127 112;
+  --kaspa-background: 245 250 249;
+  --kaspa-card: 255 255 255;
+  --kaspa-border: 201 218 215;
+  --kaspa-text: 16 32 29;
+  --kaspa-muted: 93 113 109;
+  --surface-soft: rgb(237 246 244);
+  --surface-hover: rgb(225 241 237);
+}
+
+/* HUB21 uses the original Kaspire material palette and texture recipe also
+   adopted by GothDAG. The source assets are copied byte-for-byte. */
+:root[data-theme="hub21"] {
+  color-scheme: dark;
+  --kaspa-primary: 242 214 135;
+  --kaspa-background: 18 17 12;
+  --kaspa-card: 28 30 25;
+  --kaspa-border: 143 123 78;
+  --kaspa-text: 250 244 225;
+  --kaspa-muted: 216 213 200;
+  --surface-base: #12110c;
+  --surface-raised: #1c1e19;
+  --surface-soft: #20221b;
+  --surface-hover: #2b2d26;
+  --border-subtle: #8f7b4e;
+  --border-strong: #efdfa6;
+  --accent: #f2d687;
+  --text-main: #faf4e1;
+  --text-muted: #d8d5c8;
+  --hub-metal: url("/assets/themes/hub21/brushed-metal.png"), linear-gradient(112deg, #77796f 0%, #353932 28%, #1d211e 62%, #655738 100%);
+  --hub-gold: url("/assets/themes/hub21/brushed-metal.png"), linear-gradient(105deg, #73766e 0%, #2d312c 35%, #353323 55%, #c38d21 100%);
+}
+
+:root[data-theme="hub21"] body {
+  color: var(--text-main);
+  background: #12110c url("/assets/themes/hub21/relief.png") center top / cover fixed no-repeat;
+}
+
+:root[data-theme="hub21"] .site-shell {
+  background: linear-gradient(#00000012, #00000045);
+}
+
+:root[data-theme="hub21"] :is(.site-shell-header, .site-shell-footer) {
+  background: var(--hub-metal);
+  background-blend-mode: soft-light, normal;
+  background-size: 512px, cover;
+  border-color: #e5d49b;
+  box-shadow: 0 2px 0 #66542c, 0 8px 20px #0009;
+}
+
+:root[data-theme="hub21"] .kaspa-panel {
+  border: 3px double #efdfa6;
+  background: var(--hub-metal);
+  background-blend-mode: soft-light, normal;
+  background-size: 512px, cover;
+  box-shadow: inset 0 2px 1px #ffffff75, inset 0 -2px 2px #000b, 0 0 0 1px #745727, 0 5px 12px #000b;
+  color: #faf4e1;
+}
+
+:root[data-theme="hub21"] .kaspa-panel:hover {
+  box-shadow: inset 0 2px 1px #ffffff75, inset 0 -2px 2px #000b, 0 0 0 1px #745727, 0 5px 12px #000b;
+}
+
+:root[data-theme="hub21"] :is(h1, h2, h3) {
+  color: #faf4e1;
+  text-shadow: 0 2px 1px #090907, 0 -1px 0 #fff5;
+}
+
+:root[data-theme="hub21"] :is(input, textarea, select) {
+  background: #20221b;
+  color: #faf4e1;
+  border-color: #897b52;
+}
+
+:root[data-theme="hub21"] button {
+  border: 3px double #dac991;
+  background: var(--hub-gold);
+  background-blend-mode: soft-light, normal;
+  background-size: 512px, cover;
+  color: #fff1c7;
+  box-shadow: inset 0 1px 1px #fff9, inset 0 -2px 2px #0009, 0 2px 5px #0008;
+  text-shadow: 0 1px 2px #000;
+}
+
+:root[data-theme="hub21"] button:hover:not(:disabled) {
+  border-color: #fff1c7;
+  filter: brightness(1.12);
+}
+
+:root[data-theme="hub21"] button:focus-visible,
+:root[data-theme="hub21"] a:focus-visible {
+  outline-color: #fff3c7;
+}
+
+:root[data-theme="hub21"] .hub21-flow {
+  color: #ffd779;
+  background: linear-gradient(90deg, #e7e4dd, #ffd779, #fff1c7, #c38d21, #e7e4dd);
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+}
+
+@media (max-width: 639px) {
+  :root[data-theme="hub21"] body {
+    background-size: auto 100vh;
+    background-position: center top;
+    background-attachment: scroll;
+  }
+}
+
+:root[data-theme="light"] .text-red-300,
+:root[data-theme="light"] .text-red-400 {
+  color: #b91c1c;
+}
+
+:root[data-theme="light"] .text-amber-100,
+:root[data-theme="light"] .text-amber-200 {
+  color: #854d0e;
+}
+
+:root[data-theme="light"] .text-cyan-200 {
+  color: #0e7490;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--surface-base);
+  background-image:
+    linear-gradient(rgb(var(--kaspa-primary) / 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--kaspa-primary) / 0.018) 1px, transparent 1px);
+  background-size: 44px 44px;
+  color: var(--text-main);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgb(var(--kaspa-primary) / 0.25);
+  color: rgb(var(--kaspa-text));
+}
+
+button,
+a,
+input,
+select {
+  font: inherit;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Bricolage Grotesque", Inter, ui-sans-serif, system-ui, sans-serif;
+  font-optical-sizing: auto;
+  letter-spacing: 0;
+}
+
+.focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.focus-ring:focus-visible {
+  outline-color: var(--accent);
+}
+
+.kaspa-panel {
+  border: 1px solid var(--border-subtle);
+  background: rgb(var(--kaspa-card) / 0.95);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    0 12px 36px rgba(0, 0, 0, 0.14),
+    0 0 26px rgb(var(--kaspa-primary) / 0.035);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.kaspa-panel:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 14px 38px rgba(0, 0, 0, 0.16),
+    0 0 30px rgb(var(--kaspa-primary) / 0.055);
+}
+
+.kaspa-glow {
+  box-shadow: 0 0 20px rgb(var(--kaspa-primary) / 0.18);
+}
+
+.site-shell {
+  background: transparent;
+}
+
+.site-shell-header {
+  background: rgb(var(--kaspa-background) / 0.9);
+  border-color: var(--border-subtle);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.2), 0 1px 18px rgb(var(--kaspa-primary) / 0.045);
+}
+
+.site-shell-main {
+  position: relative;
+}
+
+.site-shell-footer {
+  background: rgb(var(--kaspa-background) / 0.74);
+  border-color: var(--border-subtle);
+}
+
+.kaspa-panel table thead {
+  background: rgb(var(--kaspa-background) / 0.76);
+}
+
+.kaspa-panel table tbody tr {
+  transition: background-color 150ms ease;
+}
+
+.kaspa-panel table tbody tr:hover {
+  background: rgb(var(--kaspa-primary) / 0.05);
+}
+
+input,
+select,
+textarea {
+  caret-color: var(--accent);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgb(var(--kaspa-muted) / 0.78);
+}
+
+@media (max-width: 639px) {
+  body {
+    background-size: 36px 36px;
+  }
+
+  .site-shell-header {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  }
+}
+
+.scrollbar-thin {
+  scrollbar-color: rgb(var(--kaspa-primary) / 0.35) transparent;
+  scrollbar-width: thin;
+}
+
+.hub21-flow {
+  color: #63e0ca;
+  text-shadow:
+    0 0 8px rgba(99, 224, 202, 0.48),
+    0 0 22px rgba(99, 224, 202, 0.22);
+  background: linear-gradient(90deg, #45bda9, #63e0ca, #c5fff5, #63e0ca, #45bda9);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: hub21-flow 4.5s ease-in-out infinite;
+}
+
+@keyframes hub21-flow {
+  0% {
+    background-position: 0% 50%;
+    filter: drop-shadow(0 0 3px rgba(99, 224, 202, 0.3));
+  }
+  50% {
+    background-position: 100% 50%;
+    filter: drop-shadow(0 0 10px rgba(99, 224, 202, 0.48));
+  }
+  100% {
+    background-position: 0% 50%;
+    filter: drop-shadow(0 0 3px rgba(99, 224, 202, 0.3));
+  }
+}
+

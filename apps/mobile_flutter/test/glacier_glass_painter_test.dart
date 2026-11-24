@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kasvault_wallet/src/widgets/hub21_material.dart';
+import 'package:kasvault_wallet/src/services/glacier_glaze_cache.dart';
 
 Future<List<int>> paintGlass(double radius, bool strong) async {
   final recorder = ui.PictureRecorder();
@@ -24,6 +25,12 @@ Future<List<int>> paintGlass(double radius, bool strong) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    // Production preloads these before showing Glacier. Compare the radius
+    // variants with the same cache state, not before/after an async decode.
+    await GlacierGlazeCache.instance.ensure();
+    expect(GlacierGlazeCache.instance.ready, isTrue);
+  });
   for (final strong in [false, true]) {
     test('Glacier capsule facets clamp to the actual radius (strong=$strong)',
         () async {

@@ -125,7 +125,7 @@ void main() {
         isNotEmpty);
     expect(find.byType(Hub21BalanceCard), findsOneWidget);
     expect(find.byType(ShaderMask), findsWidgets);
-    expect(find.byType(BackdropFilter), findsWidgets);
+    expect(find.byType(BackdropFilter), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

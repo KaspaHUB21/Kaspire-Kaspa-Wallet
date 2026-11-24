@@ -1,0 +1,2 @@
+import type {ReactNode} from 'react';
+export function HoldingsSection({title,count,children}:{title:string,count?:string|number,children:ReactNode}){return <details className="kaspa-panel mb-5 rounded-md p-4 wallet-holdings" data-holdings={title}><summary className="cursor-pointer text-lg font-bold">{title}{count!==undefined?<span className="ml-2 text-sm text-kaspa-muted">({count})</span>:null}</summary><div className="mt-4">{children}</div></details>}

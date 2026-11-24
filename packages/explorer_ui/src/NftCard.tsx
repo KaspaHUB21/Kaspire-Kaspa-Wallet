@@ -1,0 +1,14 @@
+import {useEffect,useState} from 'react';import {Link} from 'react-router-dom';import {nexus,readJson} from './nativeApi';import {nftImage} from './images';
+import {nftRarityLabel} from './utils/nftRarity';
+type NftInfo={collectionId:string;tokenId:string;rarityRank:number|null;listingStatus:string};
+const cache=new Map<string,{until:number,data:NftInfo}>(),pending=new Map<string,Promise<NftInfo>>();
+const queue:(()=>void)[]=[];let active=0;
+function schedule<T>(fn:()=>Promise<T>){return new Promise<T>((resolve,reject)=>{queue.push(()=>{active++;fn().then(resolve,reject).finally(()=>{active--;queue.shift()?.()})});if(active<4)queue.shift()?.();});}
+export function nftInfo(collection:string,id:string){const key=collection.toLowerCase()+':'+id,hit=cache.get(key);if(hit&&hit.until>Date.now())return Promise.resolve(hit.data);if(pending.has(key))return pending.get(key)!;
+ const p=schedule(async()=>{const data=await readJson<NftInfo>(nexus+'/api/nfts/'+encodeURIComponent(collection)+'/'+encodeURIComponent(id));if(data.collectionId.toLowerCase()!==collection.toLowerCase()||String(data.tokenId)!==String(id))throw Error('NFT identity differs.');if(cache.size>512)cache.delete(cache.keys().next().value!);cache.set(key,{until:Date.now()+30000,data});return data}).finally(()=>pending.delete(key));pending.set(key,p);return p;}
+export function useNftInfo(collection:string,id:string){const [s,set]=useState<{key:string,data:NftInfo|null,error:string}>({key:'',data:null,error:''}),key=collection+':'+id;useEffect(()=>{let live=true;nftInfo(collection,id).then(data=>{if(live)set({key,data,error:''})}).catch(()=>{if(live)set({key,data:null,error:'NFT details temporarily unavailable.'})});return()=>{live=false}},[key]);return s.key===key?s:{key,data:null,error:''};}
+export const listingLabel=(s:string|undefined)=>s==='LISTED'?'Listed':s==='UNLISTED'?'Not listed':s==='UNKNOWN'?'Unavailable':'Loading…';
+export function ListingNote(){return <p data-nft-note className="kaspa-panel rounded-md p-4 my-4 text-sm leading-relaxed text-kaspa-muted">* Listing status checks PSKT listings only. Escrow listings are not checked.</p>}
+export function NftCard({ticker,id,rank}:{ticker:string,id:string,rank?:number|null}){const s=useNftInfo(ticker.toLowerCase(),id),rarity=rank??s.data?.rarityRank;return <Link className="kaspa-panel overflow-hidden rounded-md nft-card" to={'/nft/'+encodeURIComponent(ticker.toLowerCase())+'/'+encodeURIComponent(id)}>
+ <img data-nft-image loading="lazy" decoding="async" width="400" height="400" className="aspect-square w-full object-contain" src={nftImage(ticker,id)} alt={ticker+' #'+id}/>
+ <div className="p-3"><b>{ticker} #{id}</b><p>Rarity rank: {nftRarityLabel(ticker,id,rarity,s.error||s.data?'Unavailable':'Loading…')}</p><p>Listing status*: {s.error?'Unavailable':listingLabel(s.data?.listingStatus)}</p></div></Link>}

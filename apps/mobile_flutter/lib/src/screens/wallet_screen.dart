@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'explorer_screen.dart';
 import '../widgets/krc20_locked_balance.dart';
 import '../widgets/asset_discovery_notice.dart';
 import 'covenant_vault_screen.dart';
@@ -1350,7 +1351,15 @@ class WalletDashboardActions extends StatelessWidget {
       if (!isWindowsDesktop)
         (Icons.qr_code_scanner_rounded, 'PAIR DAPP', onPairDapp),
       (Icons.account_balance_rounded, 'K-AGORA', onAgora),
-      (Icons.tune_rounded, 'SETTINGS', onSettings),
+      if (isWindowsDesktop)
+        (Icons.tune_rounded, 'SETTINGS', onSettings)
+      else
+        (
+          Icons.travel_explore_rounded,
+          'EXPLORER',
+          () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ExplorerScreen()))
+        ),
       if (isWindowsDesktop) ...[
         (Icons.layers_outlined, 'ASSETS', onAssets),
         (Icons.history_rounded, 'ACTIVITY', onActivity),
@@ -1363,7 +1372,8 @@ class WalletDashboardActions extends StatelessWidget {
             if (i > start) const SizedBox(width: 8),
             Expanded(
                 child: SizedBox(
-                    height: KasVaultTheme.isCosmic
+                    height: (KasVaultTheme.isCosmic ||
+                            AppSettings.theme.value == KaspireTheme.glacier)
                         ? (64 + MediaQuery.textScalerOf(context).scale(11))
                             .clamp(76.0, 140.0)
                         : 76,

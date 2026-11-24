@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'glacier_glaze_cache.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum KaspireTheme {
@@ -86,10 +87,12 @@ class AppSettings {
       orElse: () => FiatCurrency.usd,
     );
     final stored = preferences.getString(_themeKey);
-    theme.value = KaspireTheme.values.firstWhere(
+    final selectedTheme = KaspireTheme.values.firstWhere(
       (item) => item.name == stored,
       orElse: () => KaspireTheme.midnight,
     );
+    if (selectedTheme == KaspireTheme.glacier) await GlacierGlazeCache.instance.ensure();
+    theme.value = selectedTheme;
   }
 
   static Future<void> setLockMinutes(int value) async {
@@ -107,10 +110,14 @@ class AppSettings {
         .setBool(_showSubwalletsKey, value);
   }
 
+  static int _themeRequest = 0;
   static Future<void> setTheme(KaspireTheme value) async {
+    final request = ++_themeRequest;
+    if (value == KaspireTheme.glacier) await GlacierGlazeCache.instance.ensure();
+    if (request != _themeRequest) return;
     theme.value = value;
-    await (await SharedPreferences.getInstance())
-        .setString(_themeKey, value.name);
+    final preferences = await SharedPreferences.getInstance();
+    if (request == _themeRequest) await preferences.setString(_themeKey, value.name);
   }
 
   static Future<void> setFiatCurrency(FiatCurrency value) async {
